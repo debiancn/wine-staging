@@ -27,9 +27,9 @@ Package: wine
 Architecture: i386 hurd-i386 kfreebsd-i386 netbsd-i386 powerpc hurd-powerpc kfreebsd-powerpc netbsd-powerpc sparc hurd-sparc kfreebsd-sparc netbsd-sparc
 Depends: ${debconf-depends}, libwine (= ${Source-Version}), xbase-clients (>= 4.0) | xcontrib
 Recommends: wine-utils, msttcorefonts
-Suggests: wine-doc, binfmt-support
+Suggests: wine-doc, binfmt-support, avscan | klamav | clamav
 Conflicts: binfmt-support (<< 1.1.2)
-Replaces: libwine (<< 0.0.20010216), wine-utils (<< 0.0.20050419)
+Replaces: libwine (<< 0.0.20010216), wine-utils (<< 0.9.25-3)
 Description: Windows API Implementation (Binary Loader)
  This is a BETA release of Wine, the free MS-Windows API implementation.
  This is still a work in progress and many applications may still not work.

@@ -1,3 +1,31 @@
+wine (0.9.25-2.1) testing-proposed-updates; urgency=low
+
+  * NMU with maintainer's permission.
+  * Backport some fixes/improvements from sid. Closes: #414254
+
+  [ documentation ]
+  * Removed mention of winesetuptk from README.Debian.
+  * Documented some reasons for Debian packaging decisions,
+    such as package split, in README.Debian. Closes: #407052.
+  * Updated README.Debian to explain how winelauncher is set up,
+    in case anyone actually needs to know (they shouldn't, but
+    someone misinterpreted my note that says that the package is
+    using winelauncher as some kind of instruction for the *user*
+    to use it, so maybe this helps). Closes: #409556.
+
+  [ l10n ]
+  * Added Galician debconf translation. Closes: #407269.
+  * Catalan debconf translation update. Closes: #412306.
+
+  [ other ]
+  * Added winecfg.desktop from Robert Millan. Closes: #404227.
+  * Applied patch to mark stack executable. Closes: #401562.
+  * Moved explorer and winecfg from wine-utils to wine.
+  * The wine package now suggests antivirus packages. Closes: #411761.
+  * Added uninstaller.desktop to wine-utils. Closes: #412315.
+
+ -- Robert Millan <rmh@aybabtu.com>  Tue, 20 Mar 2007 23:16:22 +0100
+
 wine (0.9.25-1) unstable; urgency=low
 
   * New upstream release 0.9.25.

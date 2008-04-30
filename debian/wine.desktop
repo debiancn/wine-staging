@@ -2,14 +2,14 @@
 Type=Application
 Encoding=UTF-8
 Name=WINE
-GenericName=Win32 API Emulator
+GenericName=Wine Win32 API Emulator
 GenericName[ru]=Эмулятор Win32 API
-Comment=Launch your windows programs
+Comment=Launch your Windows programs
 Comment[ru]=Программа для запуска приложений для ОС Windows
 NoDisplay=true
 TryExec=wine
 Exec=wine %f
 Terminal=false
 Categories=Emulator;
-MimeType=application/x-ms-dos-executable
+MimeType=application/x-ms-dos-executable;application/x-msdos-program;application/x-msdownload;application/exe;application/x-exe;application/dos-exe;vms/exe;application/x-winexe;application/msdos-windows;application/x-msdos-program;application/x-zip-compressed
 Icon=wine

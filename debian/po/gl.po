@@ -1,19 +1,15 @@
-#
-# Catalan translation for wine package.
-# Copyright (C) 2007 Ove Kaaven.
+# Galician translation of wine's debconf templates
 # This file is distributed under the same license as the wine package.
-#
-# Antoni Bella Perez <bella5@teleline.es>, 2002.
-# Jordà Polo <jorda@ettin.org>, 2007.
+# Jacobo Tarrio <jtarrio@debian.org>, 2006.
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: 0.9.30-1\n"
-"Report-Msgid-Bugs-To: ovek@arcticnet.no\n"
-"POT-Creation-Date: 2007-02-08 04:33+0100\n"
-"PO-Revision-Date: 2007-02-21 23:02+0100\n"
-"Last-Translator: Jordà Polo <jorda@ettin.org>\n"
-"Language-Team: Català <debian-l10n-catalan@lists.debian.org>\n"
+"Project-Id-Version: wine\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2007-01-13 20:29+0100\n"
+"PO-Revision-Date: 2007-01-17 10:45+0100\n"
+"Last-Translator: Jacobo Tarrio <jtarrio@debian.org>\n"
+"Language-Team: Galician <proxecto@trasno.net>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -22,7 +18,7 @@ msgstr ""
 #. Description
 #: ../libwine.templates.master:1001
 msgid "Moving /usr/share/wine/drivec to /var/lib/wine/drivec"
-msgstr "S'està movent /usr/share/wine/drivec a /var/lib/wine/drivec"
+msgstr "A trasladar /usr/share/wine/drivec a /var/lib/wine/drivec"
 
 #. Type: note
 #. Description
@@ -34,17 +30,17 @@ msgid ""
 "winerc or have written scripts that depend on the old location, you must "
 "update these yourself."
 msgstr ""
-"L'anterior ubicació predeterminada de la unitat «C» a /usr/share/wine viola "
-"la Jerarquia estàndard del sistema de fitxers (FHS), i és per això que es "
-"mourà a /var/lib/wine. El vostre /etc/wine.conf s'actualitzarà "
-"automàticament, però si teniu un .winerc o heu escrit scripts que depenguin "
-"de l'antiga ubicació, els haureu de posar al dia vosaltres mateixos."
+"A ubicación antiga por defecto da unidade C en /usr/share/wine viola o "
+"estándar FHS, e, polo tanto, estase a trasladar a /var/lib/wine. Hase "
+"actualizar o seu ficheiro /etc/wine.conf automaticamente, pero se ten un "
+"ficheiro winerc ou escribiu scripts que dependen da ubicación antiga ten que "
+"os actualizar vostede mesmo."
 
 #. Type: boolean
 #. Description
 #: ../wine.templates.master:1001
 msgid "Old wine.conf detected, remove it?"
-msgstr "S'ha detectat un /etc/wine.conf antic. Voleu esborrar-lo?"
+msgstr "Detectouse un ficheiro wine.conf antigo, ¿eliminalo?"
 
 #. Type: boolean
 #. Description
@@ -59,26 +55,27 @@ msgid ""
 "launch automatically for users that don't have a config file, instead of "
 "requiring the users to do any of the above themselves."
 msgstr ""
-"Wine ja no carrega el /etc/wine.conf per defecte. Els usuaris que no tinguin "
-"un fitxer ~/.winerc (o un ~/.wine/config) no podran executar el Wine a menys "
-"que configurin un fitxer ~/.wine/config. Això pot fer-se fàcilment amb la "
-"utilitat winesetup, que es troba al paquet winesetuptk (o altrament, cada "
-"usuari pot copiar l'antic /etc/wine.conf a ~/.winerc i deixar que el wine el "
-"converteixi). Si esborreu el fitxer /etc/wine.conf, winesetup s'executarà "
-"automàticament per als usuaris que no tinguin un fitxer de configuració, en "
-"comptes de requerir als usuaris que facin res del descrit anteriorment."
+"Wine xa non tenta cargar /etc/wine.conf por defecto. Polo tanto, os usuarios "
+"que non teñan un ficheiro ~/.winerc (ou ~/.wine/config) non han poder "
+"executar Wine, a menos que configuren un ficheiro ~/.wine/config eles "
+"mesmos. Isto faise de xeito doado coa ferramenta winesetup, que está no "
+"paquete winesetuptk (ou cada usuario pode copiar o antigo ficheiro /etc/wine."
+"conf a ~/.winerc e deixar que wine o convirta). Se elimina o ficheiro /etc/"
+"wine.conf, winesetup hase lanzar automaticamente para os usuarios que non "
+"teñan un ficheiro de configuración, no canto de obrigalos a facer eles o de "
+"enriba."
 
 #. Type: select
 #. Choices
 #: ../wine.templates.master:2001
 msgid "Autodetect, Existing-Windows, No-Windows, Skip"
-msgstr "Detecció automàtica, Windows ja existent, Sense Windows, Ometre"
+msgstr "Autodetectar, Windows-existente, Sen-windows, Omitir"
 
 #. Type: select
 #. Description
 #: ../wine.templates.master:2002
 msgid "What kind of Wine configuration do you want?"
-msgstr "Quin tipus de configuració del Wine desitgeu?"
+msgstr "¿Que tipo de configuración de Wine quere?"
 
 #. Type: select
 #. Description
@@ -89,7 +86,7 @@ msgid ""
 "want to use it), Wine can also run completely Microsoft-free. Choose the "
 "setup most appropriate for you."
 msgstr ""
-"Wine pot utilitzar una instal·lació ja existent del Windows, si aquesta és "
-"accessible (preferiblement amb permisos d'escriptura), però si no fos així "
-"(o no desitgeu utilitzar-la), Wine també pot executar-se perfectament lliure "
-"de Microsoft. Escolliu la configuració que us sigui més apropiada."
+"Wine pode empregar unha instalación existente de Windows se ten unha montada "
+"(preferiblemente con permisos de escritura), pero se non a ten (ou non a "
+"quere empregar), Wine tamén pode funcionar totalmente libre de Microsoft. "
+"Escolla a configuración que lle sexa máis axeitada."

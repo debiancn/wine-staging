@@ -20,7 +20,31 @@ libwine-ldap    (LDAP module)
 libwine-dev     (Winelib development headers and tools)
 wine-utils      (extra binaries)
 wine-doc        (documentation in HTML and DocBook format)
-winesetuptk     (CodeWeavers' winesetup tool)
+
+The reason for this split is that Wine has a lot of dependencies
+and functionality that not all users need and want to spend disk
+space on; thus, it is a general theme in Debian to split up big
+packages like this. Make sure you install the ones you need.
+
+Also note that Wine for Debian is set up to use the winelauncher
+wrapper by default (/usr/bin/wine is a shell script that starts
+the real Wine binary, which is in /usr/lib/wine). This is both
+for convenience (it asks you to run winecfg), and because I've
+installed some Wine components that users aren't supposed to run
+directly into /usr/lib/wine instead of /usr/bin, and the script
+is needed to tell Wine where to find them. Also, it warns you if
+Wine is invoked from your mail reader or web browser, to help you
+avoid trojans, viruses, and worms.
+
+The libwine-gl split was requested in Debian bug #304815.
+The libwine-print/libwine-sane split was requested in #148479.
+
+Newer developments in Wine, such as dynamic loading of CUPS,
+may make it possible to merge libwine-print back into libwine
+proper at some future date, though.
+
+Other resources
+===============
 
 If (i.e. when) you have problems, the Wine Troubleshooting Guide
 can be found at http://www.winehq.com/Trouble/
@@ -43,59 +67,20 @@ These currently differ from the official Debian packages,
 but are usually newer and more bleeding edge.
 
 
-Update for Wine 20010112
-========================
-wine.conf is no longer recognized as a config file! There's
-currently no global config file at all (though we hope to get
-one again soon). I've removed /etc/wine.conf from the package,
-and it should probably be deleted from your system. If you (or
-your users) still don't have a ~/.wine/config, you can either
-copy the old /etc/wine.conf to ~/.winerc to have Wine convert it
-for you, or you can just delete it and configure wine with the
-winesetup tool instead (in the winesetuptk package).
+Configuration
+=============
+The best way to configure Wine right now is to run winecfg;
+the winelauncher will ask you to do so the first time you
+start Wine.
 
-I've also enabled the winelauncher wrapper, so that when you type
-"wine", then you're actually starting the winelauncher. If a
-~/.wine/config doesn't exist (and you've deleted /etc/wine.conf),
-then it'll automatically try to start winesetup.
+If you need to configure Wine manually, without winecfg:
 
-Configuring Wine without Windows (without winesetup)
-====================================================
-Simply copy the tree at /usr/share/wine/skel into ~/.wine, i.e.
-
-  mkdir ~/.wine
-  cp -r /usr/share/wine/skel/* ~/.wine
-
-I may get winelauncher to do this automatically someday.
-
-Updating the registry
-=====================
-The way to install an updated default registry was changed as of
-Wine release 20040309. You should now do something like:
-
-  wine /usr/lib/wine/rundll32.exe.so setupapi.dll,InstallHinfSection \
-    DefaultInstall 128 /usr/share/wine/wine.inf
-
-(which must probably be done per-user for now.)
-
-If this doesn't work, try copying wine.inf to the current directory
-and load it from there, as there are sometimes bugs with using full
-Unix paths in Winelib apps (but which should get fixed eventually).
-
-The wineinstall script
-======================
-You can also try using the customized wineinstall script in
-/usr/share/wine/wineinstall to configure Wine or update the registry,
-but I do not guarantee that this works properly. Feel free to submit
-bug reports, though.
-
-The wineprefixcreate script
-===========================
 As of Wine release 20040408, the Wine authors introduced a
-"wineprefixcreate" script. It looks like this is intended to eventually
-supersede the wineinstall script, and become the official way to set up
-a default Wine configuration (but must still be done per-user). It's
-still experimental, I think, but should work.
+"wineprefixcreate" script. It will create a basic ~/.wine
+directory in your home directory. You can then add drive
+or device mappings by adding symlinks, and you can edit
+the settings in the registry to suit you. Refer to any
+available documentation about these settings.
 
 winebrowser
 ===========
@@ -106,3 +91,33 @@ key, where the "Browser" option resides. I've now patched winebrowser
 to set this to Debian's "sensible-browser" if it doesn't exist already,
 but if you have an existing Wine installation where it already does exist
 with an inappropriate setting, this is how to fix it.
+
+Updating the registry
+=====================
+The way to install an updated default registry was changed as of
+Wine release 20040309. You should now do something like:
+
+  wine rundll32.exe setupapi.dll,InstallHinfSection \
+    DefaultInstall 128 /usr/share/wine/wine.inf
+
+(which must probably be done per-user for now.)
+
+If this doesn't work, try copying wine.inf to the current directory
+and load it from there, as there are sometimes bugs with using full
+Unix paths in Winelib apps (but which should get fixed eventually).
+
+Update for Wine 20010112
+========================
+wine.conf is no longer recognized as a config file! There's
+currently no global config file at all (though we hope to get
+one again soon). I've removed /etc/wine.conf from the package,
+and it should probably be deleted from your system. If you (or
+your users) still don't have a ~/.wine/config, you can either
+copy the old /etc/wine.conf to ~/.winerc to have Wine convert it
+for you, or you can just delete it and configure wine with the
+winecfg tool instead.
+
+I've also enabled the winelauncher wrapper, so that when you type
+"wine", then you're actually starting the winelauncher. If a
+~/.wine/config doesn't exist (and you've deleted /etc/wine.conf),
+then it'll automatically try to start winesetup.

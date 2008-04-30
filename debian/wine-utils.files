@@ -1,7 +1,6 @@
 usr/bin/notepad
 usr/bin/progman
 usr/bin/uninstaller
-usr/bin/winecfg
 usr/bin/winedbg
 usr/bin/winedump
 usr/bin/winefile
@@ -11,14 +10,12 @@ usr/bin/winepath
 usr/bin/winhelp
 usr/lib/wine/cmd.exe.so
 usr/lib/wine/control.exe.so
-usr/lib/wine/explorer.exe.so
 usr/lib/wine/iexplore.exe.so
 usr/lib/wine/notepad.exe.so
 usr/lib/wine/oleview.exe.so
 usr/lib/wine/progman.exe.so
 usr/lib/wine/taskmgr.exe.so
 usr/lib/wine/uninstaller.exe.so
-usr/lib/wine/winecfg.exe.so
 usr/lib/wine/winedbg.exe.so
 usr/lib/wine/winefile.exe.so
 usr/lib/wine/winemine.exe.so
