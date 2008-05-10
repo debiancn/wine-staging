@@ -51,13 +51,14 @@ static const WCHAR szEmpty[] = {0};
 static LPWSTR HH_LoadString(DWORD dwID)
 {
     LPWSTR string = NULL;
+    LPCWSTR stringresource;
     int iSize;
 
-    iSize = LoadStringW(hhctrl_hinstance, dwID, NULL, 0);
-    iSize += 2; /* some strings (tab text) needs double-null termination */
+    iSize = LoadStringW(hhctrl_hinstance, dwID, (LPWSTR)&stringresource, 0);
 
-    string = hhctrl_alloc(iSize * sizeof(WCHAR));
-    LoadStringW(hhctrl_hinstance, dwID, string, iSize);
+    string = heap_alloc((iSize + 2) * sizeof(WCHAR)); /* some strings (tab text) needs double-null termination */
+    memcpy(string, stringresource, iSize*sizeof(WCHAR));
+    string[iSize] = 0;
 
     return string;
 }
@@ -88,15 +89,21 @@ BOOL NavigateToUrl(HHInfo *info, LPCWSTR surl)
     BOOL ret;
     HRESULT hres;
 
-    hres = navigate_url(info, surl);
-    if(SUCCEEDED(hres))
-        return TRUE;
+    static const WCHAR url_indicator[] = {':', '/', '/'};
+
+    TRACE("%s\n", debugstr_w(surl));
+
+    if (strstrW(surl, url_indicator)) {
+        hres = navigate_url(info, surl);
+        if(SUCCEEDED(hres))
+            return TRUE;
+    } /* look up in chm if it doesn't look like a full url */
 
     SetChmPath(&chm_path, info->pCHMInfo->szFile, surl);
     ret = NavigateToChm(info, chm_path.chm_file, chm_path.chm_index);
 
-    hhctrl_free(chm_path.chm_file);
-    hhctrl_free(chm_path.chm_index);
+    heap_free(chm_path.chm_file);
+    heap_free(chm_path.chm_index);
 
     return ret;
 }
@@ -115,7 +122,7 @@ BOOL NavigateToChm(HHInfo *info, LPCWSTR file, LPCWSTR index)
     if (!info->web_browser)
         return FALSE;
 
-    if(!GetFullPathNameW(file, sizeof(full_path), full_path, NULL)) {
+    if(!GetFullPathNameW(file, sizeof(full_path)/sizeof(full_path[0]), full_path, NULL)) {
         WARN("GetFullPathName failed: %u\n", GetLastError());
         return FALSE;
     }
@@ -574,10 +581,10 @@ static BOOL HH_AddToolbar(HHInfo *pHHInfo)
     {
         LPWSTR szBuf = HH_LoadString(buttons[dwIndex].idCommand);
         DWORD dwLen = strlenW(szBuf);
-        szBuf[dwLen + 2] = 0; /* Double-null terminate */
+        szBuf[dwLen + 1] = 0; /* Double-null terminate */
 
         buttons[dwIndex].iString = (DWORD)SendMessageW(hToolbar, TB_ADDSTRINGW, 0, (LPARAM)szBuf);
-        hhctrl_free(szBuf);
+        heap_free(szBuf);
     }
 
     SendMessageW(hToolbar, TB_ADDBUTTONSW, dwNumButtons, (LPARAM)&buttons);
@@ -623,7 +630,7 @@ static DWORD NP_CreateTab(HINSTANCE hInstance, HWND hwndTabCtrl, DWORD index)
 
     ret = SendMessageW( hwndTabCtrl, TCM_INSERTITEMW, index, (LPARAM)&tie );
 
-    hhctrl_free(tabText);
+    heap_free(tabText);
     return ret;
 }
 
@@ -922,16 +929,16 @@ void ReleaseHelpViewer(HHInfo *info)
         return;
 
     /* Free allocated strings */
-    hhctrl_free((LPWSTR)info->WinType.pszType);
-    hhctrl_free((LPWSTR)info->WinType.pszCaption);
-    hhctrl_free((LPWSTR)info->WinType.pszToc);
-    hhctrl_free((LPWSTR)info->WinType.pszIndex);
-    hhctrl_free((LPWSTR)info->WinType.pszFile);
-    hhctrl_free((LPWSTR)info->WinType.pszHome);
-    hhctrl_free((LPWSTR)info->WinType.pszJump1);
-    hhctrl_free((LPWSTR)info->WinType.pszJump2);
-    hhctrl_free((LPWSTR)info->WinType.pszUrlJump1);
-    hhctrl_free((LPWSTR)info->WinType.pszUrlJump2);
+    heap_free(info->pszType);
+    heap_free(info->pszCaption);
+    heap_free(info->pszToc);
+    heap_free(info->pszIndex);
+    heap_free(info->pszFile);
+    heap_free(info->pszHome);
+    heap_free(info->pszJump1);
+    heap_free(info->pszJump2);
+    heap_free(info->pszUrlJump1);
+    heap_free(info->pszUrlJump2);
 
     if (info->pCHMInfo)
         CloseCHM(info->pCHMInfo);
@@ -942,13 +949,13 @@ void ReleaseHelpViewer(HHInfo *info)
     if(info->WinType.hwndHelp)
         DestroyWindow(info->WinType.hwndHelp);
 
-    hhctrl_free(info);
+    heap_free(info);
     OleUninitialize();
 }
 
 HHInfo *CreateHelpViewer(LPCWSTR filename)
 {
-    HHInfo *info = hhctrl_alloc_zero(sizeof(HHInfo));
+    HHInfo *info = heap_alloc_zero(sizeof(HHInfo));
 
     OleInitialize(NULL);
 
@@ -958,7 +965,7 @@ HHInfo *CreateHelpViewer(LPCWSTR filename)
         return NULL;
     }
 
-    if (!LoadWinTypeFromCHM(info->pCHMInfo, &info->WinType)) {
+    if (!LoadWinTypeFromCHM(info)) {
         ReleaseHelpViewer(info);
         return NULL;
     }

@@ -539,6 +539,44 @@ static void test_checkboxes(void)
     r = SendMessage(hwnd, LVM_GETITEMA, 0, (LPARAM) &item);
     ok(item.state == 0x1aaa, "state %x\n", item.state);
 
+    /* Toggle checkbox tests (bug 9934) */
+    memset (&item, 0xcc, sizeof(item));
+    item.mask = LVIF_STATE;
+    item.iItem = 3;
+    item.iSubItem = 0;
+    item.state = LVIS_FOCUSED;
+    item.stateMask = LVIS_FOCUSED;
+    r = SendMessage(hwnd, LVM_SETITEM, 0, (LPARAM) &item);
+    expect(1, r);
+
+    item.iItem = 3;
+    item.mask = LVIF_STATE;
+    item.stateMask = 0xffff;
+    r = SendMessage(hwnd, LVM_GETITEMA, 0, (LPARAM) &item);
+    ok(item.state == 0x1aab, "state %x\n", item.state);
+
+    r = SendMessage(hwnd, WM_KEYDOWN, VK_SPACE, 0);
+    expect(0, r);
+    r = SendMessage(hwnd, WM_KEYUP, VK_SPACE, 0);
+    expect(0, r);
+
+    item.iItem = 3;
+    item.mask = LVIF_STATE;
+    item.stateMask = 0xffff;
+    r = SendMessage(hwnd, LVM_GETITEMA, 0, (LPARAM) &item);
+    ok(item.state == 0x2aab, "state %x\n", item.state);
+
+    r = SendMessage(hwnd, WM_KEYDOWN, VK_SPACE, 0);
+    expect(0, r);
+    r = SendMessage(hwnd, WM_KEYUP, VK_SPACE, 0);
+    expect(0, r);
+
+    item.iItem = 3;
+    item.mask = LVIF_STATE;
+    item.stateMask = 0xffff;
+    r = SendMessage(hwnd, LVM_GETITEMA, 0, (LPARAM) &item);
+    ok(item.state == 0x1aab, "state %x\n", item.state);
+
     DestroyWindow(hwnd);
 }
 
@@ -547,7 +585,7 @@ static void insert_column(HWND hwnd, int idx)
     LVCOLUMN column;
     DWORD rc;
 
-    memset(&column, 0xaa, sizeof(column));
+    memset(&column, 0xcc, sizeof(column));
     column.mask = LVCF_SUBITEM;
     column.iSubItem = idx;
 
@@ -562,7 +600,7 @@ static void insert_item(HWND hwnd, int idx)
     LVITEMA item;
     DWORD rc;
 
-    memset(&item, 0xaa, sizeof (item));
+    memset(&item, 0xcc, sizeof (item));
     item.mask = LVIF_TEXT;
     item.iItem = idx;
     item.iSubItem = 0;
@@ -593,7 +631,7 @@ static void test_items(void)
     insert_column(hwnd, 1);
 
     /* Insert an item with just a param */
-    memset (&item, 0xaa, sizeof (item));
+    memset (&item, 0xcc, sizeof (item));
     item.mask = LVIF_PARAM;
     item.iItem = 0;
     item.iSubItem = 0;
@@ -602,7 +640,7 @@ static void test_items(void)
     ok(r == 0, "ret %d\n", r);
 
     /* Test getting of the param */
-    memset (&item, 0xaa, sizeof (item));
+    memset (&item, 0xcc, sizeof (item));
     item.mask = LVIF_PARAM;
     item.iItem = 0;
     item.iSubItem = 0;
@@ -611,7 +649,7 @@ static void test_items(void)
     ok(item.lParam == lparamTest, "got lParam %lx, expected %lx\n", item.lParam, lparamTest);
 
     /* Set up a subitem */
-    memset (&item, 0xaa, sizeof (item));
+    memset (&item, 0xcc, sizeof (item));
     item.mask = LVIF_TEXT;
     item.iItem = 0;
     item.iSubItem = 1;
@@ -620,7 +658,7 @@ static void test_items(void)
     ok(r != 0, "ret %d\n", r);
 
     /* Query param from subitem: returns main item param */
-    memset (&item, 0xaa, sizeof (item));
+    memset (&item, 0xcc, sizeof (item));
     item.mask = LVIF_PARAM;
     item.iItem = 0;
     item.iSubItem = 1;
@@ -629,7 +667,7 @@ static void test_items(void)
     ok(item.lParam == lparamTest, "got lParam %lx, expected %lx\n", item.lParam, lparamTest);
 
     /* Set up param on first subitem: no effect */
-    memset (&item, 0xaa, sizeof (item));
+    memset (&item, 0xcc, sizeof (item));
     item.mask = LVIF_PARAM;
     item.iItem = 0;
     item.iSubItem = 1;
@@ -638,7 +676,7 @@ static void test_items(void)
     ok(r == 0, "ret %d\n", r);
 
     /* Query param from subitem again: should still return main item param */
-    memset (&item, 0xaa, sizeof (item));
+    memset (&item, 0xcc, sizeof (item));
     item.mask = LVIF_PARAM;
     item.iItem = 0;
     item.iSubItem = 1;
@@ -647,7 +685,7 @@ static void test_items(void)
     ok(item.lParam == lparamTest, "got lParam %lx, expected %lx\n", item.lParam, lparamTest);
 
     /**** Some tests of state highlighting ****/
-    memset (&item, 0xaa, sizeof (item));
+    memset (&item, 0xcc, sizeof (item));
     item.mask = LVIF_STATE;
     item.iItem = 0;
     item.iSubItem = 0;
@@ -660,7 +698,7 @@ static void test_items(void)
     r = SendMessage(hwnd, LVM_SETITEM, 0, (LPARAM) &item);
     ok(r != 0, "ret %d\n", r);
 
-    memset (&item, 0xaa, sizeof (item));
+    memset (&item, 0xcc, sizeof (item));
     item.mask = LVIF_STATE;
     item.iItem = 0;
     item.iSubItem = 0;
@@ -676,6 +714,28 @@ static void test_items(void)
     DestroyWindow(hwnd);
 }
 
+static void test_columns(void)
+{
+    HWND hwnd;
+    LVCOLUMN column;
+    DWORD rc;
+
+    hwnd = CreateWindowEx(0, "SysListView32", "foo", LVS_REPORT,
+                10, 10, 100, 200, hwndparent, NULL, NULL, NULL);
+    ok(hwnd != NULL, "failed to create listview window\n");
+
+    /* Add a column with no mask */
+    memset(&column, 0xcc, sizeof(column));
+    column.mask = 0;
+    rc = ListView_InsertColumn(hwnd, 0, &column);
+    ok(rc==0, "Inserting column with no mask failed with %d\n", rc);
+
+    /* Check its width */
+    rc = ListView_GetColumnWidth(hwnd, 0);
+    ok(rc==10, "Inserting column with no mask failed to set width to 10 with %d\n", rc);
+
+    DestroyWindow(hwnd);
+}
 /* test setting imagelist between WM_NCCREATE and WM_CREATE */
 static WNDPROC listviewWndProc;
 static HIMAGELIST test_create_imagelist;
@@ -795,6 +855,9 @@ static void test_icon_spacing(void)
 
     hwnd = create_custom_listview_control(LVS_ICON);
     ok(hwnd != NULL, "failed to create a listview window\n");
+
+    r = SendMessage(hwnd, WM_NOTIFYFORMAT, (WPARAM)hwndparent, (LPARAM)NF_REQUERY);
+    expect(NFR_ANSI, r);
 
     flush_sequences(sequences, NUM_MSG_SEQUENCES);
 
@@ -1016,13 +1079,70 @@ static void test_item_position(void)
     DestroyWindow(hwnd);
 }
 
+static void test_getorigin(void)
+{
+    /* LVM_GETORIGIN */
+
+    HWND hwnd;
+    DWORD r;
+    POINT position;
+
+    position.x = position.y = 0;
+
+    hwnd = create_custom_listview_control(LVS_ICON);
+    ok(hwnd != NULL, "failed to create a listview window\n");
+    flush_sequences(sequences, NUM_MSG_SEQUENCES);
+    trace("test get origin results\n");
+    r = SendMessage(hwnd, LVM_GETORIGIN, 0, (LPARAM)&position);
+    expect(TRUE, r);
+    flush_sequences(sequences, NUM_MSG_SEQUENCES);
+    DestroyWindow(hwnd);
+
+    hwnd = create_custom_listview_control(LVS_SMALLICON);
+    ok(hwnd != NULL, "failed to create a listview window\n");
+    flush_sequences(sequences, NUM_MSG_SEQUENCES);
+    trace("test get origin results\n");
+    r = SendMessage(hwnd, LVM_GETORIGIN, 0, (LPARAM)&position);
+    expect(TRUE, r);
+    flush_sequences(sequences, NUM_MSG_SEQUENCES);
+    DestroyWindow(hwnd);
+
+    hwnd = create_custom_listview_control(LVS_LIST);
+    ok(hwnd != NULL, "failed to create a listview window\n");
+    flush_sequences(sequences, NUM_MSG_SEQUENCES);
+    trace("test get origin results\n");
+    r = SendMessage(hwnd, LVM_GETORIGIN, 0, (LPARAM)&position);
+    expect(FALSE, r);
+    flush_sequences(sequences, NUM_MSG_SEQUENCES);
+    DestroyWindow(hwnd);
+
+    hwnd = create_custom_listview_control(LVS_REPORT);
+    ok(hwnd != NULL, "failed to create a listview window\n");
+    flush_sequences(sequences, NUM_MSG_SEQUENCES);
+    trace("test get origin results\n");
+    r = SendMessage(hwnd, LVM_GETORIGIN, 0, (LPARAM)&position);
+    expect(FALSE, r);
+    flush_sequences(sequences, NUM_MSG_SEQUENCES);
+    DestroyWindow(hwnd);
+
+}
+
 START_TEST(listview)
 {
-    INITCOMMONCONTROLSEX icc;
+    HMODULE hComctl32;
+    BOOL (WINAPI *pInitCommonControlsEx)(const INITCOMMONCONTROLSEX*);
 
-    icc.dwICC = 0;
-    icc.dwSize = sizeof icc;
-    InitCommonControlsEx(&icc);
+    hComctl32 = GetModuleHandleA("comctl32.dll");
+    pInitCommonControlsEx = (void*)GetProcAddress(hComctl32, "InitCommonControlsEx");
+    if (pInitCommonControlsEx)
+    {
+        INITCOMMONCONTROLSEX iccex;
+        iccex.dwSize = sizeof(iccex);
+        iccex.dwICC  = ICC_LISTVIEW_CLASSES;
+        pInitCommonControlsEx(&iccex);
+    }
+    else
+        InitCommonControls();
 
     init_msg_sequences(sequences, NUM_MSG_SEQUENCES);
 
@@ -1041,4 +1161,6 @@ START_TEST(listview)
     test_color();
     test_item_count();
     test_item_position();
+    test_columns();
+    test_getorigin();
 }

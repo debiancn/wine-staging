@@ -20,6 +20,11 @@
 
 #include <stdarg.h>
 
+#include <math.h>
+#ifdef HAVE_FLOAT_H
+#include <float.h>
+#endif
+
 #include "windef.h"
 #include "winbase.h"
 #include "wingdi.h"
@@ -35,7 +40,7 @@ WINE_DEFAULT_DEBUG_CHANNEL(bitblt);
 BOOL WINAPI PatBlt( HDC hdc, INT left, INT top,
                         INT width, INT height, DWORD rop)
 {
-    DC * dc = DC_GetDCUpdate( hdc );
+    DC * dc = get_dc_ptr( hdc );
     BOOL bRet = FALSE;
 
     if (!dc) return FALSE;
@@ -43,9 +48,10 @@ BOOL WINAPI PatBlt( HDC hdc, INT left, INT top,
     if (dc->funcs->pPatBlt)
     {
         TRACE("%p %d,%d %dx%d %06x\n", hdc, left, top, width, height, rop );
+        update_dc( dc );
         bRet = dc->funcs->pPatBlt( dc->physDev, left, top, width, height, rop );
     }
-    GDI_ReleaseObj( hdc );
+    release_dc_ptr( dc );
     return bRet;
 }
 
@@ -59,22 +65,23 @@ BOOL WINAPI BitBlt( HDC hdcDst, INT xDst, INT yDst, INT width,
     BOOL ret = FALSE;
     DC *dcDst, *dcSrc;
 
-    if ((dcDst = DC_GetDCUpdate( hdcDst )) && dcDst->funcs->pBitBlt)
+    if (!(dcDst = get_dc_ptr( hdcDst ))) return FALSE;
+
+    if (dcDst->funcs->pBitBlt)
     {
-        GDI_ReleaseObj( hdcDst );
-        /* FIXME: there is a race condition here */
-        dcSrc = DC_GetDCUpdate( hdcSrc );
-        dcDst = DC_GetDCPtr( hdcDst );
+        update_dc( dcDst );
+        dcSrc = get_dc_ptr( hdcSrc );
+        if (dcSrc) update_dc( dcSrc );
         TRACE("hdcSrc=%p %d,%d -> hdcDest=%p %d,%d %dx%d rop=%06x\n",
               hdcSrc, xSrc, ySrc, hdcDst, xDst, yDst, width, height, rop);
 
         ret = dcDst->funcs->pBitBlt( dcDst->physDev, xDst, yDst, width, height,
                                      dcSrc ? dcSrc->physDev : NULL, xSrc, ySrc, rop );
 
-        GDI_ReleaseObj( hdcDst );
-        if (dcSrc) GDI_ReleaseObj( hdcSrc );
+        release_dc_ptr( dcDst );
+        if (dcSrc) release_dc_ptr( dcSrc );
     }
-    else if(dcDst && dcDst->funcs->pStretchDIBits)
+    else if (dcDst->funcs->pStretchDIBits)
     {
         BITMAP bm;
         BITMAPINFOHEADER info_hdr;
@@ -82,7 +89,7 @@ BOOL WINAPI BitBlt( HDC hdcDst, INT xDst, INT yDst, INT width,
         LPVOID bits;
         INT lines;
 
-        GDI_ReleaseObj( hdcDst );
+        release_dc_ptr( dcDst );
 
         if(GetObjectType( hdcSrc ) != OBJ_MEMDC)
         {
@@ -118,8 +125,7 @@ BOOL WINAPI BitBlt( HDC hdcDst, INT xDst, INT yDst, INT width,
         HeapFree(GetProcessHeap(), 0, bits);
         return (lines == height);
     }
-    else if(dcDst)
-        GDI_ReleaseObj( hdcDst );
+    else release_dc_ptr( dcDst );
 
     return ret;
 }
@@ -137,13 +143,14 @@ BOOL WINAPI StretchBlt( HDC hdcDst, INT xDst, INT yDst,
     BOOL ret = FALSE;
     DC *dcDst, *dcSrc;
 
-    if ((dcDst = DC_GetDCUpdate( hdcDst )) && dcDst->funcs->pStretchBlt)
+    if (!(dcDst = get_dc_ptr( hdcDst ))) return FALSE;
+
+    if (dcDst->funcs->pStretchBlt)
     {
-        GDI_ReleaseObj( hdcDst );
-        /* FIXME: there is a race condition here */
-        if ((dcSrc = DC_GetDCUpdate( hdcSrc )))
+        if ((dcSrc = get_dc_ptr( hdcSrc )))
         {
-            dcDst = DC_GetDCPtr( hdcDst );
+            update_dc( dcDst );
+            update_dc( dcSrc );
 
             TRACE("%p %d,%d %dx%d -> %p %d,%d %dx%d rop=%06x\n",
                   hdcSrc, xSrc, ySrc, widthSrc, heightSrc,
@@ -152,11 +159,11 @@ BOOL WINAPI StretchBlt( HDC hdcDst, INT xDst, INT yDst,
             ret = dcDst->funcs->pStretchBlt( dcDst->physDev, xDst, yDst, widthDst, heightDst,
                                              dcSrc->physDev, xSrc, ySrc, widthSrc, heightSrc,
                                              rop );
-            GDI_ReleaseObj( hdcDst );
-            GDI_ReleaseObj( hdcSrc );
+            release_dc_ptr( dcDst );
+            release_dc_ptr( dcSrc );
         }
     }
-    else if(dcDst && dcDst->funcs->pStretchDIBits)
+    else if (dcDst->funcs->pStretchDIBits)
     {
         BITMAP bm;
         BITMAPINFOHEADER info_hdr;
@@ -164,7 +171,7 @@ BOOL WINAPI StretchBlt( HDC hdcDst, INT xDst, INT yDst,
         LPVOID bits;
         INT lines;
 
-        GDI_ReleaseObj( hdcDst );
+        release_dc_ptr( dcDst );
 
         if(GetObjectType( hdcSrc ) != OBJ_MEMDC) return FALSE;
 
@@ -196,8 +203,7 @@ BOOL WINAPI StretchBlt( HDC hdcDst, INT xDst, INT yDst,
         HeapFree(GetProcessHeap(), 0, bits);
         return (lines == heightSrc);
     }
-    else if(dcDst)
-        GDI_ReleaseObj( hdcDst );
+    else release_dc_ptr( dcDst );
 
     return ret;
 }
@@ -496,11 +502,11 @@ BOOL WINAPI GdiAlphaBlend(HDC hdcDst, int xDst, int yDst, int widthDst, int heig
     BOOL ret = FALSE;
     DC *dcDst, *dcSrc;
 
-    if ((dcSrc = DC_GetDCUpdate( hdcSrc ))) GDI_ReleaseObj( hdcSrc );
-    /* FIXME: there is a race condition here */
-    if ((dcDst = DC_GetDCUpdate( hdcDst )))
+    dcSrc = get_dc_ptr( hdcSrc );
+    if ((dcDst = get_dc_ptr( hdcDst )))
     {
-        dcSrc = DC_GetDCPtr( hdcSrc );
+        if (dcSrc) update_dc( dcSrc );
+        update_dc( dcDst );
         TRACE("%p %d,%d %dx%d -> %p %d,%d %dx%d op=%02x flags=%02x srcconstalpha=%02x alphafmt=%02x\n",
               hdcSrc, xSrc, ySrc, widthSrc, heightSrc,
               hdcDst, xDst, yDst, widthDst, heightDst,
@@ -510,9 +516,9 @@ BOOL WINAPI GdiAlphaBlend(HDC hdcDst, int xDst, int yDst, int widthDst, int heig
             ret = dcDst->funcs->pAlphaBlend( dcDst->physDev, xDst, yDst, widthDst, heightDst,
                                              dcSrc ? dcSrc->physDev : NULL,
                                              xSrc, ySrc, widthSrc, heightSrc, blendFunction );
-        if (dcSrc) GDI_ReleaseObj( hdcSrc );
-        GDI_ReleaseObj( hdcDst );
+        release_dc_ptr( dcDst );
     }
+    if (dcSrc) release_dc_ptr( dcSrc );
     return ret;
 }
 
@@ -521,9 +527,75 @@ BOOL WINAPI GdiAlphaBlend(HDC hdcDst, int xDst, int yDst, int widthDst, int heig
  *
  */
 BOOL WINAPI PlgBlt( HDC hdcDest, const POINT *lpPoint,
-                        HDC hdcSrc, INT nXDest, INT nYDest, INT nWidth,
+                        HDC hdcSrc, INT nXSrc, INT nYSrc, INT nWidth,
                         INT nHeight, HBITMAP hbmMask, INT xMask, INT yMask)
 {
-    FIXME("PlgBlt, stub\n");
-        return 1;
+    int oldgMode;
+    /* parallelogram coords */
+    POINT plg[3];
+    /* rect coords */
+    POINT rect[3];
+    XFORM xf;
+    XFORM SrcXf;
+    XFORM oldDestXf;
+    FLOAT det;
+
+    /* save actual mode, set GM_ADVANCED */
+    oldgMode = SetGraphicsMode(hdcDest,GM_ADVANCED);
+    if (oldgMode == 0)
+        return FALSE;
+
+    memcpy(plg,lpPoint,sizeof(POINT)*3);
+    rect[0].x = nXSrc;
+    rect[0].y = nYSrc;
+    rect[1].x = nXSrc + nWidth;
+    rect[1].y = nYSrc;
+    rect[2].x = nXSrc;
+    rect[2].y = nYSrc + nHeight;
+    /* calc XFORM matrix to transform hdcDest -> hdcSrc (parallelogram to rectangle) */
+    /* determinant */
+    det = (FLOAT)(rect[1].x*(rect[2].y - rect[0].y) - rect[2].x*(rect[1].y - rect[0].y) - rect[0].x*(rect[2].y - rect[1].y));
+
+    if (fabs(det) < 1e-5)
+    {
+        SetGraphicsMode(hdcDest,oldgMode);
+        return FALSE;
+    }
+
+    TRACE("hdcSrc=%p %d,%d,%dx%d -> hdcDest=%p %d,%d,%d,%d,%d,%d\n",
+        hdcSrc, nXSrc, nYSrc, nWidth, nHeight, hdcDest, plg[0].x, plg[0].y, plg[1].x, plg[1].y, plg[2].x, plg[2].y);
+
+    /* X components */
+    xf.eM11 = (plg[1].x*(rect[2].y - rect[0].y) - plg[2].x*(rect[1].y - rect[0].y) - plg[0].x*(rect[2].y - rect[1].y)) / det;
+    xf.eM21 = (rect[1].x*(plg[2].x - plg[0].x) - rect[2].x*(plg[1].x - plg[0].x) - rect[0].x*(plg[2].x - plg[1].x)) / det;
+    xf.eDx  = (rect[0].x*(rect[1].y*plg[2].x - rect[2].y*plg[1].x) -
+               rect[1].x*(rect[0].y*plg[2].x - rect[2].y*plg[0].x) +
+               rect[2].x*(rect[0].y*plg[1].x - rect[1].y*plg[0].x)
+               ) / det;
+
+    /* Y components */
+    xf.eM12 = (plg[1].y*(rect[2].y - rect[0].y) - plg[2].y*(rect[1].y - rect[0].y) - plg[0].y*(rect[2].y - rect[1].y)) / det;
+    xf.eM22 = (plg[1].x*(rect[2].y - rect[0].y) - plg[2].x*(rect[1].y - rect[0].y) - plg[0].x*(rect[2].y - rect[1].y)) / det;
+    xf.eDy  = (rect[0].x*(rect[1].y*plg[2].y - rect[2].y*plg[1].y) -
+               rect[1].x*(rect[0].y*plg[2].y - rect[2].y*plg[0].y) +
+               rect[2].x*(rect[0].y*plg[1].y - rect[1].y*plg[0].y)
+               ) / det;
+
+    GetWorldTransform(hdcSrc,&SrcXf);
+    CombineTransform(&xf,&xf,&SrcXf);
+
+    /* save actual dest transform */
+    GetWorldTransform(hdcDest,&oldDestXf);
+
+    SetWorldTransform(hdcDest,&xf);
+    /* now destination and source DCs use same coords */
+    MaskBlt(hdcDest,nXSrc,nYSrc,nWidth,nHeight,
+            hdcSrc, nXSrc,nYSrc,
+            hbmMask,xMask,yMask,
+            SRCCOPY);
+    /* restore dest DC */
+    SetWorldTransform(hdcDest,&oldDestXf);
+    SetGraphicsMode(hdcDest,oldgMode);
+
+    return TRUE;
 }

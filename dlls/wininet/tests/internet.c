@@ -27,7 +27,101 @@
 
 #include "wine/test.h"
 
-static void InternetQueryOptionA_test(void)
+/* ############################### */
+
+static void test_InternetCanonicalizeUrlA(void)
+{
+    CHAR    buffer[256];
+    LPCSTR  url;
+    DWORD   urllen;
+    DWORD   dwSize;
+    DWORD   res;
+
+    /* Acrobat Updater 5 calls this for Adobe Reader 8.1 */
+    url = "http://swupmf.adobe.com/manifest/50/win/AdobeUpdater.upd";
+    urllen = lstrlenA(url);
+
+    memset(buffer, '#', sizeof(buffer)-1);
+    buffer[sizeof(buffer)-1] = '\0';
+    dwSize = 1; /* Acrobat Updater use this size */
+    SetLastError(0xdeadbeef);
+    res = InternetCanonicalizeUrlA(url, buffer, &dwSize, 0);
+    ok( !res && (GetLastError() == ERROR_INSUFFICIENT_BUFFER) && (dwSize == (urllen+1)),
+        "got %u and %u with size %u for '%s' (%d)\n",
+        res, GetLastError(), dwSize, buffer, lstrlenA(buffer));
+
+
+    /* buffer has no space for the terminating '\0' */
+    memset(buffer, '#', sizeof(buffer)-1);
+    buffer[sizeof(buffer)-1] = '\0';
+    dwSize = urllen;
+    SetLastError(0xdeadbeef);
+    res = InternetCanonicalizeUrlA(url, buffer, &dwSize, 0);
+    /* dwSize is nr. of needed bytes with the terminating '\0' */
+    ok( !res && (GetLastError() == ERROR_INSUFFICIENT_BUFFER) && (dwSize == (urllen+1)),
+        "got %u and %u with size %u for '%s' (%d)\n",
+        res, GetLastError(), dwSize, buffer, lstrlenA(buffer));
+
+    /* buffer has the required size */
+    memset(buffer, '#', sizeof(buffer)-1);
+    buffer[sizeof(buffer)-1] = '\0';
+    dwSize = urllen+1;
+    SetLastError(0xdeadbeef);
+    res = InternetCanonicalizeUrlA(url, buffer, &dwSize, 0);
+    /* dwSize is nr. of copied bytes without the terminating '\0' */
+    ok( res && (dwSize == urllen) && (lstrcmpA(url, buffer) == 0),
+        "got %u and %u with size %u for '%s' (%d)\n",
+        res, GetLastError(), dwSize, buffer, lstrlenA(buffer));
+
+    /* buffer is larger as the required size */
+    memset(buffer, '#', sizeof(buffer)-1);
+    buffer[sizeof(buffer)-1] = '\0';
+    dwSize = urllen+2;
+    SetLastError(0xdeadbeef);
+    res = InternetCanonicalizeUrlA(url, buffer, &dwSize, 0);
+    /* dwSize is nr. of copied bytes without the terminating '\0' */
+    ok( res && (dwSize == urllen) && (lstrcmpA(url, buffer) == 0),
+        "got %u and %u with size %u for '%s' (%d)\n",
+        res, GetLastError(), dwSize, buffer, lstrlenA(buffer));
+
+
+    /* check NULL pointers */
+    memset(buffer, '#', urllen + 4);
+    buffer[urllen + 4] = '\0';
+    dwSize = urllen+1;
+    SetLastError(0xdeadbeef);
+    res = InternetCanonicalizeUrlA(NULL, buffer, &dwSize, 0);
+    ok( !res && (GetLastError() == ERROR_INVALID_PARAMETER),
+        "got %u and %u with size %u for '%s' (%d)\n",
+        res, GetLastError(), dwSize, buffer, lstrlenA(buffer));
+
+    memset(buffer, '#', urllen + 4);
+    buffer[urllen + 4] = '\0';
+    dwSize = urllen+1;
+    SetLastError(0xdeadbeef);
+    res = InternetCanonicalizeUrlA(url, NULL, &dwSize, 0);
+    ok( !res && (GetLastError() == ERROR_INVALID_PARAMETER),
+        "got %u and %u with size %u for '%s' (%d)\n",
+        res, GetLastError(), dwSize, buffer, lstrlenA(buffer));
+
+    memset(buffer, '#', urllen + 4);
+    buffer[urllen + 4] = '\0';
+    dwSize = urllen+1;
+    SetLastError(0xdeadbeef);
+    res = InternetCanonicalizeUrlA(url, buffer, NULL, 0);
+    ok( !res && (GetLastError() == ERROR_INVALID_PARAMETER),
+        "got %u and %u with size %u for '%s' (%d)\n",
+        res, GetLastError(), dwSize, buffer, lstrlenA(buffer));
+
+    res = InternetSetOptionA(NULL, 0xdeadbeef, buffer, sizeof(buffer));
+    ok(!res, "InternetSetOptionA succeeded\n");
+    ok(GetLastError() == ERROR_INTERNET_INVALID_OPTION,
+       "InternetSetOptionA failed %u, expected ERROR_INTERNET_INVALID_OPTION\n", GetLastError());
+}
+
+/* ############################### */
+
+static void test_InternetQueryOptionA(void)
 {
   HINTERNET hinet,hurl;
   DWORD len;
@@ -52,9 +146,12 @@ static void InternetQueryOptionA_test(void)
   buffer=HeapAlloc(GetProcessHeap(),0,len);
   retval=InternetQueryOptionA(hinet,INTERNET_OPTION_USER_AGENT,buffer,&len);
   err=GetLastError();
-  todo_wine ok(!strcmp(useragent,buffer),"Got wrong user agent string %s instead of %s\n",buffer,useragent);
-  todo_wine ok(len == strlen(useragent),"Got wrong user agent length %d instead of %d\n",len,lstrlenA(useragent));
   todo_wine ok(retval == 1,"Got wrong return value %d\n",retval);
+  if (retval)
+  {
+      todo_wine ok(!strcmp(useragent,buffer),"Got wrong user agent string %s instead of %s\n",buffer,useragent);
+      todo_wine ok(len == strlen(useragent),"Got wrong user agent length %d instead of %d\n",len,lstrlenA(useragent));
+  }
   ok(err == 0xdeadbeef, "Got wrong error code %d\n",err);
   HeapFree(GetProcessHeap(),0,buffer);
 
@@ -125,6 +222,7 @@ static void test_null(void)
   static const WCHAR szServer[] = { 's','e','r','v','e','r',0 };
   static const WCHAR szEmpty[] = { 0 };
   static const WCHAR szUrl[] = { 'h','t','t','p',':','/','/','a','.','b','.','c',0 };
+  static const WCHAR szUrlEmpty[] = { 'h','t','t','p',':','/','/',0 };
   static const WCHAR szExpect[] = { 's','e','r','v','e','r',';',' ','s','e','r','v','e','r',0 };
   WCHAR buffer[0x20];
   BOOL r;
@@ -174,13 +272,14 @@ static void test_null(void)
   r = InternetSetCookieW(szUrl, szServer, szServer);
   ok(r == TRUE, "return wrong\n");
 
-  todo_wine {
   r = InternetSetCookieW(szUrl, NULL, szServer);
   ok(r == TRUE, "return wrong\n");
-  }
 
   r = InternetSetCookieW(szUrl, szServer, szEmpty);
   ok(r == TRUE, "return wrong\n");
+
+  r = InternetSetCookieW(szUrlEmpty, szServer, szServer);
+  ok(r == FALSE, "return wrong\n");
 
   r = InternetSetCookieW(szServer, NULL, szServer);
   todo_wine {
@@ -190,7 +289,8 @@ static void test_null(void)
 
   sz = 0;
   r = InternetGetCookieW(NULL, NULL, NULL, &sz);
-  ok(GetLastError() == ERROR_INTERNET_UNRECOGNIZED_SCHEME, "wrong error\n");
+  ok(GetLastError() == ERROR_INVALID_PARAMETER || GetLastError() == ERROR_INTERNET_UNRECOGNIZED_SCHEME,
+     "wrong error %u\n", GetLastError());
   ok( r == FALSE, "return wrong\n");
 
   r = InternetGetCookieW(szServer, NULL, NULL, &sz);
@@ -200,25 +300,52 @@ static void test_null(void)
   ok( r == FALSE, "return wrong\n");
 
   sz = 0;
+  r = InternetGetCookieW(szUrlEmpty, szServer, NULL, &sz);
+  ok( r == FALSE, "return wrong\n");
+
+  sz = 0;
   r = InternetGetCookieW(szUrl, szServer, NULL, &sz);
   ok( r == TRUE, "return wrong\n");
-  todo_wine {
-  ok( sz == 30, "sz wrong\n");
-  }
+
+  /* sz is 14 on XP SP2 and beyond, 30 on XP SP1 and before */
+  ok( sz == 14 || sz == 30, "sz wrong, got %u, expected 14 or 30\n", sz);
 
   sz = 0x20;
   memset(buffer, 0, sizeof buffer);
   r = InternetGetCookieW(szUrl, szServer, buffer, &sz);
   ok( r == TRUE, "return wrong\n");
-  todo_wine {
-  ok( sz == lstrlenW(buffer), "sz wrong\n");
-  ok( !lstrcmpW(szExpect, buffer), "cookie data wrong\n");
-  }
+
+  /* sz == lstrlenW(buffer) only in XP SP1 */
+  ok( sz == 1 + lstrlenW(buffer) || sz == lstrlenW(buffer), "sz wrong %d\n", sz);
+
+  /* before XP SP2, buffer is "server; server" */
+  ok( !lstrcmpW(szExpect, buffer) || !lstrcmpW(szServer, buffer), "cookie data wrong\n");
+
+  sz = sizeof(buffer);
+  r = InternetQueryOptionA(NULL, INTERNET_OPTION_CONNECTED_STATE, buffer, &sz);
+  ok(r == TRUE, "ret %d\n", r);
 }
+
+static void test_version(void)
+{
+    INTERNET_VERSION_INFO version;
+    DWORD size;
+    BOOL res;
+
+    size = sizeof(version);
+    res = InternetQueryOptionA(NULL, INTERNET_OPTION_VERSION, &version, &size);
+    ok(res, "Could not get version: %u\n", GetLastError());
+    ok(version.dwMajorVersion == 1, "dwMajorVersion=%d, expected 1\n", version.dwMajorVersion);
+    ok(version.dwMinorVersion == 2, "dwMinorVersion=%d, expected 2\n", version.dwMinorVersion);
+}
+
+/* ############################### */
 
 START_TEST(internet)
 {
-  InternetQueryOptionA_test();
+  test_InternetCanonicalizeUrlA();
+  test_InternetQueryOptionA();
   test_get_cookie();
+  test_version();
   test_null();
 }

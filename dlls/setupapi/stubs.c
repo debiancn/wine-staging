@@ -26,7 +26,9 @@
 #include "wingdi.h"
 #include "winuser.h"
 #include "winreg.h"
+#include "cfgmgr32.h"
 #include "setupapi.h"
+#include "winnls.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(setupapi);
 
@@ -50,41 +52,10 @@ DWORD WINAPI suErrorToIds16( WORD w1, WORD w2 )
 }
 
 /***********************************************************************
- *		SetupDiGetDeviceInfoListDetailA  (SETUPAPI.@)
- */
-BOOL WINAPI SetupDiGetDeviceInfoListDetailA(HDEVINFO devinfo, PSP_DEVINFO_LIST_DETAIL_DATA_A devinfo_data )
-{
-  FIXME("\n");
-  return FALSE;
-}
-
-/***********************************************************************
- *		SetupDiGetDeviceInfoListDetailW  (SETUPAPI.@)
- */
-BOOL WINAPI SetupDiGetDeviceInfoListDetailW(HDEVINFO devinfo, PSP_DEVINFO_LIST_DETAIL_DATA_W devinfo_data )
-{
-  FIXME("\n");
-  return FALSE;
-}
-
-/***********************************************************************
- *		  (SETUPAPI.@)
- *
- * NO WINAPI in description given
- */
-HDEVINFO WINAPI SetupDiGetClassDevsExA(const GUID *class, PCSTR filter, HWND parent, DWORD flags, HDEVINFO deviceset, PCSTR machine, PVOID reserved)
-{
-  FIXME("filter %s machine %s\n",debugstr_a(filter),debugstr_a(machine));
-  return FALSE;
-}
-
-/***********************************************************************
  *		CM_Connect_MachineW  (SETUPAPI.@)
  */
-DWORD WINAPI CM_Connect_MachineW(LPCWSTR name, void * machine)
+CONFIGRET WINAPI CM_Connect_MachineW(PCWSTR name, PHMACHINE machine)
 {
-#define  CR_SUCCESS       0x00000000
-#define  CR_ACCESS_DENIED 0x00000033
   FIXME("\n");
   return  CR_ACCESS_DENIED;
 }
@@ -92,7 +63,7 @@ DWORD WINAPI CM_Connect_MachineW(LPCWSTR name, void * machine)
 /***********************************************************************
  *		CM_Disconnect_Machine  (SETUPAPI.@)
  */
-DWORD WINAPI CM_Disconnect_Machine(DWORD handle)
+CONFIGRET WINAPI CM_Disconnect_Machine(HMACHINE handle)
 {
   FIXME("\n");
   return  CR_SUCCESS;
@@ -103,7 +74,7 @@ DWORD WINAPI CM_Disconnect_Machine(DWORD handle)
  *             CM_Get_Device_ID_ListA  (SETUPAPI.@)
  */
 
-DWORD WINAPI CM_Get_Device_ID_ListA(
+CONFIGRET WINAPI CM_Get_Device_ID_ListA(
     PCSTR pszFilter, PCHAR Buffer, ULONG BufferLen, ULONG ulFlags )
 {
     FIXME("%p %p %d %d\n", pszFilter, Buffer, BufferLen, ulFlags );
@@ -112,9 +83,19 @@ DWORD WINAPI CM_Get_Device_ID_ListA(
 }
 
 /***********************************************************************
+ *              CM_Get_Parent (SETUPAPI.@)
+ */
+DWORD WINAPI CM_Get_Parent(PDEVINST pdnDevInst, DEVINST dnDevInst, ULONG ulFlags)
+{
+    FIXME("%p 0x%08x 0x%08x stub\n", pdnDevInst, dnDevInst, ulFlags);
+    *pdnDevInst = dnDevInst;
+    return CR_SUCCESS;
+}
+
+/***********************************************************************
  *		SetupInitializeFileLogW(SETUPAPI.@)
  */
-HANDLE WINAPI SetupInitializeFileLogW(LPWSTR LogFileName, DWORD Flags)
+HSPFILELOG WINAPI SetupInitializeFileLogW(LPCWSTR LogFileName, DWORD Flags)
 {
     FIXME("Stub %s, 0x%x\n",debugstr_w(LogFileName),Flags);
     return INVALID_HANDLE_VALUE;
@@ -123,7 +104,7 @@ HANDLE WINAPI SetupInitializeFileLogW(LPWSTR LogFileName, DWORD Flags)
 /***********************************************************************
  *		SetupInitializeFileLogA(SETUPAPI.@)
  */
-HANDLE WINAPI SetupInitializeFileLogA(LPSTR LogFileName, DWORD Flags)
+HSPFILELOG WINAPI SetupInitializeFileLogA(LPCSTR LogFileName, DWORD Flags)
 {
     FIXME("Stub %s, 0x%x\n",debugstr_a(LogFileName),Flags);
     return INVALID_HANDLE_VALUE;
@@ -150,7 +131,7 @@ BOOL WINAPI RegistryDelnode(DWORD x, DWORD y)
 /***********************************************************************
  *      SetupCloseLog(SETUPAPI.@)
  */
-void WINAPI SetupCloseLog()
+void WINAPI SetupCloseLog(void)
 {
     FIXME("() stub\n");
 }
@@ -158,7 +139,7 @@ void WINAPI SetupCloseLog()
 /***********************************************************************
  *      SetupLogErrorW(SETUPAPI.@)
  */
-BOOL WINAPI SetupLogErrorW(PCWSTR MessageString, LogSeverity Severity)
+BOOL WINAPI SetupLogErrorW(LPCWSTR MessageString, LogSeverity Severity)
 {
     FIXME("(%s, %d) stub\n", debugstr_w(MessageString), Severity);
     return TRUE;

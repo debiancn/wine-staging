@@ -74,7 +74,7 @@ void hash_table_put(hash_table_t *table, void *key, void *value);
 void hash_table_remove(hash_table_t *table, void *key);
 
 /* Device caps */
-#define MAX_PALETTES            256
+#define MAX_PALETTES            65536
 #define MAX_STREAMS             16
 #define MAX_TEXTURES            8
 #define MAX_FRAGMENT_SAMPLERS   16
@@ -91,7 +91,7 @@ void hash_table_remove(hash_table_t *table, void *key);
 #define NUM_SAVEDPIXELSTATES_R     35
 #define NUM_SAVEDPIXELSTATES_T     18
 #define NUM_SAVEDPIXELSTATES_S     12
-#define NUM_SAVEDVERTEXSTATES_R    31
+#define NUM_SAVEDVERTEXSTATES_R    34
 #define NUM_SAVEDVERTEXSTATES_T    2
 #define NUM_SAVEDVERTEXSTATES_S    1
 
@@ -104,49 +104,101 @@ extern const DWORD SavedVertexStates_S[NUM_SAVEDVERTEXSTATES_S];
 
 typedef enum _WINELOOKUP {
     WINELOOKUP_WARPPARAM = 0,
-    WINELOOKUP_MAGFILTER = 1,
-    MAX_LOOKUPS          = 2
+    MAX_LOOKUPS          = 1
 } WINELOOKUP;
 
 extern int minLookup[MAX_LOOKUPS];
 extern int maxLookup[MAX_LOOKUPS];
 extern DWORD *stateLookup[MAX_LOOKUPS];
 
-extern DWORD minMipLookup[WINED3DTEXF_ANISOTROPIC + 1][WINED3DTEXF_LINEAR + 1];
+typedef DWORD magLookup_t[WINED3DTEXF_ANISOTROPIC + 1];
+extern magLookup_t magLookup;
+extern magLookup_t magLookup_noFilter;
 
-typedef struct _WINED3DGLTYPE {
-    int         d3dType;
-    GLint       size;
-    GLenum      glType;
-    GLboolean   normalized;
-    int         typesize;
-} WINED3DGLTYPE;
+typedef DWORD minMipLookup_t[WINED3DTEXF_ANISOTROPIC + 1][WINED3DTEXF_LINEAR + 1];
+extern minMipLookup_t minMipLookup;
+extern minMipLookup_t minMipLookup_noFilter;
 
-/* NOTE: Make sure these are in the correct numerical order. (see /include/wined3d_types.h) */
-static WINED3DGLTYPE const glTypeLookup[WINED3DDECLTYPE_UNUSED] = {
-                                  {WINED3DDECLTYPE_FLOAT1,    1, GL_FLOAT           , GL_FALSE ,sizeof(float)},
-                                  {WINED3DDECLTYPE_FLOAT2,    2, GL_FLOAT           , GL_FALSE ,sizeof(float)},
-                                  {WINED3DDECLTYPE_FLOAT3,    3, GL_FLOAT           , GL_FALSE ,sizeof(float)},
-                                  {WINED3DDECLTYPE_FLOAT4,    4, GL_FLOAT           , GL_FALSE ,sizeof(float)},
-                                  {WINED3DDECLTYPE_D3DCOLOR,  4, GL_UNSIGNED_BYTE   , GL_TRUE  ,sizeof(BYTE)},
-                                  {WINED3DDECLTYPE_UBYTE4,    4, GL_UNSIGNED_BYTE   , GL_FALSE ,sizeof(BYTE)},
-                                  {WINED3DDECLTYPE_SHORT2,    2, GL_SHORT           , GL_FALSE ,sizeof(short int)},
-                                  {WINED3DDECLTYPE_SHORT4,    4, GL_SHORT           , GL_FALSE ,sizeof(short int)},
-                                  {WINED3DDECLTYPE_UBYTE4N,   4, GL_UNSIGNED_BYTE   , GL_FALSE ,sizeof(BYTE)},
-                                  {WINED3DDECLTYPE_SHORT2N,   2, GL_SHORT           , GL_FALSE ,sizeof(short int)},
-                                  {WINED3DDECLTYPE_SHORT4N,   4, GL_SHORT           , GL_FALSE ,sizeof(short int)},
-                                  {WINED3DDECLTYPE_USHORT2N,  2, GL_UNSIGNED_SHORT  , GL_FALSE ,sizeof(short int)},
-                                  {WINED3DDECLTYPE_USHORT4N,  4, GL_UNSIGNED_SHORT  , GL_FALSE ,sizeof(short int)},
-                                  {WINED3DDECLTYPE_UDEC3,     3, GL_UNSIGNED_SHORT  , GL_FALSE ,sizeof(short int)},
-                                  {WINED3DDECLTYPE_DEC3N,     3, GL_SHORT           , GL_FALSE ,sizeof(short int)},
-                                  {WINED3DDECLTYPE_FLOAT16_2, 2, GL_FLOAT           , GL_FALSE ,sizeof(short int)},
-                                  {WINED3DDECLTYPE_FLOAT16_4, 4, GL_FLOAT           , GL_FALSE ,sizeof(short int)}};
+void init_type_lookup(WineD3D_GL_Info *gl_info);
+#define WINED3D_ATR_TYPE(type)          GLINFO_LOCATION.glTypeLookup[type].d3dType
+#define WINED3D_ATR_SIZE(type)          GLINFO_LOCATION.glTypeLookup[type].size
+#define WINED3D_ATR_GLTYPE(type)        GLINFO_LOCATION.glTypeLookup[type].glType
+#define WINED3D_ATR_NORMALIZED(type)    GLINFO_LOCATION.glTypeLookup[type].normalized
+#define WINED3D_ATR_TYPESIZE(type)      GLINFO_LOCATION.glTypeLookup[type].typesize
 
-#define WINED3D_ATR_TYPE(type)          glTypeLookup[type].d3dType
-#define WINED3D_ATR_SIZE(type)          glTypeLookup[type].size
-#define WINED3D_ATR_GLTYPE(type)        glTypeLookup[type].glType
-#define WINED3D_ATR_NORMALIZED(type)    glTypeLookup[type].normalized
-#define WINED3D_ATR_TYPESIZE(type)      glTypeLookup[type].typesize
+/* The following functions convert 16 bit floats in the FLOAT16 data type
+ * to standard C floats and vice versa. They do not depend on the encoding
+ * of the C float, so they are platform independent, but slow. On x86 and
+ * other IEEE 754 compliant platforms the conversion can be accelerated by
+ * bit shifting the exponent and mantissa. There are also some SSE-based
+ * assembly routines out there.
+ *
+ * See GL_NV_half_float for a reference of the FLOAT16 / GL_HALF format
+ */
+static inline float float_16_to_32(const unsigned short *in) {
+    const unsigned short s = ((*in) & 0x8000);
+    const unsigned short e = ((*in) & 0x7C00) >> 10;
+    const unsigned short m = (*in) & 0x3FF;
+    const float sgn = (s ? -1.0 : 1.0);
+
+    if(e == 0) {
+        if(m == 0) return sgn * 0.0; /* +0.0 or -0.0 */
+        else return sgn * pow(2, -14.0) * ( (float) m / 1024.0);
+    } else if(e < 31) {
+        return sgn * pow(2, (float) e-15.0) * (1.0 + ((float) m / 1024.0));
+    } else {
+        if(m == 0) return sgn / 0.0; /* +INF / -INF */
+        else return 0.0 / 0.0; /* NAN */
+    }
+}
+
+static inline unsigned short float_32_to_16(const float *in) {
+    int exp = 0;
+    float tmp = fabs(*in);
+    unsigned int mantissa;
+    unsigned short ret;
+
+    /* Deal with special numbers */
+    if(*in == 0.0) return 0x0000;
+    if(isnan(*in)) return 0x7C01;
+    if(isinf(*in)) return (*in < 0.0 ? 0xFC00 : 0x7c00);
+
+    if(tmp < pow(2, 10)) {
+        do
+        {
+            tmp = tmp * 2.0;
+            exp--;
+        }while(tmp < pow(2, 10));
+    } else if(tmp >= pow(2, 11)) {
+        do
+        {
+            tmp /= 2.0;
+            exp++;
+        }while(tmp >= pow(2, 11));
+    }
+
+    mantissa = (unsigned int) tmp;
+    if(tmp - mantissa >= 0.5) mantissa++; /* round to nearest, away from zero */
+
+    exp += 10;  /* Normalize the mantissa */
+    exp += 15;  /* Exponent is encoded with excess 15 */
+
+    if(exp > 30) { /* too big */
+        ret = 0x7c00; /* INF */
+    } else if(exp <= 0) {
+        /* exp == 0: Non-normalized mantissa. Returns 0x0000 (=0.0) for too small numbers */
+        while(exp <= 0) {
+            mantissa = mantissa >> 1;
+            exp++;
+        }
+        ret = mantissa & 0x3ff;
+    } else {
+        ret = (exp << 10) | (mantissa & 0x3ff);
+    }
+
+    ret |= ((*in < 0.0 ? 1 : 0) << 15); /* Add the sign */
+    return ret;
+}
 
 /**
  * Settings 
@@ -170,7 +222,8 @@ static WINED3DGLTYPE const glTypeLookup[WINED3DDECLTYPE_UNUSED] = {
 
 #define SHADER_ARB  1
 #define SHADER_GLSL 2
-#define SHADER_NONE 3
+#define SHADER_ATI  3
+#define SHADER_NONE 4
 
 #define RTL_DISABLE   -1
 #define RTL_AUTO       0
@@ -194,22 +247,78 @@ typedef struct wined3d_settings_s {
   int rendertargetlock_mode;
 /* Memory tracking and object counting */
   unsigned int emulated_textureram;
+  char *logo;
 } wined3d_settings_t;
 
 extern wined3d_settings_t wined3d_settings;
 
 /* Shader backends */
+struct SHADER_OPCODE_ARG;
+
+#define SHADER_PGMSIZE 65535
+typedef struct SHADER_BUFFER {
+    char* buffer;
+    unsigned int bsize;
+    unsigned int lineNo;
+    BOOL newline;
+} SHADER_BUFFER;
+
+struct shader_caps {
+    DWORD               PrimitiveMiscCaps;
+
+    DWORD               TextureOpCaps;
+    DWORD               MaxTextureBlendStages;
+    DWORD               MaxSimultaneousTextures;
+
+    DWORD               VertexShaderVersion;
+    DWORD               MaxVertexShaderConst;
+
+    DWORD               PixelShaderVersion;
+    float               PixelShader1xMaxValue;
+
+    WINED3DVSHADERCAPS2_0   VS20Caps;
+    WINED3DPSHADERCAPS2_0   PS20Caps;
+
+    DWORD               MaxVShaderInstructionsExecuted;
+    DWORD               MaxPShaderInstructionsExecuted;
+    DWORD               MaxVertexShader30InstructionSlots;
+    DWORD               MaxPixelShader30InstructionSlots;
+};
 
 typedef struct {
     void (*shader_select)(IWineD3DDevice *iface, BOOL usePS, BOOL useVS);
     void (*shader_select_depth_blt)(IWineD3DDevice *iface);
+    void (*shader_destroy_depth_blt)(IWineD3DDevice *iface);
     void (*shader_load_constants)(IWineD3DDevice *iface, char usePS, char useVS);
     void (*shader_cleanup)(IWineD3DDevice *iface);
+    void (*shader_color_correction)(struct SHADER_OPCODE_ARG *arg);
+    void (*shader_destroy)(IWineD3DBaseShader *iface);
+    HRESULT (*shader_alloc_private)(IWineD3DDevice *iface);
+    void (*shader_free_private)(IWineD3DDevice *iface);
+    BOOL (*shader_dirtifyable_constants)(IWineD3DDevice *iface);
+    void (*shader_generate_pshader)(IWineD3DPixelShader *iface, SHADER_BUFFER *buffer);
+    void (*shader_generate_vshader)(IWineD3DVertexShader *iface, SHADER_BUFFER *buffer);
+    void (*shader_get_caps)(WINED3DDEVTYPE devtype, WineD3D_GL_Info *gl_info, struct shader_caps *caps);
+    void (*shader_dll_load_init)(void);
+    void (*shader_fragment_enable)(IWineD3DDevice *iface, BOOL enable);
+    const struct StateEntry *StateTable;
 } shader_backend_t;
 
+extern const shader_backend_t atifs_shader_backend;
 extern const shader_backend_t glsl_shader_backend;
 extern const shader_backend_t arb_program_shader_backend;
 extern const shader_backend_t none_shader_backend;
+
+/* GLSL shader private data */
+struct shader_glsl_priv {
+    GLhandleARB             depth_blt_glsl_program_id;
+};
+
+/* ARB_program_shader private data */
+struct shader_arb_priv {
+    GLuint                  depth_blt_vprogram_id;
+    GLuint                  depth_blt_fprogram_id;
+};
 
 /* X11 locking */
 
@@ -263,7 +372,6 @@ extern int num_lock;
                          /* Maximum number of constants provided to the shaders */
 #define HIGHEST_TRANSFORMSTATE 512 
                          /* Highest value in WINED3DTRANSFORMSTATETYPE */
-#define MAX_PALETTES      256
 
 /* Checking of API calls */
 /* --------------------- */
@@ -319,23 +427,6 @@ typedef struct IWineD3DStateBlockImpl IWineD3DStateBlockImpl;
 typedef struct IWineD3DSurfaceImpl    IWineD3DSurfaceImpl;
 typedef struct IWineD3DPaletteImpl    IWineD3DPaletteImpl;
 typedef struct IWineD3DDeviceImpl     IWineD3DDeviceImpl;
-
-/* Tracking */
-
-/* TODO: Move some of this to the device */
-long globalChangeGlRam(long glram);
-
-/* Memory and object tracking */
-
-/*Structure for holding information on all direct3d objects
-useful for making sure tracking is ok and when release is called on a device!
-and probably quite handy for debugging and dumping states out
-*/
-typedef struct WineD3DGlobalStatistics {
-    int glsurfaceram; /* The aproximate amount of glTexture memory allocated for textures */
-} WineD3DGlobalStatistics;
-
-extern WineD3DGlobalStatistics* wineD3DGlobalStatistics;
 
 /* Global variables */
 extern const float identity[16];
@@ -420,12 +511,19 @@ void primitiveDeclarationConvertToStridedData(
 
 DWORD get_flexible_vertex_size(DWORD d3dvtVertexType);
 
-void blt_to_drawable(IWineD3DDeviceImpl *This, IWineD3DSurfaceImpl *surface);
+typedef void (*glAttribFunc)(void *data);
+typedef void (*glTexAttribFunc)(GLuint unit, void *data);
+extern glAttribFunc position_funcs[WINED3DDECLTYPE_UNUSED];
+extern glAttribFunc diffuse_funcs[WINED3DDECLTYPE_UNUSED];
+extern glAttribFunc specular_funcs[WINED3DDECLTYPE_UNUSED];
+extern glAttribFunc normal_funcs[WINED3DDECLTYPE_UNUSED];
 
 #define eps 1e-8
 
 #define GET_TEXCOORD_SIZE_FROM_FVF(d3dvtVertexType, tex_num) \
     (((((d3dvtVertexType) >> (16 + (2 * (tex_num)))) + 1) & 0x03) + 1)
+
+void depth_copy(IWineD3DDevice *iface);
 
 /* Routines and structures related to state management */
 typedef struct WineD3DContext WineD3DContext;
@@ -467,7 +565,7 @@ typedef void (*APPLYSTATEFUNC)(DWORD state, IWineD3DStateBlockImpl *stateblock, 
 #define STATE_IS_PIXELSHADERCONSTANT(a) ((a) == STATE_PIXELSHADERCONSTANT)
 
 #define STATE_ACTIVELIGHT(a) (STATE_PIXELSHADERCONSTANT + (a) + 1)
-#define STATE_IS_ACTIVELIGHT(a) ((a) >= STATE_ACTIVELIGHT(0) && (a) < STATE_PIXELSHADERCONSTANT(MAX_ACTIVE_LIGHTS))
+#define STATE_IS_ACTIVELIGHT(a) ((a) >= STATE_ACTIVELIGHT(0) && (a) < STATE_ACTIVELIGHT(MAX_ACTIVE_LIGHTS))
 
 #define STATE_SCISSORRECT (STATE_ACTIVELIGHT(MAX_ACTIVE_LIGHTS - 1) + 1)
 #define STATE_IS_SCISSORRECT(a) ((a) == STATE_SCISSORRECT)
@@ -477,7 +575,9 @@ typedef void (*APPLYSTATEFUNC)(DWORD state, IWineD3DStateBlockImpl *stateblock, 
 
 #define STATE_MATERIAL (STATE_CLIPPLANE(MAX_CLIPPLANES))
 
-#define STATE_HIGHEST (STATE_MATERIAL)
+#define STATE_FRONTFACE (STATE_MATERIAL + 1)
+
+#define STATE_HIGHEST (STATE_FRONTFACE)
 
 struct StateEntry
 {
@@ -485,8 +585,8 @@ struct StateEntry
     APPLYSTATEFUNC  apply;
 };
 
-/* Global state table */
-extern const struct StateEntry StateTable[];
+/* "Base" state table */
+extern const struct StateEntry FFPStateTable[];
 
 /* The new context manager that should deal with onscreen and offscreen rendering */
 struct WineD3DContext {
@@ -503,7 +603,8 @@ struct WineD3DContext {
     IWineD3DSurface         *surface;
     DWORD                   tid;    /* Thread ID which owns this context at the moment */
 
-    /* Stores some inforation about the context state for optimization */
+    /* Stores some information about the context state for optimization */
+    GLint                   last_draw_buffer;
     BOOL                    last_was_rhw;      /* true iff last draw_primitive was in xyzrhw mode */
     BOOL                    last_was_pshader;
     BOOL                    last_was_vshader;
@@ -515,23 +616,28 @@ struct WineD3DContext {
     GLenum                  untracked_materials[2];
     BOOL                    last_was_blit, last_was_ckey;
     char                    texShaderBumpMap;
+    BOOL                    fog_coord;
+
+    char                    *vshader_const_dirty, *pshader_const_dirty;
 
     /* The actual opengl context */
-    GLXContext              glCtx;
-    Drawable                drawable;
-    Display                 *display;
+    HGLRC                   glCtx;
+    HWND                    win_handle;
+    HDC                     hdc;
+    HPBUFFERARB             pbuffer;
     BOOL                    isPBuffer;
+    GLint                   aux_buffers;
 };
 
 typedef enum ContextUsage {
     CTXUSAGE_RESOURCELOAD       = 1,    /* Only loads textures: No State is applied */
-    CTXUSAGE_DRAWPRIM           = 2,    /* OpenGL states are set up for blitting DirectDraw surfacs */
+    CTXUSAGE_DRAWPRIM           = 2,    /* OpenGL states are set up for blitting DirectDraw surfaces */
     CTXUSAGE_BLIT               = 3,    /* OpenGL states are set up 3D drawing */
     CTXUSAGE_CLEAR              = 4,    /* Drawable and states are set up for clearing */
 } ContextUsage;
 
 void ActivateContext(IWineD3DDeviceImpl *device, IWineD3DSurface *target, ContextUsage usage);
-WineD3DContext *CreateContext(IWineD3DDeviceImpl *This, IWineD3DSurfaceImpl *target, Display *display, Window win);
+WineD3DContext *CreateContext(IWineD3DDeviceImpl *This, IWineD3DSurfaceImpl *target, HWND win, BOOL create_pbuffer, const WINED3DPRESENT_PARAMETERS *pPresentParms);
 void DestroyContext(IWineD3DDeviceImpl *This, WineD3DContext *context);
 void apply_fbo_state(IWineD3DDevice *iface);
 
@@ -556,6 +662,7 @@ struct PLIGHTINFOEL {
     LONG         glIndex;
     BOOL         changed;
     BOOL         enabledChanged;
+    BOOL         enabled;
 
     /* Converted parms to speed up swapping lights */
     float                         lightPosn[4];
@@ -569,19 +676,40 @@ struct PLIGHTINFOEL {
 /* The default light parameters */
 extern const WINED3DLIGHT WINED3D_default_light;
 
+typedef struct WineD3D_PixelFormat
+{
+    int iPixelFormat; /* WGL pixel format */
+    int iPixelType; /* WGL pixel type e.g. WGL_TYPE_RGBA_ARB, WGL_TYPE_RGBA_FLOAT_ARB or WGL_TYPE_COLORINDEX_ARB */
+    int redSize, greenSize, blueSize, alphaSize;
+    int depthSize, stencilSize;
+    BOOL windowDrawable;
+    BOOL pbufferDrawable;
+    BOOL doubleBuffer;
+    int auxBuffers;
+    int numSamples;
+} WineD3D_PixelFormat;
+
 /* The adapter structure */
+typedef struct GLPixelFormatDesc GLPixelFormatDesc;
 struct WineD3DAdapter
 {
+    UINT                    num;
+    BOOL                    opengl;
     POINT                   monitorPoint;
-    Display                 *display;
     WineD3D_GL_Info         gl_info;
     const char              *driver;
     const char              *description;
-    GLXFBConfig             *cfgs;
+    WCHAR                   DeviceName[CCHDEVICENAME]; /* DeviceName for use with e.g. ChangeDisplaySettings */
     int                     nCfgs;
+    WineD3D_PixelFormat     *cfgs;
+    BOOL                    brokenStencil; /* Set on cards which only offer mixed depth+stencil */
+    unsigned int            TextureRam; /* Amount of texture memory both video ram + AGP/TurboCache/HyperMemory/.. */
+    unsigned int            UsedTextureRam;
 };
 
 extern BOOL InitAdapters(void);
+extern BOOL initPixelFormats(WineD3D_GL_Info *gl_info);
+extern long WineD3DAdapterChangeGLRam(IWineD3DDeviceImpl *D3DDevice, long glram);
 
 /*****************************************************************************
  * High order patch management
@@ -598,6 +726,36 @@ struct WineD3DRectPatch
 };
 
 HRESULT tesselate_rectpatch(IWineD3DDeviceImpl *This, struct WineD3DRectPatch *patch);
+
+enum projection_types
+{
+    proj_none,
+    proj_count3,
+    proj_count4
+};
+
+/*****************************************************************************
+ * Fixed function pipeline replacements
+ */
+struct texture_stage_op
+{
+    WINED3DTEXTUREOP        cop, aop;
+    DWORD                   carg1, carg2, carg0;
+    DWORD                   aarg1, aarg2, aarg0;
+    WINED3DFORMAT           color_correction;
+    DWORD                   dst;
+    enum projection_types   projected;
+};
+
+struct ffp_desc
+{
+    struct texture_stage_op     op[MAX_TEXTURES];
+    struct list                 entry;
+};
+
+void gen_ffp_op(IWineD3DStateBlockImpl *stateblock,struct texture_stage_op op[MAX_TEXTURES]);
+struct ffp_desc *find_ffp_shader(struct list *shaders, struct texture_stage_op op[MAX_TEXTURES]);
+void add_ffp_shader(struct list *shaders, struct ffp_desc *desc);
 
 /*****************************************************************************
  * IWineD3D implementation structure
@@ -621,13 +779,8 @@ extern BOOL pbuffer_support;
 /* allocate one pbuffer per surface */
 extern BOOL pbuffer_per_surface;
 
-typedef struct ResourceList {
-    IWineD3DResource         *resource;
-    struct ResourceList      *next;
-} ResourceList;
-
 /* A helper function that dumps a resource list */
-void dumpResources(ResourceList *resources);
+void dumpResources(struct list *list);
 
 /*****************************************************************************
  * IWineD3DDevice implementation structure
@@ -656,6 +809,7 @@ struct IWineD3DDeviceImpl
     int ps_selected_mode;
     const shader_backend_t *shader_backend;
     hash_table_t *glsl_program_lookup;
+    void *shader_priv;
 
     /* To store */
     BOOL                    view_ident;        /* true iff view matrix is identity                */
@@ -675,13 +829,15 @@ struct IWineD3DDeviceImpl
     WINED3DDEVTYPE                  devType;
 
     IWineD3DSwapChain     **swapchains;
-    uint                    NumberOfSwapChains;
+    UINT                    NumberOfSwapChains;
 
-    ResourceList           *resources; /* a linked list to track resources created by the device */
+    struct list             resources; /* a linked list to track resources created by the device */
+    struct list             shaders;   /* a linked list to track shaders (pixel and vertex)      */
+    unsigned int            highest_dirty_ps_const, highest_dirty_vs_const;
 
     /* Render Target Support */
     IWineD3DSurface       **render_targets;
-    IWineD3DSurface        *depthStencilBuffer;
+    IWineD3DSurface        *auto_depth_stencil_buffer;
     IWineD3DSurface       **fbo_color_attachments;
     IWineD3DSurface        *fbo_depth_attachment;
 
@@ -692,8 +848,10 @@ struct IWineD3DDeviceImpl
     IWineD3DSwapChain      *lastActiveSwapChain;
 
     /* palettes texture management */
-    PALETTEENTRY            palettes[MAX_PALETTES][256];
+    UINT                    NumberOfPalettes;
+    PALETTEENTRY            **palettes;
     UINT                    currentPalette;
+    UINT                    paletteConversionShader;
 
     /* For rendering to a texture using glCopyTexImage */
     BOOL                    render_offscreen;
@@ -702,6 +860,7 @@ struct IWineD3DDeviceImpl
     GLuint                  src_fbo;
     GLuint                  dst_fbo;
     GLenum                  *draw_buffers;
+    GLuint                  depth_blt_texture;
 
     /* Cursor management */
     BOOL                    bCursorVisible;
@@ -713,6 +872,9 @@ struct IWineD3DDeviceImpl
     GLuint                  cursorTexture;
     BOOL                    haveHardwareCursor;
     HCURSOR                 hardwareCursor;
+
+    /* The Wine logo surface */
+    IWineD3DSurface        *logo_surface;
 
     /* Textures for when no other textures are mapped */
     UINT                          dummyTextureName[MAX_TEXTURES];
@@ -766,8 +928,11 @@ struct IWineD3DDeviceImpl
     struct WineD3DRectPatch *currentPatch;
 };
 
-extern const IWineD3DDeviceVtbl IWineD3DDevice_Vtbl;
+extern const IWineD3DDeviceVtbl IWineD3DDevice_Vtbl, IWineD3DDevice_DirtyConst_Vtbl;
 
+HRESULT IWineD3DDeviceImpl_ClearSurface(IWineD3DDeviceImpl *This,  IWineD3DSurfaceImpl *target, DWORD Count,
+                                        CONST WINED3DRECT* pRects, DWORD Flags, WINED3DCOLOR Color,
+                                        float Z, DWORD Stencil);
 void IWineD3DDeviceImpl_FindTexUnitMap(IWineD3DDeviceImpl *This);
 void IWineD3DDeviceImpl_MarkStateDirty(IWineD3DDeviceImpl *This, DWORD state);
 static inline BOOL isStateDirty(WineD3DContext *context, DWORD state) {
@@ -810,8 +975,10 @@ typedef struct IWineD3DResourceClass
     UINT                    size;
     DWORD                   usage;
     WINED3DFORMAT           format;
-    BYTE                   *allocatedMemory;
+    BYTE                   *allocatedMemory; /* Pointer to the real data location */
+    BYTE                   *heapMemory; /* Pointer to the HeapAlloced block of memory */
     struct list             privateData;
+    struct list             resource_list_entry;
 
 } IWineD3DResourceClass;
 
@@ -822,10 +989,23 @@ typedef struct IWineD3DResourceImpl
     IWineD3DResourceClass   resource;
 } IWineD3DResourceImpl;
 
+/* Tests show that the start address of resources is 32 byte aligned */
+#define RESOURCE_ALIGNMENT 32
 
 /*****************************************************************************
  * IWineD3DVertexBuffer implementation structure (extends IWineD3DResourceImpl)
  */
+enum vbo_conversion_type {
+    CONV_NONE               = 0,
+    CONV_D3DCOLOR           = 1,
+    CONV_POSITIONT          = 2,
+    CONV_FLOAT16_2          = 3 /* Also handles FLOAT16_4 */
+
+    /* TODO: Add tests and support for FLOAT16_4 POSITIONT, D3DCOLOR position, other
+     * fixed function semantics as D3DCOLOR or FLOAT16
+     */
+};
+
 typedef struct IWineD3DVertexBufferImpl
 {
     /* IUnknown & WineD3DResource Information     */
@@ -839,22 +1019,28 @@ typedef struct IWineD3DVertexBufferImpl
     GLuint                    vbo;
     BYTE                      Flags;
     LONG                      bindCount;
+    LONG                      vbo_size;
+    GLenum                    vbo_usage;
 
     UINT                      dirtystart, dirtyend;
     LONG                      lockcount;
 
     LONG                      declChanges, draws;
     /* Last description of the buffer */
-    WineDirect3DVertexStridedData strided;
+    DWORD                     stride;       /* 0 if no conversion               */
+    enum vbo_conversion_type  *conv_map;    /* NULL if no conversion            */
+
+    /* Extra load offsets, for FLOAT16 conversion */
+    DWORD                     *conv_shift;  /* NULL if no shifted conversion    */
+    DWORD                     conv_stride;  /* 0 if no shifted conversion       */
 } IWineD3DVertexBufferImpl;
 
 extern const IWineD3DVertexBufferVtbl IWineD3DVertexBuffer_Vtbl;
 
-#define VBFLAG_LOAD           0x01    /* Data is written from allocatedMemory to the VBO */
-#define VBFLAG_OPTIMIZED      0x02    /* Optimize has been called for the VB */
-#define VBFLAG_DIRTY          0x04    /* Buffer data has been modified */
-#define VBFLAG_HASDESC        0x08    /* A vertex description has been found */
-#define VBFLAG_VBOCREATEFAIL  0x10    /* An attempt to create a vbo has failed */
+#define VBFLAG_OPTIMIZED      0x01    /* Optimize has been called for the VB */
+#define VBFLAG_DIRTY          0x02    /* Buffer data has been modified */
+#define VBFLAG_HASDESC        0x04    /* A vertex description has been found */
+#define VBFLAG_CREATEVBO      0x08    /* Attempt to create a VBO next PreLoad */
 
 /*****************************************************************************
  * IWineD3DIndexBuffer implementation structure (extends IWineD3DResourceImpl)
@@ -897,11 +1083,6 @@ typedef enum winetexturestates {
     MAX_WINETEXTURESTATES        = 13,
 } winetexturestates;
 
-typedef struct Wined3dTextureStateMap {
-    CONST int state;
-    int function;
-} Wined3dTextureStateMap;
-
 /*****************************************************************************
  * IWineD3DBaseTexture implementation structure (extends IWineD3DResourceImpl)
  */
@@ -917,6 +1098,10 @@ typedef struct IWineD3DBaseTextureClass
     DWORD                   sampler;
     BOOL                    is_srgb;
     UINT                    srgb_mode_change_count;
+    WINED3DFORMAT           shader_conversion_group;
+    float                   pow2Matrix[16];
+    minMipLookup_t          *minMipLookup;
+    magLookup_t             *magLookup;
 } IWineD3DBaseTextureClass;
 
 typedef struct IWineD3DBaseTextureImpl
@@ -943,8 +1128,7 @@ typedef struct IWineD3DTextureImpl
     
     UINT                      width;
     UINT                      height;
-    float                     pow2scalingFactorX;
-    float                     pow2scalingFactorY;
+    UINT                      target;
 
 } IWineD3DTextureImpl;
 
@@ -964,8 +1148,6 @@ typedef struct IWineD3DCubeTextureImpl
     IWineD3DSurface          *surfaces[6][MAX_LEVELS];
 
     UINT                      edgeLength;
-    float                     pow2scalingFactor;
-
 } IWineD3DCubeTextureImpl;
 
 extern const IWineD3DCubeTextureVtbl IWineD3DCubeTexture_Vtbl;
@@ -1036,6 +1218,7 @@ typedef struct _WINED3DSURFACET_DESC
 typedef struct wineD3DSurface_DIB {
     HBITMAP DIBsection;
     void* bitmap_data;
+    UINT bitmap_size;
     HGDIOBJ holdbitmap;
     BOOL client_memory;
 } wineD3DSurface_DIB;
@@ -1083,14 +1266,14 @@ struct IWineD3DSurfaceImpl
     UINT                      pow2Width;
     UINT                      pow2Height;
 
+    /* A method to retrieve the drawable size. Not in the Vtable to make it changeable */
+    void (*get_drawable_size)(IWineD3DSurfaceImpl *This, UINT *width, UINT *height);
+
     /* Oversized texture */
     RECT                      glRect;
 
-#if 0
-    /* precalculated x and y scalings for texture coords */
-    float                     pow2scalingFactorX; /* =  (Width  / pow2Width ) */
-    float                     pow2scalingFactorY; /* =  (Height / pow2Height) */
-#endif
+    /* PBO */
+    GLuint                    pbo;
 
     RECT                      lockedRect;
     RECT                      dirtyRect;
@@ -1098,6 +1281,7 @@ struct IWineD3DSurfaceImpl
 #define MAXLOCKCOUNT          50 /* After this amount of locks do not free the sysmem copy */
 
     glDescriptor              glDescription;
+    BOOL                      srgb;
 
     /* For GetDC */
     wineD3DSurface_DIB        dib;
@@ -1123,54 +1307,52 @@ extern const IWineD3DSurfaceVtbl IWineD3DSurface_Vtbl;
 extern const IWineD3DSurfaceVtbl IWineGDISurface_Vtbl;
 
 /* Predeclare the shared Surface functions */
-HRESULT WINAPI IWineD3DSurfaceImpl_QueryInterface(IWineD3DSurface *iface, REFIID riid, LPVOID *ppobj);
-ULONG WINAPI IWineD3DSurfaceImpl_AddRef(IWineD3DSurface *iface);
-ULONG WINAPI IWineD3DSurfaceImpl_Release(IWineD3DSurface *iface);
-HRESULT WINAPI IWineD3DSurfaceImpl_GetParent(IWineD3DSurface *iface, IUnknown **pParent);
-HRESULT WINAPI IWineD3DSurfaceImpl_GetDevice(IWineD3DSurface *iface, IWineD3DDevice** ppDevice);
-HRESULT WINAPI IWineD3DSurfaceImpl_SetPrivateData(IWineD3DSurface *iface, REFGUID refguid, CONST void* pData, DWORD SizeOfData, DWORD Flags);
-HRESULT WINAPI IWineD3DSurfaceImpl_GetPrivateData(IWineD3DSurface *iface, REFGUID refguid, void* pData, DWORD* pSizeOfData);
-HRESULT WINAPI IWineD3DSurfaceImpl_FreePrivateData(IWineD3DSurface *iface, REFGUID refguid);
-DWORD   WINAPI IWineD3DSurfaceImpl_SetPriority(IWineD3DSurface *iface, DWORD PriorityNew);
-DWORD   WINAPI IWineD3DSurfaceImpl_GetPriority(IWineD3DSurface *iface);
-void    WINAPI IWineD3DSurfaceImpl_PreLoad(IWineD3DSurface *iface);
-WINED3DRESOURCETYPE WINAPI IWineD3DSurfaceImpl_GetType(IWineD3DSurface *iface);
-HRESULT WINAPI IWineD3DSurfaceImpl_GetContainer(IWineD3DSurface* iface, REFIID riid, void** ppContainer);
-HRESULT WINAPI IWineD3DSurfaceImpl_GetDesc(IWineD3DSurface *iface, WINED3DSURFACE_DESC *pDesc);
-HRESULT WINAPI IWineD3DSurfaceImpl_GetBltStatus(IWineD3DSurface *iface, DWORD Flags);
-HRESULT WINAPI IWineD3DSurfaceImpl_GetFlipStatus(IWineD3DSurface *iface, DWORD Flags);
-HRESULT WINAPI IWineD3DSurfaceImpl_IsLost(IWineD3DSurface *iface);
-HRESULT WINAPI IWineD3DSurfaceImpl_Restore(IWineD3DSurface *iface);
-HRESULT WINAPI IWineD3DSurfaceImpl_SetPixelFormat(IWineD3DSurface *iface, WINED3DFORMAT Format, BYTE *Surface, DWORD Size);
-HRESULT WINAPI IWineD3DSurfaceImpl_GetPalette(IWineD3DSurface *iface, IWineD3DPalette **Pal);
-HRESULT WINAPI IWineD3DSurfaceImpl_SetPalette(IWineD3DSurface *iface, IWineD3DPalette *Pal);
-HRESULT WINAPI IWineD3DSurfaceImpl_SetColorKey(IWineD3DSurface *iface, DWORD Flags, WINEDDCOLORKEY *CKey);
-HRESULT WINAPI IWineD3DSurfaceImpl_CleanDirtyRect(IWineD3DSurface *iface);
-extern HRESULT WINAPI IWineD3DSurfaceImpl_AddDirtyRect(IWineD3DSurface *iface, CONST RECT* pDirtyRect);
-HRESULT WINAPI IWineD3DSurfaceImpl_SetContainer(IWineD3DSurface *iface, IWineD3DBase *container);
-void WINAPI IWineD3DSurfaceImpl_SetGlTextureDesc(IWineD3DSurface *iface, UINT textureName, int target);
-void WINAPI IWineD3DSurfaceImpl_GetGlDesc(IWineD3DSurface *iface, glDescriptor **glDescription);
+HRESULT WINAPI IWineD3DBaseSurfaceImpl_QueryInterface(IWineD3DSurface *iface, REFIID riid, LPVOID *ppobj);
+ULONG WINAPI IWineD3DBaseSurfaceImpl_AddRef(IWineD3DSurface *iface);
+HRESULT WINAPI IWineD3DBaseSurfaceImpl_GetParent(IWineD3DSurface *iface, IUnknown **pParent);
+HRESULT WINAPI IWineD3DBaseSurfaceImpl_GetDevice(IWineD3DSurface *iface, IWineD3DDevice** ppDevice);
+HRESULT WINAPI IWineD3DBaseSurfaceImpl_SetPrivateData(IWineD3DSurface *iface, REFGUID refguid, CONST void* pData, DWORD SizeOfData, DWORD Flags);
+HRESULT WINAPI IWineD3DBaseSurfaceImpl_GetPrivateData(IWineD3DSurface *iface, REFGUID refguid, void* pData, DWORD* pSizeOfData);
+HRESULT WINAPI IWineD3DBaseSurfaceImpl_FreePrivateData(IWineD3DSurface *iface, REFGUID refguid);
+DWORD   WINAPI IWineD3DBaseSurfaceImpl_SetPriority(IWineD3DSurface *iface, DWORD PriorityNew);
+DWORD   WINAPI IWineD3DBaseSurfaceImpl_GetPriority(IWineD3DSurface *iface);
+WINED3DRESOURCETYPE WINAPI IWineD3DBaseSurfaceImpl_GetType(IWineD3DSurface *iface);
+HRESULT WINAPI IWineD3DBaseSurfaceImpl_GetContainer(IWineD3DSurface* iface, REFIID riid, void** ppContainer);
+HRESULT WINAPI IWineD3DBaseSurfaceImpl_GetDesc(IWineD3DSurface *iface, WINED3DSURFACE_DESC *pDesc);
+HRESULT WINAPI IWineD3DBaseSurfaceImpl_GetBltStatus(IWineD3DSurface *iface, DWORD Flags);
+HRESULT WINAPI IWineD3DBaseSurfaceImpl_GetFlipStatus(IWineD3DSurface *iface, DWORD Flags);
+HRESULT WINAPI IWineD3DBaseSurfaceImpl_IsLost(IWineD3DSurface *iface);
+HRESULT WINAPI IWineD3DBaseSurfaceImpl_Restore(IWineD3DSurface *iface);
+HRESULT WINAPI IWineD3DBaseSurfaceImpl_GetPalette(IWineD3DSurface *iface, IWineD3DPalette **Pal);
+HRESULT WINAPI IWineD3DBaseSurfaceImpl_SetPalette(IWineD3DSurface *iface, IWineD3DPalette *Pal);
+HRESULT WINAPI IWineD3DBaseSurfaceImpl_SetColorKey(IWineD3DSurface *iface, DWORD Flags, WINEDDCOLORKEY *CKey);
+HRESULT WINAPI IWineD3DBaseSurfaceImpl_SetContainer(IWineD3DSurface *iface, IWineD3DBase *container);
+DWORD WINAPI IWineD3DBaseSurfaceImpl_GetPitch(IWineD3DSurface *iface);
+HRESULT WINAPI IWineD3DBaseSurfaceImpl_RealizePalette(IWineD3DSurface *iface);
+HRESULT WINAPI IWineD3DBaseSurfaceImpl_SetOverlayPosition(IWineD3DSurface *iface, LONG X, LONG Y);
+HRESULT WINAPI IWineD3DBaseSurfaceImpl_GetOverlayPosition(IWineD3DSurface *iface, LONG *X, LONG *Y);
+HRESULT WINAPI IWineD3DBaseSurfaceImpl_UpdateOverlayZOrder(IWineD3DSurface *iface, DWORD Flags, IWineD3DSurface *Ref);
+HRESULT WINAPI IWineD3DBaseSurfaceImpl_UpdateOverlay(IWineD3DSurface *iface, RECT *SrcRect, IWineD3DSurface *DstSurface, RECT *DstRect, DWORD Flags, WINEDDOVERLAYFX *FX);
+HRESULT WINAPI IWineD3DBaseSurfaceImpl_SetClipper(IWineD3DSurface *iface, IWineD3DClipper *clipper);
+HRESULT WINAPI IWineD3DBaseSurfaceImpl_GetClipper(IWineD3DSurface *iface, IWineD3DClipper **clipper);
+HRESULT WINAPI IWineD3DBaseSurfaceImpl_SetFormat(IWineD3DSurface *iface, WINED3DFORMAT format);
+HRESULT IWineD3DBaseSurfaceImpl_CreateDIBSection(IWineD3DSurface *iface);
+HRESULT WINAPI IWineD3DBaseSurfaceImpl_Blt(IWineD3DSurface *iface, RECT *DestRect, IWineD3DSurface *SrcSurface, RECT *SrcRect, DWORD Flags, WINEDDBLTFX *DDBltFx, WINED3DTEXTUREFILTERTYPE Filter);
+HRESULT WINAPI IWineD3DBaseSurfaceImpl_BltFast(IWineD3DSurface *iface, DWORD dstx, DWORD dsty, IWineD3DSurface *Source, RECT *rsrc, DWORD trans);
+HRESULT WINAPI IWineD3DBaseSurfaceImpl_LockRect(IWineD3DSurface *iface, WINED3DLOCKED_RECT* pLockedRect, CONST RECT* pRect, DWORD Flags);
+void WINAPI IWineD3DBaseSurfaceImpl_BindTexture(IWineD3DSurface *iface);
+
 const void *WINAPI IWineD3DSurfaceImpl_GetData(IWineD3DSurface *iface);
-HRESULT WINAPI IWineD3DSurfaceImpl_SetFormat(IWineD3DSurface *iface, WINED3DFORMAT format);
-HRESULT WINAPI IWineGDISurfaceImpl_Blt(IWineD3DSurface *iface, RECT *DestRect, IWineD3DSurface *SrcSurface, RECT *SrcRect, DWORD Flags, WINEDDBLTFX *DDBltFx, WINED3DTEXTUREFILTERTYPE Filter);
-HRESULT WINAPI IWineGDISurfaceImpl_BltFast(IWineD3DSurface *iface, DWORD dstx, DWORD dsty, IWineD3DSurface *Source, RECT *rsrc, DWORD trans);
-HRESULT WINAPI IWineD3DSurfaceImpl_SetPalette(IWineD3DSurface *iface, IWineD3DPalette *Pal);
-HRESULT WINAPI IWineD3DSurfaceImpl_GetDC(IWineD3DSurface *iface, HDC *pHDC);
-HRESULT WINAPI IWineD3DSurfaceImpl_ReleaseDC(IWineD3DSurface *iface, HDC hDC);
-DWORD WINAPI IWineD3DSurfaceImpl_GetPitch(IWineD3DSurface *iface);
-HRESULT WINAPI IWineD3DSurfaceImpl_RealizePalette(IWineD3DSurface *iface);
-HRESULT WINAPI IWineD3DSurfaceImpl_SetMem(IWineD3DSurface *iface, void *Mem);
-HRESULT WINAPI IWineD3DSurfaceImpl_SetOverlayPosition(IWineD3DSurface *iface, LONG X, LONG Y);
-HRESULT WINAPI IWineD3DSurfaceImpl_GetOverlayPosition(IWineD3DSurface *iface, LONG *X, LONG *Y);
-HRESULT WINAPI IWineD3DSurfaceImpl_UpdateOverlayZOrder(IWineD3DSurface *iface, DWORD Flags, IWineD3DSurface *Ref);
-HRESULT WINAPI IWineD3DSurfaceImpl_UpdateOverlay(IWineD3DSurface *iface, RECT *SrcRect, IWineD3DSurface *DstSurface, RECT *DstRect, DWORD Flags, WINEDDOVERLAYFX *FX);
-HRESULT WINAPI IWineD3DSurfaceImpl_SetClipper(IWineD3DSurface *iface, IWineD3DClipper *clipper);
-HRESULT WINAPI IWineD3DSurfaceImpl_GetClipper(IWineD3DSurface *iface, IWineD3DClipper **clipper);
+
+void get_drawable_size_swapchain(IWineD3DSurfaceImpl *This, UINT *width, UINT *height);
+void get_drawable_size_backbuffer(IWineD3DSurfaceImpl *This, UINT *width, UINT *height);
+void get_drawable_size_pbuffer(IWineD3DSurfaceImpl *This, UINT *width, UINT *height);
+void get_drawable_size_fbo(IWineD3DSurfaceImpl *This, UINT *width, UINT *height);
 
 /* Surface flags: */
 #define SFLAG_OVERSIZE    0x00000001 /* Surface is bigger than gl size, blts only */
 #define SFLAG_CONVERTED   0x00000002 /* Converted for color keying or Palettized */
-#define SFLAG_DIBSECTION  0x00000004 /* Has a DIB section attached for getdc */
+#define SFLAG_DIBSECTION  0x00000004 /* Has a DIB section attached for GetDC */
 #define SFLAG_LOCKABLE    0x00000008 /* Surface can be locked */
 #define SFLAG_DISCARD     0x00000010 /* ??? */
 #define SFLAG_LOCKED      0x00000020 /* Surface is locked atm */
@@ -1186,6 +1368,8 @@ HRESULT WINAPI IWineD3DSurfaceImpl_GetClipper(IWineD3DSurface *iface, IWineD3DCl
 #define SFLAG_GLCKEY      0x00008000 /* The gl texture was created with a color key */
 #define SFLAG_CLIENT      0x00010000 /* GL_APPLE_client_storage is used on that texture */
 #define SFLAG_ALLOCATED   0x00020000 /* A gl texture is allocated for this surface */
+#define SFLAG_PBO         0x00040000 /* Has a PBO attached for speeding up data transfers for dynamically locked surfaces */
+#define SFLAG_NORMCOORD   0x00080000   /* Set if the GL texture coords are normalized(non-texture rectangle) */
 
 /* In some conditions the surface memory must not be freed:
  * SFLAG_OVERSIZE: Not all data can be kept in GL
@@ -1194,6 +1378,7 @@ HRESULT WINAPI IWineD3DSurfaceImpl_GetClipper(IWineD3DSurface *iface, IWineD3DCl
  * SFLAG_LOCKED: The app requires access to the surface data
  * SFLAG_DYNLOCK: Avoid freeing the data for performance
  * SFLAG_DYNCHANGE: Same reason as DYNLOCK
+ * SFLAG_PBO: PBOs don't use 'normal' memory. It is either allocated by the driver or must be NULL.
  * SFLAG_CLIENT: OpenGL uses our memory as backup
  */
 #define SFLAG_DONOTFREE  (SFLAG_OVERSIZE   | \
@@ -1203,13 +1388,53 @@ HRESULT WINAPI IWineD3DSurfaceImpl_GetClipper(IWineD3DSurface *iface, IWineD3DCl
                           SFLAG_DYNLOCK    | \
                           SFLAG_DYNCHANGE  | \
                           SFLAG_USERPTR    | \
+                          SFLAG_PBO        | \
                           SFLAG_CLIENT)
 
+#define SFLAG_LOCATIONS  (SFLAG_INSYSMEM   | \
+                          SFLAG_INTEXTURE  | \
+                          SFLAG_INDRAWABLE)
 BOOL CalculateTexRect(IWineD3DSurfaceImpl *This, RECT *Rect, float glTexCoord[4]);
+
+typedef enum {
+    NO_CONVERSION,
+    CONVERT_PALETTED,
+    CONVERT_PALETTED_CK,
+    CONVERT_CK_565,
+    CONVERT_CK_5551,
+    CONVERT_CK_4444,
+    CONVERT_CK_4444_ARGB,
+    CONVERT_CK_1555,
+    CONVERT_555,
+    CONVERT_CK_RGB24,
+    CONVERT_CK_8888,
+    CONVERT_CK_8888_ARGB,
+    CONVERT_RGB32_888,
+    CONVERT_V8U8,
+    CONVERT_L6V5U5,
+    CONVERT_X8L8V8U8,
+    CONVERT_Q8W8V8U8,
+    CONVERT_V16U16,
+    CONVERT_A4L4,
+    CONVERT_R32F,
+    CONVERT_R16F,
+    CONVERT_G16R16,
+} CONVERT_TYPES;
+
+HRESULT d3dfmt_get_conv(IWineD3DSurfaceImpl *This, BOOL need_alpha_ck, BOOL use_texturing, GLenum *format, GLenum *internal, GLenum *type, CONVERT_TYPES *convert, int *target_bpp, BOOL srgb_mode);
+
+BOOL palette9_changed(IWineD3DSurfaceImpl *This);
 
 /*****************************************************************************
  * IWineD3DVertexDeclaration implementation structure
  */
+typedef struct attrib_declaration {
+    DWORD usage;
+    DWORD idx;
+} attrib_declaration;
+
+#define MAX_ATTRIBS 16
+
 typedef struct IWineD3DVertexDeclarationImpl {
     /* IUnknown  Information */
     const IWineD3DVertexDeclarationVtbl *lpVtbl;
@@ -1220,6 +1445,15 @@ typedef struct IWineD3DVertexDeclarationImpl {
 
     WINED3DVERTEXELEMENT    *pDeclarationWine;
     UINT                    declarationWNumElements;
+
+    DWORD                   streams[MAX_STREAMS];
+    UINT                    num_streams;
+    BOOL                    position_transformed;
+    BOOL                    half_float_conv_needed;
+
+    /* Ordered array of declaration types that need swizzling in a vshader */
+    attrib_declaration      swizzled_attribs[MAX_ATTRIBS];
+    UINT                    num_swizzled_attribs;
 } IWineD3DVertexDeclarationImpl;
 
 extern const IWineD3DVertexDeclarationVtbl IWineD3DVertexDeclaration_Vtbl;
@@ -1262,6 +1496,11 @@ typedef struct {
     DWORD   idx[13];
 } constants_entry;
 
+struct StageState {
+    DWORD stage;
+    DWORD state;
+};
+
 struct IWineD3DStateBlockImpl
 {
     /* IUnknown fields */
@@ -1275,7 +1514,6 @@ struct IWineD3DStateBlockImpl
 
     /* Array indicating whether things have been set or changed */
     SAVEDSTATES               changed;
-    SAVEDSTATES               set;
     struct list               set_vconstantsF;
     struct list               set_pconstantsF;
 
@@ -1301,8 +1539,8 @@ struct IWineD3DStateBlockImpl
 
     /* Indices */
     IWineD3DIndexBuffer*      pIndexData;
-    UINT                      baseVertexIndex;
-    UINT                      loadBaseVertexIndex; /* non-indexed drawing needs 0 here, indexed baseVertexIndex */
+    INT                       baseVertexIndex;
+    INT                       loadBaseVertexIndex; /* non-indexed drawing needs 0 here, indexed baseVertexIndex */
 
     /* Transform */
     WINED3DMATRIX             transforms[HIGHEST_TRANSFORMSTATE + 1];
@@ -1349,6 +1587,28 @@ struct IWineD3DStateBlockImpl
 
     /* Scissor test rectangle */
     RECT                      scissorRect;
+
+    /* Contained state management */
+    DWORD                     contained_render_states[WINEHIGHEST_RENDER_STATE + 1];
+    unsigned int              num_contained_render_states;
+    DWORD                     contained_transform_states[HIGHEST_TRANSFORMSTATE + 1];
+    unsigned int              num_contained_transform_states;
+    DWORD                     contained_vs_consts_i[MAX_CONST_I];
+    unsigned int              num_contained_vs_consts_i;
+    DWORD                     contained_vs_consts_b[MAX_CONST_B];
+    unsigned int              num_contained_vs_consts_b;
+    DWORD                     *contained_vs_consts_f;
+    unsigned int              num_contained_vs_consts_f;
+    DWORD                     contained_ps_consts_i[MAX_CONST_I];
+    unsigned int              num_contained_ps_consts_i;
+    DWORD                     contained_ps_consts_b[MAX_CONST_B];
+    unsigned int              num_contained_ps_consts_b;
+    DWORD                     *contained_ps_consts_f;
+    unsigned int              num_contained_ps_consts_f;
+    struct StageState         contained_tss_states[MAX_TEXTURES * (WINED3D_HIGHEST_TEXTURE_STATE)];
+    unsigned int              num_contained_tss_states;
+    struct StageState         contained_sampler_states[MAX_COMBINED_SAMPLERS * WINED3D_HIGHEST_SAMPLER_STATE];
+    unsigned int              num_contained_sampler_states;
 };
 
 extern void stateblock_savedstates_set(
@@ -1367,6 +1627,15 @@ extern void stateblock_copy(
 
 extern const IWineD3DStateBlockVtbl IWineD3DStateBlock_Vtbl;
 
+/* Direct3D terminology with little modifications. We do not have an issued state
+ * because only the driver knows about it, but we have a created state because d3d
+ * allows GetData on a created issue, but opengl doesn't
+ */
+enum query_state {
+    QUERY_CREATED,
+    QUERY_SIGNALLED,
+    QUERY_BUILDING
+};
 /*****************************************************************************
  * IWineD3DQueryImpl implementation structure (extends IUnknown)
  */
@@ -1384,6 +1653,7 @@ typedef struct IWineD3DQueryImpl
 #endif
 
     /* IWineD3DQuery fields */
+    enum query_state         state;
     WINED3DQUERYTYPE         type;
     /* TODO: Think about using a IUnknown instead of a void* */
     void                     *extendedData;
@@ -1392,14 +1662,18 @@ typedef struct IWineD3DQueryImpl
 } IWineD3DQueryImpl;
 
 extern const IWineD3DQueryVtbl IWineD3DQuery_Vtbl;
+extern const IWineD3DQueryVtbl IWineD3DEventQuery_Vtbl;
+extern const IWineD3DQueryVtbl IWineD3DOcclusionQuery_Vtbl;
 
 /* Datastructures for IWineD3DQueryImpl.extendedData */
 typedef struct  WineQueryOcclusionData {
     GLuint  queryId;
+    WineD3DContext *ctx;
 } WineQueryOcclusionData;
 
 typedef struct  WineQueryEventData {
     GLuint  fenceId;
+    WineD3DContext *ctx;
 } WineQueryEventData;
 
 /*****************************************************************************
@@ -1430,7 +1704,6 @@ typedef struct IWineD3DSwapChainImpl
     unsigned int            num_contexts;
 
     HWND                    win_handle;
-    Window                  win;
 } IWineD3DSwapChainImpl;
 
 extern const IWineD3DSwapChainVtbl IWineD3DSwapChain_Vtbl;
@@ -1466,16 +1739,19 @@ const char *debug_d3ddegree(WINED3DDEGREETYPE order);
 GLenum StencilOp(DWORD op);
 GLenum CompareFunc(DWORD func);
 void   set_tex_op(IWineD3DDevice *iface, BOOL isAlpha, int Stage, WINED3DTEXTUREOP op, DWORD arg1, DWORD arg2, DWORD arg3);
-void   set_tex_op_nvrc(IWineD3DDevice *iface, BOOL is_alpha, int stage, WINED3DTEXTUREOP op, DWORD arg1, DWORD arg2, DWORD arg3, INT texture_idx);
-void   set_texture_matrix(const float *smat, DWORD flags, BOOL calculatedCoords);
+void   set_tex_op_nvrc(IWineD3DDevice *iface, BOOL is_alpha, int stage, WINED3DTEXTUREOP op, DWORD arg1, DWORD arg2, DWORD arg3, INT texture_idx, DWORD dst);
+void   set_texture_matrix(const float *smat, DWORD flags, BOOL calculatedCoords, BOOL transformed, DWORD coordtype);
+void texture_activate_dimensions(DWORD stage, IWineD3DStateBlockImpl *stateblock, WineD3DContext *context);
 
 void surface_set_compatible_renderbuffer(IWineD3DSurface *iface, unsigned int width, unsigned int height);
 GLenum surface_get_gl_buffer(IWineD3DSurface *iface, IWineD3DSwapChain *swapchain);
 
-int D3DFmtMakeGlCfg(WINED3DFORMAT BackBufferFormat, WINED3DFORMAT StencilBufferFormat, int *attribs, int* nAttribs, BOOL alternate);
+BOOL getColorBits(WINED3DFORMAT fmt, short *redSize, short *greenSize, short *blueSize, short *alphaSize, short *totalSize);
+BOOL getDepthStencilBits(WINED3DFORMAT fmt, short *depthSize, short *stencilSize);
 
 /* Math utils */
 void multiply_matrix(WINED3DMATRIX *dest, const WINED3DMATRIX *src1, const WINED3DMATRIX *src2);
+unsigned int count_bits(unsigned int mask);
 
 /*****************************************************************************
  * To enable calling of inherited functions, requires prototypes 
@@ -1495,6 +1771,7 @@ void multiply_matrix(WINED3DMATRIX *dest, const WINED3DMATRIX *src1, const WINED
     extern DWORD WINAPI IWineD3DResourceImpl_SetPriority(IWineD3DResource *iface, DWORD  PriorityNew);
     extern DWORD WINAPI IWineD3DResourceImpl_GetPriority(IWineD3DResource *iface);
     extern void WINAPI IWineD3DResourceImpl_PreLoad(IWineD3DResource *iface);
+    extern void WINAPI IWineD3DResourceImpl_UnLoad(IWineD3DResource *iface);
     extern WINED3DRESOURCETYPE WINAPI IWineD3DResourceImpl_GetType(IWineD3DResource *iface);
     /*** class static members ***/
     void IWineD3DResourceImpl_CleanUp(IWineD3DResource *iface);
@@ -1512,6 +1789,7 @@ void multiply_matrix(WINED3DMATRIX *dest, const WINED3DMATRIX *src1, const WINED
     extern DWORD WINAPI IWineD3DBaseTextureImpl_SetPriority(IWineD3DBaseTexture *iface, DWORD  PriorityNew);
     extern DWORD WINAPI IWineD3DBaseTextureImpl_GetPriority(IWineD3DBaseTexture *iface);
     extern void WINAPI IWineD3DBaseTextureImpl_PreLoad(IWineD3DBaseTexture *iface);
+    extern void WINAPI IWineD3DBaseTextureImpl_UnLoad(IWineD3DBaseTexture *iface);
     extern WINED3DRESOURCETYPE WINAPI IWineD3DBaseTextureImpl_GetType(IWineD3DBaseTexture *iface);
     /*** IWineD3DBaseTexture methods ***/
     extern DWORD WINAPI IWineD3DBaseTextureImpl_SetLOD(IWineD3DBaseTexture *iface, DWORD LODNew);
@@ -1531,7 +1809,6 @@ void multiply_matrix(WINED3DMATRIX *dest, const WINED3DMATRIX *src1, const WINED
     /*** class static members ***/
     void IWineD3DBaseTextureImpl_CleanUp(IWineD3DBaseTexture *iface);
 
-struct SHADER_OPCODE_ARG;
 typedef void (*SHADER_HANDLER) (struct SHADER_OPCODE_ARG*);
 
 /* Struct to maintain a list of GLSL shader programs and their associated pixel and
@@ -1543,6 +1820,15 @@ struct glsl_shader_prog_link {
     GLhandleARB             programId;
     GLhandleARB             *vuniformF_locations;
     GLhandleARB             *puniformF_locations;
+    GLhandleARB             vuniformI_locations[MAX_CONST_I];
+    GLhandleARB             puniformI_locations[MAX_CONST_I];
+    GLhandleARB             posFixup_location;
+    GLhandleARB             bumpenvmat_location[MAX_TEXTURES];
+    GLhandleARB             luminancescale_location[MAX_TEXTURES];
+    GLhandleARB             luminanceoffset_location[MAX_TEXTURES];
+    GLhandleARB             srgb_comparison_location;
+    GLhandleARB             srgb_mul_low_location;
+    GLhandleARB             ycorrection_location;
     GLhandleARB             vshader;
     GLhandleARB             pshader;
 };
@@ -1558,7 +1844,6 @@ typedef struct {
 #define MAX_REG_TEXCRD 8
 #define MAX_REG_INPUT 12
 #define MAX_REG_OUTPUT 12
-#define MAX_ATTRIBS 16
 #define MAX_CONST_I 16
 #define MAX_CONST_B 16
 
@@ -1586,27 +1871,22 @@ typedef struct shader_reg_maps {
     char packed_output[MAX_REG_OUTPUT];     /* vertex >= 3.0 */
     char attributes[MAX_ATTRIBS];           /* vertex */
     char labels[MAX_LABELS];                /* pixel, vertex */
+    DWORD texcoord_mask[MAX_REG_TEXCRD];    /* vertex < 3.0 */
 
     /* Sampler usage tokens 
      * Use 0 as default (bit 31 is always 1 on a valid token) */
     DWORD samplers[max(MAX_FRAGMENT_SAMPLERS, MAX_VERTEX_SAMPLERS)];
-    char bumpmat;
+    BOOL bumpmat[MAX_TEXTURES], luminanceparams[MAX_TEXTURES];
+    char usesnrm, vpos, usesdsy;
+    char usesrelconstF;
 
-    /* Whether or not a loop is used in this shader */
-    char loop;
+    /* Whether or not loops are used in this shader, and nesting depth */
+    unsigned loop_depth;
 
     /* Whether or not this shader uses fog */
     char fog;
 
 } shader_reg_maps;
-
-#define SHADER_PGMSIZE 65535
-typedef struct SHADER_BUFFER {
-    char* buffer;
-    unsigned int bsize;
-    unsigned int lineNo;
-    BOOL newline;
-} SHADER_BUFFER;
 
 /* Undocumented opcode controls */
 #define INST_CONTROLS_SHIFT 16
@@ -1667,18 +1947,21 @@ typedef struct SHADER_PARSE_STATE {
     DWORD texcoord_w[2];
 } SHADER_PARSE_STATE;
 
+#ifdef __GNUC__
+#define PRINTF_ATTR(fmt,args) __attribute__((format (printf,fmt,args)))
+#else
+#define PRINTF_ATTR(fmt,args)
+#endif
+
 /* Base Shader utility functions. 
  * (may move callers into the same file in the future) */
 extern int shader_addline(
     SHADER_BUFFER* buffer,
-    const char* fmt, ...);
+    const char* fmt, ...) PRINTF_ATTR(2,3);
 
 extern const SHADER_OPCODE* shader_get_opcode(
     IWineD3DBaseShader *iface, 
     const DWORD code);
-
-extern void shader_delete_constant_list(
-    struct list* clist);
 
 void delete_glsl_program_entry(IWineD3DDevice *iface, struct glsl_shader_prog_link *entry);
 
@@ -1719,10 +2002,22 @@ extern void pshader_hw_texm3x3pad(SHADER_OPCODE_ARG* arg);
 extern void pshader_hw_texm3x3tex(SHADER_OPCODE_ARG* arg);
 extern void pshader_hw_texm3x3spec(SHADER_OPCODE_ARG* arg);
 extern void pshader_hw_texm3x3vspec(SHADER_OPCODE_ARG* arg);
+extern void pshader_hw_texdepth(SHADER_OPCODE_ARG* arg);
+extern void pshader_hw_texkill(SHADER_OPCODE_ARG* arg);
+extern void pshader_hw_texdp3tex(SHADER_OPCODE_ARG* arg);
+extern void pshader_hw_texdp3(SHADER_OPCODE_ARG* arg);
+extern void pshader_hw_texm3x3(SHADER_OPCODE_ARG* arg);
+extern void pshader_hw_texm3x2depth(SHADER_OPCODE_ARG* arg);
+extern void pshader_hw_dp2add(SHADER_OPCODE_ARG* arg);
+extern void pshader_hw_texreg2rgb(SHADER_OPCODE_ARG* arg);
+
+/* ARB vertex / pixel shader common prototypes */
+extern void shader_hw_nrm(SHADER_OPCODE_ARG* arg);
+extern void shader_hw_sincos(SHADER_OPCODE_ARG* arg);
+extern void shader_hw_mnxn(SHADER_OPCODE_ARG* arg);
 
 /* ARB vertex shader prototypes */
 extern void vshader_hw_map2gl(SHADER_OPCODE_ARG* arg);
-extern void vshader_hw_mnxn(SHADER_OPCODE_ARG* arg);
 extern void vshader_hw_rsq_rcp(SHADER_OPCODE_ARG* arg);
 
 /* GLSL helper functions */
@@ -1765,6 +2060,7 @@ extern void shader_glsl_call(SHADER_OPCODE_ARG* arg);
 extern void shader_glsl_callnz(SHADER_OPCODE_ARG* arg);
 extern void shader_glsl_label(SHADER_OPCODE_ARG* arg);
 extern void shader_glsl_pow(SHADER_OPCODE_ARG* arg);
+extern void shader_glsl_log(SHADER_OPCODE_ARG* arg);
 extern void shader_glsl_texldl(SHADER_OPCODE_ARG* arg);
 
 /** GLSL Pixel Shader Prototypes */
@@ -1790,26 +2086,25 @@ extern void pshader_glsl_texreg2rgb(SHADER_OPCODE_ARG* arg);
 extern void pshader_glsl_dp2add(SHADER_OPCODE_ARG* arg);
 extern void pshader_glsl_input_pack(
    SHADER_BUFFER* buffer,
-   semantic* semantics_out);
-
-/** GLSL Vertex Shader Prototypes */
-extern void vshader_glsl_output_unpack(
-   SHADER_BUFFER* buffer,
-   semantic* semantics_out);
+   semantic* semantics_out,
+   IWineD3DPixelShader *iface);
 
 /*****************************************************************************
  * IDirect3DBaseShader implementation structure
  */
 typedef struct IWineD3DBaseShaderClass
 {
+    LONG                            ref;
     DWORD                           hex_version;
     SHADER_LIMITS                   limits;
     SHADER_PARSE_STATE              parse_state;
     CONST SHADER_OPCODE             *shader_ins;
-    CONST DWORD                     *function;
+    DWORD                          *function;
     UINT                            functionLength;
     GLuint                          prgId;
     BOOL                            is_compiled;
+    UINT                            cur_loop_depth, cur_loop_regno;
+    BOOL                            load_local_constsF;
 
     /* Type of shader backend */
     int shader_mode;
@@ -1823,19 +2118,34 @@ typedef struct IWineD3DBaseShaderClass
     struct list constantsI;
     shader_reg_maps reg_maps;
 
+    /* Pixel formats of sampled textures, for format conversion. This
+     * represents the formats found during compilation, it is not initialized
+     * on the first parser pass. It is needed to check if the shader
+     * needs recompilation to adjust the format conversion
+     */
+    WINED3DFORMAT       sampled_format[MAX_COMBINED_SAMPLERS];
+    UINT                sampled_samplers[MAX_COMBINED_SAMPLERS];
+    UINT                num_sampled_samplers;
+
+    UINT recompile_count;
+
     /* Pointer to the parent device */
     IWineD3DDevice *device;
+    struct list     shader_list_entry;
 
 } IWineD3DBaseShaderClass;
 
 typedef struct IWineD3DBaseShaderImpl {
     /* IUnknown */
     const IWineD3DBaseShaderVtbl    *lpVtbl;
-    LONG                            ref;
 
     /* IWineD3DBaseShader */
     IWineD3DBaseShaderClass         baseShader;
 } IWineD3DBaseShaderImpl;
+
+HRESULT  WINAPI IWineD3DBaseShaderImpl_QueryInterface(IWineD3DBaseShader *iface, REFIID riid, LPVOID *ppobj);
+ULONG  WINAPI IWineD3DBaseShaderImpl_AddRef(IWineD3DBaseShader *iface);
+ULONG  WINAPI IWineD3DBaseShaderImpl_Release(IWineD3DBaseShader *iface);
 
 extern HRESULT shader_get_registers_used(
     IWineD3DBaseShader *iface,
@@ -1895,6 +2205,10 @@ static inline int shader_get_regtype(const DWORD param) {
             ((param & WINED3DSP_REGTYPE_MASK2) >> WINED3DSP_REGTYPE_SHIFT2));
 }
 
+static inline int shader_get_writemask(const DWORD param) {
+    return param & WINED3DSP_WRITEMASK_ALL;
+}
+
 extern unsigned int shader_get_float_offset(const DWORD reg);
 
 static inline BOOL shader_is_pshader_version(DWORD token) {
@@ -1909,9 +2223,9 @@ static inline BOOL shader_is_comment(DWORD token) {
     return WINED3DSIO_COMMENT == (token & WINED3DSI_OPCODE_MASK);
 }
 
-/* TODO: vFace (ps_3_0) */
 static inline BOOL shader_is_scalar(DWORD param) {
     DWORD reg_type = shader_get_regtype(param);
+    DWORD reg_num;
 
     switch (reg_type) {
         case WINED3DSPR_RASTOUT:
@@ -1928,9 +2242,31 @@ static inline BOOL shader_is_scalar(DWORD param) {
         case WINED3DSPR_PREDICATE:  /* p0 */
             return TRUE;
 
+        case WINED3DSPR_MISCTYPE:
+            reg_num = param & WINED3DSP_REGNUM_MASK;
+            switch(reg_num) {
+                case 0: /* vPos */
+                    return FALSE;
+                case 1: /* vFace */
+                    return TRUE;
+                default:
+                    return FALSE;
+            }
+
         default:
             return FALSE;
     }
+}
+
+static inline BOOL shader_constant_is_local(IWineD3DBaseShaderImpl* This, DWORD reg) {
+    local_constant* lconst;
+
+    if(This->baseShader.load_local_constsF) return FALSE;
+    LIST_FOR_EACH_ENTRY(lconst, &This->baseShader.constantsF, local_constant, entry) {
+        if(lconst->idx == reg) return TRUE;
+    }
+    return FALSE;
+
 }
 
 /* Internally used shader constants. Applications can use constants 0 to GL_LIMITS(vshader_constantsF) - 1,
@@ -1945,7 +2281,6 @@ static inline BOOL shader_is_scalar(DWORD param) {
 typedef struct IWineD3DVertexShaderImpl {
     /* IUnknown parts*/   
     const IWineD3DVertexShaderVtbl *lpVtbl;
-    LONG                        ref;     /* Note: Ref counting not required */
 
     /* IWineD3DBaseShader */
     IWineD3DBaseShaderClass     baseShader;
@@ -1959,10 +2294,18 @@ typedef struct IWineD3DVertexShaderImpl {
     semantic semantics_in [MAX_ATTRIBS];
     semantic semantics_out [MAX_REG_OUTPUT];
 
-    /* run time datas...  */
+    /* Ordered array of attributes that are swizzled */
+    attrib_declaration          swizzled_attribs [MAX_ATTRIBS];
+    UINT                        num_swizzled_attribs;
+
+    /* run time data...  */
     VSHADERDATA                *data;
+    UINT                       min_rel_offset, max_rel_offset;
+    UINT                       rel_offset;
+
+    UINT                       recompile_count;
 #if 0 /* needs reworking */
-    /* run time datas */
+    /* run time data */
     VSHADERINPUTDATA input;
     VSHADEROUTPUTDATA output;
 #endif
@@ -1973,10 +2316,21 @@ extern const IWineD3DVertexShaderVtbl IWineD3DVertexShader_Vtbl;
 /*****************************************************************************
  * IDirect3DPixelShader implementation structure
  */
+
+enum vertexprocessing_mode {
+    fixedfunction,
+    vertexshader,
+    pretransformed
+};
+
+struct stb_const_desc {
+    char                    texunit;
+    UINT                    const_num;
+};
+
 typedef struct IWineD3DPixelShaderImpl {
     /* IUnknown parts */
     const IWineD3DPixelShaderVtbl *lpVtbl;
-    LONG                        ref;     /* Note: Ref counting not required */
 
     /* IWineD3DBaseShader */
     IWineD3DBaseShaderClass     baseShader;
@@ -1986,13 +2340,24 @@ typedef struct IWineD3DPixelShaderImpl {
 
     /* Pixel shader input semantics */
     semantic semantics_in [MAX_REG_INPUT];
+    DWORD                 input_reg_map[MAX_REG_INPUT];
+    BOOL                  input_reg_used[MAX_REG_INPUT];
 
     /* run time data */
     PSHADERDATA                *data;
 
     /* Some information about the shader behavior */
-    char                        needsbumpmat;
-    UINT                        bumpenvmatconst;
+    struct stb_const_desc       bumpenvmatconst[MAX_TEXTURES];
+    char                        numbumpenvmatconsts;
+    struct stb_const_desc       luminanceconst[MAX_TEXTURES];
+    char                        srgb_enabled;
+    char                        srgb_mode_hardcoded;
+    UINT                        srgb_low_const;
+    UINT                        srgb_cmp_const;
+    char                        vpos_uniform;
+    BOOL                        render_offscreen;
+    UINT                        height;
+    enum vertexprocessing_mode  vertexprocessing;
 
 #if 0 /* needs reworking */
     PSHADERINPUTDATA input;
@@ -2002,6 +2367,13 @@ typedef struct IWineD3DPixelShaderImpl {
 
 extern const SHADER_OPCODE IWineD3DPixelShaderImpl_shader_ins[];
 extern const IWineD3DPixelShaderVtbl IWineD3DPixelShader_Vtbl;
+
+/* sRGB correction constants */
+static const float srgb_cmp = 0.0031308;
+static const float srgb_mul_low = 12.92;
+static const float srgb_pow = 0.41666;
+static const float srgb_mul_high = 1.055;
+static const float srgb_sub_high = 0.055;
 
 /*****************************************************************************
  * IWineD3DPalette implementation structure
@@ -2037,11 +2409,13 @@ typedef struct {
     WINED3DFORMAT           format;
     DWORD                   alphaMask, redMask, greenMask, blueMask;
     UINT                    bpp;
+    short                   depthSize, stencilSize;
     BOOL                    isFourcc;
-    GLint                   glInternal, glGammaInternal, glFormat, glType;
-} PixelFormatDesc;
+} StaticPixelFormatDesc;
 
-const PixelFormatDesc *getFormatDescEntry(WINED3DFORMAT fmt);
+const StaticPixelFormatDesc *getFormatDescEntry(WINED3DFORMAT fmt,
+        WineD3D_GL_Info *gl_info,
+        const GlPixelFormatDesc **glDesc);
 
 static inline BOOL use_vs(IWineD3DDeviceImpl *device) {
     return (device->vs_selected_mode != SHADER_NONE
@@ -2057,6 +2431,5 @@ static inline BOOL use_ps(IWineD3DDeviceImpl *device) {
 }
 
 void stretch_rect_fbo(IWineD3DDevice *iface, IWineD3DSurface *src_surface, WINED3DRECT *src_rect,
-        IWineD3DSurface *dst_surface, WINED3DRECT *dst_rect, WINED3DTEXTUREFILTERTYPE filter, BOOL flip);
-
+        IWineD3DSurface *dst_surface, WINED3DRECT *dst_rect, const WINED3DTEXTUREFILTERTYPE filter, BOOL flip);
 #endif

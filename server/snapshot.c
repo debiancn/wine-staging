@@ -61,6 +61,7 @@ static const struct object_ops snapshot_ops =
 {
     sizeof(struct snapshot),      /* size */
     snapshot_dump,                /* dump */
+    no_get_type,                  /* get_type */
     no_add_queue,                 /* add_queue */
     NULL,                         /* remove_queue */
     NULL,                         /* signaled */
@@ -68,6 +69,8 @@ static const struct object_ops snapshot_ops =
     no_signal,                    /* signal */
     no_get_fd,                    /* get_fd */
     no_map_access,                /* map_access */
+    default_get_sd,               /* get_sd */
+    default_set_sd,               /* set_sd */
     no_lookup_name,               /* lookup_name */
     no_open_file,                 /* open_file */
     no_close_handle,              /* close_handle */

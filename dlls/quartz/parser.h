@@ -20,14 +20,15 @@
 
 typedef struct ParserImpl ParserImpl;
 
-typedef HRESULT (*PFN_PROCESS_SAMPLE) (LPVOID iface, IMediaSample * pSample);
+typedef HRESULT (*PFN_PROCESS_SAMPLE) (LPVOID iface, IMediaSample * pSample, DWORD_PTR cookie);
 typedef HRESULT (*PFN_QUERY_ACCEPT) (LPVOID iface, const AM_MEDIA_TYPE * pmt);
-typedef HRESULT (*PFN_PRE_CONNECT) (IPin * iface, IPin * pConnectPin);
+typedef HRESULT (*PFN_PRE_CONNECT) (IPin * iface, IPin * pConnectPin, ALLOCATOR_PROPERTIES *prop);
 typedef HRESULT (*PFN_CLEANUP) (LPVOID iface);
+typedef HRESULT (*PFN_DISCONNECT) (LPVOID iface);
 
 struct ParserImpl
 {
-    const IBaseFilterVtbl * lpVtbl;
+    const IBaseFilterVtbl *lpVtbl;
 
     LONG refCount;
     CRITICAL_SECTION csFilter;
@@ -35,12 +36,15 @@ struct ParserImpl
     REFERENCE_TIME rtStreamStart;
     IReferenceClock * pClock;
     PFN_CLEANUP fnCleanup;
+    PFN_DISCONNECT fnDisconnect;
     FILTER_INFO filterInfo;
     CLSID clsid;
 
     PullPin * pInputPin;
     IPin ** ppPins;
     ULONG cStreams;
+    DWORD lastpinchange;
+    MediaSeekingImpl mediaSeeking;
 };
 
 typedef struct Parser_OutputPin
@@ -48,12 +52,29 @@ typedef struct Parser_OutputPin
     OutputPin pin;
 
     AM_MEDIA_TYPE * pmt;
-    float fSamplesPerSec;
-    DWORD dwSamplesProcessed;
-    DWORD dwSampleSize;
-    DWORD dwLength;
-    MediaSeekingImpl mediaSeeking;
+    LONGLONG dwSamplesProcessed;
 } Parser_OutputPin;
 
-HRESULT Parser_AddPin(ParserImpl * This, PIN_INFO * piOutput, ALLOCATOR_PROPERTIES * props, AM_MEDIA_TYPE * amt, float fSamplesPerSec, DWORD dwSampleSize, DWORD dwLength);
-HRESULT Parser_Create(ParserImpl*, const CLSID*, PFN_PROCESS_SAMPLE, PFN_QUERY_ACCEPT, PFN_PRE_CONNECT, PFN_CLEANUP);
+extern HRESULT Parser_AddPin(ParserImpl * This, const PIN_INFO * piOutput, ALLOCATOR_PROPERTIES * props, const AM_MEDIA_TYPE * amt);
+
+extern HRESULT Parser_Create(ParserImpl*, const IBaseFilterVtbl *, const CLSID*, PFN_PROCESS_SAMPLE, PFN_QUERY_ACCEPT, PFN_PRE_CONNECT,
+                             PFN_CLEANUP, PFN_DISCONNECT, REQUESTPROC, STOPPROCESSPROC, CHANGEPROC stop, CHANGEPROC current, CHANGEPROC rate);
+
+/* Override the _Release function and call this when releasing */
+extern void Parser_Destroy(ParserImpl *This);
+
+extern HRESULT WINAPI Parser_QueryInterface(IBaseFilter * iface, REFIID riid, LPVOID * ppv);
+extern ULONG WINAPI Parser_AddRef(IBaseFilter * iface);
+extern ULONG WINAPI Parser_Release(IBaseFilter * iface);
+extern HRESULT WINAPI Parser_GetClassID(IBaseFilter * iface, CLSID * pClsid);
+extern HRESULT WINAPI Parser_Stop(IBaseFilter * iface);
+extern HRESULT WINAPI Parser_Pause(IBaseFilter * iface);
+extern HRESULT WINAPI Parser_Run(IBaseFilter * iface, REFERENCE_TIME tStart);
+extern HRESULT WINAPI Parser_GetState(IBaseFilter * iface, DWORD dwMilliSecsTimeout, FILTER_STATE *pState);
+extern HRESULT WINAPI Parser_SetSyncSource(IBaseFilter * iface, IReferenceClock *pClock);
+extern HRESULT WINAPI Parser_GetSyncSource(IBaseFilter * iface, IReferenceClock **ppClock);
+extern HRESULT WINAPI Parser_EnumPins(IBaseFilter * iface, IEnumPins **ppEnum);
+extern HRESULT WINAPI Parser_FindPin(IBaseFilter * iface, LPCWSTR Id, IPin **ppPin);
+extern HRESULT WINAPI Parser_QueryFilterInfo(IBaseFilter * iface, FILTER_INFO *pInfo);
+extern HRESULT WINAPI Parser_JoinFilterGraph(IBaseFilter * iface, IFilterGraph *pGraph, LPCWSTR pName);
+extern HRESULT WINAPI Parser_QueryVendorInfo(IBaseFilter * iface, LPWSTR *pVendorInfo);

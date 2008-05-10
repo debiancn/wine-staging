@@ -1,7 +1,7 @@
 /*
  * Program Manager
  *
- * Copyright 1997 Henrik Olsen <henrik@iaeste.dk>
+ * Copyright 2008 Jens Albretsen <jens@albretsen.dk>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -18,125 +18,222 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#define LANGUAGE_ID                  Da
-#define LANGUAGE_NUMBER              6
-#define LANGUAGE_MENU_ITEM           "&Dansk"
+LANGUAGE LANG_DANISH, SUBLANG_DEFAULT
 
 /* Menu */
 
-#define MENU_FILE                    "&Filer"
-#define MENU_FILE_NEW                "&Nyt programobjekt..."
-#define MENU_FILE_OPEN               "Å&bn\tEnter"
-#define MENU_FILE_MOVE               "&Flyt...\tF7"
-#define MENU_FILE_COPY               "K&opier...\tF8"
-#define MENU_FILE_DELETE             "&Slet\tDel"
-#define MENU_FILE_ATTRIBUTES         "&Programparametre...^IAlt+Enter"
-#define MENU_FILE_EXECUTE            "&Kør..."
-#define MENU_FILE_EXIT               "&Afslut Windows..."
+MAIN_MENU MENU
+{
+ POPUP "&Fil" {
+   MENUITEM "&Ny ...",              PM_NEW
+   MENUITEM "Åben\tEnter",             PM_OPEN
+   MENUITEM "&Flyt ...\tF7",             PM_MOVE,      GRAYED
+   MENUITEM "&Kopier ...\tF8",             PM_COPY,      GRAYED
+   MENUITEM "&Slet\tEntf",           PM_DELETE
+   MENUITEM "&Attributter ...\tAlt+Enter",       PM_ATTRIBUTES
+   MENUITEM SEPARATOR
+   MENUITEM "K&ør ...",          PM_EXECUTE
+   MENUITEM SEPARATOR
+   MENUITEM "A&fslut Wine ...",             PM_EXIT
+ }
+ POPUP "&Indstillinger" {
+   MENUITEM "&Auto arrangér",  PM_AUTO_ARRANGE
+   MENUITEM "&Minimér ved opstart",    PM_MIN_ON_RUN
+   MENUITEM "Gem ændringer ved af&slutting", PM_SAVE_SETTINGS
+ }
+ POPUP "&Vinduer" {
+   MENUITEM "&Overlappet\tShift+F5",       PM_OVERLAP
+   MENUITEM "&Side ved side\tShift+F4",  PM_SIDE_BY_SIDE
+   MENUITEM "Arrangér &ikoner",       PM_ARRANGE
+ }
 
-#define MENU_OPTIONS                 "&Indstillinger"
-#define MENU_OPTIONS_AUTO_ARRANGE    "&Arranger automatisk"
-#define MENU_OPTIONS_MIN_ON_RUN      "&Minimer ved brug"
-#define MENU_OPTIONS_SAVE_SETTINGS   "&Gem indstillinger ved afslutning"
+POPUP "&Hjælp" {
+   MENUITEM "&Indhold",         PM_CONTENTS
+   MENUITEM "&Søg ...",           PM_SEARCH
+   MENUITEM SEPARATOR
+   MENUITEM "&Hjælp til hjælp",     PM_HELPONHELP
+   MENUITEM "&Vejledning",         PM_TUTORIAL
+   MENUITEM SEPARATOR
 
-#define MENU_WINDOWS                 "&Vindue"
-#define MENU_WINDOWS_OVERLAP         "&Overlappet\tSkift+F5"
-#define MENU_WINDOWS_SIDE_BY_SIDE    "&Side om side\tSkift+F4"
-#define MENU_WINDOWS_ARRANGE         "&Arranger ikoner"
+   POPUP "&Information ..." {
+     MENUITEM "&Licens",        PM_LICENSE
+     MENUITEM "I&ngen Garanti",    PM_NO_WARRANTY
+     MENUITEM "&Om WINE",     PM_ABOUT_WINE
+   }
+ }
+}
 
-#define MENU_LANGUAGE                "&Sprog"
+/* Dialog `New' */
 
-#define MENU_HELP                    "&Hjælp"
-#define MENU_HELP_CONTENTS           "&Indhold"
-#define MENU_HELP_SEARCH             "&Søg efter hjælp om..."
-#define MENU_HELP_HELP_ON_HELP       "&Brug af Hjælp"
-#define MENU_HELP_TUTORIAL           "&Windows Selvstudium"
+DIALOG_NEW DIALOG 0, 0, 170, 65
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Ny"
+{
+RADIOBUTTON   "",                 PM_NEW_GROUP,    10, 15,  10, 15
+LTEXT         "Program&gruppe",   PM_NEW_GROUP,    20, 18,  80, 15
+RADIOBUTTON   "",                 PM_NEW_PROGRAM,  10, 35,  10, 15
+LTEXT         "&Program", PM_NEW_PROGRAM,  20, 38,  80, 15
+DEFPUSHBUTTON "OK",          IDOK,           105,  5,  60, 15, WS_TABSTOP
+PUSHBUTTON    "Annuller",      IDCANCEL,       105, 25,  60, 15, WS_TABSTOP
+PUSHBUTTON    "&Hjælp",        PM_HELP,        105, 45,  60, 15, WS_TABSTOP
+}
 
-#define MENU_INFO                    "&Om Programstyring..."
-#define MENU_INFO_LICENSE            "&Licens"
-#define MENU_INFO_NO_WARRANTY        "&Ingen Garenti"
-#define MENU_INFO_ABOUT_WINE         "&Om WINE"
+/* Dialog `Move' */
 
-/* Dialogs */
+DIALOG_MOVE DIALOG 0, 0, 250, 65
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Flyt program"
+{
+LTEXT         "Flyt program:",    IDIGNORE,            5,  5,  90, 15
+LTEXT         "",                     PM_PROGRAM,         95,  5,  90, 15
+LTEXT         "Fra gruppe:", IDIGNORE,            5, 13,  90, 15
+LTEXT         "",                     PM_FROM_GROUP,      95, 13,  90, 15
+LTEXT         "&Til gruppe:",   PM_TO_GROUP_TXT,     5, 28, 140, 15
+COMBOBOX                              PM_TO_GROUP,         5, 38, 140, 50, WS_TABSTOP | CBS_DROPDOWNLIST
+DEFPUSHBUTTON "OK",              IDOK,              185,  5,  60, 15, WS_TABSTOP
+PUSHBUTTON    "Annuller",          IDCANCEL,          185, 25,  60, 15, WS_TABSTOP
+PUSHBUTTON    "&Hjælp",            PM_HELP,           185, 45,  60, 15, WS_TABSTOP
+}
 
-#define DIALOG_OK                    "OK"
-#define DIALOG_CANCEL                "Annuller"
-#define DIALOG_BROWSE                "&Gennemse..."
-#define DIALOG_HELP                  "&Hjælp"
+/* Dialog `Copy' */
 
-#define DIALOG_NEW_CAPTION           "Nyt programobject"
-#define DIALOG_NEW_NEW               "Nyt"
-#define DIALOG_NEW_GROUP             "Program &gruppe"
-#define DIALOG_NEW_PROGRAM           "&Program"
+DIALOG_COPY DIALOG 0, 0, 250, 65
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Kopier program"
+{
+LTEXT         "Kopier program:",    IDIGNORE,            5,  5,  90, 15
+LTEXT         "",                     PM_PROGRAM,         95,  5,  90, 15
+LTEXT         "Fra gruppe:", IDIGNORE,            5, 13,  90, 15
+LTEXT         "",                     PM_FROM_GROUP,      95, 13,  90, 15
+LTEXT         "&Til gruppe:",   PM_TO_GROUP_TXT,     5, 28, 140, 15
+COMBOBOX                              PM_TO_GROUP,         5, 38, 140, 50, WS_TABSTOP | CBS_DROPDOWNLIST
+DEFPUSHBUTTON "OK",              IDOK,              185,  5,  60, 15, WS_TABSTOP
+PUSHBUTTON    "Annuller",          IDCANCEL,          185, 25,  60, 15, WS_TABSTOP
+PUSHBUTTON    "&Hjælp",            PM_HELP,           185, 45,  60, 15, WS_TABSTOP
+}
 
-#define DIALOG_MOVE_CAPTION          "Flyt programelement"
-#define DIALOG_MOVE_PROGRAM          "Flyt elementet:"
-#define DIALOG_MOVE_FROM_GROUP       "Fra gruppen:"
-#define DIALOG_MOVE_TO_GROUP         "&Til gruppen:"
+/* Dialog `Group attributes' */
 
-#define DIALOG_COPY_CAPTION          "Kopier programelement"
-#define DIALOG_COPY_PROGRAM          "Kopier elementet:"
-#define DIALOG_COPY_FROM_GROUP       DIALOG_MOVE_FROM_GROUP
-#define DIALOG_COPY_TO_GROUP         DIALOG_MOVE_TO_GROUP
+DIALOG_GROUP DIALOG 0, 0, 230, 65
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Programgruppeattributter"
+{
+LTEXT     "&Beskrivelse:", PM_DESCRIPTION_TXT,   05, 18,  50, 10
+EDITTEXT                            PM_DESCRIPTION,       60, 18,  90, 15, WS_TABSTOP
+LTEXT     "&Gruppefil:",        PM_FILE_TXT,          05, 38,  50, 10
+EDITTEXT                            PM_FILE,              60, 38,  90, 15, WS_TABSTOP
+DEFPUSHBUTTON "OK",            IDOK,                155,  5,  60, 15, WS_TABSTOP
+PUSHBUTTON    "Annuller",        IDCANCEL,            155, 25,  60, 15, WS_TABSTOP
+PUSHBUTTON    "&Hjælp",          PM_HELP,             155, 45,  60, 15, WS_TABSTOP
+}
 
-#define DIALOG_GROUP_CAPTION         "Gruppeparametre"
-#define DIALOG_GROUP_DESCRIPTION     "&Beskrivelse:"
-#define DIALOG_GROUP_FILE            "&Gruppefil:"
+/* Dialog `Program attributes' */
 
-#define DIALOG_PROGRAM_CAPTION       "Programparametre"
-#define DIALOG_PROGRAM_DESCRIPTION   DIALOG_GROUP_DESCRIPTION
-#define DIALOG_PROGRAM_COMMAND_LINE  "&Kommandolinje:"
-#define DIALOG_PROGRAM_DIRECTORY     "&Arbejdsbibliotek:"
-#define DIALOG_PROGRAM_HOT_KEY       "Genvejs&tast:"
-#define DIALOG_PROGRAM_SYMBOL        "Kør &minimeret"
-#define DIALOG_PROGRAM_OTHER_SYMBOL  "Skift &ikon..."
+DIALOG_PROGRAM DIALOG 0, 0, 250, 105
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Programattributter"
+{
+LTEXT         "&Beskrivelse:",  PM_DESCRIPTION_TXT,   05, 10,  60, 10
+EDITTEXT                                   PM_DESCRIPTION,       80, 10,  90, 15, WS_TABSTOP
+LTEXT         "&Kommandolinie:", PM_COMMAND_LINE_TXT,  05, 25,  60, 10
+EDITTEXT                                   PM_COMMAND_LINE,      80, 25,  90, 15, WS_TABSTOP
+LTEXT         "&Arbejdskatalog:",    PM_DIRECTORY_TXT,     05, 40,  60, 10
+EDITTEXT                                   PM_DIRECTORY,         80, 40,  90, 15, WS_TABSTOP
+LTEXT         "Taste kombination:",      PM_HOT_KEY_TXT,       05, 55,  60, 10
+EDITTEXT                                   PM_HOT_KEY,           80, 55,  90, 15, WS_TABSTOP
+ICON          "",                          PM_ICON,              20, 70
+CHECKBOX      "",                          PM_SYMBOL,            80, 75,  10, 10, WS_TABSTOP
+LTEXT         "&Minimér ved opstart",       IDIGNORE,             95, 75,  75, 10
+DEFPUSHBUTTON "OK",                   IDOK,                185,  5,  60, 15, WS_TABSTOP
+PUSHBUTTON    "Annuller",               IDCANCEL,            185, 25,  60, 15, WS_TABSTOP
+PUSHBUTTON    "&Gennemse ...",               PM_BROWSE,           185, 45,  60, 15, WS_TABSTOP
+PUSHBUTTON    "Ændre &ikon ...", PM_OTHER_SYMBOL,     185, 65,  60, 15, WS_TABSTOP
+PUSHBUTTON    "&Hjælp",                 PM_HELP,             185, 85,  60, 15, WS_TABSTOP
+}
 
-#define DIALOG_SYMBOL_CAPTION        "Skift ikon"
-#define DIALOG_SYMBOL_FILE           "&Filnavn:"
-#define DIALOG_SYMBOL_CURRENT        "&Nuværende ikon:"
+/* Dialog `Symbol' */
 
-#define DIALOG_EXECUTE_CAPTION       "Kør"
-#define DIALOG_EXECUTE_COMMAND_LINE  DIALOG_PROGRAM_COMMAND_LINE
-#define DIALOG_EXECUTE_SYMBOL        DIALOG_PROGRAM_SYMBOL
+DIALOG_SYMBOL DIALOG 0, 0, 200, 85
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Ændre ikon"
+{
+LTEXT     "&Filnavn:",    PM_ICON_FILE_TXT,    5, 15,  40, 10
+EDITTEXT                         PM_ICON_FILE,       45, 15,  85, 15, WS_TABSTOP
+LTEXT     "Gældende &ikon:", PM_SYMBOL_LIST_TXT,  5, 30, 125, 10
+COMBOBOX                         PM_SYMBOL_LIST,      5, 40, 125, 50,
+   CBS_DROPDOWNLIST | CBS_AUTOHSCROLL | CBS_OWNERDRAWFIXED | WS_TABSTOP
+DEFPUSHBUTTON "OK",         IDOK,              135,  5,  60, 15, WS_TABSTOP
+PUSHBUTTON    "Annuller",     IDCANCEL,          135, 25,  60, 15, WS_TABSTOP
+PUSHBUTTON    "&Gennemse ...",    PM_BROWSE,         135, 45,  60, 15, WS_TABSTOP
+PUSHBUTTON    "&Hjælp",       PM_HELP,           135, 65,  60, 15, WS_TABSTOP
+}
+
+/* Dialog `Execute' */
+
+DIALOG_EXECUTE DIALOG 0, 0, 200, 85
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Kør program"
+{
+LTEXT     "&Kommandolinie:", IDIGNORE,   05, 15, 120, 10
+EDITTEXT                               PM_COMMAND, 05, 25, 120, 15, WS_TABSTOP
+CHECKBOX      "",                      PM_SYMBOL,  05, 45,  10, 10, WS_TABSTOP
+LTEXT         "&Minimér ved opstart",   IDIGNORE,   20, 45, 120, 10
+DEFPUSHBUTTON "OK",               IDOK,      135,  5,  60, 15, WS_TABSTOP
+PUSHBUTTON    "Annuller",           IDCANCEL,  135, 25,  60, 15, WS_TABSTOP
+PUSHBUTTON    "&Gennemse ...",          PM_BROWSE, 135, 45,  60, 15, WS_TABSTOP
+PUSHBUTTON    "&Hjælp",             PM_HELP,   135, 65,  60, 15, WS_TABSTOP
+}
 
 /* Strings */
 
-#define STRING_PROGRAM_MANAGER            "Programstyring"
-#define STRING_ERROR                      "FEJL"
-#define STRING_WARNING                    "ADVARSEL"
-#define STRING_INFO                       "Information"
-#define STRING_DELETE                     "Slet"
-#define STRING_DELETE_GROUP_s             "Slet gruppe `%s' ?"
-#define STRING_DELETE_PROGRAM_s           "Slet program `%s' ?"
-#define STRING_NOT_IMPLEMENTED            "Ikke implementeret."
-#define STRING_FILE_READ_ERROR_s          "Kan ikke læse filen `%s'"
-#define STRING_FILE_WRITE_ERROR_s         "Kan ikke skrive filen `%s'"
+STRINGTABLE DISCARDABLE
+{
+IDS_PROGRAM_MANAGER,		"Programbehandling"
+IDS_ERROR,			"FEIL"
+IDS_WARNING,			"ADVARSEL"
+IDS_INFO,			"Information"
+IDS_DELETE,			"Slet"
+IDS_DELETE_GROUP_s,		"Slet gruppen '%s'?"
+IDS_DELETE_PROGRAM_s,		"Slet programmet '%s'?"
+IDS_NOT_IMPLEMENTED,		"Ikke implementeret"
+IDS_FILE_READ_ERROR_s,		"Fejl ved læsing af '%s'."
+IDS_FILE_WRITE_ERROR_s,		"Fejl ved skrivning til '%s'."
+IDS_GRPFILE_READ_ERROR_s,	"\
+Kunne ikke ?pne gruppefilen '%s'.\n\
+Vil du pr?ve mer?"
+IDS_OUT_OF_MEMORY,		"Ikke nok hukommelse."
+IDS_WINHELP_ERROR,		"hjælp er ikke tilgjengelig."
+IDS_UNKNOWN_FEATURE_s,		"Ukendt feature i '%s'"
+IDS_FILE_NOT_OVERWRITTEN_s,	"Filen '%s' fandtes allerede, og blev ikke overskrevet."
+IDS_SAVE_GROUP_AS_s,		"Gem gruppen som '%s' for at undgå at overskrive de originale filer."
+IDS_NO_HOT_KEY,			"Ingen"
+IDS_ALL_FILES,			"Alle filer (*.*)"
+IDS_PROGRAMS,			"Programmer"
+IDS_LIBRARIES_DLL,		"Biblioteker (*.dll)"
+IDS_SYMBOL_FILES,		"Ikon filer"
+IDS_SYMBOLS_ICO,		"Ikoner (*.ico)"
+}
 
-#define STRING_GRPFILE_READ_ERROR_s       "\
-Kan ikke åbne gruppefilen '%s'.\n\
-Ønsker du, at Programstyring i fremtiden stadig skal prøve at indlæse den?"
+STRINGTABLE DISCARDABLE
+{
+IDS_LICENSE_CAPTION,            "LICENS"
+IDS_LICENSE,
+"Dette biblioteket er fri software; du kan redistribuere det  \
+og/eller ændre det under vilkårene i «GNU Lesser General Public \
+License», udgivet af the Free Software Foundation; enten \
+version 2.1 af Licensen, eller (hvis du ønsker det) en nyere version.\n\
+Dette bibliotek distribueres i håb om at det er nyttig, \
+men UDEN ENHVER GARANTI; ikke engang en udtrykt garanti for \
+HANDELSDYGTIGHED eller EGNETHED FOR ET SPECIELT FORMÅL. Se «GNU \
+Lesser General Public License» for flere detaljer.\n\
+Du skal have modtaget et eksemplar af «GNU Lesser General Public \
+License» sammen med dette bibliotek; hvis ikke, skriv til: the Free Software \
+Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA"
 
-#define STRING_OUT_OF_MEMORY              "\
-Der er ikke nok hukommelse til at udføre denne operation.\n\
-Afslut et eller flere aktive programmer for at frigøre hukommelse, \
-og prøv så igen."
-
-#define STRING_WINHELP_ERROR              "\
-Kan ikke vise information fra Hjælp."
-
-#define STRING_UNKNOWN_FEATURE_s          "Ukendt indhold i %s"
-#define STRING_FILE_NOT_OVERWRITTEN_s     "\
-Filen `%s' findes. Ikke overskrevet."
-
-#define STRING_SAVE_GROUP_AS_s            "\
-Gem gruppen som `%s' for at undgå at overskrive originale filer"
-
-#define STRING_NO_HOT_KEY                 "Ingen"
-
-#define STRING_ALL_FILES                  "Alle filer (*.*)"
-#define STRING_PROGRAMS                   "Programmer"
-#define STRING_LIBRARIES_DLL              "Biblioteksfiler (*.dll)"
-#define STRING_SYMBOL_FILES               "Ikonfiler"
-#define STRING_SYMBOLS_ICO                "Ikoner (*.ico)"
-
-#include "Xx.rc"
+IDS_WARRANTY_CAPTION, "INGEN GARANTI"
+IDS_WARRANTY,
+"Dette biblioteket distribueres i det håb at det er nyttig, \
+men UDEN ENHVER GARANTI; ikke engang en udtrykt garantien for \
+HANDELSDYGTIGHED eller EGNETHED FOR ET SPECIELT FORMÅL. Se «GNU \
+Lesser General Public License» for flere detaljer."
+}

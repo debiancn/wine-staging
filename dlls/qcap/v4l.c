@@ -73,7 +73,7 @@ WINE_DEFAULT_DEBUG_CHANNEL(qcap_v4l);
 
 #ifdef HAVE_LINUX_VIDEODEV_H
 
-typedef void (* Renderer)(Capture *, LPBYTE bufferin, LPBYTE stream);
+typedef void (* Renderer)(const Capture *, LPBYTE bufferin, const BYTE *stream);
 
 struct _Capture
 {
@@ -111,8 +111,8 @@ struct renderlist
     Renderer renderer;
 };
 
-static void renderer_RGB(Capture *capBox, LPBYTE bufferin, LPBYTE stream);
-static void renderer_YUV(Capture *capBox, LPBYTE bufferin, LPBYTE stream);
+static void renderer_RGB(const Capture *capBox, LPBYTE bufferin, const BYTE *stream);
+static void renderer_YUV(const Capture *capBox, LPBYTE bufferin, const BYTE *stream);
 
 static const struct renderlist renderlist_V4l[] = {
     {  0, "NULL renderer",               NULL },
@@ -279,7 +279,7 @@ HRESULT qcap_driver_set_format(Capture *capBox, AM_MEDIA_TYPE * mT)
     return S_OK;
 }
 
-HRESULT qcap_driver_get_format(Capture *capBox, AM_MEDIA_TYPE ** mT)
+HRESULT qcap_driver_get_format(const Capture *capBox, AM_MEDIA_TYPE ** mT)
 {
     VIDEOINFOHEADER *vi;
 
@@ -293,9 +293,9 @@ HRESULT qcap_driver_get_format(Capture *capBox, AM_MEDIA_TYPE ** mT)
         CoTaskMemFree(mT[0]);
         return E_OUTOFMEMORY;
     }
-    memcpy(&mT[0]->majortype, &MEDIATYPE_Video, sizeof(GUID));
-    memcpy(&mT[0]->subtype, &MEDIASUBTYPE_RGB24, sizeof(GUID));
-    memcpy(&mT[0]->formattype, &FORMAT_VideoInfo, sizeof(GUID));
+    mT[0]->majortype = MEDIATYPE_Video;
+    mT[0]->subtype = MEDIASUBTYPE_RGB24;
+    mT[0]->formattype = FORMAT_VideoInfo;
     mT[0]->bFixedSizeSamples = TRUE;
     mT[0]->bTemporalCompression = FALSE;
     mT[0]->pUnk = NULL;
@@ -412,7 +412,7 @@ HRESULT qcap_driver_set_prop(Capture *capBox, long Property, long lValue, long F
     return S_OK;
 }
 
-static void renderer_RGB(Capture *capBox, LPBYTE bufferin, LPBYTE stream)
+static void renderer_RGB(const Capture *capBox, LPBYTE bufferin, const BYTE *stream)
 {
     int depth = renderlist_V4l[capBox->pict.palette].depth;
     int size = capBox->height * capBox->width * depth / 8;
@@ -443,7 +443,7 @@ static void renderer_RGB(Capture *capBox, LPBYTE bufferin, LPBYTE stream)
     }
 }
 
-static void renderer_YUV(Capture *capBox, LPBYTE bufferin, LPBYTE stream)
+static void renderer_YUV(const Capture *capBox, LPBYTE bufferin, const BYTE *stream)
 {
     enum YUV_Format format;
 
@@ -478,7 +478,7 @@ static void renderer_YUV(Capture *capBox, LPBYTE bufferin, LPBYTE stream)
     YUV_To_RGB24(format, bufferin, stream, capBox->width, capBox->height);
 }
 
-static void Resize(Capture * capBox, LPBYTE output, LPBYTE input)
+static void Resize(const Capture * capBox, LPBYTE output, const BYTE *input)
 {
     /* the whole image needs to be reversed,
        because the dibs are messed up in windows */
@@ -893,11 +893,11 @@ Capture * qcap_driver_init( IPin *pOut, USHORT card )
 
     TRACE("format: %d bits - %d x %d\n", capBox->bitDepth, capBox->width, capBox->height);
 
-    return (Capture*) capBox;
+    return capBox;
 
 error:
     if (capBox)
-        qcap_driver_destroy( (Capture*) capBox );
+        qcap_driver_destroy( capBox );
 
     return NULL;
 }
@@ -927,7 +927,7 @@ HRESULT qcap_driver_set_format(Capture *capBox, AM_MEDIA_TYPE * mT)
     FAIL_WITH_ERR;
 }
 
-HRESULT qcap_driver_get_format(Capture *capBox, AM_MEDIA_TYPE ** mT)
+HRESULT qcap_driver_get_format(const Capture *capBox, AM_MEDIA_TYPE ** mT)
 {
     FAIL_WITH_ERR;
 }

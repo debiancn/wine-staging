@@ -27,9 +27,9 @@
 
 #include "windef.h"
 #include "winbase.h"
+#include "winternl.h"
 #include "wine/winuser16.h"
 #include "excpt.h"
-#include "thread.h"
 #include "wine/debug.h"
 #include "kernel_private.h"
 #include "kernel16_private.h"
@@ -769,13 +769,12 @@ DWORD __wine_emulate_instruction( EXCEPTION_RECORD *rec, CONTEXT86 *context )
             break;  /* Unable to emulate it */
 
         case 0xcd: /* int <XX> */
-            if (wine_ldt_is_system(context->SegCs)) break;  /* don't emulate it in 32-bit code */
             if (!winedos.EmulateInterruptPM) load_winedos();
             if (winedos.EmulateInterruptPM)
             {
                 context->Eip += prefixlen + 2;
-                winedos.EmulateInterruptPM( context, instr[1] );
-                return ExceptionContinueExecution;
+                if (winedos.EmulateInterruptPM( context, instr[1] )) return ExceptionContinueExecution;
+                context->Eip -= prefixlen + 2;  /* restore eip */
             }
             break;  /* Unable to emulate it */
 
@@ -852,16 +851,16 @@ DWORD __wine_emulate_instruction( EXCEPTION_RECORD *rec, CONTEXT86 *context )
             return ExceptionContinueExecution;
 
         case 0xfa: /* cli */
-            NtCurrentTeb()->dpmi_vif = 0;
+            get_vm86_teb_info()->dpmi_vif = 0;
             context->Eip += prefixlen + 1;
             return ExceptionContinueExecution;
 
         case 0xfb: /* sti */
-            NtCurrentTeb()->dpmi_vif = 1;
+            get_vm86_teb_info()->dpmi_vif = 1;
             context->Eip += prefixlen + 1;
-            if (NtCurrentTeb()->vm86_pending)
+            if (get_vm86_teb_info()->vm86_pending)
             {
-                NtCurrentTeb()->vm86_pending = 0;
+                get_vm86_teb_info()->vm86_pending = 0;
                 rec->ExceptionCode = EXCEPTION_VM86_STI;
                 break; /* Handle the pending event. */
             }

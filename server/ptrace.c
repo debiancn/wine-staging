@@ -35,6 +35,10 @@
 #ifdef HAVE_SYS_WAIT_H
 # include <sys/wait.h>
 #endif
+#ifdef HAVE_SYS_THR_H
+# include <sys/ucontext.h>
+# include <sys/thr.h>
+#endif
 #include <unistd.h>
 
 #include "ntstatus.h"
@@ -156,8 +160,17 @@ void sigchld_callback(void)
     }
 }
 
-/* return the Unix pid to use in ptrace calls for a given thread */
+/* return the Unix pid to use in ptrace calls for a given process */
 static int get_ptrace_pid( struct thread *thread )
+{
+#ifdef linux  /* linux always uses thread id */
+    if (thread->unix_tid != -1) return thread->unix_tid;
+#endif
+    return thread->unix_pid;
+}
+
+/* return the Unix tid to use in ptrace calls for a given thread */
+static int get_ptrace_tid( struct thread *thread )
 {
     if (thread->unix_tid != -1) return thread->unix_tid;
     return thread->unix_pid;
@@ -197,9 +210,8 @@ static int wait4_thread( struct thread *thread, int signal )
 /* send a signal to a specific thread */
 static inline int tkill( int tgid, int pid, int sig )
 {
-    int ret = -ENOSYS;
-
 #ifdef __linux__
+    int ret = -ENOSYS;
 # ifdef __i386__
     __asm__( "pushl %%ebx\n\t"
              "movl %2,%%ebx\n\t"
@@ -218,11 +230,15 @@ static inline int tkill( int tgid, int pid, int sig )
     __asm__( "syscall" : "=a" (ret)
              : "0" (200) /*SYS_tkill*/, "D" (pid), "S" (sig) );
 # endif
-#endif  /* __linux__ */
-
     if (ret >= 0) return ret;
     errno = -ret;
     return -1;
+#elif defined(__FreeBSD__) && defined(HAVE_THR_KILL2)
+    return thr_kill2( tgid, pid, sig );
+#else
+    errno = ENOSYS;
+    return -1;
+#endif
 }
 
 /* initialize the process tracing mechanism */
@@ -501,7 +517,7 @@ void get_selector_entry( struct thread *thread, int entry, unsigned int *base,
 /* retrieve the thread x86 registers */
 void get_thread_context( struct thread *thread, CONTEXT *context, unsigned int flags )
 {
-    int i, pid = get_ptrace_pid(thread);
+    int i, pid = get_ptrace_tid(thread);
     long data[8];
 
     /* all other regs are handled on the client side */
@@ -534,7 +550,7 @@ done:
 /* set the thread x86 registers */
 void set_thread_context( struct thread *thread, const CONTEXT *context, unsigned int flags )
 {
-    int pid = get_ptrace_pid( thread );
+    int pid = get_ptrace_tid( thread );
 
     /* all other regs are handled on the client side */
     assert( (flags | CONTEXT_i386) == CONTEXT_DEBUG_REGISTERS );
@@ -568,7 +584,7 @@ void set_thread_context( struct thread *thread, const CONTEXT *context, unsigned
 /* retrieve the thread x86 registers */
 void get_thread_context( struct thread *thread, CONTEXT *context, unsigned int flags )
 {
-    int pid = get_ptrace_pid(thread);
+    int pid = get_ptrace_tid(thread);
     struct dbreg dbregs;
 
     /* all other regs are handled on the client side */
@@ -603,7 +619,7 @@ void get_thread_context( struct thread *thread, CONTEXT *context, unsigned int f
 /* set the thread x86 registers */
 void set_thread_context( struct thread *thread, const CONTEXT *context, unsigned int flags )
 {
-    int pid = get_ptrace_pid(thread);
+    int pid = get_ptrace_tid(thread);
     struct dbreg dbregs;
 
     /* all other regs are handled on the client side */

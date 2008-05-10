@@ -7,12 +7,12 @@ APPMODE   = -mconsole
 IMPORTS   = msi ole32 advapi32 user32 kernel32
 
 C_SRCS = \
-	msiexec.c
+	msiexec.c \
+	service.c
 
 RC_SRCS = rsrc.rc
-RC_BINSRC = rsrc.rc
-RC_BINARIES = \
-	msiexec.ico
+
+SVG_SRCS = msiexec.svg
 
 @MAKE_PROG_RULES@
 

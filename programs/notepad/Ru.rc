@@ -18,7 +18,9 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-MAIN_MENU MENU LANGUAGE LANG_RUSSIAN, SUBLANG_DEFAULT
+LANGUAGE LANG_RUSSIAN, SUBLANG_DEFAULT
+
+MAIN_MENU MENU
 {
  POPUP "&Файл" {
   MENUITEM "Созд&ать\tCtrl+N",           CMD_NEW
@@ -26,9 +28,9 @@ MAIN_MENU MENU LANGUAGE LANG_RUSSIAN, SUBLANG_DEFAULT
   MENUITEM "&Сохранить\tCtrl+S",             CMD_SAVE
   MENUITEM "Сохранить &как...",       CMD_SAVE_AS
   MENUITEM SEPARATOR
+  MENUITEM "&Печатать...\tCtrl+P",      CMD_PRINT
   MENUITEM "Пара&метры страницы...",    CMD_PAGE_SETUP
   MENUITEM "&Настройка принтера...", CMD_PRINTER_SETUP
-  MENUITEM "&Печатать...\tCtrl+P",            CMD_PRINT
   MENUITEM SEPARATOR
   MENUITEM "В&ыход",             CMD_EXIT
  }
@@ -55,18 +57,13 @@ POPUP "&Справка" {
   MENUITEM "&Поиск...",        CMD_HELP_SEARCH
   MENUITEM "&Использование справки",     CMD_HELP_ON_HELP
   MENUITEM SEPARATOR
-  POPUP "&Сведения" {
-   MENUITEM "&Лицензия...",         CMD_LICENSE
-   MENUITEM "&БЕЗ ГАРАНТИЙ...",     CMD_NO_WARRANTY
-   MENUITEM "&O Wine...",      CMD_ABOUT_WINE
-  }
+  MENUITEM "&About Notepad...", CMD_HELP_ABOUT_NOTEPAD
  }
 }
 
 /* Dialog `Page setup' */
 
 DIALOG_PAGESETUP DIALOG 0, 0, 225, 95
-LANGUAGE LANG_RUSSIAN, SUBLANG_DEFAULT
 STYLE DS_MODALFRAME | WS_CAPTION | WS_SYSMENU
 FONT 8, "MS Shell Dlg"
 CAPTION "Параметры страницы"
@@ -91,7 +88,7 @@ PUSHBUTTON    "Отмена",     IDCANCEL,               180, 21, 40, 15, WS_TABSTOP
 PUSHBUTTON    "&Справка",       IDHELP,                180, 39, 40, 15, WS_TABSTOP
 }
 
-STRINGTABLE DISCARDABLE LANGUAGE LANG_RUSSIAN, SUBLANG_DEFAULT
+STRINGTABLE DISCARDABLE
 {
 STRING_PAGESETUP_HEADERVALUE,   "&f"
 STRING_PAGESETUP_FOOTERVALUE,   "Страница &p"

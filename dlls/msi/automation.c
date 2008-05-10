@@ -30,6 +30,7 @@
 #include "msipriv.h"
 #include "activscp.h"
 #include "oleauto.h"
+#include "shlwapi.h"
 #include "wine/debug.h"
 #include "wine/unicode.h"
 
@@ -37,6 +38,9 @@
 #include "msiserver_dispids.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(msi);
+
+#define REG_INDEX_CLASSES_ROOT 0
+#define REG_INDEX_DYN_DATA 6
 
 /*
  * AutomationObject - "base" class for all automation objects. For each interface, we implement Invoke function
@@ -149,7 +153,7 @@ HRESULT load_type_info(IDispatch *iface, ITypeInfo **pptinfo, REFIID clsid, LCID
 
 /* Create the automation object, placing the result in the pointer ppObj. The automation object is created
  * with the appropriate clsid and invocation function. */
-HRESULT create_automation_object(MSIHANDLE msiHandle, IUnknown *pUnkOuter, LPVOID *ppObj, REFIID clsid,
+static HRESULT create_automation_object(MSIHANDLE msiHandle, IUnknown *pUnkOuter, LPVOID *ppObj, REFIID clsid,
             HRESULT (STDMETHODCALLTYPE *funcInvoke)(AutomationObject*,DISPID,REFIID,LCID,WORD,DISPPARAMS*,
                                                     VARIANT*,EXCEPINFO*,UINT*),
                                  void (STDMETHODCALLTYPE *funcFree)(AutomationObject*),
@@ -190,7 +194,7 @@ HRESULT create_automation_object(MSIHANDLE msiHandle, IUnknown *pUnkOuter, LPVOI
 }
 
 /* Create a list enumerator, placing the result in the pointer ppObj.  */
-HRESULT create_list_enumerator(IUnknown *pUnkOuter, LPVOID *ppObj, AutomationObject *pObj, ULONG ulPos)
+static HRESULT create_list_enumerator(IUnknown *pUnkOuter, LPVOID *ppObj, AutomationObject *pObj, ULONG ulPos)
 {
     ListEnumerator *object;
 
@@ -282,6 +286,7 @@ static ULONG WINAPI AutomationObject_Release(IDispatch* iface)
     if (!ref)
     {
         if (This->funcFree) This->funcFree(This);
+        ITypeInfo_Release(This->iTypeInfo);
         MsiCloseHandle(This->msiHandle);
         HeapFree(GetProcessHeap(), 0, This);
     }
@@ -426,8 +431,8 @@ static HRESULT WINAPI AutomationObject_Invoke(
 
             memset(pExcepInfo, 0, sizeof(EXCEPINFO));
             pExcepInfo->wCode = 1000;
-            pExcepInfo->bstrSource = szExceptionSource;
-            pExcepInfo->bstrDescription = szExceptionDescription;
+            pExcepInfo->bstrSource = SysAllocString(szExceptionSource);
+            pExcepInfo->bstrDescription = SysAllocString(szExceptionDescription);
             hr = DISP_E_EXCEPTION;
         }
     }
@@ -682,7 +687,6 @@ static HRESULT WINAPI ListEnumerator_Clone(IEnumVARIANT* iface, IEnumVARIANT **p
         return hr;
     }
 
-    IUnknown_AddRef(*ppEnum);
     return S_OK;
 }
 
@@ -704,7 +708,7 @@ static const struct IEnumVARIANTVtbl ListEnumerator_Vtbl =
 /* Helper function that copies a passed parameter instead of using VariantChangeType like the actual DispGetParam.
    This function is only for VARIANT type parameters that have several types that cannot be properly discriminated
    using DispGetParam/VariantChangeType. */
-HRESULT WINAPI DispGetParam_CopyOnly(
+static HRESULT WINAPI DispGetParam_CopyOnly(
         DISPPARAMS *pdispparams, /* [in] Parameter list */
         UINT        *position,    /* [in] Position of parameter to copy in pdispparams; on return will contain calculated position */
         VARIANT    *pvarResult)  /* [out] Destination for resulting variant */
@@ -997,10 +1001,7 @@ static HRESULT WINAPI ListImpl_Invoke(
              if (wFlags & DISPATCH_METHOD) {
                  V_VT(pVarResult) = VT_UNKNOWN;
                  if (SUCCEEDED(hr = create_list_enumerator(NULL, (LPVOID *)&pUnk, This, 0)))
-                 {
-                     IUnknown_AddRef(pUnk);
                      V_UNKNOWN(pVarResult) = pUnk;
-                 }
                  else
                      ERR("Failed to create IEnumVARIANT object, hresult 0x%08x\n", hr);
              }
@@ -1086,10 +1087,7 @@ static HRESULT WINAPI ViewImpl_Invoke(
                 if ((ret = MsiViewFetch(This->msiHandle, &msiHandle)) == ERROR_SUCCESS)
                 {
                     if (SUCCEEDED(hr = create_automation_object(msiHandle, NULL, (LPVOID*)&pDispatch, &DIID_Record, RecordImpl_Invoke, NULL, 0)))
-                    {
-                        IDispatch_AddRef(pDispatch);
                         V_DISPATCH(pVarResult) = pDispatch;
-                    }
                     else
                         ERR("Failed to create Record object, hresult 0x%08x\n", hr);
                 }
@@ -1174,10 +1172,7 @@ static HRESULT WINAPI DatabaseImpl_Invoke(
                 {
                     hr = create_automation_object(msiHandle, NULL, (LPVOID *)&pDispatch, &DIID_SummaryInfo, SummaryInfoImpl_Invoke, NULL, 0);
                     if (SUCCEEDED(hr))
-                    {
-                        IDispatch_AddRef(pDispatch);
                         V_DISPATCH(pVarResult) = pDispatch;
-                    }
                     else
                         ERR("Failed to create SummaryInfo object: 0x%08x\n", hr);
                 }
@@ -1199,10 +1194,7 @@ static HRESULT WINAPI DatabaseImpl_Invoke(
                 if ((ret = MsiDatabaseOpenViewW(This->msiHandle, V_BSTR(&varg0), &msiHandle)) == ERROR_SUCCESS)
                 {
                     if (SUCCEEDED(hr = create_automation_object(msiHandle, NULL, (LPVOID*)&pDispatch, &DIID_View, ViewImpl_Invoke, NULL, 0)))
-                    {
-                        IDispatch_AddRef(pDispatch);
                         V_DISPATCH(pVarResult) = pDispatch;
-                    }
                     else
                         ERR("Failed to create View object, hresult 0x%08x\n", hr);
                 }
@@ -1332,10 +1324,7 @@ static HRESULT WINAPI SessionImpl_Invoke(
                 if ((msiHandle = MsiGetActiveDatabase(This->msiHandle)))
                 {
                     if (SUCCEEDED(hr = create_automation_object(msiHandle, NULL, (LPVOID*)&pDispatch, &DIID_Database, DatabaseImpl_Invoke, NULL, 0)))
-                    {
-                        IDispatch_AddRef(pDispatch);
                         V_DISPATCH(pVarResult) = pDispatch;
-                    }
                     else
                         ERR("Failed to create Database object, hresult 0x%08x\n", hr);
                 }
@@ -1549,6 +1538,7 @@ static HRESULT WINAPI InstallerImpl_Invoke(
     HRESULT hr;
     LPWSTR szString = NULL;
     DWORD dwSize = 0;
+    INSTALLUILEVEL ui;
 
     VariantInit(&varg0);
     VariantInit(&varg1);
@@ -1565,10 +1555,7 @@ static HRESULT WINAPI InstallerImpl_Invoke(
                 if ((msiHandle = MsiCreateRecord(V_I4(&varg0))))
                 {
                     if (SUCCEEDED(hr = create_automation_object(msiHandle, NULL, (LPVOID*)&pDispatch, &DIID_Record, RecordImpl_Invoke, NULL, 0)))
-                    {
-                        IDispatch_AddRef(pDispatch);
                         V_DISPATCH(pVarResult) = pDispatch;
-                    }
                     else
                         ERR("Failed to create Record object, hresult 0x%08x\n", hr);
                 }
@@ -1596,10 +1583,7 @@ static HRESULT WINAPI InstallerImpl_Invoke(
                 if ((ret = MsiOpenPackageExW(V_BSTR(&varg0), V_I4(&varg1), &msiHandle)) == ERROR_SUCCESS)
                 {
                     if (SUCCEEDED(hr = create_session(msiHandle, (IDispatch *)This, &pDispatch)))
-                    {
-                        IDispatch_AddRef(pDispatch);
                         V_DISPATCH(pVarResult) = pDispatch;
-                    }
                     else
                         ERR("Failed to create Session object, hresult 0x%08x\n", hr);
                 }
@@ -1632,10 +1616,7 @@ static HRESULT WINAPI InstallerImpl_Invoke(
                     hr = create_automation_object(msiHandle, NULL, (LPVOID *)&pDispatch,
                                                   &DIID_Database, DatabaseImpl_Invoke, NULL, 0);
                     if (SUCCEEDED(hr))
-                    {
-                        IDispatch_AddRef(pDispatch);
                         V_DISPATCH(pVarResult) = pDispatch;
-                    }
                     else
                         ERR("Failed to create Database object: 0x%08x\n", hr);
                 }
@@ -1646,6 +1627,31 @@ static HRESULT WINAPI InstallerImpl_Invoke(
                     ERR("MsiOpenDatabase returned %d\n", ret);
                     return DISP_E_EXCEPTION;
                 }
+            }
+            else return DISP_E_MEMBERNOTFOUND;
+            break;
+
+        case DISPID_INSTALLER_UILEVEL:
+            if (wFlags & DISPATCH_PROPERTYPUT)
+            {
+                hr = DispGetParam(pDispParams, 0, VT_I4, &varg0, puArgErr);
+                if (FAILED(hr)) return hr;
+                if ((ui = MsiSetInternalUI(V_I4(&varg0), NULL) == INSTALLUILEVEL_NOCHANGE))
+                {
+                    ERR("MsiSetInternalUI failed\n");
+                    return DISP_E_EXCEPTION;
+                }
+            }
+            else if (wFlags & DISPATCH_PROPERTYGET)
+            {
+                if ((ui = MsiSetInternalUI(INSTALLUILEVEL_NOCHANGE, NULL) == INSTALLUILEVEL_NOCHANGE))
+                {
+                    ERR("MsiSetInternalUI failed\n");
+                    return DISP_E_EXCEPTION;
+                }
+
+                V_VT(pVarResult) = VT_I4;
+                V_I4(pVarResult) = ui;
             }
             else return DISP_E_MEMBERNOTFOUND;
             break;
@@ -1672,6 +1678,26 @@ static HRESULT WINAPI InstallerImpl_Invoke(
             else return DISP_E_MEMBERNOTFOUND;
             break;
 
+        case DISPID_INSTALLER_VERSION:
+            if (wFlags & DISPATCH_PROPERTYGET) {
+                DLLVERSIONINFO verinfo;
+                WCHAR version[MAX_PATH];
+
+                static const WCHAR format[] = {'%','d','.','%','d','.','%','d','.','%','d',0};
+
+                verinfo.cbSize = sizeof(DLLVERSIONINFO);
+                hr = DllGetVersion(&verinfo);
+                if (FAILED(hr)) return hr;
+
+                sprintfW(version, format, verinfo.dwMajorVersion, verinfo.dwMinorVersion,
+                         verinfo.dwBuildNumber, verinfo.dwPlatformID);
+
+                V_VT(pVarResult) = VT_BSTR;
+                V_BSTR(pVarResult) = SysAllocString(version);
+            }
+            else return DISP_E_MEMBERNOTFOUND;
+            break;
+
         case DISPID_INSTALLER_REGISTRYVALUE:
             if (wFlags & DISPATCH_METHOD) {
                 HKEY hkey;
@@ -1688,6 +1714,11 @@ static HRESULT WINAPI InstallerImpl_Invoke(
                     VariantClear(&varg1);
                     return hr;
                 }
+
+                if (V_I4(&varg0) >= REG_INDEX_CLASSES_ROOT &&
+                    V_I4(&varg0) <= REG_INDEX_DYN_DATA)
+                    V_I4(&varg0) |= (UINT)HKEY_CLASSES_ROOT;
+
                 ret = RegOpenKeyW((HKEY)V_I4(&varg0), V_BSTR(&varg1), &hkey);
 
                 /* Third parameter can be VT_EMPTY, VT_I4, or VT_BSTR */
@@ -1820,7 +1851,6 @@ static HRESULT WINAPI InstallerImpl_Invoke(
                 V_VT(pVarResult) = VT_DISPATCH;
                 if (SUCCEEDED(hr = create_automation_object(0, NULL, (LPVOID*)&pDispatch, &DIID_StringList, ListImpl_Invoke, ListImpl_Free, sizeof(ListData))))
                 {
-                    IDispatch_AddRef(pDispatch);
                     V_DISPATCH(pVarResult) = pDispatch;
 
                     /* Save product strings */
@@ -1867,7 +1897,6 @@ static HRESULT WINAPI InstallerImpl_Invoke(
                 V_VT(pVarResult) = VT_DISPATCH;
                 if (SUCCEEDED(hr = create_automation_object(0, NULL, (LPVOID*)&pDispatch, &DIID_StringList, ListImpl_Invoke, ListImpl_Free, sizeof(ListData))))
                 {
-                    IDispatch_AddRef(pDispatch);
                     V_DISPATCH(pVarResult) = pDispatch;
 
                     /* Save product strings */

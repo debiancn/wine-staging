@@ -56,7 +56,7 @@ static IDirect3DDevice9 *init_d3d9(HMODULE d3d9_handle)
 
     if(FAILED(hr))
     {
-        trace("could not create device, IDirect3D9_CreateDevice returned %#x\n", hr);
+        skip("could not create device, IDirect3D9_CreateDevice returned %#x\n", hr);
         return NULL;
     }
 
@@ -106,7 +106,6 @@ static void test_cube_texture_from_pool(IDirect3DDevice9 *device_ptr, DWORD caps
     HRESULT hr;
 
     hr = IDirect3DDevice9_CreateCubeTexture(device_ptr, 512, 1, 0, D3DFMT_X8R8G8B8, pool, &texture_ptr, NULL);
-    trace("pool=%d hr=0x%.8x\n", pool, hr);
 
     if((caps & D3DPTEXTURECAPS_CUBEMAP) || !need_cap)
         ok(SUCCEEDED(hr), "hr=0x%.8x\n", hr);
@@ -116,14 +115,125 @@ static void test_cube_texture_from_pool(IDirect3DDevice9 *device_ptr, DWORD caps
     if(texture_ptr) IDirect3DCubeTexture9_Release(texture_ptr);
 }
 
+static void test_cube_texture_mipmap_gen(IDirect3DDevice9 *device_ptr)
+{
+    IDirect3DCubeTexture9 *texture_ptr = NULL;
+    IDirect3D9 *d3d9;
+    HRESULT hr;
+
+    hr = IDirect3DDevice9_GetDirect3D(device_ptr, &d3d9);
+    ok(hr == D3D_OK, "IDirect3DDevice9_GetDirect3D returned 0x%08x\n", hr);
+
+    hr = IDirect3D9_CheckDeviceFormat(d3d9, 0, D3DDEVTYPE_HAL, D3DFMT_X8R8G8B8,
+                                      D3DUSAGE_AUTOGENMIPMAP,
+                                      D3DRTYPE_CUBETEXTURE, D3DFMT_X8R8G8B8);
+    if(FAILED(hr))
+    {
+        skip("No cube mipmap generation support\n");
+        return;
+    }
+
+    /* testing shows that autogenmipmap and rendertarget are mutually exclusive options */
+    hr = IDirect3DDevice9_CreateCubeTexture(device_ptr, 64, 0, (D3DUSAGE_RENDERTARGET |
+                                            D3DUSAGE_AUTOGENMIPMAP), D3DFMT_X8R8G8B8,
+                                            D3DPOOL_MANAGED, &texture_ptr, 0);
+    ok(hr == D3DERR_INVALIDCALL, "IDirect3DDevice9_CreateTexture returned 0x%08x, expected 0x%08x\n",
+       hr, D3DERR_INVALIDCALL);
+    if (texture_ptr) IDirect3DCubeTexture9_Release(texture_ptr);
+    texture_ptr = NULL;
+
+    hr = IDirect3DDevice9_CreateCubeTexture(device_ptr, 64, 0,
+                                            D3DUSAGE_AUTOGENMIPMAP, D3DFMT_X8R8G8B8,
+                                            D3DPOOL_MANAGED, &texture_ptr, 0);
+    ok(hr == D3D_OK, "IDirect3DDevice9_CreateTexture failed (0x%08x)\n", hr);
+    if (texture_ptr) IDirect3DCubeTexture9_Release(texture_ptr);
+    texture_ptr = NULL;
+}
+
 static void test_cube_textures(IDirect3DDevice9 *device_ptr, DWORD caps)
 {
-    trace("texture caps: 0x%.8x\n", caps);
-
     test_cube_texture_from_pool(device_ptr, caps, D3DPOOL_DEFAULT, TRUE);
     test_cube_texture_from_pool(device_ptr, caps, D3DPOOL_MANAGED, TRUE);
     test_cube_texture_from_pool(device_ptr, caps, D3DPOOL_SYSTEMMEM, TRUE);
     test_cube_texture_from_pool(device_ptr, caps, D3DPOOL_SCRATCH, FALSE);
+    test_cube_texture_mipmap_gen(device_ptr);
+}
+
+static void test_mipmap_gen(IDirect3DDevice9 *device)
+{
+    HRESULT hr;
+    IDirect3D9 *d3d9;
+    IDirect3DTexture9 *texture = NULL;
+    IDirect3DSurface9 *surface;
+    DWORD levels;
+    D3DSURFACE_DESC desc;
+    int i;
+    D3DLOCKED_RECT lr;
+
+    hr = IDirect3DDevice9_GetDirect3D(device, &d3d9);
+    ok(hr == D3D_OK, "IDirect3DDevice9_GetDirect3D returned %#x\n", hr);
+
+    hr = IDirect3D9_CheckDeviceFormat(d3d9, 0, D3DDEVTYPE_HAL, D3DFMT_X8R8G8B8,
+                                      D3DUSAGE_AUTOGENMIPMAP,
+                                      D3DRTYPE_TEXTURE, D3DFMT_X8R8G8B8);
+    if(FAILED(hr))
+    {
+        skip("No mipmap generation support\n");
+        return;
+    }
+
+    /* testing shows that autogenmipmap and rendertarget are mutually exclusive options */
+    hr = IDirect3DDevice9_CreateTexture(device, 64, 64, 0, (D3DUSAGE_RENDERTARGET |
+                                        D3DUSAGE_AUTOGENMIPMAP), D3DFMT_X8R8G8B8,
+                                        D3DPOOL_MANAGED, &texture, 0);
+    ok(hr == D3DERR_INVALIDCALL, "IDirect3DDevice9_CreateTexture returned 0x%08x, expected 0x%08x\n",
+       hr, D3DERR_INVALIDCALL);
+    if (texture) IDirect3DTexture9_Release(texture);
+    texture = NULL;
+
+    hr = IDirect3DDevice9_CreateTexture(device, 64, 64, 0, D3DUSAGE_AUTOGENMIPMAP,
+                                        D3DFMT_X8R8G8B8, D3DPOOL_MANAGED, &texture, 0);
+    ok(hr == D3D_OK, "IDirect3DDevice9_CreateTexture failed(%08x)\n", hr);
+
+    levels = IDirect3DTexture9_GetLevelCount(texture);
+    ok(levels == 1, "Got %d levels, expected 1\n", levels);
+
+    for(i = 0; i < 6 /* 64 = 2 ^ 6 */; i++)
+    {
+        surface = NULL;
+        hr = IDirect3DTexture9_GetSurfaceLevel(texture, i, &surface);
+        ok(hr == (i == 0 ? D3D_OK : D3DERR_INVALIDCALL),
+           "GetSurfaceLevel on level %d returned %#x\n", i, hr);
+        if(surface) IDirect3DSurface9_Release(surface);
+
+        hr = IDirect3DTexture9_GetLevelDesc(texture, i, &desc);
+        ok(hr == (i == 0 ? D3D_OK : D3DERR_INVALIDCALL),
+           "GetLevelDesc on level %d returned %#x\n", i, hr);
+
+        hr = IDirect3DTexture9_LockRect(texture, i, &lr, NULL, 0);
+        ok(hr == (i == 0 ? D3D_OK : D3DERR_INVALIDCALL),
+           "LockRect on level %d returned %#x\n", i, hr);
+        if(SUCCEEDED(hr))
+        {
+            hr = IDirect3DTexture9_UnlockRect(texture, i);
+            ok(hr == D3D_OK, "Unlock returned %08x\n", hr);
+        }
+    }
+    IDirect3DTexture9_Release(texture);
+
+    hr = IDirect3DDevice9_CreateTexture(device, 64, 64, 2 /* levels */, D3DUSAGE_AUTOGENMIPMAP,
+                                        D3DFMT_X8R8G8B8, D3DPOOL_MANAGED, &texture, 0);
+    ok(hr == D3DERR_INVALIDCALL, "IDirect3DDevice9_CreateTexture(levels = 2) returned %08x\n", hr);
+    hr = IDirect3DDevice9_CreateTexture(device, 64, 64, 6 /* levels */, D3DUSAGE_AUTOGENMIPMAP,
+                                        D3DFMT_X8R8G8B8, D3DPOOL_MANAGED, &texture, 0);
+    ok(hr == D3DERR_INVALIDCALL, "IDirect3DDevice9_CreateTexture(levels = 6) returned %08x\n", hr);
+
+    hr = IDirect3DDevice9_CreateTexture(device, 64, 64, 1 /* levels */, D3DUSAGE_AUTOGENMIPMAP,
+                                        D3DFMT_X8R8G8B8, D3DPOOL_MANAGED, &texture, 0);
+    ok(hr == D3D_OK, "IDirect3DDevice9_CreateTexture(levels = 1) returned %08x\n", hr);
+    levels = IDirect3DTexture9_GetLevelCount(texture);
+    ok(levels == 1, "Got %d levels, expected 1\n", levels);
+    IDirect3DTexture9_Release(texture);
 }
 
 START_TEST(texture)
@@ -146,4 +256,5 @@ START_TEST(texture)
 
     test_texture_stage_states(device_ptr, caps.MaxTextureBlendStages);
     test_cube_textures(device_ptr, caps.TextureCaps);
+    test_mipmap_gen(device_ptr);
 }

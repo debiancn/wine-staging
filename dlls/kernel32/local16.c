@@ -133,7 +133,7 @@ typedef struct
   /* All local heap allocations are aligned on 4-byte boundaries */
 #define LALIGN(word)          (((word) + 3) & ~3)
 
-#define ARENA_PTR(ptr,arena)       ((LOCALARENA *)((char*)(ptr)+(arena)))
+#define ARENA_PTR(ptr,arena)       ((LOCALARENA *)((char *)(ptr)+(arena)))
 #define ARENA_PREV(ptr,arena)      (ARENA_PTR((ptr),(arena))->prev & ~3)
 #define ARENA_NEXT(ptr,arena)      (ARENA_PTR((ptr),(arena))->next)
 #define ARENA_FLAGS(ptr,arena)     (ARENA_PTR((ptr),(arena))->prev & 3)
@@ -572,7 +572,7 @@ static HLOCAL16 LOCAL_FreeArena( WORD ds, WORD arena )
 {
     char *ptr = MapSL( MAKESEGPTR( ds, 0 ) );
     LOCALHEAPINFO *pInfo;
-    LOCALARENA *pArena, *pPrev, *pNext;
+    LOCALARENA *pArena, *pPrev;
 
     TRACE("%04x ds=%04x\n", arena, ds );
     if (!(pInfo = LOCAL_GetHeap( ds ))) return arena;
@@ -590,7 +590,6 @@ static HLOCAL16 LOCAL_FreeArena( WORD ds, WORD arena )
       /* Check if we can merge with the previous block */
 
     pPrev = ARENA_PTR( ptr, pArena->prev & ~3 );
-    pNext = ARENA_PTR( ptr, pArena->next );
     if ((pPrev->prev & 3) == LOCAL_ARENA_FREE)
     {
         arena  = pArena->prev & ~3;
@@ -1930,13 +1929,14 @@ static VOID Local32_ToHandle( LOCAL32HEADER *header, INT16 type,
 static VOID Local32_FromHandle( LOCAL32HEADER *header, INT16 type,
                                 DWORD *addr, LPDWORD handle, LPBYTE ptr )
 {
+    *addr = 0;
     switch (type)
     {
         case -2:    /* 16:16 pointer */
         case  1:
         {
             WORD *selTable = (LPWORD)(header->base + header->selectorTableOffset);
-            DWORD offset   = (LPBYTE)ptr - header->base;
+            DWORD offset   = ptr - header->base;
             *addr = MAKELONG( offset & 0x7fff, selTable[offset >> 15] );
         }
         break;

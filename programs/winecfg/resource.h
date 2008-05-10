@@ -24,7 +24,6 @@
  */
 
 #define IDC_STATIC                     -1
-#define IDS_WINE_VERSION                1
 #define IDS_TAB_APPLICATIONS            2
 #define IDS_TAB_DLLS                    3
 #define IDS_TAB_DRIVES                  4
@@ -144,6 +143,7 @@
 
 /* graphics */
 #define IDC_ENABLE_MANAGED              1100
+#define IDC_ENABLE_DECORATED            1101
 #define IDC_DX_MOUSE_GRAB               1102
 #define IDC_USE_TAKE_FOCUS              1103
 #define IDC_DOUBLE_BUFFER               1104
@@ -151,6 +151,10 @@
 #define IDC_D3D_PSHADER_MODE            1106
 #define IDS_SHADER_MODE_HARDWARE        8100
 #define IDS_SHADER_MODE_NONE            8101
+
+#define IDC_RES_TRACKBAR                1107
+#define IDC_RES_DPIEDIT                 1108
+#define IDC_RES_FONT_PREVIEW            1109
 
 /* applications tab */
 #define IDC_APP_LISTVIEW                1200
@@ -170,6 +174,7 @@
 #define IDS_AUDIO_MISSING               1309
 #define IDC_DSOUND_RATES                1310
 #define IDC_DSOUND_BITS                 1311
+#define IDW_TESTSOUND                   1312
 #define IDS_ACCEL_FULL                  8300
 #define IDS_ACCEL_STANDARD              8301
 #define IDS_ACCEL_BASIC                 8302
@@ -228,3 +233,19 @@
 #define IDC_SYSPARAMS_ACTIVE_TITLE_TEXT 8413
 #define IDC_SYSPARAMS_INACTIVE_TITLE    8414
 #define IDC_SYSPARAMS_INACTIVE_TITLE_TEXT 8415
+#define IDC_SYSPARAMS_MSGBOX_TEXT       8416
+#define IDC_SYSPARAMS_APPWORKSPACE      8417
+#define IDC_SYSPARAMS_WINDOW_FRAME      8418
+#define IDC_SYSPARAMS_ACTIVE_BORDER     8419
+#define IDC_SYSPARAMS_INACTIVE_BORDER   8420
+#define IDC_SYSPARAMS_BUTTON_SHADOW     8421
+#define IDC_SYSPARAMS_GRAY_TEXT         8422
+#define IDC_SYSPARAMS_BUTTON_HILIGHT    8423
+#define IDC_SYSPARAMS_BUTTON_DARK_SHADOW 8424
+#define IDC_SYSPARAMS_BUTTON_LIGHT      8425
+#define IDC_SYSPARAMS_BUTTON_ALTERNATE 8426
+#define IDC_SYSPARAMS_HOT_TRACKING      8427
+#define IDC_SYSPARAMS_ACTIVE_TITLE_GRADIENT 8428
+#define IDC_SYSPARAMS_INACTIVE_TITLE_GRADIENT 8429
+#define IDC_SYSPARAMS_MENU_HILIGHT      8430
+#define IDC_SYSPARAMS_MENUBAR           8431

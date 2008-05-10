@@ -393,7 +393,7 @@ static TEST test[] =
 
 #define TEST_COUNT (sizeof(test) / sizeof(TEST))
 
-/* This function can be useful if you are modifiying the test cases and want to
+/* This function can be useful if you are modifying the test cases and want to
    output the contents of a DCB structure. */
 /*static print_dcb(DCB *pdcb)
 {
@@ -679,7 +679,17 @@ static HANDLE test_OpenComm(BOOL doOverlap)
     }
     if (hcom != INVALID_HANDLE_VALUE)
     {
-        ok(ClearCommError(hcom,&errors,&comstat), "Unexpected errors on open\n");
+        BOOL ret;
+
+        ret = ClearCommError(hcom, &errors, &comstat);
+        if (!ret && GetLastError() == ERROR_NOT_READY)
+        {
+            trace("%s doesn't respond, skipping the test\n", port_name);
+            CloseHandle(hcom);
+            return INVALID_HANDLE_VALUE;
+        }
+
+        ok(ret, "Unexpected error %u on open\n", GetLastError());
         ok(comstat.cbInQue == 0, "Unexpected %d chars in InQueue\n",comstat.cbInQue);
         ok(comstat.cbOutQue == 0, "Still pending %d charcters in OutQueue\n", comstat.cbOutQue);
         ok(errors == 0, "Unexpected errors 0x%08x\n", errors);
@@ -860,7 +870,7 @@ static void test_LoopbackRead(HANDLE hcom)
     ok(ReadFile(hcom, rbuf, sizeof(rbuf), &read, NULL), "Readfile failed\n");
     ok(read == sizeof(tbuf),"ReadFile read %d bytes, expected \"%s\"\n", read,rbuf);
 
-    /* Now do the same withe a slower Baud rate.
+    /* Now do the same with a slower Baud rate.
        As we request more characters then written, we will hit the timeout
     */
 

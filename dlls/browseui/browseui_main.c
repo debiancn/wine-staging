@@ -37,19 +37,24 @@
 
 #include "browseui.h"
 
+#include "initguid.h"
+DEFINE_GUID(CLSID_CompCatCacheDaemon, 0x8C7461EF, 0x2b13, 0x11d2, 0xbe, 0x35, 0x30, 0x78, 0x30, 0x2c, 0x20, 0x30);
+
 WINE_DEFAULT_DEBUG_CHANNEL(browseui);
 
 LONG BROWSEUI_refCount = 0;
 
-HINSTANCE browseui_hinstance = 0;
+HINSTANCE BROWSEUI_hinstance = 0;
 
-typedef HRESULT (WINAPI *LPFNCONSTRUCTOR)(IUnknown *pUnkOuter, IUnknown **ppvOut);
+typedef HRESULT (*LPFNCONSTRUCTOR)(IUnknown *pUnkOuter, IUnknown **ppvOut);
 
 static const struct {
     REFCLSID clsid;
     LPFNCONSTRUCTOR ctor;
 } ClassesTable[] = {
     {&CLSID_ACLMulti, ACLMulti_Constructor},
+    {&CLSID_ProgressDialog, ProgressDialog_Constructor},
+    {&CLSID_CompCatCacheDaemon, CompCatCacheDaemon_Constructor},
     {NULL, NULL}
 };
 
@@ -59,24 +64,11 @@ typedef struct tagClassFactory
     LONG   ref;
     LPFNCONSTRUCTOR ctor;
 } ClassFactory;
-static const IClassFactoryVtbl ClassFactoryVtbl;
-
-static HRESULT ClassFactory_Constructor(LPFNCONSTRUCTOR ctor, LPVOID *ppvOut)
-{
-    ClassFactory *This = CoTaskMemAlloc(sizeof(ClassFactory));
-    This->vtbl = &ClassFactoryVtbl;
-    This->ref = 1;
-    This->ctor = ctor;
-    *ppvOut = (LPVOID)This;
-    TRACE("Created class factory %p\n", This);
-    BROWSEUI_refCount++;
-    return S_OK;
-}
 
 static void ClassFactory_Destructor(ClassFactory *This)
 {
     TRACE("Destroying class factory %p\n", This);
-    CoTaskMemFree(This);
+    heap_free(This);
     BROWSEUI_refCount--;
 }
 
@@ -149,6 +141,18 @@ static const IClassFactoryVtbl ClassFactoryVtbl = {
     ClassFactory_LockServer
 };
 
+static HRESULT ClassFactory_Constructor(LPFNCONSTRUCTOR ctor, LPVOID *ppvOut)
+{
+    ClassFactory *This = heap_alloc(sizeof(ClassFactory));
+    This->vtbl = &ClassFactoryVtbl;
+    This->ref = 1;
+    This->ctor = ctor;
+    *ppvOut = (LPVOID)This;
+    TRACE("Created class factory %p\n", This);
+    BROWSEUI_refCount++;
+    return S_OK;
+}
+
 /*************************************************************************
  * BROWSEUI DllMain
  */
@@ -161,7 +165,7 @@ BOOL WINAPI DllMain(HINSTANCE hinst, DWORD fdwReason, LPVOID fImpLoad)
             return FALSE;   /* prefer native version */
         case DLL_PROCESS_ATTACH:
             DisableThreadLibraryCalls(hinst);
-            browseui_hinstance = hinst;
+            BROWSEUI_hinstance = hinst;
             break;
     }
     return TRUE;

@@ -92,15 +92,10 @@ static BYTE* convertHexCSVToHex(char *str, DWORD *size)
     *size=0;
     while (*s != '\0') {
         UINT wc;
-        char dummy;
+        char *end;
 
-        if (s[1] != ',' && s[1] != '\0' && s[2] != ',' && s[2] != '\0') {
-            fprintf(stderr,"%s: ERROR converting CSV hex stream. Invalid sequence at '%s'\n",
-                    getAppName(), s);
-            HeapFree(GetProcessHeap(), 0, data);
-            return NULL;
-        }
-        if (sscanf(s, "%x%c", &wc, &dummy) < 1 || dummy != ',') {
+        wc = strtoul(s,&end,16);
+        if (end == s || wc > 0xff || (*end && *end != ',')) {
             fprintf(stderr,"%s: ERROR converting CSV hex stream. Invalid value at '%s'\n",
                     getAppName(), s);
             HeapFree(GetProcessHeap(), 0, data);
@@ -108,8 +103,8 @@ static BYTE* convertHexCSVToHex(char *str, DWORD *size)
         }
         *d++ =(BYTE)wc;
         (*size)++;
-
-        s+=(wc < 0x10 ? 2 : 3);
+        if (*end) end++;
+        s = end;
     }
 
     return data;
@@ -279,6 +274,7 @@ static LONG setValue(LPSTR val_name, LPSTR val_data)
             val_data[dwLen]='\0';
         }
         lpbData = (BYTE*) val_data;
+        dwLen++;  /* include terminating null */
     }
     else if (dwParseType == REG_DWORD)  /* Convert the dword types */
     {
@@ -372,7 +368,7 @@ static void closeKey(void)
 
 /******************************************************************************
  * This function is a wrapper for the setValue function.  It prepares the
- * land and clean the area once completed.
+ * land and cleans the area once completed.
  * Note: this function modifies the line parameter.
  *
  * line - registry file unwrapped line. Should have the registry value name and
@@ -488,12 +484,14 @@ void processRegLines(FILE *in)
 {
     LPSTR line           = NULL;  /* line read from input stream */
     ULONG lineSize       = REG_VAL_BUF_SIZE;
+    BOOL  unicode_check  = TRUE;
 
     line = HeapAlloc(GetProcessHeap(), 0, lineSize);
     CHECK_ENOUGH_MEMORY(line);
 
     while (!feof(in)) {
         LPSTR s; /* The pointer into line for where the current fgets should read */
+        LPSTR check;
         s = line;
         for (;;) {
             size_t size_remaining;
@@ -522,7 +520,34 @@ void processRegLines(FILE *in)
              * eof, error, eol or getting the maximum amount.  Abort on error.
              */
             size_to_get = (size_remaining > INT_MAX ? INT_MAX : size_remaining);
-            if (NULL == fgets (s, size_to_get, in)) {
+
+            if (unicode_check)
+            {
+                if (fread( s, 2, 1, in) == 1)
+                {
+                    if ((BYTE)s[0] == 0xff && (BYTE)s[1] == 0xfe)
+                    {
+                        printf("Trying to import from a unicode file: this isn't supported yet.\n"
+                               "Please use export as Win 9x/NT4 files from native regedit\n");
+                        HeapFree(GetProcessHeap(), 0, line);
+                        return;
+                    }
+                    else
+                    {
+                        unicode_check = FALSE;
+                        check = fgets (&s[2], size_to_get-2, in);
+                    }
+                }
+                else
+                {
+                    unicode_check = FALSE;
+                    check = NULL;
+                }
+            }
+            else
+                check = fgets (s, size_to_get, in);
+
+            if (check == NULL) {
                 if (ferror(in)) {
                     perror ("While reading input");
                     exit (IO_ERROR);
@@ -830,11 +855,18 @@ static void export_hkey(FILE *file, HKEY key,
  */
 static FILE *REGPROC_open_export_file(CHAR *file_name)
 {
-    FILE *file = fopen(file_name, "w");
-    if (!file) {
-        perror("");
-        fprintf(stderr,"%s: Can't open file \"%s\"\n", getAppName(), file_name);
-        exit(1);
+    FILE *file;
+
+    if (strcmp(file_name,"-")==0)
+        file=stdout;
+    else
+    {
+        file = fopen(file_name, "w");
+        if (!file) {
+            perror("");
+            fprintf(stderr,"%s: Can't open file \"%s\"\n", getAppName(), file_name);
+            exit(1);
+        }
     }
     fputs("REGEDIT4\n", file);
     return file;
@@ -942,53 +974,6 @@ BOOL import_registry_file(LPTSTR filename)
 }
 
 /******************************************************************************
- * Recursive function which removes the registry key with all subkeys.
- */
-static void delete_branch(HKEY key,
-                   CHAR **reg_key_name_buf, DWORD *reg_key_name_len)
-{
-    HKEY branch_key;
-    DWORD max_sub_key_len;
-    DWORD subkeys;
-    DWORD curr_len;
-    LONG ret;
-    long int i;
-
-    if (RegOpenKey(key, *reg_key_name_buf, &branch_key) != ERROR_SUCCESS) {
-        REGPROC_print_error();
-    }
-
-    /* get size information and resize the buffers if necessary */
-    if (RegQueryInfoKey(branch_key, NULL, NULL, NULL,
-                        &subkeys, &max_sub_key_len,
-                        NULL, NULL, NULL, NULL, NULL, NULL
-                       ) != ERROR_SUCCESS) {
-        REGPROC_print_error();
-    }
-    curr_len = strlen(*reg_key_name_buf);
-    REGPROC_resize_char_buffer(reg_key_name_buf, reg_key_name_len,
-                               max_sub_key_len + curr_len + 1);
-
-    (*reg_key_name_buf)[curr_len] = '\\';
-    for (i = subkeys - 1; i >= 0; i--) {
-        DWORD buf_len = *reg_key_name_len - curr_len;
-
-        ret = RegEnumKeyEx(branch_key, i, *reg_key_name_buf + curr_len + 1,
-                           &buf_len, NULL, NULL, NULL, NULL);
-        if (ret != ERROR_SUCCESS &&
-                ret != ERROR_MORE_DATA &&
-                ret != ERROR_NO_MORE_ITEMS) {
-            REGPROC_print_error();
-        } else {
-            delete_branch(key, reg_key_name_buf, reg_key_name_len);
-        }
-    }
-    (*reg_key_name_buf)[curr_len] = '\0';
-    RegCloseKey(branch_key);
-    RegDeleteKey(key, *reg_key_name_buf);
-}
-
-/******************************************************************************
  * Removes the registry key with all subkeys. Parses full key name.
  *
  * Parameters:
@@ -999,7 +984,6 @@ void delete_registry_key(CHAR *reg_key_name)
 {
     CHAR *key_name;
     HKEY key_class;
-    HKEY branch_key;
 
     if (!reg_key_name || !reg_key_name[0])
         return;
@@ -1015,20 +999,5 @@ void delete_registry_key(CHAR *reg_key_name)
         exit(1);
     }
 
-    /* open the specified key to make sure it exists */
-    if (RegOpenKey(key_class, key_name, &branch_key) == ERROR_SUCCESS) {
-        CHAR *branch_name;
-        DWORD branch_name_len;
-        RegCloseKey(branch_key);
-
-        /* Copy the key name to a new buffer that delete_branch() can
-         * reallocate as needed
-         */
-        branch_name_len = strlen(key_name);
-        branch_name = HeapAlloc(GetProcessHeap(), 0, branch_name_len+1);
-        CHECK_ENOUGH_MEMORY(branch_name);
-        strcpy(branch_name, key_name);
-        delete_branch(key_class, &branch_name, &branch_name_len);
-        HeapFree(GetProcessHeap(), 0, branch_name);
-    }
+    RegDeleteTreeA(key_class, key_name);
 }

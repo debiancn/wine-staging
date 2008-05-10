@@ -371,23 +371,27 @@
 @ stdcall FindFirstFileExA(str long ptr long ptr long)
 @ stdcall FindFirstFileExW(wstr long ptr long ptr long)
 @ stdcall FindFirstFileW(wstr ptr)
-@ stub FindFirstVolumeA
+@ stdcall FindFirstVolumeA(ptr long)
 @ stdcall FindFirstVolumeMountPointA(str ptr long)
 @ stdcall FindFirstVolumeMountPointW(wstr ptr long)
-@ stub FindFirstVolumeW
+@ stdcall FindFirstVolumeW(ptr long)
 @ stdcall FindNextChangeNotification(long)
 @ stdcall FindNextFileA(long ptr)
 @ stdcall FindNextFileW(long ptr)
-@ stub FindNextVolumeA
+@ stdcall FindNextVolumeA(long ptr long)
 @ stub FindNextVolumeMountPointA
 @ stub FindNextVolumeMountPointW
-@ stub FindNextVolumeW
+@ stdcall FindNextVolumeW(long ptr long)
 @ stdcall FindResourceA(long str str)
 @ stdcall FindResourceExA(long str str long)
 @ stdcall FindResourceExW(long wstr wstr long)
 @ stdcall FindResourceW(long wstr wstr)
-@ stub FindVolumeClose
-@ stub FindVolumeMountPointClose
+@ stdcall FindVolumeClose(ptr)
+@ stdcall FindVolumeMountPointClose(ptr)
+@ stdcall FlsAlloc(ptr)
+@ stdcall FlsFree(long)
+@ stdcall FlsGetValue(long)
+@ stdcall FlsSetValue(long ptr)
 @ stdcall FlushConsoleInputBuffer(long)
 @ stdcall FlushFileBuffers(long)
 @ stdcall FlushInstructionCache(long long long)
@@ -457,11 +461,11 @@
 @ stub GetConsoleFontInfo
 @ stub GetConsoleFontSize
 @ stub GetConsoleHardwareState
-@ stub GetConsoleInputExeNameA
-@ stub GetConsoleInputExeNameW
+@ stdcall GetConsoleInputExeNameA(long ptr)
+@ stdcall GetConsoleInputExeNameW(long ptr)
 @ stdcall GetConsoleInputWaitHandle()
-@ stub GetConsoleKeyboardLayoutNameA
-@ stub GetConsoleKeyboardLayoutNameW
+@ stdcall GetConsoleKeyboardLayoutNameA(ptr)
+@ stdcall GetConsoleKeyboardLayoutNameW(ptr)
 @ stdcall GetConsoleMode(long ptr)
 @ stub GetConsoleNlsMode
 @ stdcall GetConsoleOutputCP()
@@ -576,7 +580,7 @@
 @ stdcall GetProcAddress(long str)
 @ stdcall GetProcessAffinityMask(long ptr ptr)
 @ stdcall GetProcessFlags(long)
-# @ stub GetProcessHandleCount
+@ stdcall GetProcessHandleCount(long ptr)
 @ stdcall GetProcessHeap()
 @ stdcall GetProcessHeaps(long ptr)
 @ stdcall GetProcessId(long)
@@ -629,6 +633,7 @@
 @ stdcall GetTempPathA(long ptr)
 @ stdcall GetTempPathW(long ptr)
 @ stdcall GetThreadContext(long ptr)
+@ stdcall GetThreadId(ptr)
 # @ stub GetThreadIOPendingFlag
 @ stdcall GetThreadLocale()
 @ stdcall GetThreadPriority(long)
@@ -740,6 +745,7 @@
 @ stdcall IsWow64Process(ptr ptr)
 @ stdcall -i386 -register K32Thk1632Epilog()
 @ stdcall -i386 -register K32Thk1632Prolog()
+@ stdcall LCIDToLocaleName(long ptr long long)
 @ stdcall LCMapStringA(long long str long ptr long)
 @ stdcall LCMapStringW(long long wstr long ptr long)
 @ stdcall LZClose(long)
@@ -771,6 +777,7 @@
 @ stdcall LocalShrink(long long)
 @ stdcall LocalSize(long)
 @ stdcall LocalUnlock(long)
+@ stdcall LocaleNameToLCID(wstr long)
 @ stdcall LockFile(long long long long long)
 @ stdcall LockFileEx(long long long long long ptr)
 @ stdcall LockResource(long)
@@ -873,8 +880,9 @@
 @ stdcall ReadDirectoryChangesW(long ptr long long long ptr ptr ptr)
 @ stdcall ReadFile(long ptr long ptr ptr)
 @ stdcall ReadFileEx(long ptr long ptr ptr)
-@ stub ReadFileScatter
+@ stdcall ReadFileScatter(long ptr long ptr ptr)
 @ stdcall ReadProcessMemory(long ptr ptr long ptr)
+@ stdcall RegisterApplicationRestart(wstr long)
 @ stub RegisterConsoleIME
 @ stub RegisterConsoleOS2
 @ stub RegisterConsoleVDM
@@ -901,7 +909,7 @@
 @ stdcall RequestWakeupLatency(long)
 @ stdcall ResetEvent(long)
 @ stub ResetWriteWatch
-# @ stub RestoreLastError ( -> ntdll.RtlRestoreLastWin32Error)
+@ stdcall RestoreLastError(long) ntdll.RtlRestoreLastWin32Error
 @ stdcall ResumeThread(long)
 # @ stub RtlCaptureContext ( -> ntdll.RtlCaptureContext)
 # @ stub RtlCaptureStackBackTrace ( -> ntdll.RtlCaptureStackBackTrace)
@@ -1135,7 +1143,7 @@
 @ stdcall WriteConsoleW(long ptr long ptr ptr)
 @ stdcall WriteFile(long ptr long ptr ptr)
 @ stdcall WriteFileEx(long ptr long ptr ptr)
-@ stub WriteFileGather
+@ stdcall WriteFileGather(long ptr long ptr ptr)
 @ stdcall WritePrivateProfileSectionA(str str str)
 @ stdcall WritePrivateProfileSectionW(wstr wstr wstr)
 @ stdcall WritePrivateProfileStringA(str str str str)

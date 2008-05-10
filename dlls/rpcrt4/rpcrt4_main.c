@@ -19,74 +19,13 @@
  * 
  * WINE RPC TODO's (and a few TODONT's)
  *
- * - Ove's decreasingly incomplete widl is an IDL compiler for wine.  For widl
- *   to be wine's only IDL compiler, a fair bit of work remains to be done.
- *   until then we have used some midl-generated stuff.  (What?)
- *   widl currently doesn't generate stub/proxy files required by wine's (O)RPC
- *   capabilities -- nor does it make those lovely format strings :(
- *   The MS MIDL compiler does some really esoteric stuff.  Of course Ove has
- *   started with the less esoteric stuff.  There are also lots of nice
- *   comments in there if you want to flex your bison and help build this monster.
- *
- * - RPC has a quite featureful error handling mechanism; basically none of this is
- *   implemented right now.  We also have deficiencies on the compiler side, where
- *   wine's __TRY / __EXCEPT / __FINALLY macros are not even used for RpcTryExcept & co,
- *   due to syntactic differences! (we can fix it with widl by using __TRY)
- *
- * - There are several different memory allocation schemes for MSRPC.
- *   I don't even understand what they all are yet, much less have them
- *   properly implemented.  Surely we are supposed to be doing something with
- *   the user-provided allocation/deallocation functions, but so far,
- *   I don't think we are doing this...
- *
- * - MSRPC provides impersonation capabilities which currently are not possible
- *   to implement in wine.  At the very least we should implement the authorization
- *   API's & gracefully ignore the irrelevant stuff (to an extent we already do).
- *
- * - Some transports are not yet implemented.  The existing transport implementations
- *   are incomplete and may be bug-infested.
- * 
- * - The various transports that we do support ought to be supported in a more
- *   object-oriented manner, as in DCE's RPC implementation, instead of cluttering
- *   up the code with conditionals like we do now.
- * 
- * - Data marshalling: So far, only the beginnings of a full implementation
- *   exist in wine.  NDR protocol itself is documented, but the MS API's to
- *   convert data-types in memory into NDR are not.  This is challenging work,
- *   and has supposedly been "at the top of Greg's queue" for several months now.
- *
- * - ORPC is RPC for OLE; once we have a working RPC framework, we can
- *   use it to implement out-of-process OLE client/server communications.
- *   ATM there is maybe a disconnect between the marshalling in the OLE DLLs
- *   and the marshalling going on here [TODO: well, is there or not?]
- * 
- * - In-source API Documentation, at least for those functions which we have
- *   implemented, but preferably for everything we can document, would be nice,
- *   since some of this stuff is quite obscure.
- *
- * - Name services... [TODO: what about them]
- *
- * - Protocol Towers: Totally unimplemented.... I think.
- *
- * - Context Handle Rundown: whatever that is.
- *
- * - Nested RPC's: Totally unimplemented.
- *
  * - Statistics: we are supposed to be keeping various counters.  we aren't.
  *
  * - Async RPC: Unimplemented.
  *
- * - XML/http RPC: Somewhere there's an XML fiend that wants to do this! Betcha
- *   we could use these as a transport for RPC's across computers without a
- *   permissions and/or licensing crisis.
- *
  * - The NT "ports" API, aka LPC.  Greg claims this is on his radar.  Might (or
  *   might not) enable users to get some kind of meaningful result out of
  *   NT-based native rpcrt4's.  Commonly-used transport for self-to-self RPC's.
- *
- * - ...?  More stuff I haven't thought of.  If you think of more RPC todo's
- *   drop me an e-mail <gmturner007@ameritech.net> or send a patch to the
- *   wine-patches mailing list.
  */
 
 #include "config.h"
@@ -96,10 +35,14 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "ntstatus.h"
+#define WIN32_NO_STATUS
 #include "windef.h"
 #include "winerror.h"
 #include "winbase.h"
 #include "winuser.h"
+#include "winnt.h"
+#include "winternl.h"
 #include "iptypes.h"
 #include "iphlpapi.h"
 #include "wine/unicode.h"
@@ -133,6 +76,33 @@ static CRITICAL_SECTION_DEBUG critsect_debug =
 };
 static CRITICAL_SECTION uuid_cs = { &critsect_debug, -1, 0, 0, 0, 0 };
 
+static CRITICAL_SECTION threaddata_cs;
+static CRITICAL_SECTION_DEBUG threaddata_cs_debug =
+{
+    0, 0, &threaddata_cs,
+    { &threaddata_cs_debug.ProcessLocksList, &threaddata_cs_debug.ProcessLocksList },
+      0, 0, { (DWORD_PTR)(__FILE__ ": threaddata_cs") }
+};
+static CRITICAL_SECTION threaddata_cs = { &threaddata_cs_debug, -1, 0, 0, 0, 0 };
+
+struct list threaddata_list = LIST_INIT(threaddata_list);
+
+struct context_handle_list
+{
+    struct context_handle_list *next;
+    NDR_SCONTEXT context_handle;
+};
+
+struct threaddata
+{
+    struct list entry;
+    CRITICAL_SECTION cs;
+    DWORD thread_id;
+    RpcConnection *connection;
+    RpcBinding *server_binding;
+    struct context_handle_list *context_handle_list;
+};
+
 /***********************************************************************
  * DllMain
  *
@@ -148,12 +118,30 @@ static CRITICAL_SECTION uuid_cs = { &critsect_debug, -1, 0, 0, 0, 0 };
 
 BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
 {
+    struct threaddata *tdata;
+
     switch (fdwReason) {
     case DLL_PROCESS_ATTACH:
-        DisableThreadLibraryCalls(hinstDLL);
         master_mutex = CreateMutexA( NULL, FALSE, RPCSS_MASTER_MUTEX_NAME);
         if (!master_mutex)
           ERR("Failed to create master mutex\n");
+        break;
+
+    case DLL_THREAD_DETACH:
+        tdata = NtCurrentTeb()->ReservedForNtRpc;
+        if (tdata)
+        {
+            EnterCriticalSection(&threaddata_cs);
+            list_remove(&tdata->entry);
+            LeaveCriticalSection(&threaddata_cs);
+
+            DeleteCriticalSection(&tdata->cs);
+            if (tdata->connection)
+                ERR("tdata->connection should be NULL but is still set to %p\n", tdata->connection);
+            if (tdata->server_binding)
+                ERR("tdata->server_binding should be NULL but is still set to %p\n", tdata->server_binding);
+            HeapFree(GetProcessHeap(), 0, tdata);
+        }
         break;
 
     case DLL_PROCESS_DETACH:
@@ -202,10 +190,12 @@ RPC_STATUS WINAPI RpcStringFreeW(RPC_WSTR* String)
  *
  * Raises an exception.
  */
-void WINAPI RpcRaiseException(RPC_STATUS exception)
+void DECLSPEC_NORETURN WINAPI RpcRaiseException(RPC_STATUS exception)
 {
-  /* FIXME: translate exception? */
+  /* shouldn't return */
   RaiseException(exception, 0, 0, NULL);
+  ERR("handler continued execution\n");
+  ExitProcess(1);
 }
 
 /*************************************************************************
@@ -275,7 +265,7 @@ int WINAPI UuidEqual(UUID *Uuid1, UUID *Uuid2, RPC_STATUS *Status)
  *
  * PARAMS
  *     UUID *Uuid         [I] Uuid to compare
- *     RPC_STATUS *Status [O] retuns RPC_S_OK
+ *     RPC_STATUS *Status [O] returns RPC_S_OK
  *
  * RETURNS
  *     TRUE/FALSE
@@ -822,9 +812,303 @@ void WINAPI I_RpcFree(void *Object)
 
 /******************************************************************************
  * I_RpcMapWin32Status   (rpcrt4.@)
+ *
+ * Maps Win32 RPC error codes to NT statuses.
+ *
+ * PARAMS
+ *  status [I] Win32 RPC error code.
+ *
+ * RETURNS
+ *  Appropriate translation into an NT status code.
  */
-DWORD WINAPI I_RpcMapWin32Status(RPC_STATUS status)
+LONG WINAPI I_RpcMapWin32Status(RPC_STATUS status)
 {
-    FIXME("(%ld): stub\n", status);
-    return 0;
+    TRACE("(%ld)\n", status);
+    switch (status)
+    {
+    case ERROR_ACCESS_DENIED: return STATUS_ACCESS_DENIED;
+    case ERROR_INVALID_HANDLE: return RPC_NT_SS_CONTEXT_MISMATCH;
+    case ERROR_OUTOFMEMORY: return STATUS_NO_MEMORY;
+    case ERROR_INVALID_PARAMETER: return STATUS_INVALID_PARAMETER;
+    case ERROR_INSUFFICIENT_BUFFER: return STATUS_BUFFER_TOO_SMALL;
+    case ERROR_MAX_THRDS_REACHED: return STATUS_NO_MEMORY;
+    case ERROR_NOACCESS: return STATUS_ACCESS_VIOLATION;
+    case ERROR_NOT_ENOUGH_SERVER_MEMORY: return STATUS_INSUFF_SERVER_RESOURCES;
+    case ERROR_WRONG_PASSWORD: return STATUS_WRONG_PASSWORD;
+    case ERROR_INVALID_LOGON_HOURS: return STATUS_INVALID_LOGON_HOURS;
+    case ERROR_PASSWORD_EXPIRED: return STATUS_PASSWORD_EXPIRED;
+    case ERROR_ACCOUNT_DISABLED: return STATUS_ACCOUNT_DISABLED;
+    case ERROR_INVALID_SECURITY_DESCR: return STATUS_INVALID_SECURITY_DESCR;
+    case RPC_S_INVALID_STRING_BINDING: return RPC_NT_INVALID_STRING_BINDING;
+    case RPC_S_WRONG_KIND_OF_BINDING: return RPC_NT_WRONG_KIND_OF_BINDING;
+    case RPC_S_INVALID_BINDING: return RPC_NT_INVALID_BINDING;
+    case RPC_S_PROTSEQ_NOT_SUPPORTED: return RPC_NT_PROTSEQ_NOT_SUPPORTED;
+    case RPC_S_INVALID_RPC_PROTSEQ: return RPC_NT_INVALID_RPC_PROTSEQ;
+    case RPC_S_INVALID_STRING_UUID: return RPC_NT_INVALID_STRING_UUID;
+    case RPC_S_INVALID_ENDPOINT_FORMAT: return RPC_NT_INVALID_ENDPOINT_FORMAT;
+    case RPC_S_INVALID_NET_ADDR: return RPC_NT_INVALID_NET_ADDR;
+    case RPC_S_NO_ENDPOINT_FOUND: return RPC_NT_NO_ENDPOINT_FOUND;
+    case RPC_S_INVALID_TIMEOUT: return RPC_NT_INVALID_TIMEOUT;
+    case RPC_S_OBJECT_NOT_FOUND: return RPC_NT_OBJECT_NOT_FOUND;
+    case RPC_S_ALREADY_REGISTERED: return RPC_NT_ALREADY_REGISTERED;
+    case RPC_S_TYPE_ALREADY_REGISTERED: return RPC_NT_TYPE_ALREADY_REGISTERED;
+    case RPC_S_ALREADY_LISTENING: return RPC_NT_ALREADY_LISTENING;
+    case RPC_S_NO_PROTSEQS_REGISTERED: return RPC_NT_NO_PROTSEQS_REGISTERED;
+    case RPC_S_NOT_LISTENING: return RPC_NT_NOT_LISTENING;
+    case RPC_S_UNKNOWN_MGR_TYPE: return RPC_NT_UNKNOWN_MGR_TYPE;
+    case RPC_S_UNKNOWN_IF: return RPC_NT_UNKNOWN_IF;
+    case RPC_S_NO_BINDINGS: return RPC_NT_NO_BINDINGS;
+    case RPC_S_NO_PROTSEQS: return RPC_NT_NO_PROTSEQS;
+    case RPC_S_CANT_CREATE_ENDPOINT: return RPC_NT_CANT_CREATE_ENDPOINT;
+    case RPC_S_OUT_OF_RESOURCES: return RPC_NT_OUT_OF_RESOURCES;
+    case RPC_S_SERVER_UNAVAILABLE: return RPC_NT_SERVER_UNAVAILABLE;
+    case RPC_S_SERVER_TOO_BUSY: return RPC_NT_SERVER_TOO_BUSY;
+    case RPC_S_INVALID_NETWORK_OPTIONS: return RPC_NT_INVALID_NETWORK_OPTIONS;
+    case RPC_S_NO_CALL_ACTIVE: return RPC_NT_NO_CALL_ACTIVE;
+    case RPC_S_CALL_FAILED: return RPC_NT_CALL_FAILED;
+    case RPC_S_CALL_FAILED_DNE: return RPC_NT_CALL_FAILED_DNE;
+    case RPC_S_PROTOCOL_ERROR: return RPC_NT_PROTOCOL_ERROR;
+    case RPC_S_UNSUPPORTED_TRANS_SYN: return RPC_NT_UNSUPPORTED_TRANS_SYN;
+    case RPC_S_UNSUPPORTED_TYPE: return RPC_NT_UNSUPPORTED_TYPE;
+    case RPC_S_INVALID_TAG: return RPC_NT_INVALID_TAG;
+    case RPC_S_INVALID_BOUND: return RPC_NT_INVALID_BOUND;
+    case RPC_S_NO_ENTRY_NAME: return RPC_NT_NO_ENTRY_NAME;
+    case RPC_S_INVALID_NAME_SYNTAX: return RPC_NT_INVALID_NAME_SYNTAX;
+    case RPC_S_UNSUPPORTED_NAME_SYNTAX: return RPC_NT_UNSUPPORTED_NAME_SYNTAX;
+    case RPC_S_UUID_NO_ADDRESS: return RPC_NT_UUID_NO_ADDRESS;
+    case RPC_S_DUPLICATE_ENDPOINT: return RPC_NT_DUPLICATE_ENDPOINT;
+    case RPC_S_UNKNOWN_AUTHN_TYPE: return RPC_NT_UNKNOWN_AUTHN_TYPE;
+    case RPC_S_MAX_CALLS_TOO_SMALL: return RPC_NT_MAX_CALLS_TOO_SMALL;
+    case RPC_S_STRING_TOO_LONG: return RPC_NT_STRING_TOO_LONG;
+    case RPC_S_PROTSEQ_NOT_FOUND: return RPC_NT_PROTSEQ_NOT_FOUND;
+    case RPC_S_PROCNUM_OUT_OF_RANGE: return RPC_NT_PROCNUM_OUT_OF_RANGE;
+    case RPC_S_BINDING_HAS_NO_AUTH: return RPC_NT_BINDING_HAS_NO_AUTH;
+    case RPC_S_UNKNOWN_AUTHN_SERVICE: return RPC_NT_UNKNOWN_AUTHN_SERVICE;
+    case RPC_S_UNKNOWN_AUTHN_LEVEL: return RPC_NT_UNKNOWN_AUTHN_LEVEL;
+    case RPC_S_INVALID_AUTH_IDENTITY: return RPC_NT_INVALID_AUTH_IDENTITY;
+    case RPC_S_UNKNOWN_AUTHZ_SERVICE: return RPC_NT_UNKNOWN_AUTHZ_SERVICE;
+    case EPT_S_INVALID_ENTRY: return EPT_NT_INVALID_ENTRY;
+    case EPT_S_CANT_PERFORM_OP: return EPT_NT_CANT_PERFORM_OP;
+    case EPT_S_NOT_REGISTERED: return EPT_NT_NOT_REGISTERED;
+    case EPT_S_CANT_CREATE: return EPT_NT_CANT_CREATE;
+    case RPC_S_NOTHING_TO_EXPORT: return RPC_NT_NOTHING_TO_EXPORT;
+    case RPC_S_INCOMPLETE_NAME: return RPC_NT_INCOMPLETE_NAME;
+    case RPC_S_INVALID_VERS_OPTION: return RPC_NT_INVALID_VERS_OPTION;
+    case RPC_S_NO_MORE_MEMBERS: return RPC_NT_NO_MORE_MEMBERS;
+    case RPC_S_NOT_ALL_OBJS_UNEXPORTED: return RPC_NT_NOT_ALL_OBJS_UNEXPORTED;
+    case RPC_S_INTERFACE_NOT_FOUND: return RPC_NT_INTERFACE_NOT_FOUND;
+    case RPC_S_ENTRY_ALREADY_EXISTS: return RPC_NT_ENTRY_ALREADY_EXISTS;
+    case RPC_S_ENTRY_NOT_FOUND: return RPC_NT_ENTRY_NOT_FOUND;
+    case RPC_S_NAME_SERVICE_UNAVAILABLE: return RPC_NT_NAME_SERVICE_UNAVAILABLE;
+    case RPC_S_INVALID_NAF_ID: return RPC_NT_INVALID_NAF_ID;
+    case RPC_S_CANNOT_SUPPORT: return RPC_NT_CANNOT_SUPPORT;
+    case RPC_S_NO_CONTEXT_AVAILABLE: return RPC_NT_NO_CONTEXT_AVAILABLE;
+    case RPC_S_INTERNAL_ERROR: return RPC_NT_INTERNAL_ERROR;
+    case RPC_S_ZERO_DIVIDE: return RPC_NT_ZERO_DIVIDE;
+    case RPC_S_ADDRESS_ERROR: return RPC_NT_ADDRESS_ERROR;
+    case RPC_S_FP_DIV_ZERO: return RPC_NT_FP_DIV_ZERO;
+    case RPC_S_FP_UNDERFLOW: return RPC_NT_FP_UNDERFLOW;
+    case RPC_S_FP_OVERFLOW: return RPC_NT_FP_OVERFLOW;
+    case RPC_S_CALL_IN_PROGRESS: return RPC_NT_CALL_IN_PROGRESS;
+    case RPC_S_NO_MORE_BINDINGS: return RPC_NT_NO_MORE_BINDINGS;
+    case RPC_S_CALL_CANCELLED: return RPC_NT_CALL_CANCELLED;
+    case RPC_S_INVALID_OBJECT: return RPC_NT_INVALID_OBJECT;
+    case RPC_S_INVALID_ASYNC_HANDLE: return RPC_NT_INVALID_ASYNC_HANDLE;
+    case RPC_S_INVALID_ASYNC_CALL: return RPC_NT_INVALID_ASYNC_CALL;
+    case RPC_S_GROUP_MEMBER_NOT_FOUND: return RPC_NT_GROUP_MEMBER_NOT_FOUND;
+    case RPC_X_NO_MORE_ENTRIES: return RPC_NT_NO_MORE_ENTRIES;
+    case RPC_X_SS_CHAR_TRANS_OPEN_FAIL: return RPC_NT_SS_CHAR_TRANS_OPEN_FAIL;
+    case RPC_X_SS_CHAR_TRANS_SHORT_FILE: return RPC_NT_SS_CHAR_TRANS_SHORT_FILE;
+    case RPC_X_SS_IN_NULL_CONTEXT: return RPC_NT_SS_IN_NULL_CONTEXT;
+    case RPC_X_SS_CONTEXT_DAMAGED: return RPC_NT_SS_CONTEXT_DAMAGED;
+    case RPC_X_SS_HANDLES_MISMATCH: return RPC_NT_SS_HANDLES_MISMATCH;
+    case RPC_X_SS_CANNOT_GET_CALL_HANDLE: return RPC_NT_SS_CANNOT_GET_CALL_HANDLE;
+    case RPC_X_NULL_REF_POINTER: return RPC_NT_NULL_REF_POINTER;
+    case RPC_X_ENUM_VALUE_OUT_OF_RANGE: return RPC_NT_ENUM_VALUE_OUT_OF_RANGE;
+    case RPC_X_BYTE_COUNT_TOO_SMALL: return RPC_NT_BYTE_COUNT_TOO_SMALL;
+    case RPC_X_BAD_STUB_DATA: return RPC_NT_BAD_STUB_DATA;
+    case RPC_X_PIPE_CLOSED: return RPC_NT_PIPE_CLOSED;
+    case RPC_X_PIPE_DISCIPLINE_ERROR: return RPC_NT_PIPE_DISCIPLINE_ERROR;
+    case RPC_X_PIPE_EMPTY: return RPC_NT_PIPE_EMPTY;
+    case ERROR_PASSWORD_MUST_CHANGE: return STATUS_PASSWORD_MUST_CHANGE;
+    case ERROR_ACCOUNT_LOCKED_OUT: return STATUS_ACCOUNT_LOCKED_OUT;
+    default: return status;
+    }
+}
+
+/******************************************************************************
+ * I_RpcExceptionFilter   (rpcrt4.@)
+ */
+int WINAPI I_RpcExceptionFilter(ULONG ExceptionCode)
+{
+    TRACE("0x%x\n", ExceptionCode);
+    switch (ExceptionCode)
+    {
+    case STATUS_DATATYPE_MISALIGNMENT:
+    case STATUS_BREAKPOINT:
+    case STATUS_ACCESS_VIOLATION:
+    case STATUS_ILLEGAL_INSTRUCTION:
+    case STATUS_PRIVILEGED_INSTRUCTION:
+    case STATUS_INSTRUCTION_MISALIGNMENT:
+    case STATUS_STACK_OVERFLOW:
+    case STATUS_POSSIBLE_DEADLOCK:
+        return EXCEPTION_CONTINUE_SEARCH;
+    default:
+        return EXCEPTION_EXECUTE_HANDLER;
+    }
+}
+
+/******************************************************************************
+ * RpcErrorStartEnumeration   (rpcrt4.@)
+ */
+RPC_STATUS RPC_ENTRY RpcErrorStartEnumeration(RPC_ERROR_ENUM_HANDLE* EnumHandle)
+{
+    FIXME("(%p): stub\n", EnumHandle);
+    return RPC_S_ENTRY_NOT_FOUND;
+}
+
+/******************************************************************************
+ * RpcMgmtSetCancelTimeout   (rpcrt4.@)
+ */
+RPC_STATUS RPC_ENTRY RpcMgmtSetCancelTimeout(LONG Timeout)
+{
+    FIXME("(%d): stub\n", Timeout);
+    return RPC_S_OK;
+}
+
+static struct threaddata *get_or_create_threaddata(void)
+{
+    struct threaddata *tdata = NtCurrentTeb()->ReservedForNtRpc;
+    if (!tdata)
+    {
+        tdata = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*tdata));
+        if (!tdata) return NULL;
+
+        InitializeCriticalSection(&tdata->cs);
+        tdata->thread_id = GetCurrentThreadId();
+
+        EnterCriticalSection(&threaddata_cs);
+        list_add_tail(&threaddata_list, &tdata->entry);
+        LeaveCriticalSection(&threaddata_cs);
+
+        NtCurrentTeb()->ReservedForNtRpc = tdata;
+        return tdata;
+    }
+    return tdata;
+}
+
+void RPCRT4_SetThreadCurrentConnection(RpcConnection *Connection)
+{
+    struct threaddata *tdata = get_or_create_threaddata();
+    if (!tdata) return;
+
+    EnterCriticalSection(&tdata->cs);
+    tdata->connection = Connection;
+    LeaveCriticalSection(&tdata->cs);
+}
+
+void RPCRT4_SetThreadCurrentCallHandle(RpcBinding *Binding)
+{
+    struct threaddata *tdata = get_or_create_threaddata();
+    if (!tdata) return;
+
+    tdata->server_binding = Binding;
+}
+
+RpcBinding *RPCRT4_GetThreadCurrentCallHandle(void)
+{
+    struct threaddata *tdata = get_or_create_threaddata();
+    if (!tdata) return NULL;
+
+    return tdata->server_binding;
+}
+
+void RPCRT4_PushThreadContextHandle(NDR_SCONTEXT SContext)
+{
+    struct threaddata *tdata = get_or_create_threaddata();
+    struct context_handle_list *context_handle_list;
+
+    if (!tdata) return;
+
+    context_handle_list = HeapAlloc(GetProcessHeap(), 0, sizeof(*context_handle_list));
+    if (!context_handle_list) return;
+
+    context_handle_list->context_handle = SContext;
+    context_handle_list->next = tdata->context_handle_list;
+    tdata->context_handle_list = context_handle_list;
+}
+
+void RPCRT4_RemoveThreadContextHandle(NDR_SCONTEXT SContext)
+{
+    struct threaddata *tdata = get_or_create_threaddata();
+    struct context_handle_list *current, *prev;
+
+    if (!tdata) return;
+
+    for (current = tdata->context_handle_list, prev = NULL; current; prev = current, current = current->next)
+    {
+        if (current->context_handle == SContext)
+        {
+            if (prev)
+                prev->next = current->next;
+            else
+                tdata->context_handle_list = current->next;
+            HeapFree(GetProcessHeap(), 0, current);
+            return;
+        }
+    }
+}
+
+NDR_SCONTEXT RPCRT4_PopThreadContextHandle(void)
+{
+    struct threaddata *tdata = get_or_create_threaddata();
+    struct context_handle_list *context_handle_list;
+    NDR_SCONTEXT context_handle;
+
+    if (!tdata) return NULL;
+
+    context_handle_list = tdata->context_handle_list;
+    if (!context_handle_list) return NULL;
+    tdata->context_handle_list = context_handle_list->next;
+
+    context_handle = context_handle_list->context_handle;
+    HeapFree(GetProcessHeap(), 0, context_handle_list);
+    return context_handle;
+}
+
+/******************************************************************************
+ * RpcCancelThread   (rpcrt4.@)
+ */
+RPC_STATUS RPC_ENTRY RpcCancelThread(void* ThreadHandle)
+{
+    DWORD target_tid;
+    struct threaddata *tdata;
+
+    TRACE("(%p)\n", ThreadHandle);
+
+    target_tid = GetThreadId(ThreadHandle);
+    if (!target_tid)
+        return RPC_S_INVALID_ARG;
+
+    EnterCriticalSection(&threaddata_cs);
+    LIST_FOR_EACH_ENTRY(tdata, &threaddata_list, struct threaddata, entry)
+        if (tdata->thread_id == target_tid)
+        {
+            EnterCriticalSection(&tdata->cs);
+            if (tdata->connection) rpcrt4_conn_cancel_call(tdata->connection);
+            LeaveCriticalSection(&tdata->cs);
+            break;
+        }
+    LeaveCriticalSection(&threaddata_cs);
+
+    return RPC_S_OK;
+}
+
+/******************************************************************************
+ * RpcCancelThreadEx   (rpcrt4.@)
+ */
+RPC_STATUS RPC_ENTRY RpcCancelThreadEx(void* ThreadHandle, LONG Timeout)
+{
+    FIXME("(%p, %d)\n", ThreadHandle, Timeout);
+    return RPC_S_OK;
 }

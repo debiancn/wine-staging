@@ -222,7 +222,9 @@ static void test_get_atom_name(void)
 
     memset( buf, '.', sizeof(buf) );
     len = GlobalGetAtomNameA( atom, buf, 6 );
-    ok( len == 0, "bad length %d\n", len );
+    ok( len == 0 ||
+        len == 5, /* win9x */
+        "bad length %d\n", len );
     ok( !memcmp( buf, "fooba\0....", 10 ), "bad buffer contents\n");
     if (unicode_OS)
     {
@@ -566,7 +568,7 @@ static void test_local_get_atom_name(void)
         do_initW(inW, "abcdefghij", 255);
         atom = AddAtomW(inW);
         ok(atom, "couldn't add atom for %s\n", in);
-        len = GetAtomNameW(atom, outW, sizeof(outW));
+        len = GetAtomNameW(atom, outW, sizeof(outW)/sizeof(outW[0]));
         ok(len == 255, "length mismatch (%u instead of 255)\n", len);
         for (i = 0; i < 255; i++)
         {

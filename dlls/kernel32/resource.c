@@ -52,7 +52,7 @@ static NTSTATUS get_res_nameA( LPCSTR name, UNICODE_STRING *str )
 {
     if (!HIWORD(name))
     {
-        str->Buffer = (LPWSTR)name;
+        str->Buffer = ULongToPtr(LOWORD(name));
         return STATUS_SUCCESS;
     }
     if (name[0] == '#')
@@ -73,7 +73,7 @@ static NTSTATUS get_res_nameW( LPCWSTR name, UNICODE_STRING *str )
 {
     if (!HIWORD(name))
     {
-        str->Buffer = (LPWSTR)name;
+        str->Buffer = ULongToPtr(LOWORD(name));
         return STATUS_SUCCESS;
     }
     if (name[0] == '#')
@@ -103,7 +103,7 @@ static BOOL get_res_name_type_WtoA( LPCWSTR name, LPCWSTR type, LPSTR *nameA, LP
             *nameA = HeapAlloc( GetProcessHeap(), 0, len );
             if (*nameA) WideCharToMultiByte( CP_ACP, 0, name, -1, *nameA, len, NULL, NULL );
         }
-        else *nameA = (LPSTR)name;
+        else *nameA = ULongToPtr(LOWORD(name));
 
         if (HIWORD(type))
         {
@@ -111,7 +111,7 @@ static BOOL get_res_name_type_WtoA( LPCWSTR name, LPCWSTR type, LPSTR *nameA, LP
             *typeA = HeapAlloc( GetProcessHeap(), 0, len );
             if (*typeA) WideCharToMultiByte( CP_ACP, 0, type, -1, *typeA, len, NULL, NULL );
         }
-        else *typeA = (LPSTR)type;
+        else *typeA = ULongToPtr(LOWORD(type));
     }
     __EXCEPT_PAGE_FAULT
     {
@@ -131,6 +131,9 @@ static HRSRC find_resourceA( HMODULE hModule, LPCSTR type, LPCSTR name, WORD lan
     UNICODE_STRING nameW, typeW;
     LDR_RESOURCE_INFO info;
     const IMAGE_RESOURCE_DATA_ENTRY *entry = NULL;
+
+    nameW.Buffer = NULL;
+    typeW.Buffer = NULL;
 
     __TRY
     {
@@ -586,7 +589,7 @@ LPVOID WINAPI LockResource( HGLOBAL handle )
     TRACE("(%p)\n", handle );
 
     if (HIWORD( handle ))  /* 32-bit memory handle */
-        return (LPVOID)handle;
+        return handle;
 
     /* 16-bit memory handle */
     return LockResource16( HGLOBAL_16(handle) );
@@ -968,7 +971,7 @@ static void *address_from_rva( void *base, DWORD mapping_size, DWORD rva, DWORD 
         return NULL;
 
     if (rva + len <= (DWORD)sec->VirtualAddress + sec->SizeOfRawData)
-        return (void*)((const BYTE*) base + (sec->PointerToRawData + rva - sec->VirtualAddress));
+        return (void*)((LPBYTE) base + (sec->PointerToRawData + rva - sec->VirtualAddress));
 
     return NULL;
 }
@@ -1150,6 +1153,7 @@ static struct mapping_info *create_mapping( LPCWSTR name, BOOL rw )
     }
 
     unmap_file_from_memory( mi );
+    HeapFree( GetProcessHeap(), 0, mi );
 
     return NULL;
 }
@@ -1684,11 +1688,11 @@ BOOL WINAPI UpdateResourceA( HANDLE hUpdate, LPCSTR lpType, LPCSTR lpName,
     UNICODE_STRING TypeW;
     UNICODE_STRING NameW;
     if(!HIWORD(lpType))
-        TypeW.Buffer = (LPWSTR)lpType;
+        TypeW.Buffer = ULongToPtr(LOWORD(lpType));
     else
         RtlCreateUnicodeStringFromAsciiz(&TypeW, lpType);
     if(!HIWORD(lpName))
-        NameW.Buffer = (LPWSTR)lpName;
+        NameW.Buffer = ULongToPtr(LOWORD(lpName));
     else
         RtlCreateUnicodeStringFromAsciiz(&NameW, lpName);
     ret = UpdateResourceW(hUpdate, TypeW.Buffer, NameW.Buffer, wLanguage, lpData, cbData);

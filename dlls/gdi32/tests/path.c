@@ -31,6 +31,8 @@
 #include "winuser.h"
 #include "winerror.h"
 
+#define expect(expected, got) ok(got == expected, "Expected %.8x, got %.8x\n", expected, got)
+
 static void test_widenpath(void)
 {
     HDC hdc = GetDC(0);
@@ -68,7 +70,7 @@ static void test_widenpath(void)
     /* Test if WidenPath seems to have done his job */
     nSize = GetPath(hdc, NULL, NULL, 0);
     ok(nSize != -1, "GetPath fails after calling WidenPath.\n");
-    ok(nSize > 6, "Path number of points is to low. Should be more than 6 but is %d\n", nSize);
+    ok(nSize > 6, "Path number of points is too low. Should be more than 6 but is %d\n", nSize);
 
     AbortPath(hdc);
 
@@ -81,14 +83,15 @@ static void test_widenpath(void)
 
     AbortPath(hdc);
 
-    /* Test when the pen width is equal to 1. The path should not change */
+    /* Test when the pen width is equal to 1. The path should change too */
     narrowPen = CreatePen(PS_SOLID, 1, RGB(0,0,0));
     oldPen = SelectObject(hdc, narrowPen);
     BeginPath(hdc);
     Polyline(hdc, pnt, 6);
     EndPath(hdc);
+    ret = WidenPath(hdc);
     nSize = GetPath(hdc, NULL, NULL, 0);
-    ok(nSize == 6, "WidenPath fails detecting 1px wide pen. Path length is %d, should be 6\n", nSize);
+    ok(nSize > 6, "WidenPath should compute a widdened path with a 1px wide pen. Path length is %d, should be more than 6\n", nSize);
 
     ReleaseDC(0, hdc);
     return;
@@ -291,9 +294,221 @@ done:
     ReleaseDC(0, hdc);
 }
 
+static const path_test_t polydraw_path[] = {
+    {0, 0, PT_MOVETO, 0, 0}, /*0*/
+    {10, 10, PT_LINETO, 0, 0}, /*1*/
+    {10, 15, PT_LINETO | PT_CLOSEFIGURE, 0, 0}, /*2*/
+    {100, 100, PT_MOVETO, 0, 0}, /*3*/
+    {95, 95, PT_LINETO, 0, 0}, /*4*/
+    {10, 10, PT_LINETO, 0, 0}, /*5*/
+    {10, 15, PT_LINETO | PT_CLOSEFIGURE, 0, 0}, /*6*/
+    {100, 100, PT_MOVETO, 0, 0}, /*7*/
+    {15, 15, PT_LINETO, 0, 0}, /*8*/
+    {25, 25, PT_MOVETO, 0, 0}, /*9*/
+    {25, 30, PT_LINETO, 0, 0}, /*10*/
+    {100, 100, PT_MOVETO, 0, 0}, /*11*/
+    {30, 30, PT_BEZIERTO, 0, 0}, /*12*/
+    {30, 35, PT_BEZIERTO, 0, 0}, /*13*/
+    {35, 35, PT_BEZIERTO, 0, 0}, /*14*/
+    {35, 40, PT_LINETO, 0, 0}, /*15*/
+    {40, 40, PT_MOVETO, 0, 0}, /*16*/
+    {40, 45, PT_LINETO, 0, 0}, /*17*/
+    {35, 40, PT_MOVETO, 0, 0}, /*18*/
+    {45, 50, PT_LINETO, 0, 0}, /*19*/
+    {35, 40, PT_MOVETO, 0, 0}, /*20*/
+    {50, 55, PT_LINETO, 0, 0}, /*21*/
+    {45, 50, PT_LINETO, 0, 0}, /*22*/
+    {35, 40, PT_MOVETO, 0, 0}, /*23*/
+    {60, 60, PT_LINETO, 0, 0}, /*24*/
+    {60, 65, PT_MOVETO, 0, 0}, /*25*/
+    {65, 65, PT_LINETO, 0, 0} /*26*/
+    };
+
+static POINT polydraw_pts[] = {
+    {10, 10}, {10, 15},
+    {15, 15}, {15, 20}, {20, 20}, {20, 25},
+    {25, 25}, {25, 30},
+    {30, 30}, {30, 35}, {35, 35}, {35, 40},
+    {40, 40}, {40, 45}, {45, 45},
+    {45, 50}, {50, 50},
+    {50, 55}, {45, 50}, {55, 60},
+    {60, 60}, {60, 65}, {65, 65}};
+
+static BYTE polydraw_tps[] =
+    {PT_LINETO, PT_CLOSEFIGURE | PT_LINETO, /* 2 */
+     PT_LINETO, PT_BEZIERTO, PT_LINETO, PT_LINETO, /* 6 */
+     PT_MOVETO, PT_LINETO, /* 8 */
+     PT_BEZIERTO, PT_BEZIERTO, PT_BEZIERTO, PT_LINETO, /* 12 */
+     PT_MOVETO, PT_LINETO, PT_CLOSEFIGURE, /* 15 */
+     PT_LINETO, PT_MOVETO | PT_CLOSEFIGURE, /* 17 */
+     PT_LINETO, PT_LINETO, PT_MOVETO | PT_CLOSEFIGURE, /* 20 */
+     PT_LINETO, PT_MOVETO | PT_LINETO, PT_LINETO}; /* 23 */
+
+static void test_polydraw(void)
+{
+    BOOL retb;
+    HDC hdc = GetDC(0);
+    BeginPath(hdc);
+
+    /* closefigure with no previous moveto */
+    if (!(retb = PolyDraw(hdc, polydraw_pts, polydraw_tps, 2)) &&
+        GetLastError() == ERROR_CALL_NOT_IMPLEMENTED)
+    {
+        /* PolyDraw is only available on Win2k and later */
+        skip("PolyDraw is not available\n");
+        goto done;
+    }
+    expect(TRUE, retb);
+
+    MoveToEx(hdc, 100, 100, NULL);
+    LineTo(hdc, 95, 95);
+    /* closefigure with previous moveto */
+    retb = PolyDraw(hdc, polydraw_pts, polydraw_tps, 2);
+    expect(TRUE, retb);
+    /* bad bezier points */
+    retb = PolyDraw(hdc, &(polydraw_pts[2]), &(polydraw_tps[2]), 4);
+    expect(FALSE, retb);
+    retb = PolyDraw(hdc, &(polydraw_pts[6]), &(polydraw_tps[6]), 4);
+    expect(FALSE, retb);
+    /* good bezier points */
+    retb = PolyDraw(hdc, &(polydraw_pts[8]), &(polydraw_tps[8]), 4);
+    expect(TRUE, retb);
+    /* does lineto or bezierto take precedence? */
+    retb = PolyDraw(hdc, &(polydraw_pts[12]), &(polydraw_tps[12]), 4);
+    expect(FALSE, retb);
+    /* bad point type, has already moved cursor position */
+    retb = PolyDraw(hdc, &(polydraw_pts[15]), &(polydraw_tps[15]), 4);
+    expect(FALSE, retb);
+    /* bad point type, cursor position is moved, but back to its original spot */
+    retb = PolyDraw(hdc, &(polydraw_pts[17]), &(polydraw_tps[17]), 4);
+    expect(FALSE, retb);
+    /* does lineto or moveto take precedence? */
+    retb = PolyDraw(hdc, &(polydraw_pts[20]), &(polydraw_tps[20]), 3);
+    expect(TRUE, retb);
+
+    EndPath(hdc);
+    ok_path(hdc, "polydraw_path", polydraw_path, sizeof(polydraw_path)/sizeof(path_test_t), 0);
+done:
+    ReleaseDC(0, hdc);
+}
+
+static void test_closefigure(void) {
+    BOOL retb;
+    int nSize, nSizeWitness;
+    HDC hdc = GetDC(0);
+
+    BeginPath(hdc);
+    MoveToEx(hdc, 95, 95, NULL);
+    LineTo(hdc, 95,  0);
+    LineTo(hdc,  0, 95);
+
+    retb = CloseFigure(hdc);
+    EndPath(hdc);
+    nSize = GetPath(hdc, NULL, NULL, 0);
+
+    AbortPath(hdc);
+
+    BeginPath(hdc);
+    MoveToEx(hdc, 95, 95, NULL);
+    LineTo(hdc, 95,  0);
+    LineTo(hdc,  0, 95);
+
+    EndPath(hdc);
+    nSizeWitness = GetPath(hdc, NULL, NULL, 0);
+
+    /* This test shows CloseFigure does not have to add a point at the end of the path */
+    ok(nSize == nSizeWitness, "Wrong number of points, no point should be added by CloseFigure\n");
+
+    ReleaseDC(0, hdc);
+}
+
+static void WINAPI linedda_callback(INT x, INT y, LPARAM lparam)
+{
+    POINT **pt = (POINT**)lparam;
+    ok((*pt)->x == x && (*pt)->y == y, "point mismatch expect(%d,%d) got(%d,%d)\n",
+       (*pt)->x, (*pt)->y, x, y);
+
+    (*pt)++;
+    return;
+}
+
+static void test_linedda(void)
+{
+    const POINT *pt;
+    static const POINT array_10_20_20_40[] = {{10,20},{10,21},{11,22},{11,23},
+                                              {12,24},{12,25},{13,26},{13,27},
+                                              {14,28},{14,29},{15,30},{15,31},
+                                              {16,32},{16,33},{17,34},{17,35},
+                                              {18,36},{18,37},{19,38},{19,39},
+                                              {-1,-1}};
+    static const POINT array_10_20_20_43[] = {{10,20},{10,21},{11,22},{11,23},
+                                              {12,24},{12,25},{13,26},{13,27},
+                                              {13,28},{14,29},{14,30},{15,31},
+                                              {15,32},{16,33},{16,34},{17,35},
+                                              {17,36},{17,37},{18,38},{18,39},
+                                              {19,40},{19,41},{20,42},{-1,-1}};
+
+    static const POINT array_10_20_10_20[] = {{-1,-1}};
+    static const POINT array_10_20_11_27[] = {{10,20},{10,21},{10,22},{10,23},
+                                              {11,24},{11,25},{11,26},{-1,-1}};
+
+    static const POINT array_20_43_10_20[] = {{20,43},{20,42},{19,41},{19,40},
+                                              {18,39},{18,38},{17,37},{17,36},
+                                              {17,35},{16,34},{16,33},{15,32},
+                                              {15,31},{14,30},{14,29},{13,28},
+                                              {13,27},{13,26},{12,25},{12,24},
+                                              {11,23},{11,22},{10,21},{-1,-1}};
+
+    static const POINT array_20_20_10_43[] = {{20,20},{20,21},{19,22},{19,23},
+                                              {18,24},{18,25},{17,26},{17,27},
+                                              {17,28},{16,29},{16,30},{15,31},
+                                              {15,32},{14,33},{14,34},{13,35},
+                                              {13,36},{13,37},{12,38},{12,39},
+                                              {11,40},{11,41},{10,42},{-1,-1}};
+
+    static const POINT array_20_20_43_10[] = {{20,20},{21,20},{22,19},{23,19},
+                                              {24,18},{25,18},{26,17},{27,17},
+                                              {28,17},{29,16},{30,16},{31,15},
+                                              {32,15},{33,14},{34,14},{35,13},
+                                              {36,13},{37,13},{38,12},{39,12},
+                                              {40,11},{41,11},{42,10},{-1,-1}};
+
+
+    pt = array_10_20_20_40;
+    LineDDA(10, 20, 20, 40, linedda_callback, (LPARAM)&pt);
+    ok(pt->x == -1 && pt->y == -1, "didn't find terminator\n");
+
+    pt = array_10_20_20_43;
+    LineDDA(10, 20, 20, 43, linedda_callback, (LPARAM)&pt);
+    ok(pt->x == -1 && pt->y == -1, "didn't find terminator\n");
+
+    pt = array_10_20_10_20;
+    LineDDA(10, 20, 10, 20, linedda_callback, (LPARAM)&pt);
+    ok(pt->x == -1 && pt->y == -1, "didn't find terminator\n");
+
+    pt = array_10_20_11_27;
+    LineDDA(10, 20, 11, 27, linedda_callback, (LPARAM)&pt);
+    ok(pt->x == -1 && pt->y == -1, "didn't find terminator\n");
+
+    pt = array_20_43_10_20;
+    LineDDA(20, 43, 10, 20, linedda_callback, (LPARAM)&pt);
+    ok(pt->x == -1 && pt->y == -1, "didn't find terminator\n");
+
+    pt = array_20_20_10_43;
+    LineDDA(20, 20, 10, 43, linedda_callback, (LPARAM)&pt);
+    ok(pt->x == -1 && pt->y == -1, "didn't find terminator\n");
+
+    pt = array_20_20_43_10;
+    LineDDA(20, 20, 43, 10, linedda_callback, (LPARAM)&pt);
+    ok(pt->x == -1 && pt->y == -1, "didn't find terminator\n");
+}
+
 START_TEST(path)
 {
     test_widenpath();
     test_arcto();
     test_anglearc();
+    test_polydraw();
+    test_closefigure();
+    test_linedda();
 }

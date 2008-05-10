@@ -32,12 +32,19 @@
 #include "dsound.h"
 #include "dxerr8.h"
 #include "dsconf.h"
+#include "mmreg.h"
+/* MinGW doesn't have ksguid, needed for make crosstest to work. */
+#include "initguid.h"
+#include "ks.h"
+#include "ksmedia.h"
 
 #include "dsound_test.h"
 
 static HRESULT (WINAPI *pDirectSoundEnumerateA)(LPDSENUMCALLBACKA,LPVOID)=NULL;
 static HRESULT (WINAPI *pDirectSoundCreate)(LPCGUID,LPDIRECTSOUND*,
     LPUNKNOWN)=NULL;
+
+static BOOL gotdx8;
 
 static void IDirectSound_test(LPDIRECTSOUND dso, BOOL initialized,
                               LPCGUID lpGuid)
@@ -564,8 +571,13 @@ static HRESULT test_primary_secondary(LPGUID lpGuid)
                         formats[f][2]);
             wfx2=wfx;
             rc=IDirectSoundBuffer_SetFormat(primary,&wfx);
-            ok(rc==DS_OK,"IDirectSoundBuffer_SetFormat(%s) failed: %s\n",
-               format_string(&wfx), DXGetErrorString8(rc));
+
+            if (wfx.wBitsPerSample <= 16)
+                ok(rc==DS_OK,"IDirectSoundBuffer_SetFormat(%s) failed: %s\n",
+                   format_string(&wfx), DXGetErrorString8(rc));
+            else
+                ok(rc==DS_OK || rc == E_INVALIDARG, "SetFormat (%s) failed: %s\n",
+                   format_string(&wfx), DXGetErrorString8(rc));
 
             /* There is no guarantee that SetFormat will actually change the
              * format to what we asked for. It depends on what the soundcard
@@ -694,6 +706,7 @@ static HRESULT test_secondary(LPGUID lpGuid)
             goto EXIT1;
 
         for (f=0;f<NB_FORMATS;f++) {
+            WAVEFORMATEXTENSIBLE wfxe;
             init_format(&wfx,WAVE_FORMAT_PCM,formats[f][0],formats[f][1],
                         formats[f][2]);
             secondary=NULL;
@@ -716,18 +729,100 @@ static HRESULT test_secondary(LPGUID lpGuid)
             bufdesc.dwBufferBytes=align(wfx.nAvgBytesPerSec*BUFFER_LEN/1000,
                                         wfx.nBlockAlign);
             bufdesc.lpwfxFormat=&wfx;
-            if (winetest_interactive) {
-                trace("  Testing a secondary buffer at %dx%dx%d "
-                      "with a primary buffer at %dx%dx%d\n",
-                      wfx.nSamplesPerSec,wfx.wBitsPerSample,wfx.nChannels,
-                      wfx1.nSamplesPerSec,wfx1.wBitsPerSample,wfx1.nChannels);
+            rc=IDirectSound_CreateSoundBuffer(dso,&bufdesc,&secondary,NULL);
+            if (gotdx8 || wfx.wBitsPerSample <= 16)
+            {
+                if (wfx.wBitsPerSample > 16)
+                    ok(rc == DSERR_CONTROLUNAVAIL && !secondary, "IDirectSound_CreateSoundBuffer() "
+                        "should have returned DSERR_CONTROLUNAVAIL and NULL, returned: %s %p\n",
+                        DXGetErrorString8(rc), secondary);
+                else
+                    ok(rc==DS_OK && secondary!=NULL,
+                        "IDirectSound_CreateSoundBuffer() failed to create a secondary "
+                        "buffer %s\n",DXGetErrorString8(rc));
             }
+            else
+                ok(rc==E_INVALIDARG, "Creating %d bpp buffer on dx < 8 returned: %p %s\n",
+                   wfx.wBitsPerSample, secondary, DXGetErrorString8(rc));
+
+            if (!gotdx8)
+            {
+                skip("Not doing the WAVE_FORMAT_EXTENSIBLE tests\n");
+                /* Apparently they succeed with bogus values,
+                 * which means that older dsound doesn't look at them
+                 */
+                goto no_wfe;
+            }
+
+            if (secondary)
+                IDirectSoundBuffer_Release(secondary);
+            secondary = NULL;
+
+            bufdesc.lpwfxFormat=(WAVEFORMATEX*)&wfxe;
+            wfxe.Format = wfx;
+            wfxe.Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
+            wfxe.SubFormat = KSDATAFORMAT_SUBTYPE_PCM;
+            wfxe.Format.cbSize = 1;
+            wfxe.Samples.wValidBitsPerSample = wfx.wBitsPerSample;
+            wfxe.dwChannelMask = (wfx.nChannels == 1 ? KSAUDIO_SPEAKER_MONO : KSAUDIO_SPEAKER_STEREO);
+
+            rc=IDirectSound_CreateSoundBuffer(dso,&bufdesc,&secondary,NULL);
+            ok(rc==DSERR_INVALIDPARAM && !secondary,
+                "IDirectSound_CreateSoundBuffer() returned: %s %p\n",
+                DXGetErrorString8(rc), secondary);
+            if (secondary)
+                IDirectSoundBuffer_Release(secondary);
+
+            wfxe.Format.cbSize = sizeof(wfxe) - sizeof(wfx) + 1;
+
+            rc=IDirectSound_CreateSoundBuffer(dso,&bufdesc,&secondary,NULL);
+            ok(DSERR_CONTROLUNAVAIL && !secondary,
+                "IDirectSound_CreateSoundBuffer() returned: %s %p\n",
+                DXGetErrorString8(rc), secondary);
+            if (secondary)
+                IDirectSoundBuffer_Release(secondary);
+
+            wfxe.Format.cbSize = sizeof(wfxe) - sizeof(wfx);
+            wfxe.SubFormat = GUID_NULL;
+            rc=IDirectSound_CreateSoundBuffer(dso,&bufdesc,&secondary,NULL);
+            ok(rc==DSERR_INVALIDPARAM && !secondary,
+                "IDirectSound_CreateSoundBuffer() returned: %s %p\n",
+                DXGetErrorString8(rc), secondary);
+            if (secondary)
+                IDirectSoundBuffer_Release(secondary);
+            wfxe.SubFormat = KSDATAFORMAT_SUBTYPE_PCM;
+
+            ++wfxe.Samples.wValidBitsPerSample;
+            rc=IDirectSound_CreateSoundBuffer(dso,&bufdesc,&secondary,NULL);
+            ok(rc==DSERR_INVALIDPARAM && !secondary,
+                "IDirectSound_CreateSoundBuffer() returned: %s %p\n",
+                DXGetErrorString8(rc), secondary);
+            if (secondary)
+                IDirectSoundBuffer_Release(secondary);
+            --wfxe.Samples.wValidBitsPerSample;
+
+            wfxe.Samples.wValidBitsPerSample = 0;
+            rc=IDirectSound_CreateSoundBuffer(dso,&bufdesc,&secondary,NULL);
+            ok(rc==DS_OK && secondary,
+                "IDirectSound_CreateSoundBuffer() returned: %s %p\n",
+                DXGetErrorString8(rc), secondary);
+            if (secondary)
+                IDirectSoundBuffer_Release(secondary);
+            wfxe.Samples.wValidBitsPerSample = wfxe.Format.wBitsPerSample;
+
             rc=IDirectSound_CreateSoundBuffer(dso,&bufdesc,&secondary,NULL);
             ok(rc==DS_OK && secondary!=NULL,
-               "IDirectSound_CreateSoundBuffer() failed to create a secondary "
-               "buffer %s\n",DXGetErrorString8(rc));
+                "IDirectSound_CreateSoundBuffer() failed to create a secondary "
+                "buffer %s\n",DXGetErrorString8(rc));
 
+no_wfe:
             if (rc==DS_OK && secondary!=NULL) {
+                if (winetest_interactive) {
+                    trace("  Testing a secondary buffer at %dx%dx%d "
+                        "with a primary buffer at %dx%dx%d\n",
+                        wfx.nSamplesPerSec,wfx.wBitsPerSample,wfx.nChannels,
+                        wfx1.nSamplesPerSec,wfx1.wBitsPerSample,wfx1.nChannels);
+                }
                 test_buffer(dso,&secondary,0,FALSE,0,FALSE,0,
                             winetest_interactive,1.0,0,NULL,0,0,FALSE,0);
 
@@ -931,11 +1026,21 @@ EXIT:
     return rc;
 }
 
+static unsigned int number;
+
 static BOOL WINAPI dsenum_callback(LPGUID lpGuid, LPCSTR lpcstrDescription,
                                    LPCSTR lpcstrModule, LPVOID lpContext)
 {
     HRESULT rc;
     trace("*** Testing %s - %s ***\n",lpcstrDescription,lpcstrModule);
+
+    /* Don't test the primary device */
+    if (!number++)
+    {
+        ok (!lpcstrModule[0], "lpcstrModule(%s) != NULL\n", lpcstrModule);
+        return 1;
+    }
+
     rc = test_dsound(lpGuid);
     if (rc == DSERR_NODRIVER)
         trace("  No Driver\n");
@@ -970,12 +1075,22 @@ START_TEST(dsound)
     hDsound = LoadLibrary("dsound.dll");
     if (hDsound)
     {
+        ok( FreeLibrary(hDsound), "FreeLibrary(1) returned %d\n", GetLastError());
+        ok( FreeLibrary(hDsound), "FreeLibrary(2) returned %d\n", GetLastError());
+        ok(!FreeLibrary(hDsound), "DirectSound DLL still loaded\n");
+    }
+
+    hDsound = LoadLibrary("dsound.dll");
+    if (hDsound)
+    {
         trace("DLL Version: %s\n", get_file_version("dsound.dll"));
 
         pDirectSoundEnumerateA = (void*)GetProcAddress(hDsound,
             "DirectSoundEnumerateA");
         pDirectSoundCreate = (void*)GetProcAddress(hDsound,
             "DirectSoundCreate");
+
+        gotdx8 = !!GetProcAddress(hDsound, "DirectSoundCreate8");
 
         IDirectSound_tests();
         dsound_tests();

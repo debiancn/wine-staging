@@ -19,6 +19,10 @@
 #ifndef __WINE_RPCDCEP_H
 #define __WINE_RPCDCEP_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct _RPC_VERSION {
     unsigned short MajorVersion;
     unsigned short MinorVersion;
@@ -44,12 +48,39 @@ typedef struct _RPC_MESSAGE
     unsigned long RpcFlags;
 } RPC_MESSAGE, *PRPC_MESSAGE;
 
+/* or'ed with ProcNum */
+#define RPC_FLAGS_VALID_BIT         0x00008000
+
+#define RPC_CONTEXT_HANDLE_DEFAULT_GUARD ((void *)0xfffff00d)
+
+#define RPC_CONTEXT_HANDLE_DEFAULT_FLAGS    0x00000000
+#define RPC_CONTEXT_HANDLE_FLAGS            0x30000000
+#define RPC_CONTEXT_HANDLE_SERIALIZE        0x10000000
+#define RPC_CONTEXT_HANDLE_DONT_SERIALIZE   0x20000000
+#define RPC_TYPE_STRICT_CONTEXT_HANDLE      0x40000000
+
 #define RPC_NCA_FLAGS_DEFAULT       0x00000000
 #define RPC_NCA_FLAGS_IDEMPOTENT    0x00000001
 #define RPC_NCA_FLAGS_BROADCAST     0x00000002
 #define RPC_NCA_FLAGS_MAYBE         0x00000004
 
+#define RPC_BUFFER_COMPLETE         0x00001000
+#define RPC_BUFFER_PARTIAL          0x00002000
+#define RPC_BUFFER_EXTRA            0x00004000
+#define RPC_BUFFER_ASYNC            0x00008000
+#define RPC_BUFFER_NONOTIFY         0x00010000
+
+#define RPCFLG_MESSAGE              0x01000000
+#define RPCFLG_HAS_MULTI_SYNTAXES   0x02000000
+#define RPCFLG_HAS_CALLBACK         0x04000000
+#define RPCFLG_AUTO_COMPLETE        0x08000000
+#define RPCFLG_LOCAL_CALL           0x10000000
+#define RPCFLG_INPUT_SYNCHRONOUS    0x20000000
+#define RPCFLG_ASYNCHRONOUS         0x40000000
+#define RPCFLG_NON_NDR              0x80000000
+
 typedef void  (__RPC_STUB *RPC_DISPATCH_FUNCTION)(PRPC_MESSAGE Message);
+typedef RPC_STATUS (RPC_ENTRY *RPC_FORWARD_FUNCTION)(UUID *InterfaceId, RPC_VERSION *InterfaceVersion, UUID *ObjectId, unsigned char *Rpcpro, void **ppDestEndpoint);
 
 typedef struct
 {
@@ -99,6 +130,8 @@ typedef struct _RPC_CLIENT_INTERFACE
 #define TRANSPORT_TYPE_WMSG 0x08
 
 RPCRTAPI RPC_STATUS RPC_ENTRY
+  I_RpcNegotiateTransferSyntax( RPC_MESSAGE* Message );
+RPCRTAPI RPC_STATUS RPC_ENTRY
   I_RpcGetBuffer( RPC_MESSAGE* Message );
 RPCRTAPI RPC_STATUS RPC_ENTRY
   I_RpcGetBufferWithObject( RPC_MESSAGE* Message, UUID* ObjectUuid );
@@ -127,7 +160,7 @@ RPCRTAPI RPC_BINDING_HANDLE RPC_ENTRY
  * Note that the prototypes for I_RpcBindingSetAsync are different for each case.
  *
  * Wine defaults to the WinNT case and only defines these function is MSWMSG is
- *  defined. Defining the NT functions by default causes MIDL generated proxys
+ *  defined. Defining the NT functions by default causes MIDL generated proxies
  *  to not compile.
  */
 
@@ -155,9 +188,6 @@ RPCRTAPI UINT RPC_ENTRY
 RPCRTAPI RPC_STATUS RPC_ENTRY
   I_RpcSetWMsgEndpoint( WCHAR* Endpoint );
 
-RPCRTAPI RPC_STATUS RPC_ENTRY
-  I_RpcBindingInqTransportType( RPC_BINDING_HANDLE Binding, unsigned int* Type );
-
 #endif
 
 #else
@@ -180,6 +210,15 @@ RPCRTAPI RPC_STATUS RPC_ENTRY
 RPCRTAPI UINT RPC_ENTRY
   I_RpcWindowProc( void* hWnd, unsigned int Message, unsigned int wParam, unsigned long lParam );
 
+#endif
+
+RPCRTAPI RPC_STATUS RPC_ENTRY
+  I_RpcBindingInqTransportType( RPC_BINDING_HANDLE Binding, unsigned int* Type );
+
+RPCRTAPI LONG RPC_ENTRY I_RpcMapWin32Status(RPC_STATUS);
+
+#ifdef __cplusplus
+}
 #endif
 
 #endif /*__WINE_RPCDCEP_H */

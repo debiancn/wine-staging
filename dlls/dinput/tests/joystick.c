@@ -274,9 +274,9 @@ static BOOL CALLBACK EnumJoysticks(
     ok(hr==DI_OK,"IDirectInputDevice_EnumObjects() failed: %s\n",
        DXGetErrorString8(hr));
 
-    ok(caps.dwAxes == info.axis, "Number of enumerated axes doesn't match capabilities\n");
-    ok(caps.dwButtons == info.button, "Number of enumerated buttons doesn't match capabilities\n");
-    ok(caps.dwPOVs == info.pov, "Number of enumerated POVs doesn't match capabilities\n");
+    ok(caps.dwAxes == info.axis, "Number of enumerated axes (%d) doesn't match capabilities (%d)\n", info.axis, caps.dwAxes);
+    ok(caps.dwButtons == info.button, "Number of enumerated buttons (%d) doesn't match capabilities (%d)\n", info.button, caps.dwButtons);
+    ok(caps.dwPOVs == info.pov, "Number of enumerated POVs (%d) doesn't match capabilities (%d)\n", info.pov, caps.dwPOVs);
 
     /* Set format and check limits again */
     hr = IDirectInputDevice_SetDataFormat(pJoystick, &c_dfDIJoystick2);
@@ -323,6 +323,13 @@ static BOOL CALLBACK EnumJoysticks(
     hr = IDirectInputDevice_Acquire(pJoystick);
     ok(hr == S_FALSE, "IDirectInputDevice_Acquire() should have returned S_FALSE, got: %s\n",
        DXGetErrorString8(hr));
+
+    if (info.pov < 4)
+    {
+        hr = IDirectInputDevice_GetDeviceState(pJoystick, sizeof(DIJOYSTATE2), &js);
+        ok(hr == DI_OK, "IDirectInputDevice_GetDeviceState() failed: %s\n", DXGetErrorString8(hr));
+        ok(js.rgdwPOV[3] == -1, "Default for unassigned POV should be -1 not: %d\n", js.rgdwPOV[3]);
+    }
 
     if (winetest_interactive) {
         trace("You have 30 seconds to test all axes, sliders, POVs and buttons\n");

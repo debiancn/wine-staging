@@ -322,7 +322,7 @@ static int ctl2_find_guid(
  */
 static int ctl2_find_name(
 	ICreateTypeLib2Impl *This, /* [I] The typelib to operate against. */
-	char *name)                /* [I] The encoded name to find. */
+	const char *name)          /* [I] The encoded name to find. */
 {
     int offset;
     int *namestruct;
@@ -331,7 +331,7 @@ static int ctl2_find_name(
     while (offset != -1) {
 	namestruct = (int *)&This->typelib_segment_data[MSFT_SEG_NAME][offset];
 
-	if (!((namestruct[2] ^ *((int *)name)) & 0xffff00ff)) {
+	if (!((namestruct[2] ^ *((const int *)name)) & 0xffff00ff)) {
 	    /* hash codes and lengths match, final test */
 	    if (!strncasecmp(name+4, (void *)(namestruct+3), name[0])) break;
 	}
@@ -828,7 +828,7 @@ static HRESULT ctl2_set_custdata(
  */
 static int ctl2_encode_typedesc(
 	ICreateTypeLib2Impl *This, /* [I] The type library in which to encode the TYPEDESC. */
-	TYPEDESC *tdesc,           /* [I] The type description to encode. */
+	const TYPEDESC *tdesc,     /* [I] The type description to encode. */
 	int *encoded_tdesc,        /* [O] The encoded type description. */
 	int *width,                /* [O] The width of the type, or NULL. */
 	int *alignment,            /* [O] The alignment of the type, or NULL. */
@@ -1225,7 +1225,7 @@ static HRESULT WINAPI ICreateTypeInfo2_fnSetTypeFlags(ICreateTypeInfo2 *iface, U
 
     This->typeinfo->flags = uTypeFlags;
 
-    if (uTypeFlags & 0x1000) {
+    if (uTypeFlags & TYPEFLAG_FDISPATCHABLE) {
 	MSFT_GuidEntry foo;
 	int guidoffset;
 	int fileoffset;
@@ -3225,7 +3225,7 @@ static HRESULT WINAPI ICreateTypeLib2_fnSetLibFlags(ICreateTypeLib2 * iface, UIN
     return S_OK;
 }
 
-static int ctl2_write_chunk(HANDLE hFile, void *segment, int length)
+static int ctl2_write_chunk(HANDLE hFile, const void *segment, int length)
 {
     DWORD dwWritten;
     if (!WriteFile(hFile, segment, length, &dwWritten, 0)) {
@@ -3493,7 +3493,7 @@ static HRESULT WINAPI ITypeLib2_fnGetTypeInfo(
 
     TRACE("(%p,%d,%p)\n", iface, index, ppTInfo);
 
-    if ((index < 0) || (index >= This->typelib_header.nrtypeinfos)) {
+    if (index >= This->typelib_header.nrtypeinfos) {
 	return TYPE_E_ELEMENTNOTFOUND;
     }
 
@@ -3514,7 +3514,7 @@ static HRESULT WINAPI ITypeLib2_fnGetTypeInfoType(
 
     TRACE("(%p,%d,%p)\n", iface, index, pTKind);
 
-    if ((index < 0) || (index >= This->typelib_header.nrtypeinfos)) {
+    if (index >= This->typelib_header.nrtypeinfos) {
 	return TYPE_E_ELEMENTNOTFOUND;
     }
 

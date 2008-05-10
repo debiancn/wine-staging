@@ -41,8 +41,12 @@ extern IUnknown         *create_attribute( xmlNodePtr attribute );
 extern IUnknown         *create_text( xmlNodePtr text );
 extern IUnknown         *create_pi( xmlNodePtr pi );
 extern IUnknown         *create_comment( xmlNodePtr comment );
+extern IUnknown         *create_cdata( xmlNodePtr text );
 extern IXMLDOMNodeList  *create_children_nodelist( xmlNodePtr );
 extern IXMLDOMNamedNodeMap *create_nodemap( IXMLDOMNode *node );
+extern IUnknown         *create_doc_Implementation();
+extern IUnknown         *create_doc_fragment( xmlNodePtr fragment );
+extern IUnknown         *create_doc_entity_ref( xmlNodePtr entity );
 
 extern HRESULT queryresult_create( xmlNodePtr, LPWSTR, IXMLDOMNodeList ** );
 
@@ -61,6 +65,23 @@ extern LONG xmldoc_release( xmlDocPtr doc );
 extern HRESULT XMLElement_create( IUnknown *pUnkOuter, xmlNodePtr node, LPVOID *ppObj );
 extern HRESULT XMLElementCollection_create( IUnknown *pUnkOuter, xmlNodePtr node, LPVOID *ppObj );
 
+extern xmlDocPtr parse_xml(char *ptr, int len);
+
+/* IXMLDOMNode Internal Structure */
+typedef struct _xmlnode
+{
+    const struct IXMLDOMNodeVtbl *lpVtbl;
+    const struct IUnknownVtbl *lpInternalUnkVtbl;
+    IUnknown *pUnkOuter;
+    LONG ref;
+    xmlNodePtr node;
+} xmlnode;
+
+static inline xmlnode *impl_from_IXMLDOMNode( IXMLDOMNode *iface )
+{
+    return (xmlnode *)((char*)iface - FIELD_OFFSET(xmlnode, lpVtbl));
+}
+
 #endif
 
 extern IXMLDOMParseError *create_parseError( LONG code, BSTR url, BSTR reason, BSTR srcText,
@@ -68,5 +89,44 @@ extern IXMLDOMParseError *create_parseError( LONG code, BSTR url, BSTR reason, B
 extern HRESULT DOMDocument_create( IUnknown *pUnkOuter, LPVOID *ppObj );
 extern HRESULT SchemaCache_create( IUnknown *pUnkOuter, LPVOID *ppObj );
 extern HRESULT XMLDocument_create( IUnknown *pUnkOuter, LPVOID *ppObj );
+extern HRESULT SAXXMLReader_create(IUnknown *pUnkOuter, LPVOID *ppObj );
+
+/* typelibs */
+enum tid_t {
+    IXMLDOMAttribute_tid,
+    IXMLDOMCDATASection_tid,
+    IXMLDOMComment_tid,
+    IXMLDOMDocument2_tid,
+    IXMLDOMDocumentFragment_tid,
+    IXMLDOMElement_tid,
+    IXMLDOMEntityReference_tid,
+    IXMLDOMImplementation_tid,
+    IXMLDOMNamedNodeMap_tid,
+    IXMLDOMNode_tid,
+    IXMLDOMNodeList_tid,
+    IXMLDOMParseError_tid,
+    IXMLDOMProcessingInstruction_tid,
+    IXMLDOMSchemaCollection_tid,
+    IXMLDOMText_tid,
+    IXMLElement_tid,
+    IXMLDocument_tid,
+    IVBSAXAttributes_tid,
+    IVBSAXContentHandler_tid,
+    IVBSAXDeclHandler_tid,
+    IVBSAXDTDHandler_tid,
+    IVBSAXEntityResolver_tid,
+    IVBSAXErrorHandler_tid,
+    IVBSAXLexicalHandler_tid,
+    IVBSAXLocator_tid,
+    IVBSAXXMLFilter_tid,
+    IVBSAXXMLReader_tid,
+    IMXAttributes_tid,
+    IMXReaderControl_tid,
+    IMXWriter_tid,
+    LAST_tid
+};
+
+extern HRESULT get_typeinfo(enum tid_t tid, ITypeInfo **typeinfo);
+extern ITypeLib *get_msxml3_typelib( LPWSTR *path );
 
 #endif /* __MSXML_PRIVATE__ */

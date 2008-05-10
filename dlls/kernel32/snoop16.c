@@ -174,7 +174,7 @@ SNOOP16_GetProcAddress16(HMODULE16 hmod,DWORD ordinal,FARPROC16 origfun) {
 
 	if (!TRACE_ON(snoop) || !pModule || !HIWORD(origfun))
 		return origfun;
-	if (!*(LPBYTE)MapSL((SEGPTR)origfun)) /* 0x00 is an imposs. opcode, poss. dataref. */
+	if (!*(LPBYTE)MapSL((SEGPTR)origfun)) /* 0x00 is an impossible opcode, possible dataref. */
 		return origfun;
 	while (dll) {
 		if (hmod == dll->hmod)
@@ -249,7 +249,8 @@ void WINAPI SNOOP16_Entry(FARPROC proc, LPBYTE args, CONTEXT86 *context) {
 	SNOOP16_FUN	*fun = NULL;
 	SNOOP16_RETURNENTRIES	**rets = &firstrets;
 	SNOOP16_RETURNENTRY	*ret;
-	int		i=0, max;
+	unsigned	i=0;
+	int		max;
 
 	while (dll) {
 		if (xcs == dll->funhandle) {

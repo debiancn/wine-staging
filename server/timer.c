@@ -51,6 +51,7 @@ struct timer
 };
 
 static void timer_dump( struct object *obj, int verbose );
+static struct object_type *timer_get_type( struct object *obj );
 static int timer_signaled( struct object *obj, struct thread *thread );
 static int timer_satisfied( struct object *obj, struct thread *thread );
 static unsigned int timer_map_access( struct object *obj, unsigned int access );
@@ -60,6 +61,7 @@ static const struct object_ops timer_ops =
 {
     sizeof(struct timer),      /* size */
     timer_dump,                /* dump */
+    timer_get_type,            /* get_type */
     add_queue,                 /* add_queue */
     remove_queue,              /* remove_queue */
     timer_signaled,            /* signaled */
@@ -67,6 +69,8 @@ static const struct object_ops timer_ops =
     no_signal,                 /* signal */
     no_get_fd,                 /* get_fd */
     timer_map_access,          /* map_access */
+    default_get_sd,            /* get_sd */
+    default_set_sd,            /* set_sd */
     no_lookup_name,            /* lookup_name */
     no_open_file,              /* open_file */
     no_close_handle,           /* close_handle */
@@ -164,8 +168,7 @@ static int set_timer( struct timer *timer, timeout_t expire, unsigned int period
         period = 0;  /* period doesn't make any sense for a manual timer */
         timer->signaled = 0;
     }
-    if (expire > 0 && expire < current_time) expire = current_time;
-    timer->when     = expire;
+    timer->when     = (expire <= 0) ? current_time - expire : max( expire, current_time );
     timer->period   = period;
     timer->callback = callback;
     timer->arg      = arg;
@@ -182,6 +185,13 @@ static void timer_dump( struct object *obj, int verbose )
              timer->manual, get_timeout_str(timer->when), timer->period );
     dump_object_name( &timer->obj );
     fputc( '\n', stderr );
+}
+
+static struct object_type *timer_get_type( struct object *obj )
+{
+    static const WCHAR name[] = {'T','i','m','e','r'};
+    static const struct unicode_str str = { name, sizeof(name) };
+    return get_object_type( &str );
 }
 
 static int timer_signaled( struct object *obj, struct thread *thread )

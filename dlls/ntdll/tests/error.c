@@ -32,8 +32,7 @@
 #include "winreg.h"
 #include "winternl.h"
 
-/* FIXME!!! this test checks only mappings, defined by MSDN:
- * http://support.microsoft.com/default.aspx?scid=KB;EN-US;q113996&
+/* FIXME!!! this test checks only mappings, defined by MSDN
  * It is necessary to add other mappings and to test them up to Windows XP.
  *
  * Some Windows platforms don't know about all the mappings, and in such
@@ -245,11 +244,11 @@ static void run_error_tests(void)
     cmp2(STATUS_PKINIT_FAILURE,                  ERROR_PKINIT_FAILURE);
     cmp2(STATUS_SMARTCARD_SUBSYSTEM_FAILURE,     ERROR_SMARTCARD_SUBSYSTEM_FAILURE);
     cmp2(STATUS_DOWNGRADE_DETECTED,              ERROR_DOWNGRADE_DETECTED);
-    cmp3(STATUS_SMARTCARD_CERT_REVOKED,          SEC_E_SMARTCARD_CERT_REVOKED, 1266); /* FIXME: real name? */
-    cmp3(STATUS_ISSUING_CA_UNTRUSTED,            SEC_E_ISSUING_CA_UNTRUSTED, 1267); /* FIXME: real name? */
-    cmp3(STATUS_REVOCATION_OFFLINE_C,            SEC_E_REVOCATION_OFFLINE_C, 1268); /* FIXME: real name? */
-    cmp3(STATUS_PKINIT_CLIENT_FAILURE,           SEC_E_PKINIT_CLIENT_FAILURE, 1269); /* FIXME: real name? */
-    cmp3(STATUS_SMARTCARD_CERT_EXPIRED,          SEC_E_SMARTCARD_CERT_EXPIRED, 1270); /* FIXME: real name? */
+    cmp4(STATUS_SMARTCARD_CERT_REVOKED,          SEC_E_SMARTCARD_CERT_REVOKED, 1266); /* FIXME: real name? */
+    cmp4(STATUS_ISSUING_CA_UNTRUSTED,            SEC_E_ISSUING_CA_UNTRUSTED, 1267); /* FIXME: real name? */
+    cmp4(STATUS_REVOCATION_OFFLINE_C,            SEC_E_REVOCATION_OFFLINE_C, 1268); /* FIXME: real name? */
+    cmp4(STATUS_PKINIT_CLIENT_FAILURE,           SEC_E_PKINIT_CLIENT_FAILURE, 1269); /* FIXME: real name? */
+    cmp4(STATUS_SMARTCARD_CERT_EXPIRED,          SEC_E_SMARTCARD_CERT_EXPIRED, 1270); /* FIXME: real name? */
     cmp2(STATUS_NO_KERB_KEY,                     SEC_E_NO_KERB_KEY);
     cmp2(STATUS_CURRENT_DOMAIN_NOT_ALLOWED,      ERROR_CURRENT_DOMAIN_NOT_ALLOWED);
     cmp2(STATUS_SMARTCARD_WRONG_PIN,             SCARD_W_WRONG_CHV);

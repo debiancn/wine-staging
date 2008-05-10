@@ -17,6 +17,9 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include "config.h"
+#include "wine/port.h"
+
 #include <stdio.h>
 
 #include "dmusic_private.h"
@@ -54,7 +57,7 @@ static ULONG WINAPI DirectMusicCF_Release(LPCLASSFACTORY iface) {
 
 static HRESULT WINAPI DirectMusicCF_CreateInstance(LPCLASSFACTORY iface, LPUNKNOWN pOuter, REFIID riid, LPVOID *ppobj) {
 	TRACE ("(%p, %s, %p)\n", pOuter, debugstr_dmguid(riid), ppobj);
-	return DMUSIC_CreateDirectMusicImpl (riid, (LPVOID*) ppobj, pOuter);
+	return DMUSIC_CreateDirectMusicImpl (riid, ppobj, pOuter);
 }
 
 static HRESULT WINAPI DirectMusicCF_LockServer(LPCLASSFACTORY iface,BOOL dolock) {
@@ -400,7 +403,7 @@ const char *debugstr_dmguid (const GUID *id) {
         if (!id) return "(null)";
 
 	for (i = 0; i < sizeof(guids)/sizeof(guids[0]); i++) {
-		if (IsEqualGUID(id, &guids[i].guid))
+		if (IsEqualGUID(id, guids[i].guid))
 			return guids[i].name;
 	}
 	/* if we didn't find it, act like standard debugstr_guid */	

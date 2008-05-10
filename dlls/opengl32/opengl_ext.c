@@ -1173,24 +1173,24 @@ static void WINAPI wine_glCurrentPaletteMatrixARB( GLint index ) {
   LEAVE_GL();
 }
 
-static void WINAPI wine_glDeformSGIX( GLint mask ) {
-  void (*func_glDeformSGIX)( GLint ) = extension_funcs[142];
+static void WINAPI wine_glDeformSGIX( GLbitfield mask ) {
+  void (*func_glDeformSGIX)( GLbitfield ) = extension_funcs[142];
   TRACE("(%d)\n", mask );
   ENTER_GL();
   func_glDeformSGIX( mask );
   LEAVE_GL();
 }
 
-static void WINAPI wine_glDeformationMap3dSGIX( GLint target, GLdouble u1, GLdouble u2, GLint ustride, GLint uorder, GLdouble v1, GLdouble v2, GLint vstride, GLint vorder, GLdouble w1, GLdouble w2, GLint wstride, GLint worder, GLdouble* points ) {
-  void (*func_glDeformationMap3dSGIX)( GLint, GLdouble, GLdouble, GLint, GLint, GLdouble, GLdouble, GLint, GLint, GLdouble, GLdouble, GLint, GLint, GLdouble* ) = extension_funcs[143];
+static void WINAPI wine_glDeformationMap3dSGIX( GLenum target, GLdouble u1, GLdouble u2, GLint ustride, GLint uorder, GLdouble v1, GLdouble v2, GLint vstride, GLint vorder, GLdouble w1, GLdouble w2, GLint wstride, GLint worder, GLdouble* points ) {
+  void (*func_glDeformationMap3dSGIX)( GLenum, GLdouble, GLdouble, GLint, GLint, GLdouble, GLdouble, GLint, GLint, GLdouble, GLdouble, GLint, GLint, GLdouble* ) = extension_funcs[143];
   TRACE("(%d, %f, %f, %d, %d, %f, %f, %d, %d, %f, %f, %d, %d, %p)\n", target, u1, u2, ustride, uorder, v1, v2, vstride, vorder, w1, w2, wstride, worder, points );
   ENTER_GL();
   func_glDeformationMap3dSGIX( target, u1, u2, ustride, uorder, v1, v2, vstride, vorder, w1, w2, wstride, worder, points );
   LEAVE_GL();
 }
 
-static void WINAPI wine_glDeformationMap3fSGIX( GLint target, GLfloat u1, GLfloat u2, GLint ustride, GLint uorder, GLfloat v1, GLfloat v2, GLint vstride, GLint vorder, GLfloat w1, GLfloat w2, GLint wstride, GLint worder, GLfloat* points ) {
-  void (*func_glDeformationMap3fSGIX)( GLint, GLfloat, GLfloat, GLint, GLint, GLfloat, GLfloat, GLint, GLint, GLfloat, GLfloat, GLint, GLint, GLfloat* ) = extension_funcs[144];
+static void WINAPI wine_glDeformationMap3fSGIX( GLenum target, GLfloat u1, GLfloat u2, GLint ustride, GLint uorder, GLfloat v1, GLfloat v2, GLint vstride, GLint vorder, GLfloat w1, GLfloat w2, GLint wstride, GLint worder, GLfloat* points ) {
+  void (*func_glDeformationMap3fSGIX)( GLenum, GLfloat, GLfloat, GLint, GLint, GLfloat, GLfloat, GLint, GLint, GLfloat, GLfloat, GLint, GLint, GLfloat* ) = extension_funcs[144];
   TRACE("(%d, %f, %f, %d, %d, %f, %f, %d, %d, %f, %f, %d, %d, %p)\n", target, u1, u2, ustride, uorder, v1, v2, vstride, vorder, w1, w2, wstride, worder, points );
   ENTER_GL();
   func_glDeformationMap3fSGIX( target, u1, u2, ustride, uorder, v1, v2, vstride, vorder, w1, w2, wstride, worder, points );
@@ -3523,8 +3523,8 @@ static void WINAPI wine_glHistogramEXT( GLenum target, GLsizei width, GLenum int
   LEAVE_GL();
 }
 
-static void WINAPI wine_glIglooInterfaceSGIX( GLint pname, GLint* params ) {
-  void (*func_glIglooInterfaceSGIX)( GLint, GLint* ) = extension_funcs[432];
+static void WINAPI wine_glIglooInterfaceSGIX( GLenum pname, GLvoid* params ) {
+  void (*func_glIglooInterfaceSGIX)( GLenum, GLvoid* ) = extension_funcs[432];
   TRACE("(%d, %p)\n", pname, params );
   ENTER_GL();
   func_glIglooInterfaceSGIX( pname, params );
@@ -3857,8 +3857,8 @@ static void WINAPI wine_glListParameterivSGIX( GLuint list, GLenum pname, GLint*
   LEAVE_GL();
 }
 
-static void WINAPI wine_glLoadIdentityDeformationMapSGIX( GLint mask ) {
-  void (*func_glLoadIdentityDeformationMapSGIX)( GLint ) = extension_funcs[469];
+static void WINAPI wine_glLoadIdentityDeformationMapSGIX( GLbitfield mask ) {
+  void (*func_glLoadIdentityDeformationMapSGIX)( GLbitfield ) = extension_funcs[469];
   TRACE("(%d)\n", mask );
   ENTER_GL();
   func_glLoadIdentityDeformationMapSGIX( mask );
@@ -9706,7 +9706,9 @@ static void WINAPI wine_glWriteMaskEXT( GLuint res, GLuint in, GLenum outX, GLen
 }
 
 
-/* The table giving the correspondance between names and functions */
+/* The table giving the correspondence between names and functions
+ * This table MUST be alphabetically sorted on the name field
+ */
 const OpenGL_extension extension_registry[1197] = {
   { "glActiveStencilFaceEXT", "GL_EXT_stencil_two_side", (void *) wine_glActiveStencilFaceEXT },
   { "glActiveTexture", "GL_VERSION_1_3", (void *) wine_glActiveTexture },

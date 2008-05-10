@@ -95,7 +95,6 @@ static void test_acquire(LPDIRECTINPUT pDI, HWND hwnd)
     SetActiveWindow( 0 );
 
     hr = IDirectInputDevice_GetDeviceState(pMouse, sizeof(m_state), &m_state);
-    todo_wine
     ok(hr == DIERR_NOTACQUIRED, "GetDeviceState() should have failed: %s\n", DXGetErrorString8(hr));
     /* Workaround so we can test other things. Remove when Wine is fixed */
     IDirectInputDevice_Unacquire(pMouse);
@@ -119,6 +118,11 @@ static void mouse_tests(void)
     ULONG ref = 0;
 
     hr = DirectInputCreate(hInstance, DIRECTINPUT_VERSION, &pDI, NULL);
+    if (hr == DIERR_OLDDIRECTINPUTVERSION)
+    {
+        skip("Tests require a newer dinput version\n");
+        return;
+    }
     ok(SUCCEEDED(hr), "DirectInputCreate() failed: %s\n", DXGetErrorString8(hr));
     if (FAILED(hr)) return;
 

@@ -26,37 +26,7 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(d3d_decl);
 
-/**
- * DirectX9 SDK download
- *  http://msdn.microsoft.com/library/default.asp?url=/downloads/list/directx.asp
- *
- * Exploring D3DX
- *  http://msdn.microsoft.com/library/default.asp?url=/library/en-us/dndrive/html/directx07162002.asp
- *
- * Using Vertex Shaders
- *  http://msdn.microsoft.com/library/default.asp?url=/library/en-us/dndrive/html/directx02192001.asp
- *
- * Dx9 New
- *  http://msdn.microsoft.com/library/default.asp?url=/library/en-us/directx9_c/directx/graphics/whatsnew.asp
- *
- * Dx9 Shaders
- *  http://msdn.microsoft.com/library/default.asp?url=/library/en-us/directx9_c/directx/graphics/reference/Shaders/VertexShader2_0/VertexShader2_0.asp
- *  http://msdn.microsoft.com/library/default.asp?url=/library/en-us/directx9_c/directx/graphics/reference/Shaders/VertexShader2_0/Instructions/Instructions.asp
- *  http://msdn.microsoft.com/library/default.asp?url=/library/en-us/directx9_c/directx/graphics/programmingguide/GettingStarted/VertexDeclaration/VertexDeclaration.asp
- *  http://msdn.microsoft.com/library/default.asp?url=/library/en-us/directx9_c/directx/graphics/reference/Shaders/VertexShader3_0/VertexShader3_0.asp
- *
- * Dx9 D3DX
- *  http://msdn.microsoft.com/library/default.asp?url=/library/en-us/directx9_c/directx/graphics/programmingguide/advancedtopics/VertexPipe/matrixstack/matrixstack.asp
- *
- * FVF
- *  http://msdn.microsoft.com/library/default.asp?url=/library/en-us/directx9_c/directx/graphics/programmingguide/GettingStarted/VertexFormats/vformats.asp
- *
- * NVIDIA: DX8 Vertex Shader to NV Vertex Program
- *  http://developer.nvidia.com/view.asp?IO=vstovp
- *
- * NVIDIA: Memory Management with VAR
- *  http://developer.nvidia.com/view.asp?IO=var_memory_management
- */
+#define GLINFO_LOCATION This->wineD3DDevice->adapter->gl_info
 
 static void dump_wined3dvertexelement(const WINED3DVERTEXELEMENT *element) {
     TRACE("     Stream: %d\n", element->Stream);
@@ -133,7 +103,7 @@ static HRESULT WINAPI IWineD3DVertexDeclarationImpl_GetDevice(IWineD3DVertexDecl
 }
 
 static HRESULT WINAPI IWineD3DVertexDeclarationImpl_GetDeclaration(IWineD3DVertexDeclaration *iface,
-        WINED3DVERTEXELEMENT *elements, size_t *element_count) {
+        WINED3DVERTEXELEMENT *elements, UINT *element_count) {
     IWineD3DVertexDeclarationImpl *This = (IWineD3DVertexDeclarationImpl *)iface;
     HRESULT hr = WINED3D_OK;
 
@@ -149,14 +119,16 @@ static HRESULT WINAPI IWineD3DVertexDeclarationImpl_GetDeclaration(IWineD3DVerte
 }
 
 static HRESULT WINAPI IWineD3DVertexDeclarationImpl_SetDeclaration(IWineD3DVertexDeclaration *iface,
-        const WINED3DVERTEXELEMENT *elements, size_t element_count) {
+        const WINED3DVERTEXELEMENT *elements, UINT element_count) {
     IWineD3DVertexDeclarationImpl *This = (IWineD3DVertexDeclarationImpl *)iface;
     HRESULT hr = WINED3D_OK;
+    int i, j;
+    char isPreLoaded[MAX_STREAMS];
 
     TRACE("(%p) : d3d version %d\n", This, ((IWineD3DImpl *)This->wineD3DDevice->wineD3D)->dxVersion);
+    memset(isPreLoaded, 0, sizeof(isPreLoaded));
 
     if (TRACE_ON(d3d_decl)) {
-        int i;
         for (i = 0; i < element_count; ++i) {
             dump_wined3dvertexelement(elements+i);
         }
@@ -166,11 +138,72 @@ static HRESULT WINAPI IWineD3DVertexDeclarationImpl_SetDeclaration(IWineD3DVerte
     This->pDeclarationWine = HeapAlloc(GetProcessHeap(), 0, sizeof(WINED3DVERTEXELEMENT) * element_count);
     if (!This->pDeclarationWine) {
         ERR("Memory allocation failed\n");
-        hr = WINED3DERR_OUTOFVIDEOMEMORY;
+        return WINED3DERR_OUTOFVIDEOMEMORY;
     } else {
         CopyMemory(This->pDeclarationWine, elements, sizeof(WINED3DVERTEXELEMENT) * element_count);
     }
 
+    /* Do some static analysis on the elements to make reading the declaration more comfortable
+     * for the drawing code
+     */
+    This->num_streams = 0;
+    This->position_transformed = FALSE;
+    for (i = 0; i < element_count; ++i) {
+
+        if(This->pDeclarationWine[i].Usage == WINED3DDECLUSAGE_POSITIONT) {
+            This->position_transformed = TRUE;
+        }
+
+        /* Find the Streams used in the declaration. The vertex buffers have to be loaded
+         * when drawing, but filter tesselation pseudo streams
+         */
+        if(This->pDeclarationWine[i].Stream >= MAX_STREAMS) continue;
+
+        if(This->pDeclarationWine[i].Offset & 0x3) {
+            WARN("Declaration element %d is not 4 byte aligned(%d), returning E_FAIL\n", i, This->pDeclarationWine[i].Offset);
+            HeapFree(GetProcessHeap(), 0, This->pDeclarationWine);
+            return E_FAIL;
+        }
+
+        if(!isPreLoaded[This->pDeclarationWine[i].Stream]) {
+            This->streams[This->num_streams] = This->pDeclarationWine[i].Stream;
+            This->num_streams++;
+            isPreLoaded[This->pDeclarationWine[i].Stream] = 1;
+        }
+
+        /* Create a sorted array containing the attribute declarations that are of type
+         * D3DCOLOR. D3DCOLOR requires swizzling of the r and b component, and if the
+         * declaration of one attribute changes the vertex shader needs recompilation.
+         * Having a sorted array of the attributes allows efficient comparison of the
+         * declaration against a shader
+         */
+        if(This->pDeclarationWine[i].Type == WINED3DDECLTYPE_D3DCOLOR) {
+            for(j = 0; j < This->num_swizzled_attribs; j++) {
+                if(This->swizzled_attribs[j].usage >  This->pDeclarationWine[i].Usage ||
+                  (This->swizzled_attribs[j].usage == This->pDeclarationWine[i].Usage &&
+                   This->swizzled_attribs[j].idx   >   This->pDeclarationWine[i].UsageIndex)) {
+                    memmove(&This->swizzled_attribs[j + 1], &This->swizzled_attribs[j],
+                             sizeof(This->swizzled_attribs) - (sizeof(This->swizzled_attribs[0]) * (j + 1)));
+                    break;
+                }
+            }
+
+            This->swizzled_attribs[j].usage = This->pDeclarationWine[i].Usage;
+            This->swizzled_attribs[j].idx = This->pDeclarationWine[i].UsageIndex;
+            This->num_swizzled_attribs++;
+        } else if(This->pDeclarationWine[i].Type == WINED3DDECLTYPE_FLOAT16_2 ||
+                  This->pDeclarationWine[i].Type == WINED3DDECLTYPE_FLOAT16_4) {
+            if(!GL_SUPPORT(NV_HALF_FLOAT)) {
+                This->half_float_conv_needed = TRUE;
+            }
+        }
+    }
+
+    TRACE("Swizzled attributes found:\n");
+    for(i = 0; i < This->num_swizzled_attribs; i++) {
+        TRACE("%u: %s%d\n", i,
+              debug_d3ddeclusage(This->swizzled_attribs[i].usage), This->swizzled_attribs[i].idx);
+    }
     TRACE("Returning\n");
     return hr;
 }

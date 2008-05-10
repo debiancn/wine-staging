@@ -27,7 +27,7 @@
 
 #include "user_private.h"
 
-static const USER_DRIVER null_driver, lazy_load_driver;
+static USER_DRIVER null_driver, lazy_load_driver;
 
 const USER_DRIVER *USER_Driver = &lazy_load_driver;
 static DWORD driver_load_error;
@@ -65,7 +65,7 @@ static const USER_DRIVER *load_driver(void)
         driver_load_error = GetLastError();
 
     driver = HeapAlloc( GetProcessHeap(), 0, sizeof(*driver) );
-    memcpy( driver, &null_driver, sizeof(*driver) );
+    *driver = null_driver;
 
     if (graphics_driver)
     {
@@ -108,10 +108,11 @@ static const USER_DRIVER *load_driver(void)
         GET_USER_FUNC(CreateDesktopWindow);
         GET_USER_FUNC(CreateWindow);
         GET_USER_FUNC(DestroyWindow);
-        GET_USER_FUNC(GetDCEx);
+        GET_USER_FUNC(GetDC);
         GET_USER_FUNC(MsgWaitForMultipleObjectsEx);
         GET_USER_FUNC(ReleaseDC);
         GET_USER_FUNC(ScrollDC);
+        GET_USER_FUNC(SetCapture);
         GET_USER_FUNC(SetFocus);
         GET_USER_FUNC(SetParent);
         GET_USER_FUNC(SetWindowPos);
@@ -119,14 +120,12 @@ static const USER_DRIVER *load_driver(void)
         GET_USER_FUNC(SetWindowIcon);
         GET_USER_FUNC(SetWindowStyle);
         GET_USER_FUNC(SetWindowText);
-        GET_USER_FUNC(ShowWindow);
-        GET_USER_FUNC(SysCommandSizeMove);
-        GET_USER_FUNC(WindowFromDC);
+        GET_USER_FUNC(SysCommand);
         GET_USER_FUNC(WindowMessage);
 #undef GET_USER_FUNC
     }
 
-    prev = InterlockedCompareExchangePointer( (void **)&USER_Driver, driver, (void *)&lazy_load_driver );
+    prev = InterlockedCompareExchangePointer( (void **)&USER_Driver, driver, &lazy_load_driver );
     if (prev != &lazy_load_driver)
     {
         /* another thread beat us to it */
@@ -318,7 +317,7 @@ static BOOL nulldrv_CreateDesktopWindow( HWND hwnd )
     return TRUE;
 }
 
-static BOOL nulldrv_CreateWindow( HWND hwnd, CREATESTRUCTA *cs, BOOL unicode )
+static BOOL nulldrv_CreateWindow( HWND hwnd )
 {
     static int warned;
     if (warned++)
@@ -344,9 +343,9 @@ static void nulldrv_DestroyWindow( HWND hwnd )
 {
 }
 
-static HDC nulldrv_GetDCEx( HWND hwnd, HRGN hrgn, DWORD flags )
+static void nulldrv_GetDC( HDC hdc, HWND hwnd, HWND top_win, const RECT *win_rect,
+                           const RECT *top_rect, DWORD flags )
 {
-    return 0;
 }
 
 static DWORD nulldrv_MsgWaitForMultipleObjectsEx( DWORD count, const HANDLE *handles, DWORD timeout,
@@ -356,15 +355,18 @@ static DWORD nulldrv_MsgWaitForMultipleObjectsEx( DWORD count, const HANDLE *han
                                      timeout, flags & MWMO_ALERTABLE );
 }
 
-static INT nulldrv_ReleaseDC( HWND hwnd, HDC hdc, BOOL end_paint )
+static void nulldrv_ReleaseDC( HWND hwnd, HDC hdc )
 {
-    return 0;
 }
 
 static BOOL nulldrv_ScrollDC( HDC hdc, INT dx, INT dy, const RECT *scroll, const RECT *clip,
                               HRGN hrgn, LPRECT update )
 {
     return FALSE;
+}
+
+static void nulldrv_SetCapture( HWND hwnd, UINT flags )
+{
 }
 
 static void nulldrv_SetFocus( HWND hwnd )
@@ -375,10 +377,10 @@ static void nulldrv_SetParent( HWND hwnd, HWND parent, HWND old_parent )
 {
 }
 
-static BOOL nulldrv_SetWindowPos( HWND hwnd, HWND insert_after, const RECT *rectWindow,
-                                  const RECT *rectClient, UINT swp_flags, const RECT *valid_rects )
+static void nulldrv_SetWindowPos( HWND hwnd, HWND insert_after, UINT swp_flags,
+                                  const RECT *window_rect, const RECT *client_rect,
+                                  const RECT *visible_rect, const RECT *valid_rects )
 {
-    return FALSE;
 }
 
 static int nulldrv_SetWindowRgn( HWND hwnd, HRGN hrgn, BOOL redraw )
@@ -398,18 +400,9 @@ static void nulldrv_SetWindowText( HWND hwnd, LPCWSTR text )
 {
 }
 
-static BOOL nulldrv_ShowWindow( HWND hwnd, INT cmd )
+static LRESULT nulldrv_SysCommand( HWND hwnd, WPARAM wparam, LPARAM lparam )
 {
-    return FALSE;
-}
-
-static void nulldrv_SysCommandSizeMove( HWND hwnd, WPARAM wparam )
-{
-}
-
-static HWND nulldrv_WindowFromDC( HDC hdc )
-{
-    return 0;
+    return -1;
 }
 
 static LRESULT nulldrv_WindowMessage( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam )
@@ -417,7 +410,7 @@ static LRESULT nulldrv_WindowMessage( HWND hwnd, UINT msg, WPARAM wparam, LPARAM
     return 0;
 }
 
-static const USER_DRIVER null_driver =
+static USER_DRIVER null_driver =
 {
     /* keyboard functions */
     nulldrv_ActivateKeyboardLayout,
@@ -461,10 +454,11 @@ static const USER_DRIVER null_driver =
     nulldrv_CreateDesktopWindow,
     nulldrv_CreateWindow,
     nulldrv_DestroyWindow,
-    nulldrv_GetDCEx,
+    nulldrv_GetDC,
     nulldrv_MsgWaitForMultipleObjectsEx,
     nulldrv_ReleaseDC,
     nulldrv_ScrollDC,
+    nulldrv_SetCapture,
     nulldrv_SetFocus,
     nulldrv_SetParent,
     nulldrv_SetWindowPos,
@@ -472,9 +466,7 @@ static const USER_DRIVER null_driver =
     nulldrv_SetWindowIcon,
     nulldrv_SetWindowStyle,
     nulldrv_SetWindowText,
-    nulldrv_ShowWindow,
-    nulldrv_SysCommandSizeMove,
-    nulldrv_WindowFromDC,
+    nulldrv_SysCommand,
     nulldrv_WindowMessage
 };
 
@@ -658,9 +650,9 @@ static BOOL loaderdrv_CreateDesktopWindow( HWND hwnd )
     return load_driver()->pCreateDesktopWindow( hwnd );
 }
 
-static BOOL loaderdrv_CreateWindow( HWND hwnd, CREATESTRUCTA *cs, BOOL unicode )
+static BOOL loaderdrv_CreateWindow( HWND hwnd )
 {
-    return load_driver()->pCreateWindow( hwnd, cs, unicode );
+    return load_driver()->pCreateWindow( hwnd );
 }
 
 static void loaderdrv_DestroyWindow( HWND hwnd )
@@ -668,9 +660,10 @@ static void loaderdrv_DestroyWindow( HWND hwnd )
     load_driver()->pDestroyWindow( hwnd );
 }
 
-static HDC loaderdrv_GetDCEx( HWND hwnd, HRGN hrgn, DWORD flags )
+static void loaderdrv_GetDC( HDC hdc, HWND hwnd, HWND top_win, const RECT *win_rect,
+                             const RECT *top_rect, DWORD flags )
 {
-    return load_driver()->pGetDCEx( hwnd, hrgn, flags );
+    load_driver()->pGetDC( hdc, hwnd, top_win, win_rect, top_rect, flags );
 }
 
 static DWORD loaderdrv_MsgWaitForMultipleObjectsEx( DWORD count, const HANDLE *handles, DWORD timeout,
@@ -679,15 +672,20 @@ static DWORD loaderdrv_MsgWaitForMultipleObjectsEx( DWORD count, const HANDLE *h
     return load_driver()->pMsgWaitForMultipleObjectsEx( count, handles, timeout, mask, flags );
 }
 
-static INT loaderdrv_ReleaseDC( HWND hwnd, HDC hdc, BOOL end_paint )
+static void loaderdrv_ReleaseDC( HWND hwnd, HDC hdc )
 {
-    return load_driver()->pReleaseDC( hwnd, hdc, end_paint );
+    load_driver()->pReleaseDC( hwnd, hdc );
 }
 
 static BOOL loaderdrv_ScrollDC( HDC hdc, INT dx, INT dy, const RECT *scroll, const RECT *clip,
                                 HRGN hrgn, LPRECT update )
 {
     return load_driver()->pScrollDC( hdc, dx, dy, scroll, clip, hrgn, update );
+}
+
+static void loaderdrv_SetCapture( HWND hwnd, UINT flags )
+{
+    load_driver()->pSetCapture( hwnd, flags );
 }
 
 static void loaderdrv_SetFocus( HWND hwnd )
@@ -700,10 +698,12 @@ static void loaderdrv_SetParent( HWND hwnd, HWND parent, HWND old_parent )
     load_driver()->pSetParent( hwnd, parent, old_parent );
 }
 
-static BOOL loaderdrv_SetWindowPos( HWND hwnd, HWND insert_after, const RECT *rectWindow,
-                                    const RECT *rectClient, UINT swp_flags, const RECT *valid_rects )
+static void loaderdrv_SetWindowPos( HWND hwnd, HWND insert_after, UINT swp_flags,
+                                    const RECT *window_rect, const RECT *client_rect,
+                                    const RECT *visible_rect, const RECT *valid_rects )
 {
-    return load_driver()->pSetWindowPos( hwnd, insert_after, rectWindow, rectClient, swp_flags, valid_rects );
+    load_driver()->pSetWindowPos( hwnd, insert_after, swp_flags, window_rect,
+                                  client_rect, visible_rect, valid_rects );
 }
 
 static int loaderdrv_SetWindowRgn( HWND hwnd, HRGN hrgn, BOOL redraw )
@@ -726,19 +726,9 @@ static void loaderdrv_SetWindowText( HWND hwnd, LPCWSTR text )
     load_driver()->pSetWindowText( hwnd, text );
 }
 
-static BOOL loaderdrv_ShowWindow( HWND hwnd, INT cmd )
+static LRESULT loaderdrv_SysCommand( HWND hwnd, WPARAM wparam, LPARAM lparam )
 {
-    return load_driver()->pShowWindow( hwnd, cmd );
-}
-
-static void loaderdrv_SysCommandSizeMove( HWND hwnd, WPARAM wparam )
-{
-    load_driver()->pSysCommandSizeMove( hwnd, wparam );
-}
-
-static HWND loaderdrv_WindowFromDC( HDC hdc )
-{
-    return load_driver()->pWindowFromDC( hdc );
+    return load_driver()->pSysCommand( hwnd, wparam, lparam );
 }
 
 static LRESULT loaderdrv_WindowMessage( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam )
@@ -746,7 +736,7 @@ static LRESULT loaderdrv_WindowMessage( HWND hwnd, UINT msg, WPARAM wparam, LPAR
     return load_driver()->pWindowMessage( hwnd, msg, wparam, lparam );
 }
 
-static const USER_DRIVER lazy_load_driver =
+static USER_DRIVER lazy_load_driver =
 {
     /* keyboard functions */
     loaderdrv_ActivateKeyboardLayout,
@@ -790,10 +780,11 @@ static const USER_DRIVER lazy_load_driver =
     loaderdrv_CreateDesktopWindow,
     loaderdrv_CreateWindow,
     loaderdrv_DestroyWindow,
-    loaderdrv_GetDCEx,
+    loaderdrv_GetDC,
     loaderdrv_MsgWaitForMultipleObjectsEx,
     loaderdrv_ReleaseDC,
     loaderdrv_ScrollDC,
+    loaderdrv_SetCapture,
     loaderdrv_SetFocus,
     loaderdrv_SetParent,
     loaderdrv_SetWindowPos,
@@ -801,8 +792,6 @@ static const USER_DRIVER lazy_load_driver =
     loaderdrv_SetWindowIcon,
     loaderdrv_SetWindowStyle,
     loaderdrv_SetWindowText,
-    loaderdrv_ShowWindow,
-    loaderdrv_SysCommandSizeMove,
-    loaderdrv_WindowFromDC,
+    loaderdrv_SysCommand,
     loaderdrv_WindowMessage
 };

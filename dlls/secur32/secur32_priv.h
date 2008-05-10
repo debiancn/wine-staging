@@ -24,12 +24,6 @@
 #include <sys/types.h>
 #include "wine/list.h"
 
-/* Memory allocation functions for memory accessible by callers of secur32.
- * The details are implementation specific.
- */
-#define SECUR32_ALLOC(bytes) HeapAlloc(GetProcessHeap(), 0, (bytes))
-#define SECUR32_FREE(p)      HeapFree(GetProcessHeap(), 0, (p))
-
 typedef struct _SecureProvider
 {
     struct list             entry;
@@ -61,8 +55,6 @@ typedef struct tag_arc4_info {
 typedef struct _NegoHelper {
     pid_t helper_pid;
     HelperMode mode;
-    SEC_CHAR *password;
-    int pwlen;
     int pipe_in;
     int pipe_out;
     int major;
@@ -72,7 +64,6 @@ typedef struct _NegoHelper {
     int com_buf_size;
     int com_buf_offset;
     BYTE *session_key;
-    BOOL valid_session_key;
     unsigned long neg_flags;
     struct {
         struct {
@@ -115,14 +106,14 @@ void SECUR32_addPackages(SecureProvider *provider, ULONG toAdd,
 /* Tries to find the package named packageName.  If it finds it, implicitly
  * loads the package if it isn't already loaded.
  */
-SecurePackage *SECUR32_findPackageW(PWSTR packageName);
+SecurePackage *SECUR32_findPackageW(PCWSTR packageName);
 
 /* Tries to find the package named packageName.  (Thunks to _findPackageW)
  */
-SecurePackage *SECUR32_findPackageA(PSTR packageName);
+SecurePackage *SECUR32_findPackageA(PCSTR packageName);
 
 /* A few string helpers; will return NULL if str is NULL.  Free return with
- * SECUR32_FREE */
+ * HeapFree */
 PWSTR SECUR32_strdupW(PCWSTR str);
 PWSTR SECUR32_AllocWideFromMultiByte(PCSTR str);
 PSTR  SECUR32_AllocMultiByteFromWide(PCWSTR str);

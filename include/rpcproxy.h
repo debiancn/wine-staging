@@ -33,6 +33,10 @@
 #include <rpc.h>
 #include <rpcndr.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct tagCInterfaceStubVtbl *PCInterfaceStubVtblList;
 typedef struct tagCInterfaceProxyVtbl *PCInterfaceProxyVtblList;
 typedef const char *PCInterfaceName;
@@ -346,8 +350,6 @@ ULONG WINAPI CStdStubBuffer2_Release(IRpcStubBuffer *This) \
 
 #if 0
 
-/* see http://www.microsoft.com/msj/0199/com/com0199.aspx */
-
 RPCRTAPI HRESULT RPC_ENTRY
   CreateProxyFromTypeInfo( LPTYPEINFO pTypeInfo, LPUNKNOWN pUnkOuter, REFIID riid,
                            LPRPCPROXYBUFFER *ppProxy, LPVOID *ppv );
@@ -355,6 +357,10 @@ RPCRTAPI HRESULT RPC_ENTRY
   CreateStubFromTypeInfo( LPTYPEINFO pTypeInfo, REFIID riid, LPUNKNOWN pUnkServer,
                           LPRPCSTUBBUFFER *ppStub );
 
+#endif
+
+#ifdef __cplusplus
+}
 #endif
 
 #endif /*__WINE_RPCDCE_H */

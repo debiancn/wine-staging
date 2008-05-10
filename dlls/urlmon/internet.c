@@ -16,21 +16,11 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include <stdarg.h>
-
-#define COBJMACROS
-
-#include "windef.h"
-#include "winbase.h"
-#include "winuser.h"
+#include "urlmon_main.h"
 #include "winreg.h"
 #include "shlwapi.h"
-#include "ole2.h"
-#include "urlmon.h"
-#include "urlmon_main.h"
 
 #include "wine/debug.h"
-#include "wine/unicode.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(urlmon);
 
@@ -75,6 +65,7 @@ static HRESULT parse_canonicalize_url(LPCWSTR url, DWORD flags, LPWSTR result,
     if(protocol_info) {
         hres = IInternetProtocolInfo_ParseUrl(protocol_info, url, PARSE_CANONICALIZE,
                 flags, result, size, rsize, 0);
+        IInternetProtocolInfo_Release(protocol_info);
         if(SUCCEEDED(hres))
             return hres;
     }
@@ -98,6 +89,7 @@ static HRESULT parse_security_url(LPCWSTR url, DWORD flags, LPWSTR result, DWORD
     if(protocol_info) {
         hres = IInternetProtocolInfo_ParseUrl(protocol_info, url, PARSE_SECURITY_URL,
                 flags, result, size, rsize, 0);
+        IInternetProtocolInfo_Release(protocol_info);
         return hres;
     }
 
@@ -117,6 +109,7 @@ static HRESULT parse_encode(LPCWSTR url, DWORD flags, LPWSTR result, DWORD size,
     if(protocol_info) {
         hres = IInternetProtocolInfo_ParseUrl(protocol_info, url, PARSE_ENCODE,
                 flags, result, size, rsize, 0);
+        IInternetProtocolInfo_Release(protocol_info);
         if(SUCCEEDED(hres))
             return hres;
     }
@@ -143,6 +136,7 @@ static HRESULT parse_path_from_url(LPCWSTR url, DWORD flags, LPWSTR result, DWOR
     if(protocol_info) {
         hres = IInternetProtocolInfo_ParseUrl(protocol_info, url, PARSE_PATH_FROM_URL,
                 flags, result, size, rsize, 0);
+        IInternetProtocolInfo_Release(protocol_info);
         if(SUCCEEDED(hres))
             return hres;
     }
@@ -168,6 +162,7 @@ static HRESULT parse_security_domain(LPCWSTR url, DWORD flags, LPWSTR result,
     if(protocol_info) {
         hres = IInternetProtocolInfo_ParseUrl(protocol_info, url, PARSE_SECURITY_DOMAIN,
                 flags, result, size, rsize, 0);
+        IInternetProtocolInfo_Release(protocol_info);
         if(SUCCEEDED(hres))
             return hres;
     }
@@ -224,6 +219,7 @@ HRESULT WINAPI CoInternetCombineUrl(LPCWSTR pwzBaseUrl, LPCWSTR pwzRelativeUrl,
     if(protocol_info) {
         hres = IInternetProtocolInfo_CombineUrl(protocol_info, pwzBaseUrl, pwzRelativeUrl,
                 dwCombineFlags, pwzResult, cchResult, pcchResult, dwReserved);
+        IInternetProtocolInfo_Release(protocol_info);
         if(SUCCEEDED(hres))
             return hres;
     }
@@ -251,9 +247,63 @@ HRESULT WINAPI CoInternetCompareUrl(LPCWSTR pwzUrl1, LPCWSTR pwzUrl2, DWORD dwCo
 
     if(protocol_info) {
         hres = IInternetProtocolInfo_CompareUrl(protocol_info, pwzUrl1, pwzUrl2, dwCompareFlags);
+        IInternetProtocolInfo_Release(protocol_info);
         if(SUCCEEDED(hres))
             return hres;
     }
 
     return UrlCompareW(pwzUrl1, pwzUrl2, dwCompareFlags) ? S_FALSE : S_OK;
+}
+
+/***********************************************************************
+ *           CoInternetQueryInfo (URLMON.@)
+ *
+ * Retrieves information relevant to a specified URL
+ *
+ */
+HRESULT WINAPI CoInternetQueryInfo(LPCWSTR pwzUrl, QUERYOPTION QueryOption,
+        DWORD dwQueryFlags, LPVOID pvBuffer, DWORD cbBuffer, DWORD *pcbBuffer,
+        DWORD dwReserved)
+{
+    IInternetProtocolInfo *protocol_info;
+    HRESULT hres;
+
+    TRACE("(%s, %x, %x, %p, %x, %p, %x): stub\n", debugstr_w(pwzUrl),
+          QueryOption, dwQueryFlags, pvBuffer, cbBuffer, pcbBuffer, dwReserved);
+
+    protocol_info = get_protocol_info(pwzUrl);
+
+    if(protocol_info) {
+        hres = IInternetProtocolInfo_QueryInfo(protocol_info, pwzUrl, QueryOption, dwQueryFlags,
+                pvBuffer, cbBuffer, pcbBuffer, dwReserved);
+        IInternetProtocolInfo_Release(protocol_info);
+
+        return SUCCEEDED(hres) ? hres : E_FAIL;
+    }
+
+    switch(QueryOption) {
+    case QUERY_USES_NETWORK:
+        if(!pvBuffer || cbBuffer < sizeof(DWORD))
+            return E_FAIL;
+
+        *(DWORD*)pvBuffer = 0;
+        if(pcbBuffer)
+            *pcbBuffer = sizeof(DWORD);
+        break;
+
+    default:
+        FIXME("Not supported option %d\n", QueryOption);
+        return E_NOTIMPL;
+    }
+
+    return S_OK;
+}
+
+/***********************************************************************
+ *             CoInternetSetFeatureEnabled (URLMON.@)
+ */
+HRESULT WINAPI CoInternetSetFeatureEnabled(INTERNETFEATURELIST feature, DWORD flags, BOOL enable)
+{
+    FIXME("%d, 0x%08x, %x, stub\n", feature, flags, enable);
+    return E_NOTIMPL;
 }

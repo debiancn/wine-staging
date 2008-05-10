@@ -49,6 +49,7 @@
   51 stdcall PathResolve(str long long) PathResolveAW
   52 stdcall -noname PathGetArgs(str) PathGetArgsAW
   53 stdcall DoEnvironmentSubst(long long) DoEnvironmentSubstAW
+  54 stub LogoffWindowsDialog
   55 stdcall -noname PathQuoteSpaces(ptr) PathQuoteSpacesAW
   56 stdcall -noname PathUnquoteSpaces(str) PathUnquoteSpacesAW
   57 stdcall -noname PathGetDriveNumber(str) PathGetDriveNumberAW
@@ -156,7 +157,7 @@
  165 stdcall -noname SHCreateDirectory(long ptr)
  166 stdcall -noname CallCPLEntry16(long long long long long long)
  167 stdcall -noname SHAddFromPropSheetExtArray(long long long)
- 168 stdcall -noname SHCreatePropSheetExtArray(long str long)
+ 168 stdcall -noname SHCreatePropSheetExtArray(long wstr long)
  169 stdcall -noname SHDestroyPropSheetExtArray(long)
  170 stdcall -noname SHReplaceFromPropSheetExtArray(long long long long)
  171 stdcall -noname PathCleanupSpec(ptr ptr)
@@ -170,8 +171,8 @@
  179 stdcall -noname SHGetNewLinkInfoA(str str ptr long long)
  180 stdcall -noname SHGetNewLinkInfoW(wstr wstr ptr long long)
  181 stdcall -noname RegisterShellHook(long long)
- 182 varargs -noname ShellMessageBoxW(long long long str long)
- 183 varargs -noname ShellMessageBoxA(long long long str long)
+ 182 varargs -noname ShellMessageBoxW(long long wstr wstr long)
+ 183 varargs -noname ShellMessageBoxA(long long str str long)
  184 stdcall -noname ArrangeWindows(long long long long long)
  185 stub SHHandleDiskFull
  186 stdcall -noname ILGetDisplayNameEx(ptr ptr ptr long)
@@ -182,7 +183,7 @@
  191 stdcall -noname SHUpdateImageA(str long long long)
  192 stdcall -noname SHUpdateImageW(wstr long long long)
  193 stdcall -noname SHHandleUpdateImage(ptr)
- 194 stub SHCreatePropSheetExtArrayEx
+ 194 stdcall -noname SHCreatePropSheetExtArrayEx(long wstr long ptr)
  195 stdcall -noname SHFree(ptr)
  196 stdcall -noname SHAlloc(long)
  197 stub SHGlobalDefect
@@ -210,6 +211,8 @@
  250 stdcall -noname PathRemoveExtension(ptr) PathRemoveExtensionAW
  251 stdcall -noname PathRemoveArgs(ptr) PathRemoveArgsAW
  256 stdcall @(ptr ptr) SHELL32_256
+ 258 stdcall -noname LinkWindow_RegisterClass()
+ 259 stdcall -noname LinkWindow_UnregisterClass()
 #299 stub Shl1632_ThunkData32
 #300 stub Shl3216_ThunkData32
 
@@ -341,6 +344,8 @@
 @ stdcall SHGetFileInfoW(ptr long ptr long long)
 @ stdcall SHGetFolderLocation(long long long long ptr)
 @ stdcall SHGetFolderPathA(long long long long ptr)
+@ stdcall SHGetFolderPathAndSubDirA(long long long long str ptr)
+@ stdcall SHGetFolderPathAndSubDirW(long long long long wstr ptr)
 @ stdcall SHGetFolderPathW(long long long long ptr)
 @ stub SHGetFreeDiskSpace
 @ stub SHGetIconOverlayIndexA

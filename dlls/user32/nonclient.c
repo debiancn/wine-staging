@@ -25,7 +25,6 @@
 #include "windef.h"
 #include "winbase.h"
 #include "wingdi.h"
-#include "wine/winuser16.h"
 #include "win.h"
 #include "user_private.h"
 #include "controls.h"
@@ -33,21 +32,7 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(nonclient);
 
-BOOL NC_DrawGrayButton(HDC hdc, int x, int y);
-
-static const BYTE lpGrayMask[] = { 0xAA, 0xA0,
-                                   0x55, 0x50,
-                                   0xAA, 0xA0,
-                                   0x55, 0x50,
-                                   0xAA, 0xA0,
-                                   0x55, 0x50,
-                                   0xAA, 0xA0,
-                                   0x55, 0x50,
-                                   0xAA, 0xA0,
-                                   0x55, 0x50};
-
 #define SC_ABOUTWINE            (SC_SCREENSAVE+1)
-#define SC_PUTMARK              (SC_SCREENSAVE+2)
 
   /* Some useful macros */
 #define HAS_DLGFRAME(style,exStyle) \
@@ -323,7 +308,7 @@ BOOL WINAPI DrawCaptionTempW (HWND hwnd, HDC hdc, const RECT *rect, HFONT hFont,
     }
     else {
         DWORD style = GetWindowLongW (hwnd, GWL_STYLE);
-        NC_DrawCaptionBar (hdc, rect, style, uFlags & DC_ACTIVE, uFlags & DC_GRADIENT);
+        NC_DrawCaptionBar (hdc, &rc, style, uFlags & DC_ACTIVE, uFlags & DC_GRADIENT);
     }
 
 
@@ -410,9 +395,7 @@ BOOL WINAPI AdjustWindowRectEx( LPRECT rect, DWORD style, BOOL menu, DWORD exSty
                 WS_EX_STATICEDGE | WS_EX_TOOLWINDOW);
     if (exStyle & WS_EX_DLGMODALFRAME) style &= ~WS_THICKFRAME;
 
-    TRACE("(%d,%d)-(%d,%d) %08x %d %08x\n",
-          rect->left, rect->top, rect->right, rect->bottom,
-          style, menu, exStyle );
+    TRACE("(%s) %08x %d %08x\n", wine_dbgstr_rect(rect), style, menu, exStyle );
 
     NC_AdjustRectOuter( rect, style, menu, exStyle );
     NC_AdjustRectInner( rect, style, exStyle );
@@ -627,19 +610,19 @@ static LRESULT NC_DoNCHitTest (WND *wndPtr, POINT pt )
 
             /* Check close button */
             if (wndPtr->dwStyle & WS_SYSMENU)
-                rect.right -= GetSystemMetrics(SM_CYCAPTION) - 1;
+                rect.right -= GetSystemMetrics(SM_CYCAPTION);
             if (pt.x > rect.right) return HTCLOSE;
 
             /* Check maximize box */
             /* In win95 there is automatically a Maximize button when there is a minimize one*/
             if (min_or_max_box && !(wndPtr->dwExStyle & WS_EX_TOOLWINDOW))
-                rect.right -= GetSystemMetrics(SM_CXSIZE) + 1;
+                rect.right -= GetSystemMetrics(SM_CXSIZE);
             if (pt.x > rect.right) return HTMAXBUTTON;
 
             /* Check minimize box */
             /* In win95 there is automatically a Maximize button when there is a Maximize one*/
             if (min_or_max_box && !(wndPtr->dwExStyle & WS_EX_TOOLWINDOW))
-                rect.right -= GetSystemMetrics(SM_CXSIZE) + 1;
+                rect.right -= GetSystemMetrics(SM_CXSIZE);
 
             if (pt.x > rect.right) return HTMINBUTTON;
             return HTCAPTION;
@@ -758,8 +741,8 @@ static void NC_DrawCloseButton (HWND hwnd, HDC hdc, BOOL down, BOOL bGrayed)
     }
     else
     {
-        rect.left = rect.right - GetSystemMetrics(SM_CXSIZE) - 1;
-        rect.bottom = rect.top + GetSystemMetrics(SM_CYSIZE) - 1;
+        rect.left = rect.right - GetSystemMetrics(SM_CXSIZE);
+        rect.bottom = rect.top + GetSystemMetrics(SM_CYSIZE) - 2;
         rect.top += 2;
         rect.right -= 2;
     }
@@ -788,9 +771,9 @@ static void NC_DrawMaxButton(HWND hwnd,HDC hdc,BOOL down, BOOL bGrayed)
 
     NC_GetInsideRect( hwnd, &rect );
     if (GetWindowLongW( hwnd, GWL_STYLE) & WS_SYSMENU)
-        rect.right -= GetSystemMetrics(SM_CXSIZE) + 1;
+        rect.right -= GetSystemMetrics(SM_CXSIZE);
     rect.left = rect.right - GetSystemMetrics(SM_CXSIZE);
-    rect.bottom = rect.top + GetSystemMetrics(SM_CYSIZE) - 1;
+    rect.bottom = rect.top + GetSystemMetrics(SM_CYSIZE) - 2;
     rect.top += 2;
     rect.right -= 2;
     if (down) flags |= DFCS_PUSHED;
@@ -816,11 +799,11 @@ static void  NC_DrawMinButton(HWND hwnd,HDC hdc,BOOL down, BOOL bGrayed)
 
     NC_GetInsideRect( hwnd, &rect );
     if (style & WS_SYSMENU)
-        rect.right -= GetSystemMetrics(SM_CXSIZE) + 1;
+        rect.right -= GetSystemMetrics(SM_CXSIZE);
     if (style & (WS_MAXIMIZEBOX|WS_MINIMIZEBOX))
         rect.right -= GetSystemMetrics(SM_CXSIZE) - 2;
     rect.left = rect.right - GetSystemMetrics(SM_CXSIZE);
-    rect.bottom = rect.top + GetSystemMetrics(SM_CYSIZE) - 1;
+    rect.bottom = rect.top + GetSystemMetrics(SM_CYSIZE) - 2;
     rect.top += 2;
     rect.right -= 2;
     if (down) flags |= DFCS_PUSHED;
@@ -933,7 +916,7 @@ static void  NC_DrawCaption( HDC  hdc, RECT *rect, HWND hwnd, DWORD  style,
     r.bottom--;
 
     SystemParametersInfoW (SPI_GETGRADIENTCAPTIONS, 0, &gradient, 0);
-    NC_DrawCaptionBar (hdc, rect, style, active, gradient);
+    NC_DrawCaptionBar (hdc, &r, style, active, gradient);
 
     if ((style & WS_SYSMENU) && !(exStyle & WS_EX_TOOLWINDOW)) {
         if (NC_DrawSysButton (hwnd, hdc, FALSE))
@@ -1079,14 +1062,12 @@ static void  NC_DoNCPaint( HWND  hwnd, HRGN  clip, BOOL  suppress_menupaint )
 	RECT r = rect;
 	r.bottom = rect.top + GetSystemMetrics(SM_CYMENU);
 
-	TRACE("Calling DrawMenuBar with rect (%d, %d)-(%d, %d)\n",
-              r.left, r.top, r.right, r.bottom);
+	TRACE("Calling DrawMenuBar with rect (%s)\n", wine_dbgstr_rect(&r));
 
 	rect.top += MENU_DrawMenuBar( hdc, &r, hwnd, suppress_menupaint ) + 1;
     }
 
-    TRACE("After MenuBar, rect is (%d, %d)-(%d, %d).\n",
-          rect.left, rect.top, rect.right, rect.bottom );
+    TRACE("After MenuBar, rect is (%s).\n", wine_dbgstr_rect(&rect));
 
     if (dwExStyle & WS_EX_CLIENTEDGE)
 	DrawEdge (hdc, &rect, EDGE_SUNKEN, BF_RECT | BF_ADJUST);
@@ -1141,7 +1122,7 @@ LRESULT NC_HandleNCPaint( HWND hwnd , HRGN clip)
  *
  * Handle a WM_NCACTIVATE message. Called from DefWindowProc().
  */
-LRESULT NC_HandleNCActivate( HWND hwnd, WPARAM wParam )
+LRESULT NC_HandleNCActivate( HWND hwnd, WPARAM wParam, LPARAM lParam )
 {
     WND* wndPtr = WIN_GetPtr( hwnd );
 
@@ -1156,10 +1137,16 @@ LRESULT NC_HandleNCActivate( HWND hwnd, WPARAM wParam )
     else wndPtr->flags &= ~WIN_NCACTIVATED;
     WIN_ReleasePtr( wndPtr );
 
-    if (IsIconic(hwnd))
-        WINPOS_RedrawIconTitle( hwnd );
-    else
-        NC_DoNCPaint( hwnd, (HRGN)1, FALSE );
+    /* This isn't documented but is reproducible in at least XP SP2 and
+     * Outlook 2007 depends on it
+     */
+    if (lParam != -1)
+    {
+        if (IsIconic(hwnd))
+            WINPOS_RedrawIconTitle( hwnd );
+        else
+            NC_DoNCPaint( hwnd, (HRGN)1, FALSE );
+    }
 
     return TRUE;
 }
@@ -1546,11 +1533,14 @@ LRESULT NC_HandleSysCommand( HWND hwnd, WPARAM wParam, LPARAM lParam )
     if (HOOK_CallHooks( WH_CBT, HCBT_SYSCOMMAND, wParam, lParam, TRUE ))
         return 0;
 
+    if (!USER_Driver->pSysCommand( hwnd, wParam, lParam ))
+        return 0;
+
     switch (wParam & 0xfff0)
     {
     case SC_SIZE:
     case SC_MOVE:
-        USER_Driver->pSysCommandSizeMove( hwnd, wParam );
+        WINPOS_SysCommandSizeMove( hwnd, wParam );
         break;
 
     case SC_MINIMIZE:
@@ -1608,13 +1598,10 @@ LRESULT NC_HandleSysCommand( HWND hwnd, WPARAM wParam, LPARAM lParam )
             if (hmodule)
             {
                 FARPROC aboutproc = GetProcAddress( hmodule, "ShellAboutA" );
-                if (aboutproc) aboutproc( hwnd, PACKAGE_NAME, PACKAGE_STRING, 0 );
+                if (aboutproc) aboutproc( hwnd, PACKAGE_STRING, NULL, 0 );
                 FreeLibrary( hmodule );
             }
         }
-        else
-          if (wParam == SC_PUTMARK)
-            DPRINTF("Debug mark requested by user\n");
         break;
 
     case SC_HOTKEY:
@@ -1625,40 +1612,6 @@ LRESULT NC_HandleSysCommand( HWND hwnd, WPARAM wParam, LPARAM lParam )
         break;
     }
     return 0;
-}
-
-/*************************************************************
-*  NC_DrawGrayButton
-*
-* Stub for the grayed button of the caption
-*
-*************************************************************/
-
-BOOL NC_DrawGrayButton(HDC hdc, int x, int y)
-{
-    HBITMAP hMaskBmp;
-    HDC hdcMask;
-    HBRUSH hOldBrush;
-
-    hMaskBmp = CreateBitmap (12, 10, 1, 1, lpGrayMask);
-
-    if(hMaskBmp == 0)
-        return FALSE;
-
-    hdcMask = CreateCompatibleDC (0);
-    SelectObject (hdcMask, hMaskBmp);
-
-    /* Draw the grayed bitmap using the mask */
-    hOldBrush = SelectObject (hdc, (HGDIOBJ)RGB(128, 128, 128));
-    BitBlt (hdc, x, y, 12, 10,
-            hdcMask, 0, 0, 0xB8074A);
-
-    /* Clean up */
-    SelectObject (hdc, hOldBrush);
-    DeleteObject(hMaskBmp);
-    DeleteDC (hdcMask);
-
-    return TRUE;
 }
 
 /***********************************************************************

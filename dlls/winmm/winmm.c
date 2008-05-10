@@ -193,8 +193,14 @@ BOOL WINAPI DllMain(HINSTANCE hInstDLL, DWORD fdwReason, LPVOID fImpLoad)
         /* close all opened MCI drivers */
         MCI_SendCommand(MCI_ALL_DEVICE_ID, MCI_CLOSE, MCI_WAIT, 0L, TRUE);
         MMDRV_Exit();
-        /* now unload all remaining drivers... */
-        DRIVER_UnloadAll();
+        /* There's no guarantee the drivers haven't already been unloaded on
+         * process shutdown.
+         */
+        if (!fImpLoad)
+        {
+            /* now unload all remaining drivers... */
+            DRIVER_UnloadAll();
+        }
 
 	WINMM_DeleteIData();
 	break;
@@ -453,7 +459,7 @@ UINT WINAPI mixerGetControlDetailsA(HMIXEROBJ hmix, LPMIXERCONTROLDETAILS lpmcdA
 
     switch (fdwDetails & MIXER_GETCONTROLDETAILSF_QUERYMASK) {
     case MIXER_GETCONTROLDETAILSF_VALUE:
-	/* can savely use A structure as it is, no string inside */
+	/* can safely use A structure as it is, no string inside */
 	ret = mixerGetControlDetailsW(hmix, lpmcdA, fdwDetails);
 	break;
     case MIXER_GETCONTROLDETAILSF_LISTTEXT:
@@ -521,7 +527,7 @@ UINT WINAPI mixerGetLineControlsA(HMIXEROBJ hmix, LPMIXERLINECONTROLSA lpmlcA,
     /* Debugging on Windows shows for MIXER_GETLINECONTROLSF_ONEBYTYPE only,
        the control count is assumed to be 1 - This is relied upon by a game,
        "Dynomite Deluze"                                                    */
-    if (MIXER_GETLINECONTROLSF_ONEBYTYPE == fdwControls) {
+    if (MIXER_GETLINECONTROLSF_ONEBYTYPE == (fdwControls & MIXER_GETLINECONTROLSF_QUERYMASK)) {
         mlcW.cControls = 1;
     } else {
         mlcW.cControls = lpmlcA->cControls;
@@ -536,7 +542,6 @@ UINT WINAPI mixerGetLineControlsA(HMIXEROBJ hmix, LPMIXERLINECONTROLSA lpmlcA,
 	lpmlcA->dwLineID = mlcW.dwLineID;
 	lpmlcA->u.dwControlID = mlcW.u.dwControlID;
 	lpmlcA->u.dwControlType = mlcW.u.dwControlType;
-	lpmlcA->cControls = mlcW.cControls;
 
 	for (i = 0; i < mlcW.cControls; i++) {
 	    lpmlcA->pamxctrl[i].cbStruct = sizeof(MIXERCONTROLA);
@@ -888,7 +893,7 @@ UINT WINAPI midiOutGetErrorTextW(UINT uError, LPWSTR lpText, UINT uSize)
     if (lpText == NULL) ret = MMSYSERR_INVALPARAM;
     else if (uSize == 0) ret = MMSYSERR_NOERROR;
     else if (
-	       /* test has been removed 'coz MMSYSERR_BASE is 0, and gcc did emit
+	       /* test has been removed because MMSYSERR_BASE is 0, and gcc did emit
 		* a warning for the test was always true */
 	       (/*uError >= MMSYSERR_BASE && */ uError <= MMSYSERR_LASTERROR) ||
 	       (uError >= MIDIERR_BASE  && uError <= MIDIERR_LASTERROR)) {
@@ -1509,7 +1514,7 @@ static	BOOL	MMSYSTEM_MidiStream_MessageHandler(WINE_MIDIStream* lpMidiStrm, LPWI
 	/* this is not quite what MS doc says... */
 	midiOutReset(lpMidiStrm->hDevice);
 	/* empty list of already submitted buffers */
-	for (lpMidiHdr = lpMidiStrm->lpMidiHdr; lpMidiHdr; lpMidiHdr = (LPMIDIHDR)lpMidiHdr->lpNext) {
+	for (lpMidiHdr = lpMidiStrm->lpMidiHdr; lpMidiHdr; lpMidiHdr = lpMidiHdr->lpNext) {
 	    lpMidiHdr->dwFlags |= MHDR_DONE;
 	    lpMidiHdr->dwFlags &= ~MHDR_INQUEUE;
 
@@ -1593,7 +1598,7 @@ static	BOOL	MMSYSTEM_MidiStream_MessageHandler(WINE_MIDIStream* lpMidiStrm, LPWI
 	    break;
 	}
 
-	for (lpmh = &lpMidiStrm->lpMidiHdr; *lpmh; lpmh = (LPMIDIHDR*)&((*lpmh)->lpNext));
+	for (lpmh = &lpMidiStrm->lpMidiHdr; *lpmh; lpmh = &(*lpmh)->lpNext);
 	*lpmh = lpMidiHdr;
 	lpMidiHdr = (LPMIDIHDR)msg->lParam;
 	lpMidiHdr->lpNext = 0;
@@ -1721,7 +1726,7 @@ static	DWORD	CALLBACK	MMSYSTEM_MidiStream_Player(LPVOID pmt)
 	    lpMidiHdr->dwFlags |= MHDR_DONE;
 	    lpMidiHdr->dwFlags &= ~MHDR_INQUEUE;
 
-	    lpMidiStrm->lpMidiHdr = (LPMIDIHDR)lpMidiHdr->lpNext;
+	    lpMidiStrm->lpMidiHdr = lpMidiHdr->lpNext;
 	    DriverCallback(lpwm->mod.dwCallback, lpMidiStrm->wFlags,
 			   (HDRVR)lpMidiStrm->hDevice, MM_MOM_DONE,
 			   lpwm->mod.dwInstance, (DWORD)lpMidiHdr, 0L);
@@ -1796,7 +1801,7 @@ MMRESULT MIDI_StreamOpen(HMIDISTRM* lphMidiStrm, LPUINT lpuDeviceID, DWORD cMidi
 	return MMSYSERR_NOMEM;
 
     lpMidiStrm->dwTempo = 500000;
-    lpMidiStrm->dwTimeDiv = 480; 	/* 480 is 120 quater notes per minute *//* FIXME ??*/
+    lpMidiStrm->dwTimeDiv = 480; 	/* 480 is 120 quarter notes per minute *//* FIXME ??*/
     lpMidiStrm->dwPositionMS = 0;
 
     mosm.dwStreamID = (DWORD)lpMidiStrm;
@@ -2198,7 +2203,7 @@ UINT WINAPI waveOutGetErrorTextW(UINT uError, LPWSTR lpText, UINT uSize)
     if (lpText == NULL) ret = MMSYSERR_INVALPARAM;
     else if (uSize == 0) ret = MMSYSERR_NOERROR;
     else if (
-	       /* test has been removed 'coz MMSYSERR_BASE is 0, and gcc did emit
+	       /* test has been removed because MMSYSERR_BASE is 0, and gcc did emit
 		* a warning for the test was always true */
 	       (/*uError >= MMSYSERR_BASE && */ uError <= MMSYSERR_LASTERROR) ||
 	       (uError >= WAVERR_BASE  && uError <= WAVERR_LASTERROR)) {
@@ -2817,7 +2822,7 @@ static DWORD WINAPI mmTaskRun(void* pmt)
 /******************************************************************
  *		mmTaskCreate (WINMM.@)
  */
-MMRESULT WINAPI mmTaskCreate(LPTASKCALLBACK cb, HANDLE* ph, DWORD client)
+UINT     WINAPI mmTaskCreate(LPTASKCALLBACK cb, HANDLE* ph, DWORD_PTR client)
 {
     HANDLE               hThread;
     HANDLE               hEvent = 0;
@@ -2846,7 +2851,7 @@ MMRESULT WINAPI mmTaskCreate(LPTASKCALLBACK cb, HANDLE* ph, DWORD client)
 /******************************************************************
  *		mmTaskBlock (WINMM.@)
  */
-void     WINAPI mmTaskBlock(HANDLE tid)
+VOID     WINAPI mmTaskBlock(DWORD tid)
 {
     MSG		msg;
 
@@ -2860,20 +2865,20 @@ void     WINAPI mmTaskBlock(HANDLE tid)
 /******************************************************************
  *		mmTaskSignal (WINMM.@)
  */
-BOOL     WINAPI mmTaskSignal(HANDLE tid)
+BOOL     WINAPI mmTaskSignal(DWORD tid)
 {
-    return PostThreadMessageW((DWORD)tid, WM_USER, 0, 0);
+    return PostThreadMessageW(tid, WM_USER, 0, 0);
 }
 
 /******************************************************************
  *		mmTaskYield (WINMM.@)
  */
-void     WINAPI mmTaskYield(void) {}
+VOID     WINAPI mmTaskYield(VOID) {}
 
 /******************************************************************
  *		mmGetCurrentTask (WINMM.@)
  */
-HANDLE   WINAPI mmGetCurrentTask(void)
+DWORD    WINAPI mmGetCurrentTask(VOID)
 {
-    return (HANDLE)GetCurrentThreadId();
+    return GetCurrentThreadId();
 }

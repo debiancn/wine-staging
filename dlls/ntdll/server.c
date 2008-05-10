@@ -146,6 +146,8 @@ void server_exit_thread( int status )
     RtlAcquirePebLock();
     RemoveEntryList( &NtCurrentTeb()->TlsLinks );
     RtlReleasePebLock();
+    RtlFreeHeap( GetProcessHeap(), 0, NtCurrentTeb()->FlsSlots );
+    RtlFreeHeap( GetProcessHeap(), 0, NtCurrentTeb()->TlsExpansionSlots );
 
     info.stack_base  = NtCurrentTeb()->DeallocationStack;
     info.teb_base    = NtCurrentTeb();
@@ -219,7 +221,7 @@ void server_protocol_perror( const char *err )
  *
  * Send a request to the server.
  */
-static void send_request( const struct __server_request_info *req )
+static unsigned int send_request( const struct __server_request_info *req )
 {
     unsigned int i;
     int ret;
@@ -227,7 +229,7 @@ static void send_request( const struct __server_request_info *req )
     if (!req->u.req.request_header.request_size)
     {
         if ((ret = write( ntdll_get_thread_data()->request_fd, &req->u.req,
-                          sizeof(req->u.req) )) == sizeof(req->u.req)) return;
+                          sizeof(req->u.req) )) == sizeof(req->u.req)) return STATUS_SUCCESS;
 
     }
     else
@@ -242,11 +244,12 @@ static void send_request( const struct __server_request_info *req )
             vec[i+1].iov_len = req->data[i].size;
         }
         if ((ret = writev( ntdll_get_thread_data()->request_fd, vec, i+1 )) ==
-            req->u.req.request_header.request_size + sizeof(req->u.req)) return;
+            req->u.req.request_header.request_size + sizeof(req->u.req)) return STATUS_SUCCESS;
     }
 
     if (ret >= 0) server_protocol_error( "partial write %d\n", ret );
     if (errno == EPIPE) server_abort_thread(0);
+    if (errno == EFAULT) return STATUS_ACCESS_VIOLATION;
     server_protocol_perror( "write" );
 }
 
@@ -283,11 +286,12 @@ static void read_reply_data( void *buffer, size_t size )
  *
  * Wait for a reply from the server.
  */
-static inline void wait_reply( struct __server_request_info *req )
+static inline unsigned int wait_reply( struct __server_request_info *req )
 {
     read_reply_data( &req->u.reply, sizeof(req->u.reply) );
     if (req->u.reply.reply_header.reply_size)
         read_reply_data( req->reply_data, req->u.reply.reply_header.reply_size );
+    return req->u.reply.reply_header.error;
 }
 
 
@@ -317,12 +321,13 @@ unsigned int wine_server_call( void *req_ptr )
 {
     struct __server_request_info * const req = req_ptr;
     sigset_t old_set;
+    unsigned int ret;
 
     pthread_functions.sigprocmask( SIG_BLOCK, &server_block_set, &old_set );
-    send_request( req );
-    wait_reply( req );
+    ret = send_request( req );
+    if (!ret) ret = wait_reply( req );
     pthread_functions.sigprocmask( SIG_SETMASK, &old_set, NULL );
-    return req->u.reply.reply_header.error;
+    return ret;
 }
 
 
@@ -725,6 +730,52 @@ static void start_server(void)
 
 
 /***********************************************************************
+ *           setup_config_dir
+ *
+ * Setup the wine configuration dir.
+ */
+static void setup_config_dir(void)
+{
+    const char *p, *config_dir = wine_get_config_dir();
+
+    if (chdir( config_dir ) == -1)
+    {
+        if (errno != ENOENT) fatal_perror( "chdir to %s\n", config_dir );
+
+        if ((p = strrchr( config_dir, '/' )) && p != config_dir)
+        {
+            struct stat st;
+            char *tmp_dir;
+
+            if (!(tmp_dir = malloc( p + 1 - config_dir ))) fatal_error( "out of memory\n" );
+            memcpy( tmp_dir, config_dir, p - config_dir );
+            tmp_dir[p - config_dir] = 0;
+            if (!stat( tmp_dir, &st ) && st.st_uid != getuid())
+                fatal_error( "'%s' is not owned by you, refusing to create a configuration directory there\n",
+                             tmp_dir );
+            free( tmp_dir );
+        }
+
+        mkdir( config_dir, 0777 );
+        if (chdir( config_dir ) == -1) fatal_perror( "chdir to %s\n", config_dir );
+        MESSAGE( "wine: created the configuration directory '%s'\n", config_dir );
+    }
+
+    if (mkdir( "dosdevices", 0777 ) == -1)
+    {
+        if (errno == EEXIST) return;
+        fatal_perror( "cannot create %s/dosdevices\n", config_dir );
+    }
+
+    /* create the drive symlinks */
+
+    mkdir( "drive_c", 0777 );
+    symlink( "../drive_c", "dosdevices/c:" );
+    symlink( "/", "dosdevices/z:" );
+}
+
+
+/***********************************************************************
  *           server_connect_error
  *
  * Try to display a meaningful explanation of why we couldn't connect
@@ -763,8 +814,9 @@ static void server_connect_error( const char *serverdir )
  * Attempt to connect to an existing server socket.
  * We need to be in the server directory already.
  */
-static int server_connect( const char *serverdir )
+static int server_connect(void)
 {
+    const char *serverdir;
     struct sockaddr_un addr;
     struct stat st;
     int s, slen, retry, fd_cwd;
@@ -772,6 +824,9 @@ static int server_connect( const char *serverdir )
     /* retrieve the current directory */
     fd_cwd = open( ".", O_RDONLY );
     if (fd_cwd != -1) fcntl( fd_cwd, F_SETFD, 1 ); /* set close on exec flag */
+
+    setup_config_dir();
+    serverdir = wine_get_server_dir();
 
     /* chdir to the server directory */
     if (chdir( serverdir ) == -1)
@@ -830,121 +885,6 @@ static int server_connect( const char *serverdir )
         close( s );
     }
     server_connect_error( serverdir );
-}
-
-
-/***********************************************************************
- *           rm_rf
- *
- * Remove a directory and all its contents; helper for create_config_dir.
- */
-static void rm_rf( const char *path )
-{
-    int err = errno;  /* preserve errno */
-    DIR *dir;
-    char *buffer, *p;
-    struct stat st;
-    struct dirent *de;
-
-    if (!(buffer = malloc( strlen(path) + 256 + 1 ))) goto done;
-    strcpy( buffer, path );
-    p = buffer + strlen(buffer);
-    *p++ = '/';
-
-    if ((dir = opendir( path )))
-    {
-        while ((de = readdir( dir )))
-        {
-            if (!strcmp( de->d_name, "." ) || !strcmp( de->d_name, ".." )) continue;
-            strcpy( p, de->d_name );
-            if (unlink( buffer ) != -1) continue;
-            if (errno == EISDIR ||
-                (errno == EPERM && !lstat( buffer, &st ) && S_ISDIR(st.st_mode)))
-            {
-                /* recurse in the sub-directory */
-                rm_rf( buffer );
-            }
-        }
-        closedir( dir );
-    }
-    free( buffer );
-    rmdir( path );
-done:
-    errno = err;
-}
-
-
-/***********************************************************************
- *           create_config_dir
- *
- * Create the wine configuration dir (~/.wine).
- */
-static void create_config_dir(void)
-{
-    const char *config_dir = wine_get_config_dir();
-    char *tmp_dir;
-    int fd;
-    pid_t pid, wret;
-
-    if (!(tmp_dir = malloc( strlen(config_dir) + sizeof("-XXXXXX") )))
-        fatal_error( "out of memory\n" );
-    strcpy( tmp_dir, config_dir );
-    strcat( tmp_dir, "-XXXXXX" );
-    if ((fd = mkstemps( tmp_dir, 0 )) == -1)
-        fatal_perror( "can't get temp file name for %s", config_dir );
-    close( fd );
-    unlink( tmp_dir );
-    if (mkdir( tmp_dir, 0777 ) == -1)
-        fatal_perror( "cannot create temp dir %s", tmp_dir );
-
-    MESSAGE( "wine: creating configuration directory '%s'...\n", config_dir );
-    pid = fork();
-    if (pid == -1)
-    {
-        rmdir( tmp_dir );
-        fatal_perror( "fork" );
-    }
-    if (!pid)
-    {
-        char *argv[6];
-        static char argv0[] = "tools/wineprefixcreate",
-                    argv1[] = "--quiet",
-                    argv2[] = "--wait",
-                    argv3[] = "--prefix";
-
-        argv[0] = argv0;
-        argv[1] = argv1;
-        argv[2] = argv2;
-        argv[3] = argv3;
-        argv[4] = tmp_dir;
-        argv[5] = NULL;
-        wine_exec_wine_binary( argv[0], argv, NULL );
-        rmdir( tmp_dir );
-        fatal_perror( "could not exec wineprefixcreate" );
-    }
-    else
-    {
-        int status;
-
-        while ((wret = waitpid( pid, &status, 0 )) != pid)
-        {
-            if (wret == -1 && errno != EINTR) fatal_perror( "wait4" );
-        }
-        if (!WIFEXITED(status) || WEXITSTATUS(status))
-        {
-            rm_rf( tmp_dir );
-            fatal_error( "wineprefixcreate failed while creating '%s'.\n", config_dir );
-        }
-    }
-    if (rename( tmp_dir, config_dir ) == -1)
-    {
-        rm_rf( tmp_dir );
-        if (errno != EEXIST && errno != ENOTEMPTY)
-            fatal_perror( "rename '%s' to '%s'", tmp_dir, config_dir );
-        /* else it was probably created by a concurrent wine process */
-    }
-    free( tmp_dir );
-    MESSAGE( "wine: '%s' created successfully.\n", config_dir );
 }
 
 
@@ -1008,19 +948,7 @@ void server_init_process(void)
             fatal_perror( "Bad server socket %d", fd_socket );
         unsetenv( "WINESERVERSOCKET" );
     }
-    else
-    {
-        const char *server_dir = wine_get_server_dir();
-
-        if (!server_dir)  /* this means the config dir doesn't exist */
-        {
-            create_config_dir();
-            server_dir = wine_get_server_dir();
-        }
-
-        /* connect to the server */
-        fd_socket = server_connect( server_dir );
-    }
+    else fd_socket = server_connect();
 
     /* setup the signal mask */
     sigemptyset( &server_block_set );
@@ -1069,7 +997,6 @@ NTSTATUS server_init_process_done(void)
     }
     SERVER_END_REQ;
 
-    pthread_functions.sigprocmask( SIG_UNBLOCK, &server_block_set, NULL );
     return status;
 }
 

@@ -507,6 +507,7 @@ static int XCOPY_DoCopy(WCHAR *srcstem, WCHAR *srcspec,
     BOOL            copiedFile = FALSE;
     DWORD           destAttribs, srcAttribs;
     BOOL            skipFile;
+    int             ret = 0;
 
     /* Allocate some working memory on heap to minimize footprint */
     finddata = HeapAlloc(GetProcessHeap(), 0, sizeof(WIN32_FIND_DATA));
@@ -718,7 +719,8 @@ static int XCOPY_DoCopy(WCHAR *srcstem, WCHAR *srcspec,
                     if (flags & OPT_IGNOREERRORS) {
                         skipFile = TRUE;
                     } else {
-                        return RC_WRITEERROR;
+                        ret = RC_WRITEERROR;
+                        goto cleanup;
                     }
                 }
 
@@ -780,17 +782,19 @@ static int XCOPY_DoCopy(WCHAR *srcstem, WCHAR *srcspec,
         }
     }
 
+cleanup:
+
     /* free up memory */
     HeapFree(GetProcessHeap(), 0, finddata);
     HeapFree(GetProcessHeap(), 0, inputpath);
     HeapFree(GetProcessHeap(), 0, outputpath);
 
-    return 0;
+    return ret;
 }
 
 /* =========================================================================
  * Routine copied from cmd.exe md command -
- * This works recursivly. so creating dir1\dir2\dir3 will create dir1 and
+ * This works recursively. so creating dir1\dir2\dir3 will create dir1 and
  * dir2 if they do not already exist.
  * ========================================================================= */
 static BOOL XCOPY_CreateDirectory(const WCHAR* path)

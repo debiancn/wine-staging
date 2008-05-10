@@ -21,12 +21,16 @@ SUBDIRS = \
 	notepad \
 	oleview \
 	progman \
+	reg \
 	regedit \
 	regsvr32 \
 	rpcss \
 	rundll32 \
+	secedit \
+	services \
 	spoolsv \
 	start \
+	svchost \
 	taskmgr \
 	uninstaller \
 	view \
@@ -45,6 +49,7 @@ SUBDIRS = \
 	winhelp \
 	winver \
 	wordpad \
+	write \
 	xcopy
 
 # Sub-directories to run make install into
@@ -63,12 +68,16 @@ INSTALLSUBDIRS = \
 	notepad \
 	oleview \
 	progman \
+	reg \
 	regedit \
 	regsvr32 \
 	rpcss \
 	rundll32 \
+	secedit \
+	services \
 	spoolsv \
 	start \
+	svchost \
 	taskmgr \
 	uninstaller \
 	wineboot \
@@ -85,6 +94,7 @@ INSTALLSUBDIRS = \
 	winhelp \
 	winver \
 	wordpad \
+	write \
 	xcopy
 
 # Programs to install in bin directory
@@ -107,7 +117,7 @@ INSTALLPROGS = \
 
 INSTALLDIRS = $(DESTDIR)$(bindir)
 
-PROGRAMS = wineapploader winelauncher
+PROGRAMS = wineapploader
 
 @MAKE_RULES@
 
@@ -115,9 +125,6 @@ all: $(PROGRAMS) $(SUBDIRS)
 
 wineapploader: wineapploader.in
 	sed -e 's,@bindir\@,$(bindir),g' $(SRCDIR)/wineapploader.in >$@ || ($(RM) $@ && false)
-
-winelauncher: winelauncher.in
-	sed -e 's,@bindir\@,$(bindir),g' -e 's,@libdir\@,$(libdir),g' -e 's,@dlldir\@,$(dlldir),g' $(SRCDIR)/winelauncher.in >$@ || ($(RM) $@ && false)
 
 # Rules for installation
 
@@ -134,11 +141,10 @@ install-progs.so: $(INSTALLPROGS:%=%/__installprog__)
 
 install-progs: # nothing to do here
 
-install:: winelauncher install-progs$(DLLEXT) $(INSTALLDIRS)
-	$(INSTALL_SCRIPT) winelauncher $(DESTDIR)$(bindir)/winelauncher
+install:: install-progs$(DLLEXT) $(INSTALLDIRS)
 
 uninstall::
-	-cd $(DESTDIR)$(bindir) && $(RM) wineapploader winelauncher $(INSTALLPROGS)
+	-cd $(DESTDIR)$(bindir) && $(RM) wineapploader $(INSTALLPROGS)
 	-rmdir $(DESTDIR)$(dlldir)
 
 # Rules for testing

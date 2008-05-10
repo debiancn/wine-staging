@@ -41,7 +41,7 @@
  * show up in the title bar of an application's window. They tend to accumulate
  * in the most-recently-used section of the file-menu. And I've even seen some
  * in a configuration dialog's edit control. In those examples, wine can't do a
- * lot about this, since path-names can't be told appart from ordinary strings
+ * lot about this, since path-names can't be told apart from ordinary strings
  * here. That's different in the file dialogs, though.
  *
  * With the introduction of the 'shell' in win32, Microsoft established an 
@@ -104,7 +104,7 @@
  * might ask ("And I don't want wine have access to my complete hard drive, you 
  * *%&1#!"). No problem, as I stated above, unixfs uses the _posix_ apis to 
  * construct the ITEMIDLISTs. Folders, which aren't accessible via a drive letter,
- * don't have the SFGAO_FILESYSTEM flag set. So the file dialogs should'nt allow
+ * don't have the SFGAO_FILESYSTEM flag set. So the file dialogs shouldn't allow
  * the user to select such a folder for file storage (And if it does anyhow, it 
  * will not be able to return a valid path, since there is none). Think of those 
  * folders as a hierarchy of 'My Computer'-like folders, which happen to be a 
@@ -112,7 +112,7 @@
  * change anything at all in wine's fileio api's, windows applications will have 
  * no more access rights as they had before. 
  *
- * To sum it all up, you can still savely run wine with you root account (Just
+ * To sum it all up, you can still safely run wine with you root account (Just
  * kidding, don't do it.)
  *
  * If you are now standing in front of your computer, shouting hotly 
@@ -140,7 +140,6 @@
 # include <pwd.h>
 #endif
 #include <grp.h>
-#include <limits.h>
 
 #define COBJMACROS
 #define NONAMELESSUNION
@@ -356,8 +355,8 @@ cleanup:
  *  TRUE, if pIDL is accepted by fFilter
  *  FALSE, otherwise
  */
-static inline BOOL UNIXFS_is_pidl_of_type(LPITEMIDLIST pIDL, SHCONTF fFilter) {
-    LPPIDLDATA pIDLData = _ILGetDataPointer(pIDL);
+static inline BOOL UNIXFS_is_pidl_of_type(LPCITEMIDLIST pIDL, SHCONTF fFilter) {
+    const PIDLDATA *pIDLData = _ILGetDataPointer(pIDL);
     if (!(fFilter & SHCONTF_INCLUDEHIDDEN) && pIDLData && 
         (pIDLData->u.file.uFileAttribs & FILE_ATTRIBUTE_HIDDEN)) 
     {
@@ -365,36 +364,6 @@ static inline BOOL UNIXFS_is_pidl_of_type(LPITEMIDLIST pIDL, SHCONTF fFilter) {
     }
     if (_ILIsFolder(pIDL) && (fFilter & SHCONTF_FOLDERS)) return TRUE;
     if (_ILIsValue(pIDL) && (fFilter & SHCONTF_NONFOLDERS)) return TRUE;
-    return FALSE;
-}
-
-/******************************************************************************
- * UNIXFS_is_dos_device [Internal]
- *
- * Determines if a unix directory corresponds to any dos device.
- *
- * PARAMS
- *  statPath [I] The stat struct of the directory, as returned by stat(2).
- *
- * RETURNS
- *  TRUE, if statPath corresponds to any dos drive letter
- *  FALSE, otherwise
- */
-static BOOL UNIXFS_is_dos_device(const struct stat *statPath) {
-    struct stat statDrive;
-    char *pszDrivePath;
-    DWORD dwDriveMap;
-    WCHAR wszDosDevice[4] = { 'A', ':', '\\', 0 };
-
-    for (dwDriveMap = GetLogicalDrives(); dwDriveMap; dwDriveMap >>= 1, wszDosDevice[0]++) {
-        if (!(dwDriveMap & 0x1)) continue;
-        pszDrivePath = wine_get_unix_file_name(wszDosDevice);
-        if (pszDrivePath && !stat(pszDrivePath, &statDrive)) {
-            HeapFree(GetProcessHeap(), 0, pszDrivePath);
-            if ((statPath->st_dev == statDrive.st_dev) && (statPath->st_ino == statDrive.st_ino))
-                return TRUE;
-        }
-    }
     return FALSE;
 }
 
@@ -513,7 +482,7 @@ static inline void UNIXFS_seconds_since_1970_to_dos_date_time(
  * buffer 'pIDL'.
  *
  * PARAMS
- *  pszUnixPath [I] An absolute path. The SHITEMID will be build for the last component.
+ *  pszUnixPath [I] An absolute path. The SHITEMID will be built for the last component.
  *  pIDL        [O] SHITEMID will be constructed here.
  *
  * RETURNS
@@ -584,7 +553,7 @@ static char* UNIXFS_build_shitemid(char *pszUnixPath, void *pIDL) {
  *
  * PARAMS
  *  pUnixFolder [I] If path is relative, pUnixFolder represents the base path
- *  path        [I] An absolute unix or dos path or a path relativ to pUnixFolder
+ *  path        [I] An absolute unix or dos path or a path relative to pUnixFolder
  *  ppidl       [O] The corresponding ITEMIDLIST. Release with SHFree/ILFree
  *  
  * RETURNS
@@ -733,9 +702,9 @@ static HRESULT UNIXFS_initialize_target_folder(UnixFolder *This, const char *szB
 {
     LPCITEMIDLIST current = pidlSubFolder;
     DWORD dwPathLen = strlen(szBasePath)+1;
-    struct stat statPrefix;
     char *pNextDir;
-        
+    WCHAR *dos_name;
+
     /* Determine the path's length bytes */
     while (current && current->mkid.cb) {
         dwPathLen += UNIXFS_filename_from_shitemid(current, NULL) + 1; /* For the '/' */
@@ -755,24 +724,76 @@ static HRESULT UNIXFS_initialize_target_folder(UnixFolder *This, const char *szB
     pNextDir += strlen(szBasePath);
     if (This->m_dwPathMode == PATHMODE_UNIX || IsEqualCLSID(&CLSID_MyDocuments, This->m_pCLSID))
         This->m_dwAttributes |= SFGAO_FILESYSTEM;
-    if (!(This->m_dwAttributes & SFGAO_FILESYSTEM)) {
-        *pNextDir = '\0';
-        if (!stat(This->m_pszPath, &statPrefix) && UNIXFS_is_dos_device(&statPrefix))
-            This->m_dwAttributes |= SFGAO_FILESYSTEM;
-    }
     while (current && current->mkid.cb) {
         pNextDir += UNIXFS_filename_from_shitemid(current, pNextDir);
-        if (!(This->m_dwAttributes & SFGAO_FILESYSTEM)) {
-            *pNextDir = '\0';
-            if (!stat(This->m_pszPath, &statPrefix) && UNIXFS_is_dos_device(&statPrefix))
-                This->m_dwAttributes |= SFGAO_FILESYSTEM;
-        }
         *pNextDir++ = '/';
         current = ILGetNext(current);
     }
     *pNextDir='\0';
- 
+
+    if (!(This->m_dwAttributes & SFGAO_FILESYSTEM) &&
+        ((dos_name = wine_get_dos_file_name(This->m_pszPath))))
+    {
+        This->m_dwAttributes |= SFGAO_FILESYSTEM;
+        HeapFree( GetProcessHeap(), 0, dos_name );
+    }
+
     return S_OK;
+}
+
+/******************************************************************************
+ * UNIXFS_copy [Internal]
+ *
+ *  Copy pwszDosSrc to pwszDosDst.
+ *
+ * PARAMS
+ *  pwszDosSrc [I]  absolute path of the source
+ *  pwszDosDst [I]  absolute path of the destination
+ *
+ * RETURNS
+ *  Success: S_OK,
+ *  Failure: E_FAIL
+ */
+static HRESULT UNIXFS_copy(LPCWSTR pwszDosSrc, LPCWSTR pwszDosDst)
+{
+    SHFILEOPSTRUCTW op;
+    LPWSTR pwszSrc, pwszDst;
+    HRESULT res = E_OUTOFMEMORY;
+    UINT iSrcLen, iDstLen;
+
+    if (!pwszDosSrc || !pwszDosDst)
+        return E_FAIL;
+
+    iSrcLen = lstrlenW(pwszDosSrc);
+    iDstLen = lstrlenW(pwszDosDst);
+    pwszSrc = HeapAlloc(GetProcessHeap(), 0, (iSrcLen + 2) * sizeof(WCHAR));
+    pwszDst = HeapAlloc(GetProcessHeap(), 0, (iDstLen + 2) * sizeof(WCHAR));
+
+    if (pwszSrc && pwszDst) {
+        lstrcpyW(pwszSrc, pwszDosSrc);
+        lstrcpyW(pwszDst, pwszDosDst);
+        /* double null termination */
+        pwszSrc[iSrcLen + 1] = 0;
+        pwszDst[iDstLen + 1] = 0;
+
+        ZeroMemory(&op, sizeof(op));
+        op.hwnd = GetActiveWindow();
+        op.wFunc = FO_COPY;
+        op.pFrom = pwszSrc;
+        op.pTo = pwszDst;
+        op.fFlags = FOF_ALLOWUNDO;
+        if (!SHFileOperationW(&op))
+        {
+            WARN("SHFileOperationW failed\n");
+            res = E_FAIL;
+        }
+        else
+            res = S_OK;
+    }
+
+    HeapFree(GetProcessHeap(), 0, pwszSrc);
+    HeapFree(GetProcessHeap(), 0, pwszDst);
+    return res;
 }
 
 /******************************************************************************
@@ -926,11 +947,11 @@ static HRESULT WINAPI UnixFolder_IShellFolder2_BindToObject(IShellFolder2* iface
     } else {
         clsidChild = This->m_pCLSID;
     }
-    
+
     hr = CreateUnixFolder(NULL, &IID_IPersistFolder3, (void**)&persistFolder, clsidChild);
     if (!SUCCEEDED(hr)) return hr;
-    hr = IPersistFolder_QueryInterface(persistFolder, riid, (void**)ppvOut);
-   
+    hr = IPersistFolder_QueryInterface(persistFolder, riid, ppvOut);
+
     if (SUCCEEDED(hr)) {
         UnixFolder *subfolder = ADJUST_THIS(UnixFolder, IPersistFolder3, persistFolder);
         subfolder->m_pidlLocation = ILCombine(This->m_pidlLocation, pidl);
@@ -1050,11 +1071,13 @@ static HRESULT WINAPI UnixFolder_IShellFolder2_GetAttributesOf(IShellFolder2* if
         pszRelativePath = szAbsolutePath + lstrlenA(szAbsolutePath);
         for (i=0; i<cidl; i++) {
             if (!(This->m_dwAttributes & SFGAO_FILESYSTEM)) {
-                struct stat fileStat;
+                WCHAR *dos_name;
                 if (!UNIXFS_filename_from_shitemid(apidl[i], pszRelativePath)) 
                     return E_INVALIDARG;
-                if (stat(szAbsolutePath, &fileStat) || !UNIXFS_is_dos_device(&fileStat))
+                if (!(dos_name = wine_get_dos_file_name( szAbsolutePath )))
                     *rgfInOut &= ~SFGAO_FILESYSTEM;
+                else
+                    HeapFree( GetProcessHeap(), 0, dos_name );
             }
             if (_ILIsFolder(apidl[i])) 
                 *rgfInOut |= SFGAO_FOLDER|SFGAO_HASSUBFOLDER|SFGAO_FILESYSANCESTOR;
@@ -1436,7 +1459,7 @@ static HRESULT WINAPI UnixFolder_IPersistFolder3_GetClassID(IPersistFolder3* ifa
     if (!pClassID)
         return E_INVALIDARG;
 
-    memcpy(pClassID, This->m_pCLSID, sizeof(CLSID));
+    *pClassID = *This->m_pCLSID;
     return S_OK;
 }
 
@@ -1685,11 +1708,13 @@ static HRESULT WINAPI UnixFolder_ISFHelper_GetUniqueName(ISFHelper* iface, LPWST
     LPITEMIDLIST pidlElem;
     DWORD dwFetched;
     int i;
-    static const WCHAR wszNewFolder[] = { 'N','e','w',' ','F','o','l','d','e','r', 0 };
+    WCHAR wszNewFolder[25];
     static const WCHAR wszFormat[] = { '%','s',' ','%','d',0 };
 
     TRACE("(iface=%p, pwszName=%p, uLen=%u)\n", iface, pwszName, uLen);
-    
+
+    LoadStringW(shell32_hInstance, IDS_NEWFOLDER, wszNewFolder, sizeof(wszNewFolder)/sizeof(WCHAR));
+
     if (uLen < sizeof(wszNewFolder)/sizeof(WCHAR)+3)
         return E_INVALIDARG;
 
@@ -1736,7 +1761,7 @@ static HRESULT WINAPI UnixFolder_ISFHelper_AddFolder(ISFHelper* iface, HWND hwnd
     cBaseLen = lstrlenA(szNewDir);
     WideCharToMultiByte(CP_UNIXCP, 0, pwszName, -1, szNewDir+cBaseLen, FILENAME_MAX-cBaseLen, 0, 0);
    
-    if (mkdir(szNewDir, 0755)) {
+    if (mkdir(szNewDir, 0777)) {
         char szMessage[256 + FILENAME_MAX];
         char szCaption[256];
 
@@ -1769,7 +1794,7 @@ static HRESULT WINAPI UnixFolder_ISFHelper_AddFolder(ISFHelper* iface, HWND hwnd
  * be converted, S_FALSE is returned. In such situation DeleteItems will try to delete
  * the files using syscalls
  */
-static HRESULT UNIXFS_delete_with_shfileop(UnixFolder *This, UINT cidl, LPCITEMIDLIST *apidl)
+static HRESULT UNIXFS_delete_with_shfileop(UnixFolder *This, UINT cidl, const LPCITEMIDLIST *apidl)
 {
     char szAbsolute[FILENAME_MAX], *pszRelative;
     LPWSTR wszPathsList, wszListPos;
@@ -1823,7 +1848,7 @@ static HRESULT UNIXFS_delete_with_shfileop(UnixFolder *This, UINT cidl, LPCITEMI
     return ret;
 }
 
-static HRESULT UNIXFS_delete_with_syscalls(UnixFolder *This, UINT cidl, LPCITEMIDLIST *apidl)
+static HRESULT UNIXFS_delete_with_syscalls(UnixFolder *This, UINT cidl, const LPCITEMIDLIST *apidl)
 {
     char szAbsolute[FILENAME_MAX], *pszRelative;
     static const WCHAR empty[] = {0};
@@ -1896,7 +1921,7 @@ static HRESULT WINAPI UnixFolder_ISFHelper_CopyItems(ISFHelper* iface, IShellFol
     HRESULT hr;
     char szAbsoluteDst[FILENAME_MAX], *pszRelativeDst;
     
-    TRACE("(iface=%p, psfFrom=%p, cidl=%d, apidl=%p): semi-stub\n", iface, psfFrom, cidl, apidl);
+    TRACE("(iface=%p, psfFrom=%p, cidl=%d, apidl=%p)\n", iface, psfFrom, cidl, apidl);
 
     if (!psfFrom || !cidl || !apidl)
         return E_INVALIDARG;
@@ -1914,6 +1939,8 @@ static HRESULT WINAPI UnixFolder_ISFHelper_CopyItems(ISFHelper* iface, IShellFol
         WCHAR wszSrc[MAX_PATH];
         char szSrc[FILENAME_MAX];
         STRRET strret;
+        HRESULT res;
+        WCHAR *pwszDosSrc, *pwszDosDst;
 
         /* Build the unix path of the current source item. */
         if (FAILED(IShellFolder_GetDisplayNameOf(psfFrom, apidl[i], SHGDN_FORPARSING, &strret)))
@@ -1926,7 +1953,19 @@ static HRESULT WINAPI UnixFolder_ISFHelper_CopyItems(ISFHelper* iface, IShellFol
         /* Build the unix path of the current destination item */
         UNIXFS_filename_from_shitemid(apidl[i], pszRelativeDst);
 
-        FIXME("Would copy %s to %s. Not yet implemented.\n", szSrc, szAbsoluteDst);
+        pwszDosSrc = wine_get_dos_file_name(szSrc);
+        pwszDosDst = wine_get_dos_file_name(szAbsoluteDst);
+
+        if (pwszDosSrc && pwszDosDst)
+            res = UNIXFS_copy(pwszDosSrc, pwszDosDst);
+        else
+            res = E_OUTOFMEMORY;
+
+        HeapFree(GetProcessHeap(), 0, pwszDosSrc);
+        HeapFree(GetProcessHeap(), 0, pwszDosDst);
+
+        if (res != S_OK)
+            return res;
     }
     return S_OK;
 }

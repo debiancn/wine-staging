@@ -35,7 +35,6 @@
 
 #include "wine/winbase16.h"
 #include "wine/library.h"
-#include "wincon.h"
 #include "toolhelp.h"
 #include "kernel_private.h"
 #include "kernel16_private.h"
@@ -58,6 +57,7 @@ static void thread_attach(void)
     kernel_get_thread_data()->stack_sel = GlobalHandleToSel16( hstack );
     NtCurrentTeb()->WOW32Reserved = (void *)MAKESEGPTR( kernel_get_thread_data()->stack_sel,
                                                         0x10000 - sizeof(STACK16FRAME) );
+    memset( (char *)GlobalLock16(hstack) + 0x10000 - sizeof(STACK16FRAME), 0, sizeof(STACK16FRAME) );
 }
 
 
@@ -266,9 +266,9 @@ ULONGLONG WINAPI GetTickCount64(void)
  *  The current tick count.
  *
  * NOTES
- *  -The value returned will wrap arounf every 2^32 milliseconds.
- *  -Under Windows, tick 0 is the moment at which the system is rebooted.
- *  Under Wine, tick 0 begins at the moment the wineserver process is started,
+ *  The value returned will wrap around every 2^32 milliseconds.
+ *  Under Windows, tick 0 is the moment at which the system is rebooted.
+ *  Under Wine, tick 0 begins at the moment the wineserver process is started.
  */
 DWORD WINAPI GetTickCount(void)
 {

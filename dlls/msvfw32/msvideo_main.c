@@ -87,7 +87,7 @@ BOOL WINAPI DllMain( HINSTANCE hinst, DWORD reason, LPVOID reserved )
     {
         case DLL_PROCESS_ATTACH:
             DisableThreadLibraryCalls(hinst);
-            MSVFW32_hModule = (HMODULE)hinst;
+            MSVFW32_hModule = hinst;
             break;
     }
     return TRUE;
@@ -327,7 +327,7 @@ HIC VFWAPI ICOpen(DWORD fccType, DWORD fccHandler, UINT wMode)
 
     if (driver && driver->proc)
 	/* The driver has been registered at runtime with its driverproc */
-        return MSVIDEO_OpenFunction(fccType, fccHandler, wMode, (DRIVERPROC)driver->proc, (DWORD)NULL);
+        return MSVIDEO_OpenFunction(fccType, fccHandler, wMode, driver->proc, 0);
   
     /* Well, lParam2 is in fact a LPVIDEO_OPEN_PARMS, but it has the
      * same layout as ICOPEN
@@ -753,7 +753,7 @@ static BOOL enum_compressors(HWND list, COMPVARS *pcv, BOOL enum_all)
             idx = SendMessageW(list, CB_ADDSTRING, 0, (LPARAM)icinfo.szDescription);
 
             ic = HeapAlloc(GetProcessHeap(), 0, sizeof(struct codec_info));
-            memcpy(&ic->icinfo, &icinfo, sizeof(ICINFO));
+            ic->icinfo = icinfo;
             ic->hic = hic;
             SendMessageW(list, CB_SETITEMDATA, idx, (LPARAM)ic);
         }
@@ -1088,7 +1088,7 @@ LRESULT MSVIDEO_SendMessage(WINE_HIC* whic, UINT msg, DWORD_PTR lParam1, DWORD_P
         XX(ICM_DECOMPRESSEX_END);
         XX(ICM_SET_STATUS_PROC);
     default:
-        FIXME("(%p,0x%08x,0x%08lx,0x%08lx) unknown message\n",whic,(DWORD)msg,lParam1,lParam2);
+        FIXME("(%p,0x%08x,0x%08lx,0x%08lx) unknown message\n",whic,msg,lParam1,lParam2);
     }
     
 #undef XX
@@ -1360,7 +1360,7 @@ err:
 		GlobalFree(hMem); hMem = NULL;
 	}
 
-	return (HANDLE)hMem;
+	return hMem;
 }
 
 /***********************************************************************
@@ -1449,7 +1449,7 @@ BOOL VFWAPI ICSeqCompressFrameStart(PCOMPVARS pc, LPBITMAPINFO lpbiIn)
     if (!pc->lpbiIn)
         return FALSE;
 
-    memcpy(pc->lpbiIn, lpbiIn, sizeof(BITMAPINFO));
+    *pc->lpbiIn = *lpbiIn;
     pc->lpBitsPrev = HeapAlloc(GetProcessHeap(), 0, pc->lpbiIn->bmiHeader.biSizeImage);
     if (!pc->lpBitsPrev)
     {

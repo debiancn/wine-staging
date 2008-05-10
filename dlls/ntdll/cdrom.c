@@ -49,6 +49,7 @@
 #ifdef HAVE_SCSI_SCSI_H
 # include <scsi/scsi.h>
 # undef REASSIGN_BLOCKS  /* avoid conflict with winioctl.h */
+# undef FAILED           /* avoid conflict with winerror.h */
 #endif
 #ifdef HAVE_SCSI_SCSI_IOCTL_H
 # include <scsi/scsi_ioctl.h>
@@ -305,27 +306,28 @@ static int CDROM_MediaChanged(int dev)
 
 
 /******************************************************************
- *		open_parent_device
+ *		get_parent_device
  *
- * On Mac OS, open the device for the whole disk from a fd that points to a partition.
+ * On Mac OS, get the device for the whole disk from a fd that points to a partition.
  * This is ugly and inefficient, but we have no choice since the partition fd doesn't
  * support the eject ioctl.
  */
 #ifdef __APPLE__
-static int open_parent_device( int fd )
+static NTSTATUS get_parent_device( int fd, char *name, size_t len )
 {
+    NTSTATUS status = STATUS_NO_SUCH_FILE;
     struct stat st;
-    int i, parent_fd = -1;
+    int i;
     io_service_t service;
     CFMutableDictionaryRef dict;
     CFTypeRef val;
 
-    if (fstat( fd, &st ) == -1) return -1;
-    if (!S_ISCHR( st.st_mode )) return -1;
+    if (fstat( fd, &st ) == -1) return FILE_GetNtStatus();
+    if (!S_ISCHR( st.st_mode )) return STATUS_OBJECT_TYPE_MISMATCH;
 
     /* create a dictionary with the right major/minor numbers */
 
-    if (!(dict = IOServiceMatching( kIOMediaClass ))) return -1;
+    if (!(dict = IOServiceMatching( kIOMediaClass ))) return STATUS_NO_MEMORY;
 
     i = major( st.st_rdev );
     val = CFNumberCreate( NULL, kCFNumberIntType, &i );
@@ -360,11 +362,10 @@ static int open_parent_device( int fd )
 
         if ((str = IORegistryEntryCreateCFProperty( service, CFSTR("BSD Name"), NULL, 0 )))
         {
-            char name[100];
             strcpy( name, "/dev/r" );
-            CFStringGetCString( str, name + 6, sizeof(name) - 6, kCFStringEncodingUTF8 );
+            CFStringGetCString( str, name + 6, len - 6, kCFStringEncodingUTF8 );
             CFRelease( str );
-            parent_fd = open( name, O_RDONLY );
+            status = STATUS_SUCCESS;
         }
         IOObjectRelease( service );
         break;
@@ -374,7 +375,7 @@ next:
         IOObjectRelease( service );
         service = parent;
     }
-    return parent_fd;
+    return status;
 }
 #endif
 
@@ -678,7 +679,11 @@ static NTSTATUS CDROM_GetControl(int dev, CDROM_AUDIO_CONTROL* cac)
  */
 static NTSTATUS CDROM_GetDeviceNumber(int dev, STORAGE_DEVICE_NUMBER* devnum)
 {
-    return STATUS_NOT_SUPPORTED;
+    FIXME( "stub\n" );
+    devnum->DeviceType = FILE_DEVICE_DISK;
+    devnum->DeviceNumber = 1;
+    devnum->PartitionNumber = 1;
+    return STATUS_SUCCESS;
 }
 
 /******************************************************************
@@ -810,7 +815,6 @@ static NTSTATUS CDROM_ReadQChannel(int dev, int fd, const CDROM_SUB_Q_DATA_FORMA
 {
     NTSTATUS            ret = STATUS_NOT_SUPPORTED;
 #ifdef linux
-    unsigned            size;
     SUB_Q_HEADER*       hdr = (SUB_Q_HEADER*)data;
     int                 io;
     struct cdrom_subchnl	sc;
@@ -855,7 +859,6 @@ static NTSTATUS CDROM_ReadQChannel(int dev, int fd, const CDROM_SUB_Q_DATA_FORMA
     switch (fmt->Format)
     {
     case IOCTL_CDROM_CURRENT_POSITION:
-        size = sizeof(SUB_Q_CURRENT_POSITION);
         RtlEnterCriticalSection( &cache_section );
 	if (hdr->AudioStatus==AUDIO_STATUS_IN_PROGRESS) {
           data->CurrentPosition.FormatCode = IOCTL_CDROM_CURRENT_POSITION;
@@ -884,7 +887,6 @@ static NTSTATUS CDROM_ReadQChannel(int dev, int fd, const CDROM_SUB_Q_DATA_FORMA
         RtlLeaveCriticalSection( &cache_section );
         break;
     case IOCTL_CDROM_MEDIA_CATALOG:
-        size = sizeof(SUB_Q_MEDIA_CATALOG_NUMBER);
         data->MediaCatalog.FormatCode = IOCTL_CDROM_MEDIA_CATALOG;
         {
             struct cdrom_mcn mcn;
@@ -897,7 +899,6 @@ static NTSTATUS CDROM_ReadQChannel(int dev, int fd, const CDROM_SUB_Q_DATA_FORMA
         }
         break;
     case IOCTL_CDROM_TRACK_ISRC:
-        size = sizeof(SUB_Q_CURRENT_POSITION);
         FIXME("TrackIsrc: NIY on linux\n");
         data->TrackIsrc.FormatCode = IOCTL_CDROM_TRACK_ISRC;
         data->TrackIsrc.Tcval = 0;
@@ -908,7 +909,6 @@ static NTSTATUS CDROM_ReadQChannel(int dev, int fd, const CDROM_SUB_Q_DATA_FORMA
  end:
     ret = CDROM_GetStatusCode(io);
 #elif defined(__FreeBSD__) || defined(__NetBSD__)
-    unsigned            size;
     SUB_Q_HEADER*       hdr = (SUB_Q_HEADER*)data;
     int                 io;
     struct ioc_read_subchannel	read_sc;
@@ -969,7 +969,6 @@ static NTSTATUS CDROM_ReadQChannel(int dev, int fd, const CDROM_SUB_Q_DATA_FORMA
     switch (fmt->Format)
     {
     case IOCTL_CDROM_CURRENT_POSITION:
-        size = sizeof(SUB_Q_CURRENT_POSITION);
         RtlEnterCriticalSection( &cache_section );
 	if (hdr->AudioStatus==AUDIO_STATUS_IN_PROGRESS) {
           data->CurrentPosition.FormatCode = IOCTL_CDROM_CURRENT_POSITION;
@@ -995,13 +994,11 @@ static NTSTATUS CDROM_ReadQChannel(int dev, int fd, const CDROM_SUB_Q_DATA_FORMA
         RtlLeaveCriticalSection( &cache_section );
         break;
     case IOCTL_CDROM_MEDIA_CATALOG:
-        size = sizeof(SUB_Q_MEDIA_CATALOG_NUMBER);
         data->MediaCatalog.FormatCode = IOCTL_CDROM_MEDIA_CATALOG;
         data->MediaCatalog.Mcval = sc.what.media_catalog.mc_valid;
         memcpy(data->MediaCatalog.MediaCatalog, sc.what.media_catalog.mc_number, 15);
         break;
     case IOCTL_CDROM_TRACK_ISRC:
-        size = sizeof(SUB_Q_CURRENT_POSITION);
         data->TrackIsrc.FormatCode = IOCTL_CDROM_TRACK_ISRC;
         data->TrackIsrc.Tcval = sc.what.track_info.ti_valid;
         memcpy(data->TrackIsrc.TrackIsrc, sc.what.track_info.ti_number, 15);
@@ -1036,9 +1033,17 @@ static NTSTATUS CDROM_Verify(int dev, int fd)
         return STATUS_SUCCESS;
     else
         return STATUS_NO_MEDIA_IN_DEVICE;
-#endif
+#elif defined(__FreeBSD__)
+    int ret;
+    ret = ioctl(fd, CDIOCSTART, NULL);
+    if(ret == 0)
+        return STATUS_SUCCESS;
+    else
+        return STATUS_NO_MEDIA_IN_DEVICE;
+#else
     FIXME("not implemented for non-linux\n");
     return STATUS_NOT_SUPPORTED;
+#endif
 }
 
 /******************************************************************
@@ -2129,7 +2134,12 @@ NTSTATUS CDROM_DeviceIoControl(HANDLE hDevice,
 
     piosb->Information = 0;
 
-    if ((status = server_get_unix_fd( hDevice, 0, &fd, &needs_close, NULL, NULL ))) goto error;
+    if ((status = server_get_unix_fd( hDevice, 0, &fd, &needs_close, NULL, NULL )))
+    {
+        if (status == STATUS_BAD_DEVICE_TYPE) return status;  /* no associated fd */
+        goto error;
+    }
+
     if ((status = CDROM_Open(fd, &dev)))
     {
         if (needs_close) close( fd );
@@ -2169,17 +2179,23 @@ NTSTATUS CDROM_DeviceIoControl(HANDLE hDevice,
         else
         {
 #ifdef __APPLE__
-            int parent_fd = open_parent_device( fd );
-            if (parent_fd != -1)
+            char name[100];
+
+            /* This is ugly as hell, but Mac OS is unable to eject from the device fd,
+             * it wants an fd for the whole device, and it also requires the device fd
+             * to be closed first, so we have to close the handle that the caller gave us.
+             * Also for some reason it wants the fd to be closed before we even open the parent.
+             */
+            if ((status = get_parent_device( fd, name, sizeof(name) ))) break;
+            NtClose( hDevice );
+            if (needs_close) close( fd );
+            TRACE("opening parent %s\n", name );
+            if ((fd = open( name, O_RDONLY )) == -1)
             {
-                /* This is ugly as hell, but Mac OS is unable to eject from the device fd,
-                 * it wants an fd for the whole device, and it also requires the device fd
-                 * to be closed first, so we have to close the handle that the caller gave us */
-                NtClose( hDevice );
-                if (needs_close) close( fd );
-                fd = parent_fd;
-                needs_close = 1;
+                status = FILE_GetNtStatus();
+                break;
             }
+            needs_close = 1;
 #endif
             status = CDROM_SetTray(fd, TRUE);
         }
@@ -2397,12 +2413,8 @@ NTSTATUS CDROM_DeviceIoControl(HANDLE hDevice,
         break;
 
     default:
-        FIXME("Unsupported IOCTL %x (type=%x access=%x func=%x meth=%x)\n", 
-              dwIoControlCode, dwIoControlCode >> 16, (dwIoControlCode >> 14) & 3,
-              (dwIoControlCode >> 2) & 0xFFF, dwIoControlCode & 3);
-        sz = 0;
-        status = STATUS_INVALID_PARAMETER;
-        break;
+        if (needs_close) close( fd );
+        return STATUS_NOT_SUPPORTED;
     }
     if (needs_close) close( fd );
  error:

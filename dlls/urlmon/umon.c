@@ -20,26 +20,16 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include <stdarg.h>
 #include <stdio.h>
 
-#define COBJMACROS
-#define NONAMELESSUNION
-#define NONAMELESSSTRUCT
+#include "urlmon_main.h"
 
-#include "windef.h"
-#include "winbase.h"
 #include "winreg.h"
 #include "winternl.h"
-#include "winuser.h"
-#include "objbase.h"
-#include "wine/debug.h"
-#include "wine/unicode.h"
-#include "ole2.h"
-#include "urlmon.h"
 #include "wininet.h"
 #include "shlwapi.h"
-#include "urlmon_main.h"
+
+#include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(urlmon);
 
@@ -101,7 +91,7 @@ static ULONG WINAPI Binding_Release(IBinding* iface)
     TRACE("(%p) ref=%d\n",This, ref);
 
     if(!ref) {
-        HeapFree(GetProcessHeap(), 0, This->URLName);
+        heap_free(This->URLName);
         if (This->hCacheFile)
             CloseHandle(This->hCacheFile);
         if (This->pstrCache)
@@ -112,7 +102,7 @@ static ULONG WINAPI Binding_Release(IBinding* iface)
         if (This->pbscb)
             IBindStatusCallback_Release(This->pbscb);
 
-        HeapFree(GetProcessHeap(), 0, This);
+        heap_free(This);
 
         URLMON_UnlockModule();
     }
@@ -183,7 +173,7 @@ static void Binding_CloseCacheDownload(Binding *This)
     This->pstrCache = 0;
 }
 
-static HRESULT Binding_MoreCacheData(Binding *This, char *buf, DWORD dwBytes)
+static HRESULT Binding_MoreCacheData(Binding *This, const char *buf, DWORD dwBytes)
 {
     DWORD written;
 
@@ -356,8 +346,8 @@ static ULONG WINAPI URLMonikerImpl_Release(IMoniker* iface)
 
     /* destroy the object if there's no more reference on it */
     if (!refCount) {
-        HeapFree(GetProcessHeap(),0,This->URLName);
-        HeapFree(GetProcessHeap(),0,This);
+        heap_free(This->URLName);
+        heap_free(This);
 
         URLMON_UnlockModule();
     }
@@ -420,8 +410,8 @@ static HRESULT WINAPI URLMonikerImpl_Load(IMoniker* iface,IStream* pStm)
     res = IStream_Read(pStm, &size, sizeof(ULONG), &got);
     if(SUCCEEDED(res)) {
         if(got == sizeof(ULONG)) {
-            HeapFree(GetProcessHeap(), 0, This->URLName);
-            This->URLName=HeapAlloc(GetProcessHeap(),0,size);
+            heap_free(This->URLName);
+            This->URLName = heap_alloc(size);
             if(!This->URLName)
                 res = E_OUTOFMEMORY;
             else {
@@ -483,26 +473,27 @@ static HRESULT WINAPI URLMonikerImpl_BindToObject(IMoniker* iface,
 						  IBindCtx* pbc,
 						  IMoniker* pmkToLeft,
 						  REFIID riid,
-						  VOID** ppvResult)
+						  VOID** ppv)
 {
     URLMonikerImpl *This = (URLMonikerImpl *)iface;
+    IRunningObjectTable *obj_tbl;
+    HRESULT hres;
 
-    *ppvResult=0;
+    TRACE("(%p)->(%p,%p,%s,%p): stub\n", This, pbc, pmkToLeft, debugstr_guid(riid), ppv);
 
-    FIXME("(%p)->(%p,%p,%s,%p): stub\n",This,pbc,pmkToLeft,debugstr_guid(riid),
-	  ppvResult);
+    hres = IBindCtx_GetRunningObjectTable(pbc, &obj_tbl);
+    if(SUCCEEDED(hres)) {
+        FIXME("use running object table\n");
+        IRunningObjectTable_Release(obj_tbl);
+    }
 
-    return E_NOTIMPL;
+    return bind_to_object(iface, This->URLName, pbc, riid, ppv);
 }
 
 /******************************************************************************
  *        URLMoniker_BindToStorage
  ******************************************************************************/
-static HRESULT URLMonikerImpl_BindToStorage_hack(LPCWSTR URLName,
-						   IBindCtx* pbc,
-						   IMoniker* pmkToLeft,
-						   REFIID riid,
-						   VOID** ppvObject)
+static HRESULT URLMonikerImpl_BindToStorage_hack(LPCWSTR URLName, IBindCtx* pbc, VOID** ppvObject)
 {
     HRESULT hres;
     BINDINFO bi;
@@ -511,25 +502,15 @@ static HRESULT URLMonikerImpl_BindToStorage_hack(LPCWSTR URLName,
     Binding *bind;
     int len;
 
-    WARN("(%s %p %p %s %p)\n", debugstr_w(URLName), pbc, pmkToLeft, debugstr_guid(riid),
-            ppvObject);
+    WARN("(%s %p %p)\n", debugstr_w(URLName), pbc, ppvObject);
 
-    if(pmkToLeft) {
-	FIXME("pmkToLeft != NULL\n");
-	return E_NOTIMPL;
-    }
-    if(!IsEqualIID(&IID_IStream, riid)) {
-	FIXME("unsupported iid\n");
-	return E_NOTIMPL;
-    }
-
-    bind = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(Binding));
+    bind = heap_alloc_zero(sizeof(Binding));
     bind->lpVtbl = &BindingVtbl;
     bind->ref = 1;
     URLMON_LockModule();
 
     len = lstrlenW(URLName)+1;
-    bind->URLName = HeapAlloc(GetProcessHeap(), 0, len*sizeof(WCHAR));
+    bind->URLName = heap_alloc(len*sizeof(WCHAR));
     memcpy(bind->URLName, URLName, len*sizeof(WCHAR));
 
     hres = UMCreateStreamOnCacheFile(bind->URLName, 0, szFileName, &bind->hCacheFile, &bind->pstrCache);
@@ -567,15 +548,15 @@ static HRESULT URLMonikerImpl_BindToStorage_hack(LPCWSTR URLName,
                 url.dwStructSize = sizeof(url);
                 url.dwSchemeLength = url.dwHostNameLength = url.dwUrlPathLength = url.dwUserNameLength = url.dwPasswordLength = 1;
                 InternetCrackUrlW(URLName, 0, ICU_ESCAPE, &url);
-                host = HeapAlloc(GetProcessHeap(), 0, (url.dwHostNameLength + 1) * sizeof(WCHAR));
+                host = heap_alloc((url.dwHostNameLength + 1) * sizeof(WCHAR));
                 memcpy(host, url.lpszHostName, url.dwHostNameLength * sizeof(WCHAR));
                 host[url.dwHostNameLength] = '\0';
-                path = HeapAlloc(GetProcessHeap(), 0, (url.dwUrlPathLength + 1) * sizeof(WCHAR));
+                path = heap_alloc((url.dwUrlPathLength + 1) * sizeof(WCHAR));
                 memcpy(path, url.lpszUrlPath, url.dwUrlPathLength * sizeof(WCHAR));
                 path[url.dwUrlPathLength] = '\0';
                 if (url.dwUserNameLength)
                 {
-                    user = HeapAlloc(GetProcessHeap(), 0, ((url.dwUserNameLength + 1) * sizeof(WCHAR)));
+                    user = heap_alloc(((url.dwUserNameLength + 1) * sizeof(WCHAR)));
                     memcpy(user, url.lpszUserName, url.dwUserNameLength * sizeof(WCHAR));
                     user[url.dwUserNameLength] = 0;
                 }
@@ -585,7 +566,7 @@ static HRESULT URLMonikerImpl_BindToStorage_hack(LPCWSTR URLName,
                 }
                 if (url.dwPasswordLength)
                 {
-                    pass = HeapAlloc(GetProcessHeap(), 0, ((url.dwPasswordLength + 1) * sizeof(WCHAR)));
+                    pass = heap_alloc(((url.dwPasswordLength + 1) * sizeof(WCHAR)));
                     memcpy(pass, url.lpszPassword, url.dwPasswordLength * sizeof(WCHAR));
                     pass[url.dwPasswordLength] = 0;
                 }
@@ -615,12 +596,6 @@ static HRESULT URLMonikerImpl_BindToStorage_hack(LPCWSTR URLName,
                         if (!url.nPort)
                             url.nPort = INTERNET_DEFAULT_GOPHER_PORT;
                         dwService = INTERNET_SERVICE_GOPHER;
-                        break;
-
-                    case INTERNET_SCHEME_HTTP:
-                        if (!url.nPort)
-                            url.nPort = INTERNET_DEFAULT_HTTP_PORT;
-                        dwService = INTERNET_SERVICE_HTTP;
                         break;
 
                     case INTERNET_SCHEME_HTTPS:
@@ -723,10 +698,10 @@ static HRESULT URLMonikerImpl_BindToStorage_hack(LPCWSTR URLName,
                 Binding_FinishedDownload(bind, hres);
                 Binding_CloseCacheDownload(bind);
 
-                HeapFree(GetProcessHeap(), 0, user);
-                HeapFree(GetProcessHeap(), 0, pass);
-                HeapFree(GetProcessHeap(), 0, path);
-                HeapFree(GetProcessHeap(), 0, host);
+                heap_free(user);
+                heap_free(pass);
+                heap_free(path);
+                heap_free(host);
             }
         }
     }
@@ -749,21 +724,24 @@ static HRESULT WINAPI URLMonikerImpl_BindToStorage(IMoniker* iface,
     URL_COMPONENTSW url = {sizeof(URL_COMPONENTSW), schema,
         sizeof(schema)/sizeof(WCHAR), 0, NULL, 0, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0};
 
+    if(pmkToLeft)
+        FIXME("Unsupported pmkToLeft\n");
+
     bret = InternetCrackUrlW(This->URLName, 0, ICU_ESCAPE, &url);
     if(!bret) {
         ERR("InternetCrackUrl failed: %u\n", GetLastError());
         return E_FAIL;
     }
 
-    if(url.nScheme == INTERNET_SCHEME_HTTP
-       || url.nScheme== INTERNET_SCHEME_HTTPS
-       || url.nScheme== INTERNET_SCHEME_FTP
-       || url.nScheme == INTERNET_SCHEME_GOPHER)
-        return URLMonikerImpl_BindToStorage_hack(This->URLName, pbc, pmkToLeft, riid, ppvObject);
+    if(IsEqualGUID(&IID_IStream, riid) &&
+       (  url.nScheme == INTERNET_SCHEME_HTTPS
+       || url.nScheme == INTERNET_SCHEME_FTP
+       || url.nScheme == INTERNET_SCHEME_GOPHER))
+        return URLMonikerImpl_BindToStorage_hack(This->URLName, pbc, ppvObject);
 
     TRACE("(%p)->(%p %p %s %p)\n", This, pbc, pmkToLeft, debugstr_guid(riid), ppvObject);
 
-    return start_binding(This->URLName, pbc, riid, ppvObject);
+    return bind_to_storage(This->URLName, pbc, riid, ppvObject);
 }
 
 /******************************************************************************
@@ -1052,7 +1030,7 @@ static HRESULT URLMonikerImpl_Construct(URLMonikerImpl* This, LPCOLESTR lpszLeft
     This->lpvtbl = &VT_URLMonikerImpl;
     This->ref = 0;
 
-    This->URLName = HeapAlloc(GetProcessHeap(), 0, INTERNET_MAX_URL_LENGTH*sizeof(WCHAR));
+    This->URLName = heap_alloc(INTERNET_MAX_URL_LENGTH*sizeof(WCHAR));
 
     if(lpszLeftURLName)
         hres = CoInternetCombineUrl(lpszLeftURLName, lpszURLName, URL_FILE_USE_PATHURL,
@@ -1062,77 +1040,19 @@ static HRESULT URLMonikerImpl_Construct(URLMonikerImpl* This, LPCOLESTR lpszLeft
                 This->URLName, INTERNET_MAX_URL_LENGTH, &sizeStr, 0);
 
     if(FAILED(hres)) {
-        HeapFree(GetProcessHeap(), 0, This->URLName);
+        heap_free(This->URLName);
         return hres;
     }
 
     URLMON_LockModule();
 
     if(sizeStr != INTERNET_MAX_URL_LENGTH)
-        This->URLName = HeapReAlloc(GetProcessHeap(), 0, This->URLName, (sizeStr+1)*sizeof(WCHAR));
+        This->URLName = heap_realloc(This->URLName, (sizeStr+1)*sizeof(WCHAR));
 
     TRACE("URLName = %s\n", debugstr_w(This->URLName));
 
     return S_OK;
 }
-
-/***********************************************************************
- *           CreateAsyncBindCtx (URLMON.@)
- */
-HRESULT WINAPI CreateAsyncBindCtx(DWORD reserved, IBindStatusCallback *callback,
-    IEnumFORMATETC *format, IBindCtx **pbind)
-{
-    TRACE("(%08x %p %p %p)\n", reserved, callback, format, pbind);
-
-    if(!callback)
-        return E_INVALIDARG;
-
-    return CreateAsyncBindCtxEx(NULL, 0, callback, format, pbind, 0);
-}
-/***********************************************************************
- *           CreateAsyncBindCtxEx (URLMON.@)
- *
- * Create an asynchronous bind context.
- */ 
-HRESULT WINAPI CreateAsyncBindCtxEx(IBindCtx *ibind, DWORD options,
-    IBindStatusCallback *callback, IEnumFORMATETC *format, IBindCtx** pbind,
-    DWORD reserved)
-{
-    HRESULT hres;
-    BIND_OPTS bindopts;
-    IBindCtx *bctx;
-
-    TRACE("(%p %08x %p %p %p %d)\n", ibind, options, callback, format, pbind, reserved);
-
-    if(!pbind)
-        return E_INVALIDARG;
-
-    if(options)
-        FIXME("not supported options %08x\n", options);
-    if(format)
-        FIXME("format is not supported\n");
-
-    if(reserved)
-        WARN("reserved=%d\n", reserved);
-
-    hres = CreateBindCtx(0, &bctx);
-    if(FAILED(hres))
-        return hres;
-
-    bindopts.cbStruct = sizeof(BIND_OPTS);
-    bindopts.grfFlags = BIND_MAYBOTHERUSER;
-    bindopts.grfMode = STGM_READWRITE | STGM_SHARE_EXCLUSIVE;
-    bindopts.dwTickCountDeadline = 0;
-    IBindCtx_SetBindOptions(bctx, &bindopts);
-
-    if(callback)
-        RegisterBindStatusCallback(bctx, callback, NULL, 0);
-
-    *pbind = bctx;
-
-    return S_OK;
-}
-
 
 /***********************************************************************
  *           CreateURLMonikerEx (URLMON.@)
@@ -1160,7 +1080,7 @@ HRESULT WINAPI CreateURLMonikerEx(IMoniker *pmkContext, LPCWSTR szURL, IMoniker 
 
     if (dwFlags & URL_MK_UNIFORM) FIXME("ignoring flag URL_MK_UNIFORM\n");
 
-    if(!(obj = HeapAlloc(GetProcessHeap(), 0, sizeof(*obj))))
+    if(!(obj = heap_alloc(sizeof(*obj))))
 	return E_OUTOFMEMORY;
 
     if(pmkContext) {
@@ -1179,7 +1099,7 @@ HRESULT WINAPI CreateURLMonikerEx(IMoniker *pmkContext, LPCWSTR szURL, IMoniker 
     if(SUCCEEDED(hres))
 	hres = URLMonikerImpl_QueryInterface((IMoniker*)obj, &IID_IMoniker, (void**)ppmk);
     else
-	HeapFree(GetProcessHeap(), 0, obj);
+	heap_free(obj);
     return hres;
 }
 
@@ -1201,26 +1121,6 @@ HRESULT WINAPI CreateURLMonikerEx(IMoniker *pmkContext, LPCWSTR szURL, IMoniker 
 HRESULT WINAPI CreateURLMoniker(IMoniker *pmkContext, LPCWSTR szURL, IMoniker **ppmk)
 {
     return CreateURLMonikerEx(pmkContext, szURL, ppmk, URL_MK_LEGACY);
-}
-
-/***********************************************************************
- *           CoInternetQueryInfo (URLMON.@)
- *
- * Retrieves information relevant to a specified URL
- *
- * RETURNS
- *    S_OK 			success
- *    S_FALSE			buffer too small
- *    INET_E_QUERYOPTIONUNKNOWN	invalid option
- *
- */
-HRESULT WINAPI CoInternetQueryInfo(LPCWSTR pwzUrl, QUERYOPTION QueryOption,
-  DWORD dwQueryFlags, LPVOID pvBuffer, DWORD cbBuffer, DWORD * pcbBuffer,
-  DWORD dwReserved)
-{
-  FIXME("(%s, %x, %x, %p, %x, %p, %x): stub\n", debugstr_w(pwzUrl),
-    QueryOption, dwQueryFlags, pvBuffer, cbBuffer, pcbBuffer, dwReserved);
-  return S_OK;
 }
 
 /***********************************************************************
@@ -1262,6 +1162,8 @@ HRESULT WINAPI BindAsyncMoniker(IMoniker *pmk, DWORD grfOpt, IBindStatusCallback
     LPBC pbc = NULL;
     HRESULT hr = E_INVALIDARG;
 
+    TRACE("(%p %08x %p %s %p)\n", pmk, grfOpt, pbsc, debugstr_guid(iidResult), ppvResult);
+
     if (pmk && ppvResult)
     {
         *ppvResult = NULL;
@@ -1277,297 +1179,25 @@ HRESULT WINAPI BindAsyncMoniker(IMoniker *pmk, DWORD grfOpt, IBindStatusCallback
 }
 
 /***********************************************************************
- *           RegisterBindStatusCallback (URLMON.@)
- *
- * Register a bind status callback.
- *
- * PARAMS
- *  pbc           [I] Binding context
- *  pbsc          [I] Callback to register
- *  ppbscPrevious [O] Destination for previous callback
- *  dwReserved    [I] Reserved, must be 0.
- *
- * RETURNS
- *    Success: S_OK.
- *    Failure: E_INVALIDARG, if any argument is invalid, or
- *             E_OUTOFMEMORY if memory allocation fails.
+ *           MkParseDisplayNameEx (URLMON.@)
  */
-HRESULT WINAPI RegisterBindStatusCallback(
-    IBindCtx *pbc,
-    IBindStatusCallback *pbsc,
-    IBindStatusCallback **ppbscPrevious,
-    DWORD dwReserved)
+HRESULT WINAPI MkParseDisplayNameEx(IBindCtx *pbc, LPCWSTR szDisplayName, ULONG *pchEaten, LPMONIKER *ppmk)
 {
-    IBindStatusCallback *prev;
+    TRACE("(%p %s %p %p)\n", pbc, debugstr_w(szDisplayName), pchEaten, ppmk);
 
-    TRACE("(%p,%p,%p,%u)\n", pbc, pbsc, ppbscPrevious, dwReserved);
+    if(is_registered_protocol(szDisplayName)) {
+        HRESULT hres;
 
-    if (pbc == NULL || pbsc == NULL)
-        return E_INVALIDARG;
-
-    if (SUCCEEDED(IBindCtx_GetObjectParam(pbc, BSCBHolder, (IUnknown **)&prev)))
-    {
-        IBindCtx_RevokeObjectParam(pbc, BSCBHolder);
-        if (ppbscPrevious)
-            *ppbscPrevious = prev;
-        else
-            IBindStatusCallback_Release(prev);
-    }
-
-    return IBindCtx_RegisterObjectParam(pbc, BSCBHolder, (IUnknown *)pbsc);
-}
-
-/***********************************************************************
- *           RevokeBindStatusCallback (URLMON.@)
- *
- * Unregister a bind status callback.
- *
- *  pbc           [I] Binding context
- *  pbsc          [I] Callback to unregister
- *
- * RETURNS
- *    Success: S_OK.
- *    Failure: E_INVALIDARG, if any argument is invalid, or
- *             E_FAIL if pbsc wasn't registered with pbc.
- */
-HRESULT WINAPI RevokeBindStatusCallback(
-    IBindCtx *pbc,
-    IBindStatusCallback *pbsc)
-{
-    IBindStatusCallback *callback;
-    HRESULT hr = E_FAIL;
-
-	TRACE("(%p,%p)\n", pbc, pbsc);
-
-    if (pbc == NULL || pbsc == NULL)
-        return E_INVALIDARG;
-
-    if (SUCCEEDED(IBindCtx_GetObjectParam(pbc, BSCBHolder, (IUnknown **)&callback)))
-    {
-        if (callback == pbsc)
-        {
-            IBindCtx_RevokeObjectParam(pbc, BSCBHolder);
-            hr = S_OK;
+        hres = CreateURLMoniker(NULL, szDisplayName, ppmk);
+        if(SUCCEEDED(hres)) {
+            *pchEaten = strlenW(szDisplayName);
+            return hres;
         }
-        IBindStatusCallback_Release(pbsc);
     }
 
-    return hr;
+    return MkParseDisplayName(pbc, szDisplayName, pchEaten, ppmk);
 }
 
-/***********************************************************************
- *           URLDownloadToFileA (URLMON.@)
- *
- * Downloads URL szURL to rile szFileName and call lpfnCB callback to
- * report progress.
- *
- * PARAMS
- *  pCaller    [I] controlling IUnknown interface.
- *  szURL      [I] URL of the file to download
- *  szFileName [I] file name to store the content of the URL
- *  dwReserved [I] reserved - set to 0
- *  lpfnCB     [I] callback for progress report
- *
- * RETURNS
- *  S_OK on success
- *  E_OUTOFMEMORY when going out of memory
- */
-HRESULT WINAPI URLDownloadToFileA(LPUNKNOWN pCaller,
-				  LPCSTR szURL,
-				  LPCSTR szFileName,
-				  DWORD dwReserved,
-				  LPBINDSTATUSCALLBACK lpfnCB)
-{
-    UNICODE_STRING szURL_w, szFileName_w;
-
-    if ((szURL == NULL) || (szFileName == NULL)) {
-	FIXME("(%p,%s,%s,%08x,%p) cannot accept NULL strings !\n", pCaller, debugstr_a(szURL), debugstr_a(szFileName), dwReserved, lpfnCB);
-	return E_INVALIDARG; /* The error code is not specified in this case... */
-    }
-    
-    if (RtlCreateUnicodeStringFromAsciiz(&szURL_w, szURL)) {
-	if (RtlCreateUnicodeStringFromAsciiz(&szFileName_w, szFileName)) {
-	    HRESULT ret = URLDownloadToFileW(pCaller, szURL_w.Buffer, szFileName_w.Buffer, dwReserved, lpfnCB);
-
-	    RtlFreeUnicodeString(&szURL_w);
-	    RtlFreeUnicodeString(&szFileName_w);
-	    
-	    return ret;
-	} else {
-	    RtlFreeUnicodeString(&szURL_w);
-	}
-    }
-    
-    FIXME("(%p,%s,%s,%08x,%p) could not allocate W strings !\n", pCaller, szURL, szFileName, dwReserved, lpfnCB);
-    return E_OUTOFMEMORY;
-}
-
-/***********************************************************************
- *           URLDownloadToFileW (URLMON.@)
- *
- * Downloads URL szURL to rile szFileName and call lpfnCB callback to
- * report progress.
- *
- * PARAMS
- *  pCaller    [I] controlling IUnknown interface.
- *  szURL      [I] URL of the file to download
- *  szFileName [I] file name to store the content of the URL
- *  dwReserved [I] reserved - set to 0
- *  lpfnCB     [I] callback for progress report
- *
- * RETURNS
- *  S_OK on success
- *  E_OUTOFMEMORY when going out of memory
- */
-HRESULT WINAPI URLDownloadToFileW(LPUNKNOWN pCaller,
-				  LPCWSTR szURL,
-				  LPCWSTR szFileName,
-				  DWORD dwReserved,
-				  LPBINDSTATUSCALLBACK lpfnCB)
-{
-    HINTERNET hinternet, hcon, hreq;
-    BOOL r;
-    CHAR buffer[0x1000];
-    DWORD sz, total, written;
-    DWORD total_size = 0xFFFFFFFF, arg_size = sizeof(total_size);
-    URL_COMPONENTSW url;
-    WCHAR host[0x80], path[0x100];
-    HANDLE hfile;
-    static const WCHAR wszAppName[]={'u','r','l','m','o','n','.','d','l','l',0};
-
-    /* Note: all error codes would need to be checked agains real Windows behaviour... */
-    TRACE("(%p,%s,%s,%08x,%p) stub!\n", pCaller, debugstr_w(szURL), debugstr_w(szFileName), dwReserved, lpfnCB);
-
-    if ((szURL == NULL) || (szFileName == NULL)) {
-	FIXME(" cannot accept NULL strings !\n");
-	return E_INVALIDARG;
-    }
-
-    /* Would be better to use the application name here rather than 'urlmon' :-/ */
-    hinternet = InternetOpenW(wszAppName, INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
-    if (hinternet == NULL) {
-	return E_OUTOFMEMORY;
-    }                                                                                                                             
-
-    memset(&url, 0, sizeof(url));
-    url.dwStructSize = sizeof(url);
-    url.lpszHostName = host;
-    url.dwHostNameLength = sizeof(host);
-    url.lpszUrlPath = path;
-    url.dwUrlPathLength = sizeof(path);
-
-    if (!InternetCrackUrlW(szURL, 0, 0, &url)) {
-	InternetCloseHandle(hinternet);
-	return E_OUTOFMEMORY;
-    }
-
-    if (lpfnCB) {
-	if (IBindStatusCallback_OnProgress(lpfnCB, 0, 0, BINDSTATUS_CONNECTING, url.lpszHostName) == E_ABORT) {
-	    InternetCloseHandle(hinternet);
-	    return S_OK;
-	}
-    }
-    
-    hcon = InternetConnectW(hinternet, url.lpszHostName, url.nPort,
-                            url.lpszUserName, url.lpszPassword,
-                            INTERNET_SERVICE_HTTP, 0, 0);
-    if (!hcon) {
-	InternetCloseHandle(hinternet);
-	return E_OUTOFMEMORY;
-    }
-    
-    hreq = HttpOpenRequestW(hcon, NULL, url.lpszUrlPath, NULL, NULL, NULL, 0, 0);
-    if (!hreq) {
-	InternetCloseHandle(hinternet);
-	InternetCloseHandle(hcon);
-	return E_OUTOFMEMORY;
-    }                                                                                                                             
-
-    if (!HttpSendRequestW(hreq, NULL, 0, NULL, 0)) {
-	InternetCloseHandle(hinternet);
-	InternetCloseHandle(hcon);
-	InternetCloseHandle(hreq);
-	return E_OUTOFMEMORY;
-    }
-    
-    if (HttpQueryInfoW(hreq, HTTP_QUERY_CONTENT_LENGTH | HTTP_QUERY_FLAG_NUMBER,
-		       &total_size, &arg_size, NULL)) {
-	TRACE(" total size : %d\n", total_size);
-    }
-    
-    hfile = CreateFileW(szFileName, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS,
-                        FILE_ATTRIBUTE_NORMAL, NULL );
-    if (hfile == INVALID_HANDLE_VALUE) {
-	return E_ACCESSDENIED;
-    }
-    
-    if (lpfnCB) {
-	if (IBindStatusCallback_OnProgress(lpfnCB, 0, total_size != 0xFFFFFFFF ? total_size : 0,
-					   BINDSTATUS_BEGINDOWNLOADDATA, szURL) == E_ABORT) {
-	    InternetCloseHandle(hreq);
-	    InternetCloseHandle(hcon);
-	    InternetCloseHandle(hinternet);
-	    CloseHandle(hfile);
-	    return S_OK;
-	}
-    }
-    
-    total = 0;
-    while (1) {
-	r = InternetReadFile(hreq, buffer, sizeof(buffer), &sz);
-	if (!r) {
-	    InternetCloseHandle(hreq);
-	    InternetCloseHandle(hcon);
-	    InternetCloseHandle(hinternet);
-	    
-	    CloseHandle(hfile);
-	    return E_OUTOFMEMORY;	    
-	}
-	if (!sz)
-	    break;
-	
-	total += sz;
-
-	if (lpfnCB) {
-	    if (IBindStatusCallback_OnProgress(lpfnCB, total, total_size != 0xFFFFFFFF ? total_size : 0,
-					       BINDSTATUS_DOWNLOADINGDATA, szURL) == E_ABORT) {
-		InternetCloseHandle(hreq);
-		InternetCloseHandle(hcon);
-		InternetCloseHandle(hinternet);
-		CloseHandle(hfile);
-		return S_OK;
-	    }
-	}
-	
-	if (!WriteFile(hfile, buffer, sz, &written, NULL)) {
-	    InternetCloseHandle(hreq);
-	    InternetCloseHandle(hcon);
-	    InternetCloseHandle(hinternet);
-	    
-	    CloseHandle(hfile);
-	    return E_OUTOFMEMORY;
-	}
-    }
-
-    if (lpfnCB) {
-	if (IBindStatusCallback_OnProgress(lpfnCB, total, total_size != 0xFFFFFFFF ? total_size : 0,
-					   BINDSTATUS_ENDDOWNLOADDATA, szURL) == E_ABORT) {
-	    InternetCloseHandle(hreq);
-	    InternetCloseHandle(hcon);
-	    InternetCloseHandle(hinternet);
-	    CloseHandle(hfile);
-	    return S_OK;
-	}
-    }
-    
-    InternetCloseHandle(hreq);
-    InternetCloseHandle(hcon);
-    InternetCloseHandle(hinternet);
-    
-    CloseHandle(hfile);
-
-    return S_OK;
-}
 
 /***********************************************************************
  *           URLDownloadToCacheFileA (URLMON.@)
@@ -1584,12 +1214,12 @@ HRESULT WINAPI URLDownloadToCacheFileA(LPUNKNOWN lpUnkCaller, LPCSTR szURL, LPST
 
     if(szURL) {
         len = MultiByteToWideChar(CP_ACP, 0, szURL, -1, NULL, 0);
-        url = HeapAlloc(GetProcessHeap(), 0, len*sizeof(WCHAR));
+        url = heap_alloc(len*sizeof(WCHAR));
         MultiByteToWideChar(CP_ACP, 0, szURL, -1, url, -1);
     }
 
     if(szFileName)
-        file_name = HeapAlloc(GetProcessHeap(), 0, dwBufLength*sizeof(WCHAR));
+        file_name = heap_alloc(dwBufLength*sizeof(WCHAR));
 
     hres = URLDownloadToCacheFileW(lpUnkCaller, url, file_name, dwBufLength*sizeof(WCHAR),
             dwReserved, pBSC);
@@ -1597,8 +1227,8 @@ HRESULT WINAPI URLDownloadToCacheFileA(LPUNKNOWN lpUnkCaller, LPCSTR szURL, LPST
     if(SUCCEEDED(hres) && file_name)
         WideCharToMultiByte(CP_ACP, 0, file_name, -1, szFileName, dwBufLength, NULL, NULL);
 
-    HeapFree(GetProcessHeap(), 0, url);
-    HeapFree(GetProcessHeap(), 0, file_name);
+    heap_free(url);
+    heap_free(file_name);
 
     return hres;
 }

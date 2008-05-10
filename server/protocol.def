@@ -38,6 +38,7 @@ typedef unsigned int process_id_t;
 typedef unsigned int thread_id_t;
 typedef unsigned int data_size_t;
 typedef unsigned int ioctl_code_t;
+typedef unsigned __int64 file_pos_t;
 
 struct request_header
 {
@@ -178,6 +179,7 @@ typedef struct
     void           *arg;           /* opaque user data to pass to callback */
     void           *apc;           /* user apc to call */
     obj_handle_t    event;         /* event to signal when done */
+    unsigned long   cvalue;        /* completion value to use for completion events */
 } async_data_t;
 
 /* structures for extra message data */
@@ -226,17 +228,26 @@ struct security_descriptor
     data_size_t  group_len;
     data_size_t  sacl_len;
     data_size_t  dacl_len;
-    /* VARARGS(owner,SID); */
-    /* VARARGS(group,SID); */
-    /* VARARGS(sacl,ACL); */
-    /* VARARGS(dacl,ACL); */
+    /* VARARG(owner,SID); */
+    /* VARARG(group,SID); */
+    /* VARARG(sacl,ACL); */
+    /* VARARG(dacl,ACL); */
+};
+
+struct object_attributes
+{
+    obj_handle_t rootdir; /* root directory */
+    data_size_t sd_len;   /* length of security_descriptor data. may be 0 */
+    data_size_t name_len; /* length of the name string. may be 0 */
+    /* VARARG(sd,security_descriptor); */
+    /* VARARG(name,unicode_str); */
 };
 
 struct token_groups
 {
     unsigned int count;
     /* unsigned int attributes[count]; */
-    /* VARARGS(sids,SID); */
+    /* VARARG(sids,SID); */
 };
 
 enum apc_type
@@ -276,7 +287,7 @@ typedef union
     struct
     {
         enum apc_type    type;     /* APC_ASYNC_IO */
-        unsigned int   (*func)(void*, void*, unsigned int);
+        unsigned int   (*func)(void*, void*, unsigned int, unsigned long *);
         void            *user;     /* user pointer */
         void            *sb;       /* status block */
         unsigned int     status;   /* I/O status */
@@ -333,8 +344,7 @@ typedef union
         obj_handle_t     handle;    /* mapping handle */
         void            *addr;      /* requested address */
         unsigned long    size;      /* allocation size */
-        unsigned int     offset_low;/* file offset */
-        unsigned int     offset_high;
+        file_pos_t       offset;    /* file offset */
         unsigned int     zero_bits; /* allocation alignment */
         unsigned int     alloc_type;/* allocation type */
         unsigned int     prot;      /* memory protection flags */
@@ -362,6 +372,7 @@ typedef union
     {
         enum apc_type    type;      /* APC_ASYNC_IO */
         unsigned int     status;    /* new status of async operation */
+        unsigned long    total;     /* bytes transferred */
     } async_io;
     struct
     {
@@ -554,7 +565,7 @@ typedef union
     process_id_t ppid;             /* server process id of parent */
     int          exit_code;        /* process exit code */
     int          priority;         /* priority class */
-    int          affinity;         /* process affinity mask */
+    unsigned int affinity;         /* process affinity mask */
     void*        peb;              /* PEB address in process address space */
     timeout_t    start_time;       /* process start time */
     timeout_t    end_time;         /* process end time */
@@ -566,7 +577,7 @@ typedef union
     obj_handle_t handle;       /* process handle */
     int          mask;         /* setting mask (see below) */
     int          priority;     /* priority class */
-    int          affinity;     /* affinity mask */
+    unsigned int affinity;     /* affinity mask */
 @END
 #define SET_PROCESS_INFO_PRIORITY 0x01
 #define SET_PROCESS_INFO_AFFINITY 0x02
@@ -582,7 +593,7 @@ typedef union
     void*        teb;           /* thread teb pointer */
     int          exit_code;     /* thread exit code */
     int          priority;      /* thread priority level */
-    int          affinity;      /* thread affinity mask */
+    unsigned int affinity;      /* thread affinity mask */
     timeout_t    creation_time; /* thread creation time */
     timeout_t    exit_time;     /* thread exit time */
     int          last;          /* last thread in process */
@@ -594,7 +605,7 @@ typedef union
     obj_handle_t handle;       /* thread handle */
     int          mask;         /* setting mask (see below) */
     int          priority;     /* priority class */
-    int          affinity;     /* affinity mask */
+    unsigned int affinity;     /* affinity mask */
     obj_handle_t token;        /* impersonation token */
 @END
 #define SET_THREAD_INFO_PRIORITY 0x01
@@ -609,6 +620,7 @@ typedef union
 @REPLY
     size_t       size;          /* module size */
     void*        entry_point;
+    data_size_t  filename_len;    /* buffer len in bytes required to store filename */
     VARARG(filename,unicode_str); /* file name of module */
 @END
 
@@ -655,17 +667,6 @@ typedef union
 @REPLY
     obj_handle_t handle;       /* APC handle */
     int          self;         /* run APC in caller itself? */
-@END
-
-
-/* Get next APC to call */
-@REQ(get_apc)
-    int          alertable;    /* is thread alertable? */
-    obj_handle_t prev;         /* handle to previous APC */
-    apc_result_t result;       /* result of previous APC */
-@REPLY
-    obj_handle_t handle;       /* handle to APC */
-    apc_call_t   call;         /* call arguments */
 @END
 
 
@@ -736,10 +737,14 @@ typedef union
     int          flags;        /* wait flags (see below) */
     void*        cookie;       /* magic cookie to return to client */
     obj_handle_t signal;       /* object to signal (0 if none) */
+    obj_handle_t prev_apc;     /* handle to previous APC */
     timeout_t    timeout;      /* timeout */
+    VARARG(result,apc_result); /* result of previous APC */
     VARARG(handles,handles);   /* handles to select on */
 @REPLY
+    obj_handle_t apc_handle;   /* handle to next APC */
     timeout_t    timeout;      /* timeout converted to absolute */
+    apc_call_t   call;         /* APC call arguments */
 @END
 #define SELECT_ALL           1
 #define SELECT_ALERTABLE     2
@@ -750,10 +755,9 @@ typedef union
 @REQ(create_event)
     unsigned int access;        /* wanted access rights */
     unsigned int attributes;    /* object attributes */
-    obj_handle_t rootdir;       /* root directory */
     int          manual_reset;  /* manual reset event */
     int          initial_state; /* initial state of the event */
-    VARARG(name,unicode_str);   /* object name */
+    VARARG(objattr,object_attributes); /* object attributes */
 @REPLY
     obj_handle_t handle;        /* handle to the event */
 @END
@@ -781,9 +785,8 @@ enum event_op { PULSE_EVENT, SET_EVENT, RESET_EVENT };
 @REQ(create_mutex)
     unsigned int access;        /* wanted access rights */
     unsigned int attributes;    /* object attributes */
-    obj_handle_t rootdir;       /* root directory */
     int          owned;         /* initially owned? */
-    VARARG(name,unicode_str);   /* object name */
+    VARARG(objattr,object_attributes); /* object attributes */
 @REPLY
     obj_handle_t handle;        /* handle to the mutex */
 @END
@@ -812,10 +815,9 @@ enum event_op { PULSE_EVENT, SET_EVENT, RESET_EVENT };
 @REQ(create_semaphore)
     unsigned int access;        /* wanted access rights */
     unsigned int attributes;    /* object attributes */
-    obj_handle_t rootdir;       /* root directory */
     unsigned int initial;       /* initial count */
     unsigned int max;           /* maximum count */
-    VARARG(name,unicode_str);   /* object name */
+    VARARG(objattr,object_attributes); /* object attributes */
 @REPLY
     obj_handle_t handle;        /* handle to the semaphore */
 @END
@@ -849,6 +851,7 @@ enum event_op { PULSE_EVENT, SET_EVENT, RESET_EVENT };
     int          create;        /* file create action */
     unsigned int options;       /* file options */
     unsigned int attrs;         /* file attributes for creation */
+    VARARG(objattr,object_attributes); /* object attributes */
     VARARG(filename,string);    /* file name */
 @REPLY
     obj_handle_t handle;        /* handle to the file */
@@ -913,10 +916,8 @@ enum server_fd_type
 /* Lock a region of a file */
 @REQ(lock_file)
     obj_handle_t handle;        /* handle to the file */
-    unsigned int offset_low;    /* offset of start of lock */
-    unsigned int offset_high;   /* offset of start of lock */
-    unsigned int count_low;     /* count of bytes to lock */
-    unsigned int count_high;    /* count of bytes to lock */
+    file_pos_t   offset;        /* offset of start of lock */
+    file_pos_t   count;         /* count of bytes to lock */
     int          shared;        /* shared or exclusive lock? */
     int          wait;          /* do we want to wait? */
 @REPLY
@@ -928,10 +929,8 @@ enum server_fd_type
 /* Unlock a region of a file */
 @REQ(unlock_file)
     obj_handle_t handle;        /* handle to the file */
-    unsigned int offset_low;    /* offset of start of unlock */
-    unsigned int offset_high;   /* offset of start of unlock */
-    unsigned int count_low;     /* count of bytes to unlock */
-    unsigned int count_high;    /* count of bytes to unlock */
+    file_pos_t   offset;        /* offset of start of unlock */
+    file_pos_t   count;         /* count of bytes to unlock */
 @END
 
 
@@ -1097,15 +1096,16 @@ struct console_renderer_event
 
 /* Set info about a console (input only) */
 @REQ(set_console_input_info)
-    obj_handle_t handle;        /* handle to console input, or 0 for process' console */
-    int          mask;          /* setting mask (see below) */
-    obj_handle_t active_sb;     /* active screen buffer */
-    int          history_mode;  /* whether we duplicate lines in history */
-    int          history_size;  /* number of lines in history */
-    int          edition_mode;  /* index to the edition mode flavors */
-    int          input_cp;      /* console input codepage */
-    int          output_cp;     /* console output codepage */
-    VARARG(title,unicode_str);  /* console title */
+    obj_handle_t  handle;        /* handle to console input, or 0 for process' console */
+    int           mask;          /* setting mask (see below) */
+    obj_handle_t  active_sb;     /* active screen buffer */
+    int           history_mode;  /* whether we duplicate lines in history */
+    int           history_size;  /* number of lines in history */
+    int           edition_mode;  /* index to the edition mode flavors */
+    int           input_cp;      /* console input codepage */
+    int           output_cp;     /* console output codepage */
+    user_handle_t win;           /* console window if backend supports it */
+    VARARG(title,unicode_str);   /* console title */
 @END
 #define SET_CONSOLE_INPUT_INFO_ACTIVE_SB        0x01
 #define SET_CONSOLE_INPUT_INFO_TITLE            0x02
@@ -1114,19 +1114,21 @@ struct console_renderer_event
 #define SET_CONSOLE_INPUT_INFO_EDITION_MODE     0x10
 #define SET_CONSOLE_INPUT_INFO_INPUT_CODEPAGE   0x20
 #define SET_CONSOLE_INPUT_INFO_OUTPUT_CODEPAGE  0x40
+#define SET_CONSOLE_INPUT_INFO_WIN              0x80
 
 
 /* Get info about a console (input only) */
 @REQ(get_console_input_info)
-    obj_handle_t handle;        /* handle to console input, or 0 for process' console */
+    obj_handle_t  handle;         /* handle to console input, or 0 for process' console */
 @REPLY
-    int          history_mode;  /* whether we duplicate lines in history */
-    int          history_size;  /* number of lines in history */
-    int          history_index; /* number of used lines in history */
-    int          edition_mode;  /* index to the edition mode flavors */
-    int          input_cp;      /* console input codepage */
-    int          output_cp;     /* console output codepage */
-    VARARG(title,unicode_str);  /* console title */
+    int           history_mode;   /* whether we duplicate lines in history */
+    int           history_size;   /* number of lines in history */
+    int           history_index;  /* number of used lines in history */
+    int           edition_mode;   /* index to the edition mode flavors */
+    int           input_cp;       /* console input codepage */
+    int           output_cp;      /* console output codepage */
+    user_handle_t win;            /* console window if backend supports it */
+    VARARG(title,unicode_str);    /* console title */
 @END
 
 
@@ -1313,12 +1315,10 @@ enum char_info_mode
 @REQ(create_mapping)
     unsigned int access;        /* wanted access rights */
     unsigned int attributes;    /* object attributes */
-    obj_handle_t rootdir;       /* root directory */
-    int          size_high;     /* mapping size */
-    int          size_low;      /* mapping size */
+    file_pos_t   size;          /* mapping size */
     int          protect;       /* protection flags (see below) */
     obj_handle_t file_handle;   /* file handle */
-    VARARG(name,unicode_str);   /* object name */
+    VARARG(objattr,object_attributes); /* object attributes */
 @REPLY
     obj_handle_t handle;        /* handle to the mapping */
 @END
@@ -1348,14 +1348,12 @@ enum char_info_mode
 @REQ(get_mapping_info)
     obj_handle_t handle;        /* handle to the mapping */
 @REPLY
-    int          size_high;     /* mapping size */
-    int          size_low;      /* mapping size */
+    file_pos_t   size;          /* mapping size */
     int          protect;       /* protection flags */
     int          header_size;   /* header size (for VPROT_IMAGE mapping) */
     void*        base;          /* default base addr (for VPROT_IMAGE mapping) */
     obj_handle_t mapping;       /* duplicate mapping handle unless removable */
     obj_handle_t shared_file;   /* shared mapping file handle */
-    int          shared_size;   /* shared mapping size */
 @END
 
 
@@ -1863,6 +1861,8 @@ enum message_type
     unsigned int    get_first; /* first message code to get */
     unsigned int    get_last;  /* last message code to get */
     unsigned int    hw_id;     /* id of the previous hardware message (or 0) */
+    unsigned int    wake_mask; /* wakeup bits mask */
+    unsigned int    changed_mask; /* changed bits mask */
 @REPLY
     user_handle_t   win;       /* window handle */
     int             type;      /* message type */
@@ -1882,7 +1882,7 @@ enum message_type
 
 /* Reply to a sent message */
 @REQ(reply_message)
-    unsigned int    result;    /* message result */
+    unsigned long   result;    /* message result */
     int             remove;    /* should we remove the message? */
     VARARG(data,bytes);        /* message data for sent messages */
 @END
@@ -1900,7 +1900,7 @@ enum message_type
 @REQ(get_message_reply)
     int             cancel;    /* cancel message if not ready? */
 @REPLY
-    unsigned int    result;    /* message result */
+    unsigned long   result;    /* message result */
     VARARG(data,bytes);        /* message data for sent messages */
 @END
 
@@ -1922,6 +1922,14 @@ enum message_type
     user_handle_t   win;       /* window handle */
     unsigned int    msg;       /* message to post */
     unsigned long   id;        /* timer id */
+@END
+
+
+/* check if the thread owning the window is hung */
+@REQ(is_window_hung)
+    user_handle_t   win;       /* window handle */
+@REPLY
+    int is_hung;
 @END
 
 
@@ -2033,6 +2041,7 @@ enum message_type
     user_handle_t  owner;       /* owner window */
     atom_t         atom;        /* class atom */
     void*          instance;    /* module instance */
+    VARARG(class,unicode_str);  /* class name */
 @REPLY
     user_handle_t  handle;      /* created window */
     user_handle_t  parent;      /* full handle of parent */
@@ -2130,9 +2139,11 @@ enum message_type
 
 /* Get a list of the window children */
 @REQ(get_window_children)
+    obj_handle_t   desktop;       /* handle to desktop */
     user_handle_t  parent;        /* parent window */
     atom_t         atom;          /* class atom for the listed children */
     thread_id_t    tid;           /* thread owning the listed children */
+    VARARG(class,unicode_str);    /* class name */
 @REPLY
     int            count;         /* total count of children */
     VARARG(children,user_handles); /* children handles */
@@ -2174,6 +2185,16 @@ enum message_type
     VARARG(valid,rectangles);     /* valid rectangles from WM_NCCALCSIZE */
 @REPLY
     unsigned int   new_style;     /* new window style */
+    unsigned int   new_ex_style;  /* new window extended style */
+    rectangle_t    visible;       /* new visible rectangle */
+@END
+
+
+/* Set the visible rectangle of a window */
+@REQ(set_window_visible_rect)
+    unsigned int   flags;         /* SWP_* flags */
+    user_handle_t  handle;        /* handle to the window */
+    rectangle_t    visible;       /* visible rectangle */
 @END
 
 
@@ -2260,6 +2281,7 @@ enum message_type
 #define UPDATE_ALLCHILDREN     0x10  /* force repaint of all children */
 #define UPDATE_NOCHILDREN      0x20  /* don't try to repaint any children */
 #define UPDATE_NOREGION        0x40  /* don't return a region, only the flags */
+#define UPDATE_DELAYED_ERASE   0x80  /* still needs erase after BeginPaint */
 
 
 /* Update the z order of a window so that a given rectangle is fully visible */
@@ -2355,6 +2377,15 @@ enum message_type
 @END
 
 
+/* Enumerate window stations */
+@REQ(enum_winstation)
+    unsigned int index;           /* current index */
+@REPLY
+    unsigned int next;            /* next index */
+    VARARG(name,unicode_str);     /* window station name */
+@END
+
+
 /* Create a desktop */
 @REQ(create_desktop)
     unsigned int flags;           /* desktop flags */
@@ -2368,6 +2399,7 @@ enum message_type
 
 /* Open a handle to a desktop */
 @REQ(open_desktop)
+    obj_handle_t winsta;          /* window station to open (null allowed) */
     unsigned int flags;           /* desktop flags */
     unsigned int access;          /* wanted access rights */
     unsigned int attributes;      /* object attributes */
@@ -2394,6 +2426,16 @@ enum message_type
 /* Set the thread current desktop */
 @REQ(set_thread_desktop)
     obj_handle_t handle;          /* handle to the desktop */
+@END
+
+
+/* Enumerate desktops */
+@REQ(enum_desktop)
+    obj_handle_t winstation;      /* handle to the window station */
+    unsigned int index;           /* current index */
+@REPLY
+    unsigned int next;            /* next index */
+    VARARG(name,unicode_str);     /* window station name */
 @END
 
 
@@ -2601,6 +2643,9 @@ enum message_type
     int            extra;          /* number of extra class bytes */
     int            win_extra;      /* number of window extra bytes */
     void*          client_ptr;     /* pointer to class in client address space */
+    VARARG(name,unicode_str);      /* class name */
+@REPLY
+    atom_t         atom;           /* resulting class atom */
 @END
 
 
@@ -2608,6 +2653,7 @@ enum message_type
 @REQ(destroy_class)
     atom_t         atom;           /* class atom */
     void*          instance;       /* module instance */
+    VARARG(name,unicode_str);      /* class name */
 @REPLY
     void*          client_ptr;     /* pointer to class in client address space */
 @END
@@ -2769,6 +2815,14 @@ enum message_type
     VARARG(sd,security_descriptor); /* security descriptor to set */
 @END
 
+@REQ(get_security_object)
+    obj_handle_t    handle;       /* handle to the object */
+    unsigned int    security_info; /* which parts of security descriptor to get */
+@REPLY
+    unsigned int    sd_len;         /* buffer size needed for sd */
+    VARARG(sd,security_descriptor); /* retrieved security descriptor */
+@END
+
 /* Create a mailslot */
 @REQ(create_mailslot)
     unsigned int   access;        /* wanted access rights */
@@ -2813,6 +2867,17 @@ enum message_type
     VARARG(directory_name,unicode_str); /* Directory name */
 @REPLY
     obj_handle_t   handle;        /* handle to the directory */
+@END
+
+
+/* Get a directory entry by index */
+@REQ(get_directory_entry)
+    obj_handle_t   handle;             /* handle to the directory */
+    unsigned int   index;              /* entry index */
+@REPLY
+    size_t         name_len;           /* length of the entry name in bytes */
+    VARARG(name,unicode_str,name_len); /* entry name */
+    VARARG(type,unicode_str);          /* entry type */
 @END
 
 
@@ -2918,4 +2983,86 @@ enum message_type
 @REQ(make_process_system)
 @REPLY
     obj_handle_t event;           /* event signaled when all user processes have exited */
+@END
+
+
+/* Get detailed fixed-size information about a token */
+@REQ(get_token_statistics)
+    obj_handle_t   handle;        /* handle to the object */
+@REPLY
+    luid_t         token_id;      /* locally-unique identifier of the token */
+    luid_t         modified_id;   /* locally-unique identifier of the modified version of the token */
+    int            primary;       /* is the token primary or impersonation? */
+    int            impersonation_level; /* level of impersonation */
+    int            group_count;   /* the number of groups the token is a member of */
+    int            privilege_count; /* the number of privileges the token has */
+@END
+
+
+/* Create I/O completion port */
+@REQ(create_completion)
+    unsigned int access;          /* desired access to a port */
+    unsigned int attributes;      /* object attributes */
+    unsigned int concurrent;      /* max number of concurrent active threads */
+    obj_handle_t rootdir;         /* root directory */
+    VARARG(filename,string);      /* port name */
+@REPLY
+    obj_handle_t handle;          /* port handle */
+@END
+
+
+/* Open I/O completion port */
+@REQ(open_completion)
+    unsigned int access;          /* desired access to a port */
+    unsigned int attributes;      /* object attributes */
+    obj_handle_t rootdir;         /* root directory */
+    VARARG(filename,string);      /* port name */
+@REPLY
+    obj_handle_t handle;          /* port handle */
+@END
+
+
+/* add completion to completion port */
+@REQ(add_completion)
+    obj_handle_t  handle;         /* port handle */
+    unsigned long ckey;           /* completion key */
+    unsigned long cvalue;         /* completion value */
+    unsigned long information;    /* IO_STATUS_BLOCK Information */
+    unsigned int  status;         /* completion result */
+@END
+
+
+/* get completion from completion port queue */
+@REQ(remove_completion)
+    obj_handle_t handle;          /* port handle */
+@REPLY
+    unsigned long ckey;           /* completion key */
+    unsigned long cvalue;         /* completion value */
+    unsigned long information;    /* IO_STATUS_BLOCK Information */
+    unsigned int  status;         /* completion result */
+@END
+
+
+/* get completion queue depth */
+@REQ(query_completion)
+    obj_handle_t  handle;         /* port handle */
+@REPLY
+    unsigned int  depth;          /* completion queue depth */
+@END
+
+
+/* associate object with completion port */
+@REQ(set_completion_info)
+    obj_handle_t  handle;         /* object handle */
+    obj_handle_t  chandle;        /* port handle */
+    unsigned long ckey;           /* completion key */
+@END
+
+
+/* check for associated completion and push msg */
+@REQ(add_fd_completion)
+    obj_handle_t   handle;        /* async' object */
+    unsigned long  cvalue;        /* completion value */
+    unsigned int   status;        /* completion status */
+    unsigned long  information;   /* IO_STATUS_BLOCK Information */
 @END

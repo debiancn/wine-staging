@@ -94,8 +94,7 @@ static int X11DRV_XF86VM_GetCurrentMode(void)
   int dotclock;
   unsigned int i;
   DDHALMODEINFO cmode;
-  DWORD dwBpp = screen_depth;
-  if (dwBpp == 24) dwBpp = 32;
+  DWORD dwBpp = screen_bpp;
 
   TRACE("Querying XVidMode current mode\n");
   wine_tsx11_lock();
@@ -113,8 +112,7 @@ static int X11DRV_XF86VM_GetCurrentMode(void)
 
 static LONG X11DRV_XF86VM_SetCurrentMode(int mode)
 {
-  DWORD dwBpp = screen_depth;
-  if (dwBpp == 24) dwBpp = 32;
+  DWORD dwBpp = screen_bpp;
   /* only set modes from the original color depth */
   if (dwBpp != dd_modes[mode].dwBPP)
   {
@@ -133,8 +131,7 @@ static LONG X11DRV_XF86VM_SetCurrentMode(int mode)
 #endif
   XSync(gdi_display, False);
   wine_tsx11_unlock();
-  X11DRV_handle_desktop_resize( real_xf86vm_modes[mode]->hdisplay,
-                                real_xf86vm_modes[mode]->vdisplay );
+  X11DRV_resize_desktop( real_xf86vm_modes[mode]->hdisplay, real_xf86vm_modes[mode]->vdisplay );
   return DISP_CHANGE_SUCCESSFUL;
 }
 
@@ -143,8 +140,6 @@ void X11DRV_XF86VM_Init(void)
   Bool ok;
   int nmodes;
   unsigned int i;
-  DWORD dwBpp = screen_depth;
-  if (dwBpp == 24) dwBpp = 32;
 
   if (xf86vm_major) return; /* already initialized? */
 
@@ -197,10 +192,6 @@ void X11DRV_XF86VM_Init(void)
   dd_mode_count = X11DRV_Settings_GetModeCount();
 
   TRACE("Available DD modes: count=%d\n", dd_mode_count);
-
-  /* the first mode in the list seems to be the default */
-  X11DRV_Settings_SetDefaultMode(0);
-  
   TRACE("Enabling XVidMode\n");
 }
 

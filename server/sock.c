@@ -90,7 +90,6 @@ struct sock
 static void sock_dump( struct object *obj, int verbose );
 static int sock_signaled( struct object *obj, struct thread *thread );
 static struct fd *sock_get_fd( struct object *obj );
-static unsigned int sock_map_access( struct object *obj, unsigned int access );
 static void sock_destroy( struct object *obj );
 
 static int sock_get_poll_events( struct fd *fd );
@@ -107,13 +106,16 @@ static const struct object_ops sock_ops =
 {
     sizeof(struct sock),          /* size */
     sock_dump,                    /* dump */
+    no_get_type,                  /* get_type */
     add_queue,                    /* add_queue */
     remove_queue,                 /* remove_queue */
     sock_signaled,                /* signaled */
     no_satisfied,                 /* satisfied */
     no_signal,                    /* signal */
     sock_get_fd,                  /* get_fd */
-    sock_map_access,              /* map_access */
+    default_fd_map_access,        /* map_access */
+    default_get_sd,               /* get_sd */
+    default_set_sd,               /* set_sd */
     no_lookup_name,               /* lookup_name */
     no_open_file,                 /* open_file */
     fd_close_handle,              /* close_handle */
@@ -459,15 +461,6 @@ static int sock_signaled( struct object *obj, struct thread *thread )
     return check_fd_events( sock->fd, sock_get_poll_events( sock->fd ) ) != 0;
 }
 
-static unsigned int sock_map_access( struct object *obj, unsigned int access )
-{
-    if (access & GENERIC_READ)    access |= FILE_GENERIC_READ;
-    if (access & GENERIC_WRITE)   access |= FILE_GENERIC_WRITE;
-    if (access & GENERIC_EXECUTE) access |= FILE_GENERIC_EXECUTE;
-    if (access & GENERIC_ALL)     access |= FILE_ALL_ACCESS;
-    return access & ~(GENERIC_READ | GENERIC_WRITE | GENERIC_EXECUTE | GENERIC_ALL);
-}
-
 static int sock_get_poll_events( struct fd *fd )
 {
     struct sock *sock = get_fd_user( fd );
@@ -762,7 +755,10 @@ static int sock_get_error( int err )
 #ifdef EREMOTE
         case EREMOTE:           return WSAEREMOTE;
 #endif
-    default: errno=err; perror("sock_set_error"); return WSAEFAULT;
+        default:
+            errno = err;
+            perror("wineserver: sock_get_error() can't map error");
+            return WSAEFAULT;
     }
 }
 

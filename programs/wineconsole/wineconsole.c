@@ -304,7 +304,7 @@ int	WINECON_GrabChanges(struct inner_data* data)
 		h = wine_server_call_err( req ) ? 0 : (HANDLE)reply->handle;
 	    }
 	    SERVER_END_REQ;
-	    WINE_TRACE(" active(%d)", (int)h);
+	    WINE_TRACE(" active(%p)", h);
 	    if (h)
 	    {
 		CloseHandle(data->hConOut);
@@ -642,16 +642,6 @@ static struct inner_data* WINECON_Init(HINSTANCE hInst, DWORD pid, LPCWSTR appna
     if (!ret) goto error;
     WINE_TRACE("using hConIn %p, hSynchro event %p\n", data->hConIn, data->hSynchro);
 
-    SERVER_START_REQ( set_console_input_info )
-    {
-        req->handle = data->hConIn;
-        req->mask = SET_CONSOLE_INPUT_INFO_TITLE;
-        wine_server_add_data( req, appname, lstrlenW(appname) * sizeof(WCHAR) );
-        ret = !wine_server_call_err( req );
-    }
-    SERVER_END_REQ;
-    if (!ret) goto error;
-
     SERVER_START_REQ(create_console_output)
     {
         req->handle_in  = data->hConIn;
@@ -666,9 +656,18 @@ static struct inner_data* WINECON_Init(HINSTANCE hInst, DWORD pid, LPCWSTR appna
     WINE_TRACE("using hConOut %p\n", data->hConOut);
 
     /* filling data->curcfg from cfg */
- retry:
     switch ((*backend)(data))
     {
+    case init_not_supported:
+        if (backend == WCCURSES_InitBackend)
+        {
+            if (WCUSER_InitBackend( data ) != init_success) break;
+        }
+        else if (backend == WCUSER_InitBackend)
+        {
+            if (WCCURSES_InitBackend( data ) != init_success) break;
+        }
+        /* fall through */
     case init_success:
         WINECON_GetServerConfig(data);
         data->cells = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY,
@@ -679,18 +678,20 @@ static struct inner_data* WINECON_Init(HINSTANCE hInst, DWORD pid, LPCWSTR appna
         WINECON_SetConfig(data, &cfg);
         data->curcfg.registry = cfg.registry;
         WINECON_DumpConfig("fint", &data->curcfg);
+        SERVER_START_REQ( set_console_input_info )
+        {
+            req->handle = data->hConIn;
+            req->win = data->hWnd;
+            req->mask = SET_CONSOLE_INPUT_INFO_TITLE |
+                        SET_CONSOLE_INPUT_INFO_WIN;
+            wine_server_add_data( req, appname, lstrlenW(appname) * sizeof(WCHAR) );
+            ret = !wine_server_call_err( req );
+        }
+        SERVER_END_REQ;
+        if (!ret) goto error;
+
         return data;
     case init_failed:
-        break;
-    case init_not_supported:
-        if (backend == WCCURSES_InitBackend)
-        {
-            WINE_ERR("(n)curses was not found at configuration time.\n"
-                     "If you want (n)curses support, please install relevant packages.\n"
-                     "Now forcing user backend instead of (n)curses.\n");
-            backend = WCUSER_InitBackend;
-            goto retry;
-        }
         break;
     }
 
@@ -766,7 +767,7 @@ static UINT WINECON_ParseOptions(const char* lpCmdLine, struct wc_init* wci)
     memset(wci, 0, sizeof(*wci));
     wci->ptr = lpCmdLine;
     wci->mode = from_process_name;
-    wci->backend = WCCURSES_InitBackend;
+    wci->backend = WCUSER_InitBackend;
 
     for (;;)
     {
@@ -790,6 +791,7 @@ static UINT WINECON_ParseOptions(const char* lpCmdLine, struct wc_init* wci)
             }
             else if (strncmp(wci->ptr + 10, "curses", 6) == 0)
             {
+                wci->backend = WCCURSES_InitBackend;
                 wci->ptr += 16;
             }
             else

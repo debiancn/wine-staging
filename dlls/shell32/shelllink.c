@@ -198,7 +198,7 @@ static inline IShellLinkImpl *impl_from_IObjectWithSite( IObjectWithSite *iface 
     return (IShellLinkImpl *)((char*)iface - FIELD_OFFSET(IShellLinkImpl, lpvtblObjectWithSite));
 }
 
-static HRESULT ShellLink_UpdatePath(LPWSTR sPathRel, LPCWSTR path, LPCWSTR sWorkDir, LPWSTR* psPath);
+static HRESULT ShellLink_UpdatePath(LPCWSTR sPathRel, LPCWSTR path, LPCWSTR sWorkDir, LPWSTR* psPath);
 
 /* strdup on the process heap */
 static inline LPWSTR HEAP_strdupAtoW( HANDLE heap, DWORD flags, LPCSTR str)
@@ -320,7 +320,7 @@ static HRESULT ShellLink_GetClassID( IShellLinkImpl *This, CLSID *pclsid )
 {
     TRACE("%p %p\n", This, pclsid);
 
-    memcpy( pclsid, &CLSID_ShellLink, sizeof (CLSID) );
+    *pclsid = CLSID_ShellLink;
     return S_OK;
 }
 
@@ -404,6 +404,7 @@ static BOOL StartLinkProcessor( LPCOLESTR szLink )
     LPWSTR buffer;
     STARTUPINFOW si;
     PROCESS_INFORMATION pi;
+    BOOL ret;
 
     len = sizeof(szFormat) + lstrlenW( szLink ) * sizeof(WCHAR);
     buffer = HeapAlloc( GetProcessHeap(), 0, len );
@@ -416,11 +417,18 @@ static BOOL StartLinkProcessor( LPCOLESTR szLink )
 
     memset(&si, 0, sizeof(si));
     si.cb = sizeof(si);
-    if (!CreateProcessW( NULL, buffer, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) return FALSE;
-    CloseHandle( pi.hProcess );
-    CloseHandle( pi.hThread );
 
-    return TRUE;
+    ret = CreateProcessW( NULL, buffer, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi );
+
+    HeapFree( GetProcessHeap(), 0, buffer );
+
+    if (ret)
+    {
+        CloseHandle( pi.hProcess );
+        CloseHandle( pi.hThread );
+    }
+
+    return ret;
 }
 
 static HRESULT WINAPI IPersistFile_fnSave(IPersistFile* iface, LPCOLESTR pszFileName, BOOL fRemember)
@@ -656,7 +664,7 @@ static BOOL Stream_LoadVolume( LOCAL_VOLUME_INFO *vol, volume_info *volume )
     return TRUE;
 }
 
-static LPWSTR Stream_LoadPath( LPSTR p, DWORD maxlen )
+static LPWSTR Stream_LoadPath( LPCSTR p, DWORD maxlen )
 {
     int len = 0, wlen;
     LPWSTR path;
@@ -916,7 +924,14 @@ static HRESULT WINAPI IPersistStream_fnLoad(
 
     r = IStream_Read(stm, &zero, sizeof zero, &dwBytesRead);
     if( FAILED( r ) || zero || dwBytesRead != sizeof zero )
-        ERR("Last word was not zero\n");
+    {
+        /* Some lnk files have extra data blocks starting with a
+         * DATABLOCK_HEADER. For instance EXP_SPECIAL_FOLDER and an unknown
+         * one with a 0xa0000003 signature. However these don't seem to matter
+         * too much.
+         */
+        WARN("Last word was not zero\n");
+    }
 
     TRACE("OK\n");
 
@@ -969,6 +984,7 @@ static HRESULT Stream_WriteLocationInfo( IStream* stm, LPCWSTR path,
     LOCATION_INFO *loc;
     LPSTR szLabel, szPath, szFinalPath;
     ULONG count = 0;
+    HRESULT hr;
 
     TRACE("%p %s %p\n", stm, debugstr_w(path), volume);
 
@@ -1010,7 +1026,10 @@ static HRESULT Stream_WriteLocationInfo( IStream* stm, LPCWSTR path,
                          szPath, path_size, NULL, NULL );
     szFinalPath[0] = 0;
 
-    return IStream_Write( stm, loc, total_size, &count );
+    hr = IStream_Write( stm, loc, total_size, &count );
+    HeapFree(GetProcessHeap(), 0, loc);
+
+    return hr;
 }
 
 static EXP_DARWIN_LINK* shelllink_build_darwinid( LPCWSTR string, DWORD magic )
@@ -1060,7 +1079,7 @@ static HRESULT WINAPI IPersistStream_fnSave(
     memset(&header, 0, sizeof(header));
     header.dwSize = sizeof(header);
     header.fStartup = This->iShowCmd;
-    memcpy(&header.MagicGuid, &CLSID_ShellLink, sizeof(header.MagicGuid) );
+    header.MagicGuid = CLSID_ShellLink;
 
     header.wHotKey = This->wHotKey;
     header.nIcon = This->iIcoNdx;
@@ -1216,7 +1235,7 @@ static BOOL SHELL_ExistsFileW(LPCWSTR path)
  *  ShellLink_UpdatePath
  *	update absolute path in sPath using relative path in sPathRel
  */
-static HRESULT ShellLink_UpdatePath(LPWSTR sPathRel, LPCWSTR path, LPCWSTR sWorkDir, LPWSTR* psPath)
+static HRESULT ShellLink_UpdatePath(LPCWSTR sPathRel, LPCWSTR path, LPCWSTR sWorkDir, LPWSTR* psPath)
 {
     if (!path || !psPath)
 	return E_INVALIDARG;
@@ -1510,7 +1529,8 @@ static HRESULT WINAPI IShellLinkA_fnSetShowCmd(IShellLinkA * iface, INT iShowCmd
     return NOERROR;
 }
 
-static HRESULT SHELL_PidlGeticonLocationA(IShellFolder* psf, LPITEMIDLIST pidl, LPSTR pszIconPath, int cchIconPath, int* piIcon)
+static HRESULT SHELL_PidlGeticonLocationA(IShellFolder* psf, LPCITEMIDLIST pidl,
+                                          LPSTR pszIconPath, int cchIconPath, int* piIcon)
 {
     LPCITEMIDLIST pidlLast;
 
@@ -1519,7 +1539,7 @@ static HRESULT SHELL_PidlGeticonLocationA(IShellFolder* psf, LPITEMIDLIST pidl, 
     if (SUCCEEDED(hr)) {
 	IExtractIconA* pei;
 
-	hr = IShellFolder_GetUIObjectOf(psf, 0, 1, (LPCITEMIDLIST*)&pidlLast, &IID_IExtractIconA, NULL, (LPVOID*)&pei);
+	hr = IShellFolder_GetUIObjectOf(psf, 0, 1, &pidlLast, &IID_IExtractIconA, NULL, (LPVOID*)&pei);
 
 	if (SUCCEEDED(hr)) {
 	    hr = IExtractIconA_GetIconLocation(pei, 0, pszIconPath, MAX_PATH, piIcon, NULL);
@@ -1888,7 +1908,8 @@ static HRESULT WINAPI IShellLinkW_fnSetShowCmd(IShellLinkW * iface, INT iShowCmd
     return S_OK;
 }
 
-static HRESULT SHELL_PidlGeticonLocationW(IShellFolder* psf, LPITEMIDLIST pidl, LPWSTR pszIconPath, int cchIconPath, int* piIcon)
+static HRESULT SHELL_PidlGeticonLocationW(IShellFolder* psf, LPCITEMIDLIST pidl,
+                                          LPWSTR pszIconPath, int cchIconPath, int* piIcon)
 {
     LPCITEMIDLIST pidlLast;
 
@@ -1897,7 +1918,7 @@ static HRESULT SHELL_PidlGeticonLocationW(IShellFolder* psf, LPITEMIDLIST pidl, 
     if (SUCCEEDED(hr)) {
 	IExtractIconW* pei;
 
-	hr = IShellFolder_GetUIObjectOf(psf, 0, 1, (LPCITEMIDLIST*)&pidlLast, &IID_IExtractIconW, NULL, (LPVOID*)&pei);
+	hr = IShellFolder_GetUIObjectOf(psf, 0, 1, &pidlLast, &IID_IExtractIconW, NULL, (LPVOID*)&pei);
 
 	if (SUCCEEDED(hr)) {
 	    hr = IExtractIconW_GetIconLocation(pei, 0, pszIconPath, MAX_PATH, piIcon, NULL);
@@ -2123,7 +2144,7 @@ static HRESULT ShellLink_SetAdvertiseInfo(IShellLinkImpl *This, LPCWSTR str)
     return S_OK;
 }
 
-static BOOL ShellLink_GetVolumeInfo(LPWSTR path, volume_info *volume)
+static BOOL ShellLink_GetVolumeInfo(LPCWSTR path, volume_info *volume)
 {
     const int label_sz = sizeof volume->label/sizeof volume->label[0];
     WCHAR drive[4] = { path[0], ':', '\\', 0 };
@@ -2550,7 +2571,7 @@ ShellLink_InvokeCommand( IContextMenu* iface, LPCMINVOKECOMMANDINFO lpici )
 
     memset( &sei, 0, sizeof sei );
     sei.cbSize = sizeof sei;
-    sei.fMask = SEE_MASK_UNICODE | SEE_MASK_NOCLOSEPROCESS;
+    sei.fMask = SEE_MASK_UNICODE | (lpici->fMask & (SEE_MASK_NOASYNC|SEE_MASK_ASYNCOK|SEE_MASK_FLAG_NO_UI));
     sei.lpFile = path;
     sei.nShow = This->iShowCmd;
     sei.lpIDList = This->pPidl;
@@ -2559,14 +2580,7 @@ ShellLink_InvokeCommand( IContextMenu* iface, LPCMINVOKECOMMANDINFO lpici )
     sei.lpVerb = szOpen;
 
     if( ShellExecuteExW( &sei ) )
-    {
-        if ( sei.hProcess )
-        {
-            WaitForSingleObject( sei.hProcess, 10000 );
-            CloseHandle( sei.hProcess );
-        }
         r = S_OK;
-    }
     else
         r = E_FAIL;
 

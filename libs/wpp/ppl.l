@@ -156,12 +156,17 @@ cident	[a-zA-Z_][0-9a-zA-Z_]*
 ul	[uUlL]|[uUlL][lL]|[lL][uU]|[lL][lL][uU]|[uU][lL][lL]|[lL][uU][lL]
 
 %{
-#include <config.h>
+#include "config.h"
+#include "wine/port.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
 #include <assert.h>
+
+#ifndef HAVE_UNISTD_H
+#define YY_NO_UNISTD_H
+#endif
 
 #include "wpp_private.h"
 #include "ppy.tab.h"

@@ -41,7 +41,7 @@
  * This means select and all the related stuff is already defined and we
  * cannot override types and function prototypes.
  * All we can do is disable all these symbols so that they are not used
- * inadvertantly.
+ * inadvertently.
  */
 #  include <sys/types.h>
 #  undef FD_SETSIZE
@@ -498,7 +498,7 @@ typedef struct WS(timeval)
 #else
 #define WS_FD_CLR(fd, set)   __WS_FD_CLR((fd),(set), WS_fd_set)
 #define WS_FD_SET(fd, set)   __WS_FD_SET((fd),(set), WS_fd_set)
-#define WS_FD_ZERO(set)      ((WS_fd_set*)(set))->fd_count=0)
+#define WS_FD_ZERO(set)      (((WS_fd_set*)(set))->fd_count=0)
 #define WS_FD_ISSET(fd, set) __WSAFDIsSet((SOCKET)(fd), (WS_fd_set*)(set))
 #endif
 

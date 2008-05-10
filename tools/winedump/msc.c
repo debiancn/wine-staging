@@ -501,7 +501,6 @@ static void do_field(const unsigned char* start, const unsigned char* end)
         default:
             printf(">>> Unsupported field-id %x\n", fieldtype->generic.id);
             dump_data((const void*)fieldtype, 0x30, "\t");
-            return;
             break;
         }
     }
@@ -991,6 +990,12 @@ int codeview_dump_symbols(const void* root, unsigned long size)
             printf("\tS-BP-relative V3: '%s' @%d type:%x (in %s)\n", 
                    sym->stack_v3.name, sym->stack_v3.offset,
                    sym->stack_v3.symtype, curr_func);
+            break;
+
+        case S_BPREL_XXXX_V3:
+            printf("\tS-BP-relative XXXX V3: '%s' @%d type:%x unkn:%x (in %s)\n",
+                   sym->stack_xxxx_v3.name, sym->stack_xxxx_v3.offset,
+                   sym->stack_xxxx_v3.symtype, sym->stack_xxxx_v3.unknown, curr_func);
             break;
 
         case S_REGISTER_V1:

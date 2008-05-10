@@ -75,6 +75,7 @@ static const DC_FUNCTIONS EMFDRV_Funcs =
     NULL,                            /* pGetDIBits */
     EMFDRV_GetDeviceCaps,            /* pGetDeviceCaps */
     NULL,                            /* pGetDeviceGammaRamp */
+    NULL,                            /* pGetICMProfile */
     NULL,                            /* pGetNearestColor */
     NULL,                            /* pGetPixel */
     NULL,                            /* pGetPixelFormat */
@@ -113,7 +114,7 @@ static const DC_FUNCTIONS EMFDRV_Funcs =
     EMFDRV_SelectBrush,              /* pSelectBrush */
     EMFDRV_SelectClipPath,           /* pSelectClipPath */
     EMFDRV_SelectFont,               /* pSelectFont */
-    NULL,                            /* pSelectPalette */
+    EMFDRV_SelectPalette,            /* pSelectPalette */
     EMFDRV_SelectPen,                /* pSelectPen */
     EMFDRV_SetArcDirection,          /* pSetArcDirection */
     NULL,                            /* pSetBitmapBits */
@@ -129,7 +130,7 @@ static const DC_FUNCTIONS EMFDRV_Funcs =
     NULL,                            /* pSetDeviceGammaRamp */
     EMFDRV_SetMapMode,               /* pSetMapMode */
     EMFDRV_SetMapperFlags,           /* pSetMapperFlags */
-    NULL,                            /* pSetPixel */
+    EMFDRV_SetPixel,                 /* pSetPixel */
     NULL,                            /* pSetPixelFormat */
     EMFDRV_SetPolyFillMode,          /* pSetPolyFillMode */
     EMFDRV_SetROP2,                  /* pSetROP2 */
@@ -159,10 +160,9 @@ static const DC_FUNCTIONS EMFDRV_Funcs =
 /**********************************************************************
  *	     EMFDRV_DeleteDC
  */
-static BOOL EMFDRV_DeleteDC( PHYSDEV dev )
+static BOOL EMFDRV_DeleteDC( DC *dc )
 {
-    EMFDRV_PDEVICE *physDev = (EMFDRV_PDEVICE *)dev;
-    DC *dc = physDev->dc;
+    EMFDRV_PDEVICE *physDev = (EMFDRV_PDEVICE *)dc->physDev;
     UINT index;
 
     if (physDev->emh) HeapFree( GetProcessHeap(), 0, physDev->emh );
@@ -172,7 +172,7 @@ static BOOL EMFDRV_DeleteDC( PHYSDEV dev )
     HeapFree( GetProcessHeap(), 0, physDev->handles );
     HeapFree( GetProcessHeap(), 0, physDev );
     dc->physDev = NULL;
-    GDI_FreeObject( dc->hSelf, dc );
+    free_dc_ptr( dc );
     return TRUE;
 }
 
@@ -315,16 +315,15 @@ HDC WINAPI CreateEnhMetaFileW(
 
     TRACE("%s\n", debugstr_w(filename) );
 
-    if (!(dc = DC_AllocDC( &EMFDRV_Funcs, ENHMETAFILE_DC_MAGIC ))) return 0;
+    if (!(dc = alloc_dc_ptr( &EMFDRV_Funcs, ENHMETAFILE_DC_MAGIC ))) return 0;
 
     physDev = HeapAlloc(GetProcessHeap(),0,sizeof(*physDev));
     if (!physDev) {
-        GDI_FreeObject( dc->hSelf, dc );
+        free_dc_ptr( dc );
         return 0;
     }
     dc->physDev = (PHYSDEV)physDev;
     physDev->hdc = dc->hSelf;
-    physDev->dc = dc;
 
     if(description) { /* App name\0Title\0\0 */
         length = lstrlenW(description);
@@ -336,7 +335,7 @@ HDC WINAPI CreateEnhMetaFileW(
 
     if (!(physDev->emh = HeapAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY, size))) {
         HeapFree( GetProcessHeap(), 0, physDev );
-        GDI_FreeObject( dc->hSelf, dc );
+        free_dc_ptr( dc );
         return 0;
     }
 
@@ -405,11 +404,11 @@ HDC WINAPI CreateEnhMetaFileW(
     {
         if ((hFile = CreateFileW(filename, GENERIC_WRITE | GENERIC_READ, 0,
 				 NULL, CREATE_ALWAYS, 0, 0)) == INVALID_HANDLE_VALUE) {
-            EMFDRV_DeleteDC( dc->physDev );
+            EMFDRV_DeleteDC( dc );
             return 0;
         }
         if (!WriteFile( hFile, (LPSTR)physDev->emh, size, NULL, NULL )) {
-            EMFDRV_DeleteDC( dc->physDev );
+            EMFDRV_DeleteDC( dc );
             return 0;
 	}
 	physDev->hFile = hFile;
@@ -417,7 +416,7 @@ HDC WINAPI CreateEnhMetaFileW(
 
     TRACE("returning %p\n", dc->hSelf);
     ret = dc->hSelf;
-    GDI_ReleaseObj( dc->hSelf );
+    release_dc_ptr( dc );
 
     if( !hdc )
       DeleteDC( hRefDC );
@@ -438,7 +437,18 @@ HENHMETAFILE WINAPI CloseEnhMetaFile(HDC hdc) /* [in] metafile DC */
 
     TRACE("(%p)\n", hdc );
 
-    if (!(dc = (DC *) GDI_GetObjPtr( hdc, ENHMETAFILE_DC_MAGIC ))) return 0;
+    if (!(dc = get_dc_ptr( hdc ))) return NULL;
+    if (GDIMAGIC(dc->header.wMagic) != ENHMETAFILE_DC_MAGIC)
+    {
+        release_dc_ptr( dc );
+        return NULL;
+    }
+    if (dc->refcount != 1)
+    {
+        FIXME( "not deleting busy DC %p refcount %u\n", dc->hSelf, dc->refcount );
+        release_dc_ptr( dc );
+        return NULL;
+    }
     physDev = (EMFDRV_PDEVICE *)dc->physDev;
 
     if(dc->saveLevel)
@@ -447,7 +457,7 @@ HENHMETAFILE WINAPI CloseEnhMetaFile(HDC hdc) /* [in] metafile DC */
     emr.emr.iType = EMR_EOF;
     emr.emr.nSize = sizeof(emr);
     emr.nPalEntries = 0;
-    emr.offPalEntries = 0;
+    emr.offPalEntries = FIELD_OFFSET(EMREOF, nSizeLast);
     emr.nSizeLast = emr.emr.nSize;
     EMFDRV_WriteRecord( dc->physDev, &emr.emr );
 
@@ -468,7 +478,7 @@ HENHMETAFILE WINAPI CloseEnhMetaFile(HDC hdc) /* [in] metafile DC */
         if (SetFilePointer(physDev->hFile, 0, NULL, FILE_BEGIN) != 0)
         {
             CloseHandle( physDev->hFile );
-            EMFDRV_DeleteDC( dc->physDev );
+            EMFDRV_DeleteDC( dc );
             return 0;
         }
 
@@ -476,7 +486,7 @@ HENHMETAFILE WINAPI CloseEnhMetaFile(HDC hdc) /* [in] metafile DC */
                        sizeof(*physDev->emh), NULL, NULL))
         {
             CloseHandle( physDev->hFile );
-            EMFDRV_DeleteDC( dc->physDev );
+            EMFDRV_DeleteDC( dc );
             return 0;
         }
 	HeapFree( GetProcessHeap(), 0, physDev->emh );
@@ -491,6 +501,6 @@ HENHMETAFILE WINAPI CloseEnhMetaFile(HDC hdc) /* [in] metafile DC */
 
     hmf = EMF_Create_HENHMETAFILE( physDev->emh, (physDev->hFile != 0) );
     physDev->emh = NULL;  /* So it won't be deleted */
-    EMFDRV_DeleteDC( dc->physDev );
+    EMFDRV_DeleteDC( dc );
     return hmf;
 }

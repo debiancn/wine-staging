@@ -4,7 +4,9 @@ SRCDIR    = @srcdir@
 VPATH     = @srcdir@
 MODULE    = winetest.exe
 APPMODE   = -mconsole
-IMPORTS   = comctl32 user32 gdi32 wsock32 kernel32
+IMPORTS   = comctl32 version user32 gdi32 advapi32 wsock32 kernel32
+
+EXTRARCFLAGS = -DBUILD_SHA1=\"`GIT_DIR=$(TOPSRCDIR)/.git git rev-parse HEAD 2>/dev/null`\"
 
 C_SRCS = \
 	gui.c \
@@ -15,8 +17,7 @@ C_SRCS = \
 RC_SRCS = \
 	winetest.rc
 
-RC_BINSRC = winetest.rc
-RC_BINARIES = wine.ico 
+SVG_SRCS = winetest.svg
 
 @MAKE_PROG_RULES@
 
@@ -30,21 +31,29 @@ TESTBINS = \
 	comcat_test.exe \
 	comctl32_test.exe \
 	comdlg32_test.exe \
+	credui_test.exe \
 	crypt32_test.exe \
+	cryptnet_test.exe \
 	d3d8_test.exe \
 	d3d9_test.exe \
 	d3drm_test.exe \
+	d3dx8_test.exe \
+	d3dx9_36_test.exe \
 	ddraw_test.exe \
 	dinput_test.exe \
 	dnsapi_test.exe \
 	dplayx_test.exe \
 	dsound_test.exe \
+	fusion_test.exe \
 	gdi32_test.exe \
 	gdiplus_test.exe \
 	hlink_test.exe \
+	imm32_test.exe \
+	inetcomm_test.exe \
 	infosoft_test.exe \
 	iphlpapi_test.exe \
 	itss_test.exe \
+	jscript_test.exe \
 	kernel32_test.exe \
 	localspl_test.exe \
 	localui_test.exe \
@@ -60,16 +69,20 @@ TESTBINS = \
 	msxml3_test.exe \
 	netapi32_test.exe \
 	ntdll_test.exe \
+	ntdsapi_test.exe \
 	ntprint_test.exe \
 	odbccp32_test.exe \
 	ole32_test.exe \
 	oleaut32_test.exe \
+	opengl32_test.exe \
 	pdh_test.exe \
 	psapi_test.exe \
+	qedit_test.exe \
+	qmgr_test.exe \
 	quartz_test.exe \
 	riched20_test.exe \
+	riched32_test.exe \
 	rpcrt4_test.exe \
-	rsabase_test.exe \
 	rsaenh_test.exe \
 	schannel_test.exe \
 	secur32_test.exe \
@@ -79,8 +92,10 @@ TESTBINS = \
 	shell32_test.exe \
 	shlwapi_test.exe \
 	snmpapi_test.exe \
+	spoolss_test.exe \
 	urlmon_test.exe \
 	user32_test.exe \
+	userenv_test.exe \
 	usp10_test.exe \
 	uxtheme_test.exe \
 	version_test.exe \
@@ -104,14 +119,22 @@ comctl32_test.exe: $(DLLDIR)/comctl32/tests/comctl32_test.exe$(DLLEXT)
 	cp $(DLLDIR)/comctl32/tests/comctl32_test.exe$(DLLEXT) $@ && $(STRIP) $@
 comdlg32_test.exe: $(DLLDIR)/comdlg32/tests/comdlg32_test.exe$(DLLEXT)
 	cp $(DLLDIR)/comdlg32/tests/comdlg32_test.exe$(DLLEXT) $@ && $(STRIP) $@
+credui_test.exe: $(DLLDIR)/credui/tests/credui_test.exe$(DLLEXT)
+	cp $(DLLDIR)/credui/tests/credui_test.exe$(DLLEXT) $@ && $(STRIP) $@
 crypt32_test.exe: $(DLLDIR)/crypt32/tests/crypt32_test.exe$(DLLEXT)
 	cp $(DLLDIR)/crypt32/tests/crypt32_test.exe$(DLLEXT) $@ && $(STRIP) $@
+cryptnet_test.exe: $(DLLDIR)/cryptnet/tests/cryptnet_test.exe$(DLLEXT)
+	cp $(DLLDIR)/cryptnet/tests/cryptnet_test.exe$(DLLEXT) $@ && $(STRIP) $@
 d3d8_test.exe: $(DLLDIR)/d3d8/tests/d3d8_test.exe$(DLLEXT)
 	cp $(DLLDIR)/d3d8/tests/d3d8_test.exe$(DLLEXT) $@ && $(STRIP) $@
 d3d9_test.exe: $(DLLDIR)/d3d9/tests/d3d9_test.exe$(DLLEXT)
 	cp $(DLLDIR)/d3d9/tests/d3d9_test.exe$(DLLEXT) $@ && $(STRIP) $@
 d3drm_test.exe: $(DLLDIR)/d3drm/tests/d3drm_test.exe$(DLLEXT)
 	cp $(DLLDIR)/d3drm/tests/d3drm_test.exe$(DLLEXT) $@ && $(STRIP) $@
+d3dx8_test.exe: $(DLLDIR)/d3dx8/tests/d3dx8_test.exe$(DLLEXT)
+	cp $(DLLDIR)/d3dx8/tests/d3dx8_test.exe$(DLLEXT) $@ && $(STRIP) $@
+d3dx9_36_test.exe: $(DLLDIR)/d3dx9_36/tests/d3dx9_36_test.exe$(DLLEXT)
+	cp $(DLLDIR)/d3dx9_36/tests/d3dx9_36_test.exe$(DLLEXT) $@ && $(STRIP) $@
 ddraw_test.exe: $(DLLDIR)/ddraw/tests/ddraw_test.exe$(DLLEXT)
 	cp $(DLLDIR)/ddraw/tests/ddraw_test.exe$(DLLEXT) $@ && $(STRIP) $@
 dinput_test.exe: $(DLLDIR)/dinput/tests/dinput_test.exe$(DLLEXT)
@@ -122,18 +145,26 @@ dplayx_test.exe: $(DLLDIR)/dplayx/tests/dplayx_test.exe$(DLLEXT)
 	cp $(DLLDIR)/dplayx/tests/dplayx_test.exe$(DLLEXT) $@ && $(STRIP) $@
 dsound_test.exe: $(DLLDIR)/dsound/tests/dsound_test.exe$(DLLEXT)
 	cp $(DLLDIR)/dsound/tests/dsound_test.exe$(DLLEXT) $@ && $(STRIP) $@
+fusion_test.exe: $(DLLDIR)/fusion/tests/fusion_test.exe$(DLLEXT)
+	cp $(DLLDIR)/fusion/tests/fusion_test.exe$(DLLEXT) $@ && $(STRIP) $@
 gdi32_test.exe: $(DLLDIR)/gdi32/tests/gdi32_test.exe$(DLLEXT)
 	cp $(DLLDIR)/gdi32/tests/gdi32_test.exe$(DLLEXT) $@ && $(STRIP) $@
 gdiplus_test.exe: $(DLLDIR)/gdiplus/tests/gdiplus_test.exe$(DLLEXT)
 	cp $(DLLDIR)/gdiplus/tests/gdiplus_test.exe$(DLLEXT) $@ && $(STRIP) $@
 hlink_test.exe: $(DLLDIR)/hlink/tests/hlink_test.exe$(DLLEXT)
 	cp $(DLLDIR)/hlink/tests/hlink_test.exe$(DLLEXT) $@ && $(STRIP) $@
+imm32_test.exe: $(DLLDIR)/imm32/tests/imm32_test.exe$(DLLEXT)
+	cp $(DLLDIR)/imm32/tests/imm32_test.exe$(DLLEXT) $@ && $(STRIP) $@
+inetcomm_test.exe: $(DLLDIR)/inetcomm/tests/inetcomm_test.exe$(DLLEXT)
+	cp $(DLLDIR)/inetcomm/tests/inetcomm_test.exe$(DLLEXT) $@ && $(STRIP) $@
 infosoft_test.exe: $(DLLDIR)/infosoft/tests/infosoft_test.exe$(DLLEXT)
 	cp $(DLLDIR)/infosoft/tests/infosoft_test.exe$(DLLEXT) $@ && $(STRIP) $@
 iphlpapi_test.exe: $(DLLDIR)/iphlpapi/tests/iphlpapi_test.exe$(DLLEXT)
 	cp $(DLLDIR)/iphlpapi/tests/iphlpapi_test.exe$(DLLEXT) $@ && $(STRIP) $@
 itss_test.exe: $(DLLDIR)/itss/tests/itss_test.exe$(DLLEXT)
 	cp $(DLLDIR)/itss/tests/itss_test.exe$(DLLEXT) $@ && $(STRIP) $@
+jscript_test.exe: $(DLLDIR)/jscript/tests/jscript_test.exe$(DLLEXT)
+	cp $(DLLDIR)/jscript/tests/jscript_test.exe$(DLLEXT) $@ && $(STRIP) $@
 kernel32_test.exe: $(DLLDIR)/kernel32/tests/kernel32_test.exe$(DLLEXT)
 	cp $(DLLDIR)/kernel32/tests/kernel32_test.exe$(DLLEXT) $@ && $(STRIP) $@
 localspl_test.exe: $(DLLDIR)/localspl/tests/localspl_test.exe$(DLLEXT)
@@ -164,6 +195,8 @@ netapi32_test.exe: $(DLLDIR)/netapi32/tests/netapi32_test.exe$(DLLEXT)
 	cp $(DLLDIR)/netapi32/tests/netapi32_test.exe$(DLLEXT) $@ && $(STRIP) $@
 ntdll_test.exe: $(DLLDIR)/ntdll/tests/ntdll_test.exe$(DLLEXT)
 	cp $(DLLDIR)/ntdll/tests/ntdll_test.exe$(DLLEXT) $@ && $(STRIP) $@
+ntdsapi_test.exe: $(DLLDIR)/ntdsapi/tests/ntdsapi_test.exe$(DLLEXT)
+	cp $(DLLDIR)/ntdsapi/tests/ntdsapi_test.exe$(DLLEXT) $@ && $(STRIP) $@
 ntprint_test.exe: $(DLLDIR)/ntprint/tests/ntprint_test.exe$(DLLEXT)
 	cp $(DLLDIR)/ntprint/tests/ntprint_test.exe$(DLLEXT) $@ && $(STRIP) $@
 odbccp32_test.exe: $(DLLDIR)/odbccp32/tests/odbccp32_test.exe$(DLLEXT)
@@ -172,18 +205,24 @@ ole32_test.exe: $(DLLDIR)/ole32/tests/ole32_test.exe$(DLLEXT)
 	cp $(DLLDIR)/ole32/tests/ole32_test.exe$(DLLEXT) $@ && $(STRIP) $@
 oleaut32_test.exe: $(DLLDIR)/oleaut32/tests/oleaut32_test.exe$(DLLEXT)
 	cp $(DLLDIR)/oleaut32/tests/oleaut32_test.exe$(DLLEXT) $@ && $(STRIP) $@
+opengl32_test.exe: $(DLLDIR)/opengl32/tests/opengl32_test.exe$(DLLEXT)
+	cp $(DLLDIR)/opengl32/tests/opengl32_test.exe$(DLLEXT) $@ && $(STRIP) $@
 pdh_test.exe: $(DLLDIR)/pdh/tests/pdh_test.exe$(DLLEXT)
 	cp $(DLLDIR)/pdh/tests/pdh_test.exe$(DLLEXT) $@ && $(STRIP) $@
 psapi_test.exe: $(DLLDIR)/psapi/tests/psapi_test.exe$(DLLEXT)
 	cp $(DLLDIR)/psapi/tests/psapi_test.exe$(DLLEXT) $@ && $(STRIP) $@
+qedit_test.exe: $(DLLDIR)/qedit/tests/qedit_test.exe$(DLLEXT)
+	cp $(DLLDIR)/qedit/tests/qedit_test.exe$(DLLEXT) $@ && $(STRIP) $@
+qmgr_test.exe: $(DLLDIR)/qmgr/tests/qmgr_test.exe$(DLLEXT)
+	cp $(DLLDIR)/qmgr/tests/qmgr_test.exe$(DLLEXT) $@ && $(STRIP) $@
 quartz_test.exe: $(DLLDIR)/quartz/tests/quartz_test.exe$(DLLEXT)
 	cp $(DLLDIR)/quartz/tests/quartz_test.exe$(DLLEXT) $@ && $(STRIP) $@
 riched20_test.exe: $(DLLDIR)/riched20/tests/riched20_test.exe$(DLLEXT)
 	cp $(DLLDIR)/riched20/tests/riched20_test.exe$(DLLEXT) $@ && $(STRIP) $@
+riched32_test.exe: $(DLLDIR)/riched32/tests/riched32_test.exe$(DLLEXT)
+	cp $(DLLDIR)/riched32/tests/riched32_test.exe$(DLLEXT) $@ && $(STRIP) $@
 rpcrt4_test.exe: $(DLLDIR)/rpcrt4/tests/rpcrt4_test.exe$(DLLEXT)
 	cp $(DLLDIR)/rpcrt4/tests/rpcrt4_test.exe$(DLLEXT) $@ && $(STRIP) $@
-rsabase_test.exe: $(DLLDIR)/rsabase/tests/rsabase_test.exe$(DLLEXT)
-	cp $(DLLDIR)/rsabase/tests/rsabase_test.exe$(DLLEXT) $@ && $(STRIP) $@
 rsaenh_test.exe: $(DLLDIR)/rsaenh/tests/rsaenh_test.exe$(DLLEXT)
 	cp $(DLLDIR)/rsaenh/tests/rsaenh_test.exe$(DLLEXT) $@ && $(STRIP) $@
 schannel_test.exe: $(DLLDIR)/schannel/tests/schannel_test.exe$(DLLEXT)
@@ -202,10 +241,14 @@ shlwapi_test.exe: $(DLLDIR)/shlwapi/tests/shlwapi_test.exe$(DLLEXT)
 	cp $(DLLDIR)/shlwapi/tests/shlwapi_test.exe$(DLLEXT) $@ && $(STRIP) $@
 snmpapi_test.exe: $(DLLDIR)/snmpapi/tests/snmpapi_test.exe$(DLLEXT)
 	cp $(DLLDIR)/snmpapi/tests/snmpapi_test.exe$(DLLEXT) $@ && $(STRIP) $@
+spoolss_test.exe: $(DLLDIR)/spoolss/tests/spoolss_test.exe$(DLLEXT)
+	cp $(DLLDIR)/spoolss/tests/spoolss_test.exe$(DLLEXT) $@ && $(STRIP) $@
 urlmon_test.exe: $(DLLDIR)/urlmon/tests/urlmon_test.exe$(DLLEXT)
 	cp $(DLLDIR)/urlmon/tests/urlmon_test.exe$(DLLEXT) $@ && $(STRIP) $@
 user32_test.exe: $(DLLDIR)/user32/tests/user32_test.exe$(DLLEXT)
 	cp $(DLLDIR)/user32/tests/user32_test.exe$(DLLEXT) $@ && $(STRIP) $@
+userenv_test.exe: $(DLLDIR)/userenv/tests/userenv_test.exe$(DLLEXT)
+	cp $(DLLDIR)/userenv/tests/userenv_test.exe$(DLLEXT) $@ && $(STRIP) $@
 usp10_test.exe: $(DLLDIR)/usp10/tests/usp10_test.exe$(DLLEXT)
 	cp $(DLLDIR)/usp10/tests/usp10_test.exe$(DLLEXT) $@ && $(STRIP) $@
 uxtheme_test.exe: $(DLLDIR)/uxtheme/tests/uxtheme_test.exe$(DLLEXT)
@@ -248,6 +291,6 @@ winetest-dist.exe: $(OBJS) dist.res.o Makefile.in
 tests.rc: maketest Makefile.in
 	$(SRCDIR)/maketest $(TOPSRCDIR) > $@ || ($(RM) $@ && exit 1)
 
-dist.res: winetest.rc tests.rc build.id build.nfo tests.url $(TESTBINS) $(RC_BINARIES)
+dist.res: winetest.rc tests.rc build.id build.nfo tests.url winetest.ico $(TESTBINS)
 
 @DEPENDENCIES@  # everything below this line is overwritten by make depend

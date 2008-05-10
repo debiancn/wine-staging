@@ -4,8 +4,7 @@ SRCDIR    = @srcdir@
 VPATH     = @srcdir@
 MODULE    = oleview.exe
 APPMODE   = -mwindows -municode
-IMPORTS   = comdlg32 comctl32 shell32 oleaut32 ole32 user32 advapi32 kernel32
-EXTRALIBS = -luuid
+IMPORTS   = uuid comdlg32 comctl32 shell32 oleaut32 ole32 user32 advapi32 kernel32
 EXTRADEFS = -DUNICODE
 
 C_SRCS = \
@@ -17,8 +16,6 @@ C_SRCS = \
 	typelib.c
 
 RC_SRCS = rsrc.rc
-RC_BINSRC = rsrc.rc
-RC_BINARIES = toolbar.bmp
 
 @MAKE_PROG_RULES@
 

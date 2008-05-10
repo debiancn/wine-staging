@@ -1,6 +1,7 @@
 /*
  * Copyright 1996 Bang Jun Young
- *
+ * Copyright 2007 YunSong Hwang
+
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -31,8 +32,6 @@ SYSMENU MENU LOADONCALL MOVEABLE DISCARDABLE
  MENUITEM "작업 전환(&W) ...\tCtrl-Esc", 61744
  MENUITEM SEPARATOR
  MENUITEM "Wine에 관하여 ...", 61761
- MENUITEM SEPARATOR
- MENUITEM "디버그 로그에 '디버그 표시' 넣기(&P)", 61762
 }
 
 EDITMENU MENU LOADONCALL MOVEABLE DISCARDABLE
@@ -62,6 +61,9 @@ BEGIN
 	PUSHBUTTON "무시(&I)", 5, 208, 56, 40, 14, WS_CHILD | WS_VISIBLE | WS_TABSTOP
 	PUSHBUTTON "예(&Y)", 6, 256, 56, 40, 14, WS_CHILD | WS_VISIBLE | WS_TABSTOP
 	PUSHBUTTON "아니오(&N)", 7, 304, 56, 40, 14, WS_CHILD | WS_VISIBLE | WS_TABSTOP
+    PUSHBUTTON "다시 시도(&T)", 10, 352, 56, 40, 14, WS_CHILD | WS_VISIBLE | WS_TABSTOP
+    PUSHBUTTON "계속(&C)," 11, 400, 56, 40, 14, WS_CHILD | WS_VISIBLE | WS_TABSTOP
+    PUSHBUTTON "도움말", 9, 448, 56, 40, 14, WS_CHILD | WS_VISIBLE | WS_TABSTOP
 END
 
 MDI_MOREWINDOWS DIALOG FIXED IMPURE 20, 20, 232, 122

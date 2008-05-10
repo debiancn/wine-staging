@@ -46,6 +46,8 @@
 #include "pidl.h"
 #include "wine/unicode.h"
 #include "shlwapi.h"
+#include "xdg.h"
+#include "sddl.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(shell);
 
@@ -784,7 +786,7 @@ static const WCHAR HistoryW[] = {'H','i','s','t','o','r','y','\0'};
 static const WCHAR Local_AppDataW[] = {'L','o','c','a','l',' ','A','p','p','D','a','t','a','\0'};
 static const WCHAR My_MusicW[] = {'M','y',' ','M','u','s','i','c','\0'};
 static const WCHAR My_PicturesW[] = {'M','y',' ','P','i','c','t','u','r','e','s','\0'};
-static const WCHAR My_VideoW[] = {'M','y',' ','V','i','d','e','o','\0'};
+static const WCHAR My_VideoW[] = {'M','y',' ','V','i','d','e','o','s','\0'};
 static const WCHAR NetHoodW[] = {'N','e','t','H','o','o','d','\0'};
 static const WCHAR PersonalW[] = {'P','e','r','s','o','n','a','l','\0'};
 static const WCHAR PrintHoodW[] = {'P','r','i','n','t','H','o','o','d','\0'};
@@ -1164,7 +1166,7 @@ static HRESULT _SHGetUserShellFolderPath(HKEY rootKey, LPCWSTR userPrefix,
     HRESULT hr;
     WCHAR shellFolderPath[MAX_PATH], userShellFolderPath[MAX_PATH];
     LPCWSTR pShellFolderPath, pUserShellFolderPath;
-    DWORD dwDisp, dwType, dwPathLen = MAX_PATH;
+    DWORD dwType, dwPathLen = MAX_PATH;
     HKEY userShellFolderKey, shellFolderKey;
 
     TRACE("%p,%s,%s,%p\n",rootKey, debugstr_w(userPrefix), debugstr_w(value),
@@ -1187,14 +1189,12 @@ static HRESULT _SHGetUserShellFolderPath(HKEY rootKey, LPCWSTR userPrefix,
         pShellFolderPath = szSHFolders;
     }
 
-    if (RegCreateKeyExW(rootKey, pShellFolderPath, 0, NULL, 0, KEY_ALL_ACCESS,
-     NULL, &shellFolderKey, &dwDisp))
+    if (RegCreateKeyW(rootKey, pShellFolderPath, &shellFolderKey))
     {
         TRACE("Failed to create %s\n", debugstr_w(pShellFolderPath));
         return E_FAIL;
     }
-    if (RegCreateKeyExW(rootKey, pUserShellFolderPath, 0, NULL, 0,
-     KEY_ALL_ACCESS, NULL, &userShellFolderKey, &dwDisp))
+    if (RegCreateKeyW(rootKey, pUserShellFolderPath, &userShellFolderKey))
     {
         TRACE("Failed to create %s\n",
          debugstr_w(pUserShellFolderPath));
@@ -1329,10 +1329,8 @@ static HRESULT _SHGetCurrentVersionPath(DWORD dwFlags, BYTE folder,
     else
     {
         HKEY hKey;
-        DWORD dwDisp;
 
-        if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, szCurrentVersion, 0,
-         NULL, 0, KEY_ALL_ACCESS, NULL, &hKey, &dwDisp))
+        if (RegCreateKeyW(HKEY_LOCAL_MACHINE, szCurrentVersion, &hKey))
             hr = E_FAIL;
         else
         {
@@ -1359,6 +1357,39 @@ static HRESULT _SHGetCurrentVersionPath(DWORD dwFlags, BYTE folder,
     return hr;
 }
 
+static LPWSTR _GetUserSidStringFromToken(HANDLE Token)
+{
+    char InfoBuffer[64];
+    PTOKEN_USER UserInfo;
+    DWORD InfoSize;
+    LPWSTR SidStr;
+
+    UserInfo = (PTOKEN_USER) InfoBuffer;
+    if (! GetTokenInformation(Token, TokenUser, InfoBuffer, sizeof(InfoBuffer),
+                              &InfoSize))
+    {
+        if (GetLastError() != ERROR_INSUFFICIENT_BUFFER)
+            return NULL;
+        UserInfo = HeapAlloc(GetProcessHeap(), 0, InfoSize);
+        if (UserInfo == NULL)
+            return NULL;
+        if (! GetTokenInformation(Token, TokenUser, UserInfo, InfoSize,
+                                  &InfoSize))
+        {
+            HeapFree(GetProcessHeap(), 0, UserInfo);
+            return NULL;
+        }
+    }
+
+    if (! ConvertSidToStringSidW(UserInfo->User.Sid, &SidStr))
+        SidStr = NULL;
+
+    if (UserInfo != (PTOKEN_USER) InfoBuffer)
+        HeapFree(GetProcessHeap(), 0, UserInfo);
+
+    return SidStr;
+}
+
 /* Gets the user's path (unexpanded) for the CSIDL with index folder:
  * If SHGFP_TYPE_DEFAULT is set, calls _SHGetDefaultValue for it.  Otherwise
  * calls _SHGetUserShellFolderPath for it.  Where it looks depends on hToken:
@@ -1381,22 +1412,15 @@ static HRESULT _SHGetUserProfilePath(HANDLE hToken, DWORD dwFlags, BYTE folder,
     if (!pszPath)
         return E_INVALIDARG;
 
-    /* Only the current user and the default user are supported right now
-     * I'm afraid.
-     * FIXME: should be able to call GetTokenInformation on the token,
-     * then call ConvertSidToStringSidW on it to get the user prefix.
-     * But Wine's registry doesn't store user info by sid, it stores it
-     * by user name (and I don't know how to convert from a token to a
-     * user name).
-     */
-    if (hToken != NULL && hToken != (HANDLE)-1)
-    {
-        FIXME("unsupported for user other than current or default\n");
-        return E_FAIL;
-    }
-
     if (dwFlags & SHGFP_TYPE_DEFAULT)
+    {
+        if (hToken != NULL && hToken != (HANDLE)-1)
+        {
+            FIXME("unsupported for user other than current or default\n");
+            return E_FAIL;
+        }
         hr = _SHGetDefaultValue(folder, pszPath);
+    }
     else
     {
         LPCWSTR userPrefix = NULL;
@@ -1407,8 +1431,18 @@ static HRESULT _SHGetUserProfilePath(HANDLE hToken, DWORD dwFlags, BYTE folder,
             hRootKey = HKEY_USERS;
             userPrefix = DefaultW;
         }
-        else /* hToken == NULL, other values disallowed above */
+        else if (hToken == NULL)
             hRootKey = HKEY_CURRENT_USER;
+        else
+        {
+            hRootKey = HKEY_USERS;
+            userPrefix = _GetUserSidStringFromToken(hToken);
+            if (userPrefix == NULL)
+            {
+                hr = E_FAIL;
+                goto error;
+            }
+        }
         hr = _SHGetUserShellFolderPath(hRootKey, userPrefix,
          CSIDL_Data[folder].szValueName, pszPath);
         if (FAILED(hr) && hRootKey != HKEY_LOCAL_MACHINE)
@@ -1416,7 +1450,10 @@ static HRESULT _SHGetUserProfilePath(HANDLE hToken, DWORD dwFlags, BYTE folder,
              CSIDL_Data[folder].szValueName, pszPath);
         if (FAILED(hr))
             hr = _SHGetDefaultValue(folder, pszPath);
+        if (userPrefix != NULL && userPrefix != DefaultW)
+            LocalFree((HLOCAL) userPrefix);
     }
+error:
     TRACE("returning 0x%08x (output path is %s)\n", hr, debugstr_w(pszPath));
     return hr;
 }
@@ -1624,17 +1661,12 @@ end:
  * Most values can be overridden in either
  * HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders
  * or in the same location in HKLM.
- * The registry usage is explained by the following tech note:
- * http://www.microsoft.com/windows2000/techinfo/reskit/en-us/default.asp?url=/windows2000/techinfo/reskit/en-us/regentry/36173.asp
  * The "Shell Folders" registry key was used in NT4 and earlier systems.
  * Beginning with Windows 2000, the "User Shell Folders" key is used, so
  * changes made to it are made to the former key too.  This synchronization is
  * done on-demand: not until someone requests the value of one of these paths
  * (by calling one of the SHGet functions) is the value synchronized.
- * Furthermore, as explained here:
- * http://www.microsoft.com/windows2000/techinfo/reskit/en-us/default.asp?url=/windows2000/techinfo/reskit/en-us/regentry/36276.asp
- * the HKCU paths take precedence over the HKLM paths.
- *
+ * Furthermore, the HKCU paths take precedence over the HKLM paths.
  */
 HRESULT WINAPI SHGetFolderPathW(
 	HWND hwndOwner,    /* [I] owner window */
@@ -1643,20 +1675,85 @@ HRESULT WINAPI SHGetFolderPathW(
 	DWORD dwFlags,     /* [I] which path to return */
 	LPWSTR pszPath)    /* [O] converted path */
 {
+    HRESULT hr =  SHGetFolderPathAndSubDirW(hwndOwner, nFolder, hToken, dwFlags, NULL, pszPath);
+    if(HRESULT_FROM_WIN32(ERROR_PATH_NOT_FOUND) == hr)
+        hr = HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
+    return hr;
+}
+
+HRESULT WINAPI SHGetFolderPathAndSubDirA(
+	HWND hwndOwner,    /* [I] owner window */
+	int nFolder,       /* [I] CSIDL identifying the folder */
+	HANDLE hToken,     /* [I] access token */
+	DWORD dwFlags,     /* [I] which path to return */
+	LPCSTR pszSubPath, /* [I] sub directory of the specified folder */
+	LPSTR pszPath)     /* [O] converted path */
+{
+    int length;
+    HRESULT hr = S_OK;
+    LPWSTR pszSubPathW = NULL;
+    LPWSTR pszPathW = NULL;
+    TRACE("%08x,%08x,%s\n",nFolder, dwFlags, debugstr_w(pszSubPathW));
+
+    if(pszPath) {
+        pszPathW = HeapAlloc(GetProcessHeap(), 0, MAX_PATH * sizeof(WCHAR));
+        if(!pszPathW) {
+            hr = HRESULT_FROM_WIN32(ERROR_NOT_ENOUGH_MEMORY);
+            goto cleanup;
+        }
+    }
+    TRACE("%08x,%08x,%s\n",nFolder, dwFlags, debugstr_w(pszSubPathW));
+
+    /* SHGetFolderPathAndSubDirW does not distinguish if pszSubPath isn't
+     * set (null), or an empty string.therefore call it without the parameter set
+     * if pszSubPath is an empty string
+     */
+    if (pszSubPath && pszSubPath[0]) {
+        length = MultiByteToWideChar(CP_ACP, 0, pszSubPath, -1, NULL, 0);
+        pszSubPathW = HeapAlloc(GetProcessHeap(), 0, length * sizeof(WCHAR));
+        if(!pszSubPathW) {
+            hr = HRESULT_FROM_WIN32(ERROR_NOT_ENOUGH_MEMORY);
+            goto cleanup;
+        }
+        MultiByteToWideChar(CP_ACP, 0, pszSubPath, -1, pszSubPathW, length);
+    }
+
+    hr = SHGetFolderPathAndSubDirW(hwndOwner, nFolder, hToken, dwFlags, pszSubPathW, pszPathW);
+
+    if (SUCCEEDED(hr) && pszPath)
+        WideCharToMultiByte(CP_ACP, 0, pszPathW, -1, pszPath, MAX_PATH, NULL, NULL);
+
+cleanup:
+    HeapFree(GetProcessHeap(), 0, pszPathW);
+    HeapFree(GetProcessHeap(), 0, pszSubPathW);
+    return hr;
+}
+
+HRESULT WINAPI SHGetFolderPathAndSubDirW(
+	HWND hwndOwner,    /* [I] owner window */
+	int nFolder,       /* [I] CSIDL identifying the folder */
+	HANDLE hToken,     /* [I] access token */
+	DWORD dwFlags,     /* [I] which path to return */
+	LPCWSTR pszSubPath,/* [I] sub directory of the specified folder */
+	LPWSTR pszPath)    /* [O] converted path */
+{
     HRESULT    hr;
     WCHAR      szBuildPath[MAX_PATH], szTemp[MAX_PATH];
     DWORD      folder = nFolder & CSIDL_FOLDER_MASK;
     CSIDL_Type type;
     int        ret;
     
-    TRACE("%p,%p,nFolder=0x%04x\n", hwndOwner,pszPath,nFolder);
+    TRACE("%p,%p,nFolder=0x%04x,%s\n", hwndOwner,pszPath,nFolder,debugstr_w(pszSubPath));
 
     /* Windows always NULL-terminates the resulting path regardless of success
      * or failure, so do so first
      */
     if (pszPath)
         *pszPath = '\0';
+
     if (folder >= sizeof(CSIDL_Data) / sizeof(CSIDL_Data[0]))
+        return E_INVALIDARG;
+    if ((SHGFP_TYPE_CURRENT != dwFlags) && (SHGFP_TYPE_DEFAULT != dwFlags))
         return E_INVALIDARG;
     szTemp[0] = 0;
     type = CSIDL_Data[folder].type;
@@ -1710,11 +1807,22 @@ HRESULT WINAPI SHGetFolderPathW(
         hr = _SHExpandEnvironmentStrings(szTemp, szBuildPath);
     else
         strcpyW(szBuildPath, szTemp);
+
+    if (FAILED(hr)) goto end;
+
+    if(pszSubPath) {
+        /* make sure the new path does not exceed th bufferlength
+         * rememebr to backslash and the termination */
+        if(MAX_PATH < (lstrlenW(szBuildPath) + lstrlenW(pszSubPath) + 2)) {
+            hr = HRESULT_FROM_WIN32(ERROR_FILENAME_EXCED_RANGE);
+            goto end;
+        }
+        PathAppendW(szBuildPath, pszSubPath);
+        PathRemoveBackslashW(szBuildPath);
+    }
     /* Copy the path if it's available before we might return */
     if (SUCCEEDED(hr) && pszPath)
         strcpyW(pszPath, szBuildPath);
-
-    if (FAILED(hr)) goto end;
 
     /* if we don't care about existing directories we are ready */
     if(nFolder & CSIDL_FLAG_DONT_VERIFY) goto end;
@@ -1726,7 +1834,7 @@ HRESULT WINAPI SHGetFolderPathW(
      */
     if (!(nFolder & CSIDL_FLAG_CREATE))
     {
-        hr = HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
+        hr = HRESULT_FROM_WIN32(ERROR_PATH_NOT_FOUND);
         goto end;
     }
 
@@ -1788,20 +1896,18 @@ static HRESULT _SHRegisterFolders(HKEY hRootKey, HANDLE hToken,
     WCHAR path[MAX_PATH];
     HRESULT hr = S_OK;
     HKEY hUserKey = NULL, hKey = NULL;
-    DWORD dwDisp, dwType, dwPathLen;
+    DWORD dwType, dwPathLen;
     LONG ret;
 
     TRACE("%p,%p,%s,%p,%u\n", hRootKey, hToken,
      debugstr_w(szUserShellFolderPath), folders, foldersLen);
 
-    ret = RegCreateKeyExW(hRootKey, szUserShellFolderPath, 0, NULL, 0,
-     KEY_ALL_ACCESS, NULL, &hUserKey, &dwDisp);
+    ret = RegCreateKeyW(hRootKey, szUserShellFolderPath, &hUserKey);
     if (ret)
         hr = HRESULT_FROM_WIN32(ret);
     else
     {
-        ret = RegCreateKeyExW(hRootKey, szShellFolderPath, 0, NULL, 0,
-         KEY_ALL_ACCESS, NULL, &hKey, &dwDisp);
+        ret = RegCreateKeyW(hRootKey, szShellFolderPath, &hKey);
         if (ret)
             hr = HRESULT_FROM_WIN32(ret);
     }
@@ -1819,7 +1925,15 @@ static HRESULT _SHRegisterFolders(HKEY hRootKey, HANDLE hToken,
             else if (CSIDL_Data[folders[i]].type == CSIDL_Type_AllUsers)
                 _SHGetAllUsersProfilePath(SHGFP_TYPE_DEFAULT, folders[i], path);
             else if (CSIDL_Data[folders[i]].type == CSIDL_Type_WindowsPath)
+            {
                 GetWindowsDirectoryW(path, MAX_PATH);
+                if (CSIDL_Data[folders[i]].szDefaultPath &&
+                    !IS_INTRESOURCE(CSIDL_Data[folders[i]].szDefaultPath))
+                {
+                    PathAddBackslashW(path);
+                    strcatW(path, CSIDL_Data[folders[i]].szDefaultPath);
+                }
+            }
             else
                 hr = E_FAIL;
             if (*path)
@@ -2004,16 +2118,19 @@ static inline BOOL _SHAppendToUnixPath(char *szBasePath, LPCWSTR pwszSubPath) {
  *   point directly to $HOME. We assume the user to be a unix hacker who does not
  *   want wine to create anything anywhere besides the .wine directory. So, if
  *   there already is a 'My Music' directory in $HOME, we symlink the 'My Music'
- *   shell folder to it. But if not, we symlink it to $HOME directly. The same
- *   holds fo 'My Pictures' and 'My Video'.
- * - The Desktop shell folder is symlinked to '$HOME/Desktop', if that does
- *   exists and left alone if not.
+ *   shell folder to it. But if not, then we check XDG_MUSIC_DIR - "well known"
+ *   directory, and try to link to that. If that fails, then we symlink to
+ *   $HOME directly. The same holds fo 'My Pictures' and 'My Video'.
+ * - The Desktop shell folder is symlinked to XDG_DESKTOP_DIR. If that does not
+ *   exist, then we try '$HOME/Desktop'. If that does not exist, then we leave
+ *   it alone.
  * ('My Music',... above in fact means LoadString(IDS_MYMUSIC))
  */
 static void _SHCreateSymbolicLinks(void)
 {
     UINT aidsMyStuff[] = { IDS_MYPICTURES, IDS_MYVIDEO, IDS_MYMUSIC }, i;
     int acsidlMyStuff[] = { CSIDL_MYPICTURES, CSIDL_MYVIDEO, CSIDL_MYMUSIC };
+    static const char * xdg_dirs[] = { "PICTURES", "VIDEOS", "MUSIC", "DESKTOP" };
     WCHAR wszTempPath[MAX_PATH];
     char szPersonalTarget[FILENAME_MAX], *pszPersonal;
     char szMyStuffTarget[FILENAME_MAX], *pszMyStuff;
@@ -2021,6 +2138,9 @@ static void _SHCreateSymbolicLinks(void)
     struct stat statFolder;
     const char *pszHome;
     HRESULT hr;
+    const unsigned int num = sizeof(xdg_dirs) / sizeof(xdg_dirs[0]);
+    char ** xdg_results = NULL;
+    char * xdg_desktop_dir;
 
     /* Create all necessary profile sub-dirs up to 'My Documents' and get the unix path. */
     hr = SHGetFolderPathW(NULL, CSIDL_PERSONAL|CSIDL_FLAG_CREATE, NULL,
@@ -2028,6 +2148,8 @@ static void _SHCreateSymbolicLinks(void)
     if (FAILED(hr)) return;
     pszPersonal = wine_get_unix_file_name(wszTempPath);
     if (!pszPersonal) return;
+
+    XDG_UserDirLookup(xdg_dirs, num, &xdg_results);
 
     pszHome = getenv("HOME");
     if (pszHome && !stat(pszHome, &statFolder) && S_ISDIR(statFolder.st_mode)) {
@@ -2040,7 +2162,7 @@ static void _SHCreateSymbolicLinks(void)
             for (i = 0; i < sizeof(aidsMyStuff)/sizeof(aidsMyStuff[0]); i++) {
                 strcpy(szMyStuffTarget, szPersonalTarget);
                 if (_SHAppendToUnixPath(szMyStuffTarget, MAKEINTRESOURCEW(aidsMyStuff[i])))
-                    mkdir(szMyStuffTarget, S_IRWXU|S_IRWXG|S_IRWXO);
+                    mkdir(szMyStuffTarget, 0777);
             }
         } 
         else
@@ -2061,11 +2183,9 @@ static void _SHCreateSymbolicLinks(void)
         for (i = 0; i < sizeof(aidsMyStuff)/sizeof(aidsMyStuff[0]); i++) {
             strcpy(szMyStuffTarget, szPersonalTarget);
             if (_SHAppendToUnixPath(szMyStuffTarget, MAKEINTRESOURCEW(aidsMyStuff[i])))
-                mkdir(szMyStuffTarget, S_IRWXU|S_IRWXG|S_IRWXO);
+                mkdir(szMyStuffTarget, 0777);
         }
     }
-
-    HeapFree(GetProcessHeap(), 0, pszPersonal);
 
     /* Create symbolic links for 'My Pictures', 'My Video' and 'My Music'. */
     for (i=0; i < sizeof(aidsMyStuff)/sizeof(aidsMyStuff[0]); i++) {
@@ -2086,26 +2206,52 @@ static void _SHCreateSymbolicLinks(void)
         } 
         else
         {
-            /* Else link to where 'My Documents' itself links to. */
             rmdir(pszMyStuff);
-            symlink(szPersonalTarget, pszMyStuff);
+            if (xdg_results && xdg_results[i])
+            {
+                /* the folder specified by XDG_XXX_DIR exists, link to it. */
+                symlink(xdg_results[i], pszMyStuff);
+            }
+            else
+            {
+                /* Else link to where 'My Documents' itself links to. */
+                symlink(szPersonalTarget, pszMyStuff);
+            }
         }
         HeapFree(GetProcessHeap(), 0, pszMyStuff);
     }
 
     /* Last but not least, the Desktop folder */
-    strcpy(szDesktopTarget, pszHome);
-    if (_SHAppendToUnixPath(szDesktopTarget, DesktopW) &&
-        !stat(szDesktopTarget, &statFolder) && S_ISDIR(statFolder.st_mode))
+    if (pszHome)
+        strcpy(szDesktopTarget, pszHome);
+    else
+        strcpy(szDesktopTarget, pszPersonal);
+    HeapFree(GetProcessHeap(), 0, pszPersonal);
+
+    xdg_desktop_dir = xdg_results ? xdg_results[num - 1] : NULL;
+    if (xdg_desktop_dir ||
+        (_SHAppendToUnixPath(szDesktopTarget, DesktopW) &&
+        !stat(szDesktopTarget, &statFolder) && S_ISDIR(statFolder.st_mode)))
     {
         hr = SHGetFolderPathW(NULL, CSIDL_DESKTOPDIRECTORY|CSIDL_FLAG_CREATE, NULL,
                               SHGFP_TYPE_DEFAULT, wszTempPath);
         if (SUCCEEDED(hr) && (pszDesktop = wine_get_unix_file_name(wszTempPath))) 
         {
             rmdir(pszDesktop);
-            symlink(szDesktopTarget, pszDesktop);
+            if (xdg_desktop_dir)
+                symlink(xdg_desktop_dir, pszDesktop);
+            else
+                symlink(szDesktopTarget, pszDesktop);
             HeapFree(GetProcessHeap(), 0, pszDesktop);
         }
+    }
+
+    /* Free resources allocated by XDG_UserDirLookup() */
+    if (xdg_results)
+    {
+        for (i = 0; i < num; i++)
+            HeapFree(GetProcessHeap(), 0, xdg_results[i]);
+        HeapFree(GetProcessHeap(), 0, xdg_results);
     }
 }
 

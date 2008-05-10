@@ -87,17 +87,29 @@ static LPWSTR tempfileW = NULL;
 
 /* ################################ */
 /* report common behavior only once */
-static DWORD report_deactivated_spooler = 1;
+static DWORD deactivated_spooler_reported = 0;
 #define RETURN_ON_DEACTIVATED_SPOOLER(res) \
-    if((res == 0) && (GetLastError() == RPC_S_SERVER_UNAVAILABLE)) \
+    if ((res == 0) && (GetLastError() == RPC_S_SERVER_UNAVAILABLE)) \
     { \
-        if(report_deactivated_spooler > 0) { \
-            report_deactivated_spooler--; \
+        if (!deactivated_spooler_reported) { \
+            deactivated_spooler_reported++; \
             skip("The Service 'Spooler' is required for many test\n"); \
         } \
         return; \
     }
 
+static DWORD access_denied_reported = 0;
+#define RETURN_ON_ACCESS_DENIED(res) \
+    if ((res == 0) && (GetLastError() == ERROR_ACCESS_DENIED)) \
+    { \
+        if (!access_denied_reported) { \
+            access_denied_reported++; \
+            skip("More Access-Rights are required for many test\n"); \
+        } \
+        return; \
+    }
+
+/* ################################ */
 
 static void find_default_printer(VOID)
 {
@@ -313,11 +325,7 @@ static void test_AddMonitor(void)
     SetLastError(MAGIC_DEAD);
     res = AddMonitorA(NULL, 2, (LPBYTE) &mi2a);
     RETURN_ON_DEACTIVATED_SPOOLER(res)
-
-    if (!res && (GetLastError() == ERROR_ACCESS_DENIED)) {
-        skip("(ACCESS_DENIED)\n");
-        return;
-    }
+    RETURN_ON_ACCESS_DENIED(res)
 
     /* NT: ERROR_INVALID_PARAMETER,  9x: ERROR_INVALID_ENVIRONMENT */
     ok(!res && ((GetLastError() == ERROR_INVALID_PARAMETER) ||
@@ -440,10 +448,8 @@ static void test_AddPort(void)
     SetLastError(0xdeadbeef);
     res = AddPortA(NULL, 0, empty);
     /* Allowed only for (Printer-)Administrators */
-    if (!res && (GetLastError() == ERROR_ACCESS_DENIED)) {
-        skip("(ACCESS_DENIED)\n");
-        return;
-    }
+    RETURN_ON_ACCESS_DENIED(res)
+
     /* XP: ERROR_NOT_SUPPORTED, NT351 and 9x: ERROR_INVALID_PARAMETER */
     ok( !res && ((GetLastError() == ERROR_NOT_SUPPORTED) || 
                  (GetLastError() == ERROR_INVALID_PARAMETER)),
@@ -593,10 +599,8 @@ static void test_ConfigurePort(void)
     SetLastError(0xdeadbeef);
     res = ConfigurePortA(NULL, 0, empty);
     /* Allowed only for (Printer-)Administrators */
-    if (!res && (GetLastError() == ERROR_ACCESS_DENIED)) {
-        skip("(ACCESS_DENIED)\n");
-        return;
-    }
+    RETURN_ON_ACCESS_DENIED(res)
+
     /* XP: ERROR_NOT_SUPPORTED, NT351 and 9x: ERROR_INVALID_PARAMETER */
     ok( !res && ((GetLastError() == ERROR_NOT_SUPPORTED) || 
                  (GetLastError() == ERROR_INVALID_PARAMETER)),
@@ -734,10 +738,8 @@ static void test_DeletePort(void)
     SetLastError(0xdeadbeef);
     res = DeletePortA(NULL, 0, empty);
     /* Allowed only for (Printer-)Administrators */
-    if (!res && (GetLastError() == ERROR_ACCESS_DENIED)) {
-        skip("(ACCESS_DENIED)\n");
-        return;
-    }
+    RETURN_ON_ACCESS_DENIED(res)
+
     /* XP: ERROR_NOT_SUPPORTED, NT351 and 9x: ERROR_INVALID_PARAMETER */
     ok( !res && ((GetLastError() == ERROR_NOT_SUPPORTED) || 
                  (GetLastError() == ERROR_INVALID_PARAMETER)),
@@ -766,7 +768,12 @@ static void test_EnumForms(LPSTR pName)
     DWORD   pcbNeeded;
     DWORD   pcReturned;
     DWORD   level;
-  
+    UINT    i;
+    const char *formtype;
+    static const char * const formtypes[] = { "FORM_USER", "FORM_BUILTIN", "FORM_PRINTER", "FORM_flag_unknown" };
+#define FORMTYPE_MAX 2
+    PFORM_INFO_1A pFI_1a;
+    PFORM_INFO_2A pFI_2a;
 
     res = OpenPrinter(pName, &hprinter, NULL);
     RETURN_ON_DEACTIVATED_SPOOLER(res)
@@ -783,7 +790,7 @@ static void test_EnumForms(LPSTR pName)
         pcReturned = 0xdeadbeef;
         SetLastError(0xdeadbeef);
         res = EnumFormsA(hprinter, level, NULL, 0, &cbBuf, &pcReturned);
-       
+
         /* EnumForms is not implemented in win9x */
         if (!res && (GetLastError() == ERROR_CALL_NOT_IMPLEMENTED)) continue;
 
@@ -801,7 +808,7 @@ static void test_EnumForms(LPSTR pName)
                 "ERROR_INVALID_LEVEL or '!=0' and 0x0)\n",
                 level, res, GetLastError(), pcReturned);
             continue;
-        }        
+        }
 
         ok((!res) && (GetLastError() == ERROR_INSUFFICIENT_BUFFER),
             "(%d) returned %d with %d (expected '0' with "
@@ -814,8 +821,31 @@ static void test_EnumForms(LPSTR pName)
         res = EnumFormsA(hprinter, level, buffer, cbBuf, &pcbNeeded, &pcReturned);
         ok(res, "(%d) returned %d with %d (expected '!=0')\n",
                 level, res, GetLastError());
-        /* We can dump the returned Data here */
 
+        if (winetest_debug > 1) {
+            trace("dumping %d forms level %d\n", pcReturned, level);
+            pFI_1a = (PFORM_INFO_1A)buffer;
+            pFI_2a = (PFORM_INFO_2A)buffer;
+            for (i = 0; i < pcReturned; i++)
+            {
+                /* first part is same in FORM_INFO_1 and FORM_INFO_2 */
+                formtype = (pFI_1a->Flags <= FORMTYPE_MAX) ? formtypes[pFI_1a->Flags] : formtypes[3];
+                trace("%u (%s): %.03fmm x %.03fmm, %s\n", i, pFI_1a->pName,
+                      (float)pFI_1a->Size.cx/1000, (float)pFI_1a->Size.cy/1000, formtype);
+
+                if (level == 1) pFI_1a ++;
+                else {
+                    /* output additional FORM_INFO_2 fields */
+                    trace("\tkeyword=%s strtype=%u muidll=%s resid=%u dispname=%s langid=%u\n",
+                          pFI_2a->pKeyword, pFI_2a->StringType, pFI_2a->pMuiDll,
+                          pFI_2a->dwResourceId, pFI_2a->pDisplayName, pFI_2a->wLangId);
+
+                    /* offset pointer pFI_1a by 1*sizeof(FORM_INFO_2A) Bytes */
+                    pFI_2a ++;
+                    pFI_1a = (PFORM_INFO_1A)pFI_2a;
+                }
+            }
+        }
 
         SetLastError(0xdeadbeef);
         res = EnumFormsA(hprinter, level, buffer, cbBuf+1, &pcbNeeded, &pcReturned);
@@ -1066,6 +1096,115 @@ static void test_EnumPorts(void)
 
         HeapFree(GetProcessHeap(), 0, buffer);
     }
+}
+
+/* ########################### */
+
+static void test_EnumPrinterDrivers(void)
+{
+    DWORD   res;
+    LPBYTE  buffer;
+    DWORD   cbBuf;
+    DWORD   pcbNeeded;
+    DWORD   pcReturned;
+    DWORD   level;
+
+    /* 1-3 for w95/w98/NT4; 1-3+6 for me; 1-6 for w2k/xp/2003; 1-6+8 for vista */
+    for(level = 0; level < 10; level++) {
+        cbBuf = 0xdeadbeef;
+        pcReturned = 0xdeadbeef;
+        SetLastError(0xdeadbeef);
+        res = EnumPrinterDriversA(NULL, NULL, level, NULL, 0, &cbBuf, &pcReturned);
+        RETURN_ON_DEACTIVATED_SPOOLER(res)
+
+        /* use only a short test, when we test with an invalid level */
+        if(!level || (level == 7) || (level > 8)) {
+
+            ok( (!res && (GetLastError() == ERROR_INVALID_LEVEL)) ||
+                (res && (pcReturned == 0)),
+                "(%d) got %u with %u and 0x%x "
+                "(expected '0' with ERROR_INVALID_LEVEL or '!=0' and 0x0)\n",
+                level, res, GetLastError(), pcReturned);
+            continue;
+        }
+
+        /* some level are not supported in all windows versions */
+        if (!res && (GetLastError() == ERROR_INVALID_LEVEL)) {
+            skip("Level %d not supported\n", level);
+            continue;
+        }
+
+        ok( ((!res) && (GetLastError() == ERROR_INSUFFICIENT_BUFFER)) ||
+            (res && (default_printer == NULL)),
+            "(%u) got %u with %u for %s (expected '0' with "
+            "ERROR_INSUFFICIENT_BUFFER or '!= 0' without a printer)\n",
+            level, res, GetLastError(), default_printer);
+
+        if (!cbBuf) {
+            skip("no valid buffer size returned\n");
+            continue;
+        }
+
+        buffer = HeapAlloc(GetProcessHeap(), 0, cbBuf + 4);
+        if (buffer == NULL) continue;
+
+        SetLastError(0xdeadbeef);
+        pcbNeeded = 0xdeadbeef;
+        res = EnumPrinterDriversA(NULL, NULL, level, buffer, cbBuf, &pcbNeeded, &pcReturned);
+        ok(res, "(%u) got %u with %u (expected '!=0')\n", level, res, GetLastError());
+        ok(pcbNeeded == cbBuf, "(%d) returned %d (expected %d)\n", level, pcbNeeded, cbBuf);
+
+        /* validate the returned Data here */
+        if (level > 1) {
+            LPDRIVER_INFO_2A di = (LPDRIVER_INFO_2A) buffer;
+
+            ok( strrchr(di->pDriverPath, '\\') != NULL,
+                "(%u) got %s for %s (expected a full path)\n",
+                level, di->pDriverPath, di->pName);
+
+        }
+
+        SetLastError(0xdeadbeef);
+        pcReturned = 0xdeadbeef;
+        pcbNeeded = 0xdeadbeef;
+        res = EnumPrinterDriversA(NULL, NULL, level, buffer, cbBuf+1, &pcbNeeded, &pcReturned);
+        ok(res, "(%u) got %u with %u (expected '!=0')\n", level, res, GetLastError());
+        ok(pcbNeeded == cbBuf, "(%u) returned %u (expected %u)\n", level, pcbNeeded, cbBuf);
+
+        SetLastError(0xdeadbeef);
+        pcbNeeded = 0xdeadbeef;
+        res = EnumPrinterDriversA(NULL, NULL, level, buffer, cbBuf-1, &pcbNeeded, &pcReturned);
+        ok( !res && (GetLastError() == ERROR_INSUFFICIENT_BUFFER),
+            "(%u) got %u with %u (expected '0' with ERROR_INSUFFICIENT_BUFFER)\n",
+            level, res, GetLastError());
+        ok(pcbNeeded == cbBuf, "(%u) returned %u (expected %u)\n", level, pcbNeeded, cbBuf);
+
+/*
+      Do not add the next test:
+      NT: ERROR_INVALID_USER_BUFFER
+      win9x: crash or 100% CPU
+
+      res = EnumPrinterDriversA(NULL, NULL, level, NULL, cbBuf, &pcbNeeded, &pcReturned);
+*/
+
+        SetLastError(0xdeadbeef);
+        pcbNeeded = 0xdeadbeef;
+        pcReturned = 0xdeadbeef;
+        res = EnumPrinterDriversA(NULL, NULL, level, buffer, cbBuf, NULL, &pcReturned);
+        ok( res || (!res && (GetLastError() == RPC_X_NULL_REF_POINTER)) ,
+            "(%u) got %u with %u (expected '!=0' or '0' with "
+            "RPC_X_NULL_REF_POINTER)\n", level, res, GetLastError());
+
+        pcbNeeded = 0xdeadbeef;
+        pcReturned = 0xdeadbeef;
+        SetLastError(0xdeadbeef);
+        res = EnumPrinterDriversA(NULL, NULL, level, buffer, cbBuf, &pcbNeeded, NULL);
+        ok( res || (!res && (GetLastError() == RPC_X_NULL_REF_POINTER)) ,
+            "(%u) got %u with %u (expected '!=0' or '0' with "
+            "RPC_X_NULL_REF_POINTER)\n", level, res, GetLastError());
+
+        HeapFree(GetProcessHeap(), 0, buffer);
+    } /* for(level ... */
 }
 
 /* ########################### */
@@ -1701,6 +1840,8 @@ static void test_XcvDataW_MonitorUI(void)
     SetLastError(0xdeadbeef);
     res = OpenPrinter(xcv_localport, &hXcv, &pd);
     RETURN_ON_DEACTIVATED_SPOOLER(res)
+    RETURN_ON_ACCESS_DENIED(res)
+
     ok(res, "returned %d with %u and handle %p (expected '!= 0')\n", res, GetLastError(), hXcv);
     if (!res) return;
 
@@ -1818,6 +1959,8 @@ static void test_XcvDataW_PortIsValid(void)
     res = OpenPrinter(xcv_localport, &hXcv, &pd);
 
     RETURN_ON_DEACTIVATED_SPOOLER(res)
+    RETURN_ON_ACCESS_DENIED(res)
+
     ok(res, "returned %d with %u and handle %p (expected '!= 0')\n", res, GetLastError(), hXcv);
     if (!res) return;
 
@@ -1972,7 +2115,7 @@ static void test_GetPrinterDriver(void)
 
             /* MSDN is wrong: The Drivers on the win9x-CD's have cVersion=0x0400
                NT351: 1, NT4.0+w2k(Kernelmode): 2, w2k and above(Usermode): 3  */
-            ok((di_2->cVersion >= 0 && di_2->cVersion <= 3) ||
+            ok( (di_2->cVersion <= 3) ||
                 (di_2->cVersion == 0x0400), "di_2->cVersion = %d\n", di_2->cVersion);
             ok(di_2->pName != NULL, "not expected NULL ptr\n");
             ok(di_2->pEnvironment != NULL, "not expected NULL ptr\n");
@@ -2202,15 +2345,19 @@ static void test_DeviceCapabilities(void)
     ok(n_copies > 0, "DeviceCapabilities DC_COPIES failed\n");
     trace("n_copies = %d\n", n_copies);
 
-    ret = DeviceCapabilities(device, port, DC_MAXEXTENT, NULL, NULL);
-    ok(ret != -1, "DeviceCapabilities DC_MAXEXTENT failed\n");
-    ext = MAKEPOINTS(ret);
-    trace("max ext = %d x %d\n", ext.x, ext.y);
+    /* these capabilities not available on all printer drivers */
+    if (0)
+    {
+        ret = DeviceCapabilities(device, port, DC_MAXEXTENT, NULL, NULL);
+        ok(ret != -1, "DeviceCapabilities DC_MAXEXTENT failed\n");
+        ext = MAKEPOINTS(ret);
+        trace("max ext = %d x %d\n", ext.x, ext.y);
 
-    ret = DeviceCapabilities(device, port, DC_MINEXTENT, NULL, NULL);
-    ok(ret != -1, "DeviceCapabilities DC_MINEXTENT failed\n");
-    ext = MAKEPOINTS(ret);
-    trace("min ext = %d x %d\n", ext.x, ext.y);
+        ret = DeviceCapabilities(device, port, DC_MINEXTENT, NULL, NULL);
+        ok(ret != -1, "DeviceCapabilities DC_MINEXTENT failed\n");
+        ext = MAKEPOINTS(ret);
+        trace("min ext = %d x %d\n", ext.x, ext.y);
+    }
 
     fields = DeviceCapabilities(device, port, DC_FIELDS, NULL, NULL);
     ok(fields != (DWORD)-1, "DeviceCapabilities DC_FIELDS failed\n");
@@ -2246,6 +2393,7 @@ START_TEST(info)
     if (default_printer) test_EnumForms(default_printer);
     test_EnumMonitors();
     test_EnumPorts();
+    test_EnumPrinterDrivers();
     test_EnumPrinters();
     test_GetDefaultPrinter();
     test_GetPrinterDriverDirectory();

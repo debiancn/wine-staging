@@ -18,6 +18,8 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#pragma code_page(65001)
+
 #include "windef.h"
 #include "winbase.h"
 #include "winnls.h"
@@ -45,10 +47,10 @@ LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
 STRINGTABLE DISCARDABLE
 LANGUAGE LANG_FRENCH, SUBLANG_NEUTRAL
 {
-	7  "DirectSound par d�faut"
-	8  "DirectSound�: %s"
-	9  "P�riph�rique WaveOut par d�faut"
-	10 "P�riph�rique MidiOut par d�faut"
+	7  "DirectSound par défaut"
+	8  "DirectSound : %s"
+	9  "Périphérique WaveOut par défaut"
+	10 "Périphérique MidiOut par défaut"
 }
 
 STRINGTABLE DISCARDABLE
@@ -56,12 +58,12 @@ LANGUAGE LANG_GERMAN, SUBLANG_NEUTRAL
 {
 	7  "Standard DirectSound"
 	8  "DirectSound: %s"
-	9  "Standard WaveOut - Ger�t"
-	10 "Standard MidiOut - Ger�t"
+	9  "Standard WaveOut - Gerät"
+	10 "Standard MidiOut - Gerät"
 }
 
 STRINGTABLE DISCARDABLE
-LANGUAGE LANG_ITALIAN, SUBLANG_DEFAULT
+LANGUAGE LANG_ITALIAN, SUBLANG_NEUTRAL
 {
 	7  "DirectSound di Default"
 	8  "DirectSound: %s"
@@ -72,14 +74,14 @@ LANGUAGE LANG_ITALIAN, SUBLANG_DEFAULT
 STRINGTABLE DISCARDABLE
 LANGUAGE LANG_PORTUGUESE, SUBLANG_DEFAULT
 {
-	7  "DirectSound padr�o"
+	7  "DirectSound padrão"
 	8  "DirectSound: %s"
-	9  "Dispositivo padr�o WaveOut"
-	10 "Dispositivo padr�o MidiOut"
+	9  "Dispositivo padrão WaveOut"
+	10 "Dispositivo padrão MidiOut"
 }
 
 STRINGTABLE DISCARDABLE
-LANGUAGE LANG_SPANISH, SUBLANG_DEFAULT
+LANGUAGE LANG_SPANISH, SUBLANG_NEUTRAL
 {
 	7  "DirectSound por defecto"
 	8  "DirectSound: %s"
@@ -90,10 +92,19 @@ LANGUAGE LANG_SPANISH, SUBLANG_DEFAULT
 STRINGTABLE DISCARDABLE
 LANGUAGE LANG_CZECH, SUBLANG_DEFAULT
 {
-	7  "Dafaultn� DirectSound"
+	7  "Dafaultní DirectSound"
 	8  "DirectSound: %s"
-	9  "Standardn� za��zen� WaveOut"
-	10 "Standardn� za��zen� MidiOut"
+	9  "Standardní zařízení WaveOut"
+	10 "Standardní zařízení MidiOut"
+}
+
+STRINGTABLE DISCARDABLE
+LANGUAGE LANG_POLISH, SUBLANG_DEFAULT
+{
+	7  "Standardowe DirectSound"
+	8  "DirectSound: %s"
+	9  "Standardowe urządzenie WaveOut"
+	10 "Standardowe urządzenie Device"
 }
 
 STRINGTABLE DISCARDABLE
@@ -106,10 +117,47 @@ LANGUAGE LANG_NORWEGIAN, SUBLANG_NORWEGIAN_BOKMAL
 }
 
 STRINGTABLE DISCARDABLE
-LANGUAGE LANG_DUTCH, SUBLANG_DEFAULT
+LANGUAGE LANG_DUTCH, SUBLANG_NEUTRAL
 {
 	7  "Standaard DirectSound"
 	8  "DirectSound: %s"
 	9  "Standaardapparaat WaveOut"
 	10 "Standaardapparaat MidiOut"
+}
+
+STRINGTABLE DISCARDABLE
+LANGUAGE LANG_ROMANIAN, SUBLANG_NEUTRAL
+{
+	7  "DirectSound implicit"
+	8  "DirectSound: %s"
+	9  "Dispozitiv WaveOut implicit"
+	10 "Dispozitiv MidiOut implicit"
+}
+
+STRINGTABLE DISCARDABLE
+LANGUAGE LANG_RUSSIAN, SUBLANG_DEFAULT
+{
+	7  "Стандартный DirectSound"
+	8  "DirectSound: %s"
+	9  "Звуковое устройство вывода по умолчанию"
+	10 "Устройство вывода MIDI по умолчанию"
+
+}
+
+STRINGTABLE DISCARDABLE
+LANGUAGE LANG_SLOVENIAN, SUBLANG_DEFAULT
+{
+	7  "Privzeta DirectSound naprava"
+	8  "DirectSound: %s"
+	9  "Privzeta WaveOut naprava"
+	10 "Privzeta MidiOut naprava"
+}
+
+STRINGTABLE DISCARDABLE
+LANGUAGE LANG_KOREAN, SUBLANG_DEFAULT
+{
+	7  "기본 다이렉트 사운드"
+	8  "다이렉트 사운드: %s"
+	9  "기본 웨이브 출력 장치"
+	10 "기본 미디출력 장치"
 }

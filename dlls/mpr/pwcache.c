@@ -56,8 +56,9 @@ static LPSTR MPR_GetValueName( LPCSTR pbResource, WORD cbResource, BYTE nType )
     DWORD  i;
 
     name = HeapAlloc( GetProcessHeap(), 0, 6+cbResource*2 );
-    if( name )
-        sprintf( name, "X-%02X-", nType );
+    if( !name ) return NULL;
+
+    sprintf( name, "X-%02X-", nType );
     for(i=0; i<cbResource; i++)
     {
         name[5+i*2]=hex((pbResource[i]&0xf0)>>4);
@@ -73,7 +74,7 @@ static LPSTR MPR_GetValueName( LPCSTR pbResource, WORD cbResource, BYTE nType )
  * WNetCachePassword [MPR.@]  Saves password in cache
  *
  * NOTES
- *	only the parameter count is verifyed
+ *	Only the parameter count is verified
  *
  *	---- everything below this line might be wrong (js) -----
  * RETURNS
@@ -220,7 +221,7 @@ DWORD WINAPI WNetGetCachedPassword(
  * WNetEnumCachedPasswords [MPR.@]
  *
  * NOTES
- *	the parameter count is verifyed
+ *	The parameter count is verified
  * 
  *  This function is a huge security risk, as virii and such can use
  * it to grab all the passwords in the cache.  It's bad enough to 

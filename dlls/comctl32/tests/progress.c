@@ -33,6 +33,21 @@ static HWND hProgressParentWnd, hProgressWnd;
 static const char progressTestClass[] = "ProgressBarTestClass";
 
 
+/* try to make sure pending X events have been processed before continuing */
+static void flush_events(void)
+{
+    MSG msg;
+    int diff = 100;
+    DWORD time = GetTickCount() + diff;
+
+    while (diff > 0)
+    {
+        if (MsgWaitForMultipleObjects( 0, NULL, FALSE, min(10,diff), QS_ALLINPUT ) == WAIT_TIMEOUT) break;
+        while (PeekMessage( &msg, 0, 0, 0, PM_REMOVE )) DispatchMessage( &msg );
+        diff = time - GetTickCount();
+    }
+}
+
 static LRESULT CALLBACK ProgressTestWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     switch(msg) {
@@ -75,20 +90,29 @@ static void update_window(HWND hWnd)
 
 static void init(void)
 {
+    HMODULE hComctl32;
+    BOOL (WINAPI *pInitCommonControlsEx)(const INITCOMMONCONTROLSEX*);
     WNDCLASSA wc;
-    INITCOMMONCONTROLSEX icex;
     RECT rect;
     
-    icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
-    icex.dwICC   = ICC_PROGRESS_CLASS;
-    InitCommonControlsEx(&icex);
+    hComctl32 = GetModuleHandleA("comctl32.dll");
+    pInitCommonControlsEx = (void*)GetProcAddress(hComctl32, "InitCommonControlsEx");
+    if (pInitCommonControlsEx)
+    {
+        INITCOMMONCONTROLSEX iccex;
+        iccex.dwSize = sizeof(iccex);
+        iccex.dwICC  = ICC_PROGRESS_CLASS;
+        pInitCommonControlsEx(&iccex);
+    }
+    else
+        InitCommonControls();
   
     wc.style = CS_HREDRAW | CS_VREDRAW;
     wc.cbClsExtra = 0;
     wc.cbWndExtra = 0;
     wc.hInstance = GetModuleHandleA(NULL);
     wc.hIcon = NULL;
-    wc.hCursor = LoadCursorA(NULL, MAKEINTRESOURCEA(IDC_ARROW));
+    wc.hCursor = LoadCursorA(NULL, IDC_ARROW);
     wc.hbrBackground = GetSysColorBrush(COLOR_WINDOW);
     wc.lpszMenuName = NULL;
     wc.lpszClassName = progressTestClass;
@@ -113,6 +137,7 @@ static void init(void)
     
     ShowWindow(hProgressParentWnd, SW_SHOWNORMAL);
     ok(GetUpdateRect(hProgressParentWnd, NULL, FALSE), "GetUpdateRect: There should be a region that needs to be updated\n");
+    flush_events();
     update_window(hProgressParentWnd);    
 }
 

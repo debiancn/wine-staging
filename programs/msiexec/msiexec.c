@@ -34,6 +34,8 @@ WINE_DEFAULT_DEBUG_CHANNEL(msiexec);
 typedef HRESULT (WINAPI *DLLREGISTERSERVER)(void);
 typedef HRESULT (WINAPI *DLLUNREGISTERSERVER)(void);
 
+DWORD DoService(void);
+
 struct string_list
 {
 	struct string_list *next;
@@ -207,7 +209,7 @@ static DWORD msi_atou(LPCWSTR str)
 		ret += (*str - '0');
 		str++;
 	}
-	return 0;
+	return ret;
 }
 
 static LPWSTR msi_strdup(LPCWSTR str)
@@ -350,7 +352,7 @@ static DWORD DoRegServer(void)
     }
 
     GetSystemDirectory(path, MAX_PATH);
-    lstrcatA(path, "\\msiexec.exe");
+    lstrcatA(path, "\\msiexec.exe /V");
 
     service = CreateServiceA(scm, "MSIServer", "MSIServer", GENERIC_ALL,
                              SERVICE_WIN32_SHARE_PROCESS, SERVICE_DEMAND_START,
@@ -485,6 +487,7 @@ static BOOL process_args_from_reg( LPWSTR ident, int *pargc, WCHAR ***pargv )
 			process_args(buf, pargc, pargv);
 			ret = TRUE;
 		}
+		HeapFree(GetProcessHeap(), 0, buf);
 	}
 	RegCloseKey(hkeyArgs);
 	return ret;
@@ -502,6 +505,7 @@ int main(int argc, char **argv)
 	BOOL FunctionDllUnregisterServer = FALSE;
 	BOOL FunctionRegServer = FALSE;
 	BOOL FunctionUnregServer = FALSE;
+	BOOL FunctionServer = FALSE;
 	BOOL FunctionUnknown = FALSE;
 
 	LPWSTR PackageName = NULL;
@@ -905,6 +909,10 @@ int main(int argc, char **argv)
 			FunctionUnknown = TRUE;
 			WINE_FIXME("Unknown parameter /D\n");
 		}
+		else if (msi_option_equal(argvW[i], "V"))
+		{
+		    FunctionServer = TRUE;
+		}
 		else
 			StringListAppend(&property_list, argvW[i]);
 	}
@@ -956,6 +964,10 @@ int main(int argc, char **argv)
 	else if (FunctionUnregServer)
 	{
 		WINE_FIXME( "/unregserver not implemented yet, ignoring\n" );
+	}
+	else if (FunctionServer)
+	{
+	    ReturnCode = DoService();
 	}
 	else if (FunctionUnknown)
 	{

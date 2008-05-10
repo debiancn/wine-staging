@@ -553,7 +553,7 @@ char VGA_GetColor16(int reg)
 {
 
     if (!lpddraw) return 0;
-	return (char)vga_16_palette[reg];
+	return vga_16_palette[reg];
 }
 
 /* set all 17 [char wide] colors at once in 16 color mode. */
@@ -646,7 +646,7 @@ void VGA_SetWindowStart(int start)
  * Get start of 64k window at 0xa0000 in bytes.
  * Value is -1 in color plane modes.
  */
-int VGA_GetWindowStart()
+int VGA_GetWindowStart(void)
 {
     return vga_fb_window;
 }
@@ -657,7 +657,7 @@ int VGA_GetWindowStart()
  *
  * Callback for VGA_ShowMouse.
  */
-static WINAPI void VGA_DoShowMouse( ULONG_PTR show )
+static void WINAPI VGA_DoShowMouse( ULONG_PTR show )
 {
     INT rv;
 

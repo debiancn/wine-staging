@@ -3,6 +3,7 @@
  * Copyright 1998-2000 Lionel Ulmer
  * Copyright 2000-2001 TransGaming Technologies Inc.
  * Copyright 2006 Stefan Dösinger
+ * Copyright 2008 Denver Gingerich
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -72,10 +73,6 @@ static const DDDEVICEIDENTIFIER2 deviceidentifier =
  * in version 1, 2, 3 and 7. An IDirect3DDevice can be created with this
  * method.
  * The returned interface is AddRef()-ed before it's returned
- *
- * Rules for QueryInterface:
- *  http://msdn.microsoft.com/library/default.asp? \
- *    url=/library/en-us/com/html/6db17ed8-06e4-4bae-bc26-113176cc7e0e.asp
  *
  * Used for version 1, 2, 4 and 7
  *
@@ -252,14 +249,6 @@ IDirectDrawImpl_AddRef(IDirectDraw7 *iface)
 void
 IDirectDrawImpl_Destroy(IDirectDrawImpl *This)
 {
-    int i;
-
-    for(i = 0; i < This->numConvertedDecls; i++)
-    {
-        IWineD3DVertexDeclaration_Release(This->decls[i].decl);
-    }
-    HeapFree(GetProcessHeap(), 0, This->decls);
-
     /* Clear the cooplevel to restore window and display mode */
     IDirectDraw7_SetCooperativeLevel(ICOM_INTERFACE(This, IDirectDraw7),
                                         NULL,
@@ -350,7 +339,7 @@ IDirectDrawImpl_Release(IDirectDraw7 *iface)
  *
  * Unsure about these: DDSCL_FPUSETUP DDSCL_FPURESERVE
  *
- * These seem not really imporant for wine
+ * These don't seem very important for wine:
  *  DDSCL_ALLOWREBOOT, DDSCL_NOWINDOWCHANGES, DDSCL_ALLOWMODEX
  *
  * Returns:
@@ -369,7 +358,7 @@ IDirectDrawImpl_SetCooperativeLevel(IDirectDraw7 *iface,
     HWND window;
     HRESULT hr;
 
-    FIXME("(%p)->(%p,%08x)\n",This,hwnd,cooplevel);
+    TRACE("(%p)->(%p,%08x)\n",This,hwnd,cooplevel);
     DDRAW_dump_cooperativelevel(cooplevel);
 
     EnterCriticalSection(&ddraw_cs);
@@ -524,8 +513,6 @@ IDirectDrawImpl_SetCooperativeLevel(IDirectDraw7 *iface,
 
     if(cooplevel & DDSCL_MULTITHREADED && !(This->cooperative_level & DDSCL_MULTITHREADED))
     {
-        FIXME("DirectDraw is not fully thread safe yet\n");
-
         /* Enable thread safety in wined3d */
         IWineD3DDevice_SetMultithreaded(This->wineD3DDevice);
     }
@@ -548,34 +535,24 @@ IDirectDrawImpl_SetCooperativeLevel(IDirectDraw7 *iface,
 }
 
 /*****************************************************************************
- * IDirectDraw7::SetDisplayMode
  *
- * Sets the display screen resolution, color depth and refresh frequency
- * when in fullscreen mode (in theory).
- * Possible return values listed in the SDK suggest that this method fails
- * when not in fullscreen mode, but this is wrong. Windows 2000 happily sets
- * the display mode in DDSCL_NORMAL mode without an hwnd specified.
- * It seems to be valid to pass 0 for With and Height, this has to be tested
- * It could mean that the current video mode should be left as-is. (But why
- * call it then?)
+ * Helper function for SetDisplayMode and RestoreDisplayMode
  *
- * Params:
- *  Height, Width: Screen dimension
- *  BPP: Color depth in Bits per pixel
- *  Refreshrate: Screen refresh rate
- *  Flags: Other stuff
- *
- * Returns
- *  DD_OK on success
+ * Implements DirectDraw's SetDisplayMode, but ignores the value of
+ * ForceRefreshRate, since it is already handled by
+ * IDirectDrawImpl_SetDisplayMode.  RestoreDisplayMode can use this function
+ * without worrying that ForceRefreshRate will override the refresh rate.  For
+ * argument and return value documentation, see
+ * IDirectDrawImpl_SetDisplayMode.
  *
  *****************************************************************************/
-static HRESULT WINAPI
-IDirectDrawImpl_SetDisplayMode(IDirectDraw7 *iface,
-                               DWORD Width,
-                               DWORD Height,
-                               DWORD BPP,
-                               DWORD RefreshRate,
-                               DWORD Flags)
+static HRESULT
+IDirectDrawImpl_SetDisplayModeNoOverride(IDirectDraw7 *iface,
+                                         DWORD Width,
+                                         DWORD Height,
+                                         DWORD BPP,
+                                         DWORD RefreshRate,
+                                         DWORD Flags)
 {
     ICOM_THIS_FROM(IDirectDrawImpl, IDirectDraw7, iface);
     WINED3DDISPLAYMODE Mode;
@@ -609,7 +586,7 @@ IDirectDrawImpl_SetDisplayMode(IDirectDraw7 *iface,
         case 15: Mode.Format = WINED3DFMT_X1R5G5B5; break;
         case 16: Mode.Format = WINED3DFMT_R5G6B5;   break;
         case 24: Mode.Format = WINED3DFMT_R8G8B8;   break;
-        case 32: Mode.Format = WINED3DFMT_A8R8G8B8; break;
+        case 32: Mode.Format = WINED3DFMT_X8R8G8B8; break;
     }
 
     /* TODO: The possible return values from msdn suggest that
@@ -624,9 +601,49 @@ IDirectDrawImpl_SetDisplayMode(IDirectDraw7 *iface,
     LeaveCriticalSection(&ddraw_cs);
     switch(hr)
     {
-        case WINED3DERR_NOTAVAILABLE:       return DDERR_INVALIDMODE;
+        case WINED3DERR_NOTAVAILABLE:       return DDERR_UNSUPPORTED;
         default:                            return hr;
     };
+}
+
+/*****************************************************************************
+ * IDirectDraw7::SetDisplayMode
+ *
+ * Sets the display screen resolution, color depth and refresh frequency
+ * when in fullscreen mode (in theory).
+ * Possible return values listed in the SDK suggest that this method fails
+ * when not in fullscreen mode, but this is wrong. Windows 2000 happily sets
+ * the display mode in DDSCL_NORMAL mode without an hwnd specified.
+ * It seems to be valid to pass 0 for With and Height, this has to be tested
+ * It could mean that the current video mode should be left as-is. (But why
+ * call it then?)
+ *
+ * Params:
+ *  Height, Width: Screen dimension
+ *  BPP: Color depth in Bits per pixel
+ *  Refreshrate: Screen refresh rate
+ *  Flags: Other stuff
+ *
+ * Returns
+ *  DD_OK on success
+ *
+ *****************************************************************************/
+static HRESULT WINAPI
+IDirectDrawImpl_SetDisplayMode(IDirectDraw7 *iface,
+                               DWORD Width,
+                               DWORD Height,
+                               DWORD BPP,
+                               DWORD RefreshRate,
+                               DWORD Flags)
+{
+    if (force_refresh_rate != 0)
+    {
+        TRACE("ForceRefreshRate overriding passed-in refresh rate (%d Hz) to %d Hz\n", RefreshRate, force_refresh_rate);
+        RefreshRate = force_refresh_rate;
+    }
+
+    return IDirectDrawImpl_SetDisplayModeNoOverride(iface, Width, Height, BPP,
+                                                    RefreshRate, Flags);
 }
 
 /*****************************************************************************
@@ -656,12 +673,12 @@ IDirectDrawImpl_RestoreDisplayMode(IDirectDraw7 *iface)
     ICOM_THIS_FROM(IDirectDrawImpl, IDirectDraw7, iface);
     TRACE("(%p)\n", This);
 
-    return IDirectDraw7_SetDisplayMode(ICOM_INTERFACE(This, IDirectDraw7),
-                                       This->orig_width,
-                                       This->orig_height,
-                                       This->orig_bpp,
-                                       0,
-                                       0);
+    return IDirectDrawImpl_SetDisplayModeNoOverride(ICOM_INTERFACE(This, IDirectDraw7),
+                                                    This->orig_width,
+                                                    This->orig_height,
+                                                    This->orig_bpp,
+                                                    0,
+                                                    0);
 }
 
 /*****************************************************************************
@@ -920,7 +937,6 @@ IDirectDrawImpl_GetAvailableVidMem(IDirectDraw7 *iface, DDSCAPS2 *Caps, DWORD *t
     {
         TRACE("(%p) Asked for memory with description: ", This);
         DDRAW_dump_DDSCAPS2(Caps);
-        TRACE("\n");
     }
     EnterCriticalSection(&ddraw_cs);
 
@@ -1300,7 +1316,12 @@ IDirectDrawImpl_EnumDisplayModes(IDirectDraw7 *iface,
 
             PixelFormat_WineD3DtoDD(&callback_sd.u4.ddpfPixelFormat, mode.Format);
 
-            TRACE("Enumerating %dx%d@%d\n", callback_sd.dwWidth, callback_sd.dwHeight, callback_sd.u4.ddpfPixelFormat.u1.dwRGBBitCount);
+            /* Calc pitch and DWORD align like MSDN says */
+            callback_sd.u1.lPitch = (callback_sd.u4.ddpfPixelFormat.u1.dwRGBBitCount / 8) * mode.Width;
+            callback_sd.u1.lPitch = (callback_sd.u1.lPitch + 3) & ~3;
+
+            TRACE("Enumerating %dx%dx%d @%d\n", callback_sd.dwWidth, callback_sd.dwHeight, callback_sd.u4.ddpfPixelFormat.u1.dwRGBBitCount,
+              callback_sd.u2.dwRefreshRate);
 
             if(cb(&callback_sd, Context) == DDENUMRET_CANCEL)
             {
@@ -1735,7 +1756,7 @@ ULONG WINAPI D3D7CB_DestroyDepthStencilSurface(IWineD3DSurface *pSurface) {
     IUnknown* surfaceParent;
     TRACE("(%p) call back\n", pSurface);
 
-    IWineD3DSurface_GetParent(pSurface, (IUnknown **) &surfaceParent);
+    IWineD3DSurface_GetParent(pSurface, &surfaceParent);
     IUnknown_Release(surfaceParent);
     return IUnknown_Release(surfaceParent);
 }
@@ -2013,7 +2034,7 @@ IDirectDrawImpl_CreateNewSurface(IDirectDrawImpl *This,
 
     /* Anno 1602 stores the pitch right after surface creation, so make sure it's there.
      * I can't LockRect() the surface here because if OpenGL surfaces are in use, the
-     * WineD3DDevice might not be useable for 3D yet, so an extra method was created.
+     * WineD3DDevice might not be usable for 3D yet, so an extra method was created.
      * TODO: Test other fourcc formats
      */
     if(Format == WINED3DFMT_DXT1 || Format == WINED3DFMT_DXT2 || Format == WINED3DFMT_DXT3 ||
@@ -2165,12 +2186,12 @@ CreateAdditionalSurfaces(IDirectDrawImpl *This,
  * the WineD3DSurface when the ddraw surface is destroyed.
  *
  * However, for all surfaces which can be in a container in WineD3D,
- * we have to do this. These surfaces are ususally complex surfaces,
+ * we have to do this. These surfaces are usually complex surfaces,
  * so this concerns primary surfaces with a front and a back buffer,
  * and textures.
  *
  * |------------------------|               |-----------------|
- * | DDraw surface          |               | Containter      |
+ * | DDraw surface          |               | Container       |
  * |                        |               |                 |
  * |                  Child |<------------->| Parent          |
  * |                Texture |<------------->|                 |
@@ -2427,7 +2448,12 @@ IDirectDrawImpl_CreateSurface(IDirectDraw7 *iface,
         {
             if(desc2.dwFlags & DDSD_MIPMAPCOUNT)
             {
-                /* Mipmap count is given, nothing to do */
+                /* Mipmap count is given, should not be 0 */
+                if( desc2.u2.dwMipMapCount == 0 )
+                {
+                    LeaveCriticalSection(&ddraw_cs);
+                    return DDERR_INVALIDPARAMS;
+                }
             }
             else
             {
@@ -2524,10 +2550,6 @@ IDirectDrawImpl_CreateSurface(IDirectDraw7 *iface,
         return hr;
     }
 
-    /* Addref the ddraw interface to keep an reference for each surface */
-    IDirectDraw7_AddRef(iface);
-    object->ifaceToRelease = (IUnknown *) iface;
-
     /* If the implementation is OpenGL and there's no d3ddevice, attach a d3ddevice
      * But attach the d3ddevice only if the currently created surface was
      * a primary surface (2D app in 3D mode) or a 3DDEVICE surface (3D app)
@@ -2560,9 +2582,31 @@ IDirectDrawImpl_CreateSurface(IDirectDraw7 *iface,
         hr = IDirectDrawImpl_AttachD3DDevice(This, target);
         if(hr != D3D_OK)
         {
+            IDirectDrawSurfaceImpl *release_surf;
             ERR("IDirectDrawImpl_AttachD3DDevice failed, hr = %x\n", hr);
+            *Surf = NULL;
+
+            /* The before created surface structures are in an incomplete state here.
+             * WineD3D holds the reference on the IParents, and it released them on the failure
+             * already. So the regular release method implementation would fail on the attempt
+             * to destroy either the IParents or the swapchain. So free the surface here.
+             * The surface structure here is a list, not a tree, because onscreen targets
+             * cannot be cube textures
+             */
+            while(object)
+            {
+                release_surf = object;
+                object = object->complex_array[0];
+                IDirectDrawSurfaceImpl_Destroy(release_surf);
+            }
+            LeaveCriticalSection(&ddraw_cs);
+            return hr;
         }
     }
+
+    /* Addref the ddraw interface to keep an reference for each surface */
+    IDirectDraw7_AddRef(iface);
+    object->ifaceToRelease = (IUnknown *) iface;
 
     /* Create a WineD3DTexture if a texture was requested */
     if(desc2.ddsCaps.dwCaps & DDSCAPS_TEXTURE)
@@ -2589,7 +2633,7 @@ IDirectDrawImpl_CreateSurface(IDirectDraw7 *iface,
         {
             Pool = WINED3DPOOL_SYSTEMMEM;
         }
-        /* Should I forward the MANEGED cap to the managed pool ? */
+        /* Should I forward the MANAGED cap to the managed pool ? */
 
         /* Get the format. It's set already by CreateNewSurface */
         Format = PixelFormat_DD2WineD3D(&object->surface_desc.u4.ddpfPixelFormat);
@@ -3064,7 +3108,7 @@ IDirectDrawImpl_AttachD3DDevice(IDirectDrawImpl *This,
     localParameters.SwapEffect                      = WINED3DSWAPEFFECT_COPY;
     localParameters.hDeviceWindow                   = window;
     localParameters.Windowed                        = !(This->cooperative_level & DDSCL_FULLSCREEN);
-    localParameters.EnableAutoDepthStencil          = FALSE;
+    localParameters.EnableAutoDepthStencil          = TRUE;
     localParameters.AutoDepthStencilFormat          = WINED3DFMT_D16;
     localParameters.Flags                           = 0;
     localParameters.FullScreen_RefreshRateInHz      = WINED3DPRESENT_RATE_DEFAULT; /* Default rate: It's already set */
@@ -3082,8 +3126,23 @@ IDirectDrawImpl_AttachD3DDevice(IDirectDrawImpl *This,
                                D3D7CB_CreateAdditionalSwapChain);
     if(FAILED(hr))
     {
-        This->wineD3DDevice = NULL;
+        This->d3d_target = NULL;
+        This->d3d_initialized = FALSE;
         return hr;
+    }
+
+    This->declArraySize = 2;
+    This->decls = HeapAlloc(GetProcessHeap(),
+                            HEAP_ZERO_MEMORY,
+                            sizeof(*This->decls) * This->declArraySize);
+    if(!This->decls)
+    {
+        ERR("Error allocating an array for the converted vertex decls\n");
+        This->declArraySize = 0;
+        hr = IWineD3DDevice_Uninit3D(This->wineD3DDevice,
+                                     D3D7CB_DestroyDepthStencilSurface,
+                                     D3D7CB_DestroySwapChain);
+        return E_OUTOFMEMORY;
     }
 
     /* Create an Index Buffer parent */
@@ -3108,7 +3167,7 @@ IDirectDrawImpl_AttachD3DDevice(IDirectDrawImpl *This,
  *****************************************************************************/
 HRESULT WINAPI
 DirectDrawCreateClipper(DWORD Flags,
-                        IDirectDrawClipper **Clipper,
+                        LPDIRECTDRAWCLIPPER *Clipper,
                         IUnknown *UnkOuter)
 {
     IDirectDrawClipperImpl* object;

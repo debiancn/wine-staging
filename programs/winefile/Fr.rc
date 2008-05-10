@@ -6,7 +6,7 @@
  * Copyright 2002 Steven Edwards
  * Copyright 2002 Alexandre Julliard
  * Copyright 2003 Sylvain Petreolle
- * Copyright 2005-2006 Jonathan Ernst
+ * Copyright 2005-2008 Jonathan Ernst
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -33,8 +33,8 @@ IDM_WINEFILE MENU FIXED IMPURE
         MENUITEM "&Ouvrir\tEntrée",             ID_ACTIVATE
         MENUITEM "&Déplacer...\tF7",            ID_FILE_MOVE
         MENUITEM "&Copier...\tF8",              ID_FILE_COPY
-        MENUITEM "P&resse-Papiers...\tF9",      118
-        MENUITEM "&Effacer\tDel",               ID_FILE_DELETE
+        MENUITEM "P&resse-papiers...\tF9",      118
+        MENUITEM "&Effacer\tSuppr",               ID_FILE_DELETE
         MENUITEM "Re&nommer...",                109
         MENUITEM "&Propriétés...\tAlt+Entree", ID_EDIT_PROPERTIES
         MENUITEM SEPARATOR
@@ -62,7 +62,7 @@ IDM_WINEFILE MENU FIXED IMPURE
         MENUITEM SEPARATOR
         MENUITEM "&Formater Disque...",         ID_FORMAT_DISK
 #ifdef _WIN95
-        MENUITEM "Créer un disque *système...", -1  /*TODO*/
+        MENUITEM "Créer un disque &système...", -1  /*TODO*/
 #endif
         MENUITEM SEPARATOR
         MENUITEM "Connecter un lecteur &réseau",ID_CONNECT_NETWORK_DRIVE
@@ -143,9 +143,6 @@ IDM_WINEFILE MENU FIXED IMPURE
         MENUITEM "&Utiliser l'aide\tF1",        ID_HELP_USING
         MENUITEM SEPARATOR
         MENUITEM "À &propos de Winefile",    ID_ABOUT
-#ifdef __WINE__
-        MENUITEM "À propos de &Wine",        ID_ABOUT_WINE
-#endif
     }
 }
 
@@ -170,7 +167,7 @@ CAPTION "Sélectionner la destination"
 FONT 8, "MS Shell Dlg"
 {
     CONTROL         "", 101, "Static", SS_SIMPLE|SS_NOPREFIX, 3, 6, 162, 10
-    CONTROL         "&Dossier :", -1, "Static", SS_LEFTNOWORDWRAP|WS_GROUP, 3, 18, 60, 10
+    CONTROL         "&Chemin :", -1, "Static", SS_LEFTNOWORDWRAP|WS_GROUP, 3, 18, 60, 10
     EDITTEXT        201, 3, 29, 134, 12, ES_AUTOHSCROLL
     DEFPUSHBUTTON   "OK", 1, 158, 6, 47, 14
     PUSHBUTTON      "Annuler", 2, 158, 23, 47, 14
@@ -182,7 +179,7 @@ STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Par type de fichier"
 FONT 8, "MS Sans Serif"
 BEGIN
-    LTEXT           "&Name:",-1,7,8,22,10
+    LTEXT           "&Nom :",-1,7,8,22,10
     EDITTEXT        IDC_VIEW_PATTERN,31,7,63,12,ES_AUTOHSCROLL
     GROUPBOX        "Type de fichier",-1,7,23,87,56
     CONTROL         "&Répertoires",IDC_VIEW_TYPE_DIRECTORIES,"Button",
@@ -214,7 +211,7 @@ BEGIN
     EDITTEXT        IDC_STATIC_PROP_LASTCHANGE,71,29,120,9,ES_READONLY | NOT WS_BORDER | WS_TABSTOP
     LTEXT           "Version :",-1,7,40,59,9
     EDITTEXT        IDC_STATIC_PROP_VERSION,71,40,120,9,ES_READONLY | NOT WS_BORDER | WS_TABSTOP
-    LTEXT           "Cop&yright:",-1,7,51,59,9
+    LTEXT           "Cop&yright :",-1,7,51,59,9
     EDITTEXT        IDC_STATIC_PROP_COPYRIGHT,71,51,120,9,ES_READONLY | NOT WS_BORDER | WS_TABSTOP
     LTEXT           "Taille :",-1,7,62,59,9
     EDITTEXT        IDC_STATIC_PROP_SIZE,71,62,120,9,ES_READONLY | NOT WS_BORDER | WS_TABSTOP
@@ -246,7 +243,6 @@ STRINGTABLE
     IDS_SHELL               "Shell"
     IDS_TITLEFMT            "%s - %s"
     IDS_NO_IMPL             "Pas encore implémenté"
-    IDS_WINE                "WINE"
     IDS_WINE_FILE           "Wine File"
 }
 
@@ -263,31 +259,4 @@ STRINGTABLE
     IDS_COL_SEC             "Sécurité"
 
     IDS_FREE_SPACE_FMT      "%s sur %s libre"
-}
-
-STRINGTABLE
-{
-IDS_LICENSE_CAPTION,            "LICENCE"
-IDS_LICENSE,
-"Cette bibliothèque est libre, vous pouvez la redistribuer et/ou \
-la modifier selon les termes de la Licence Publique Générale GNU \
-Limitée publiée par la Free Software Foundation (version 2.1 ou \
-bien toute autre version ultérieure choisie par vous).\n\
-Cette bibliothèque est distribuée car potentiellement utile, \
-mais SANS AUCUNE GARANTIE, ni explicite ni implicite, y compris \
-les garanties de commercialisation ou d'adaptation dans un but \
-spécifique. Reportez-vous à la Licence Publique Générale GNU \
-Limitée pour plus de détails.\n\
-Vous devez avoir reçu une copie de la Licence Publique Générale \
-GNU Limitée en même temps que cette bibliothèque ; si ce n'est pas \
-le cas, écrivez à la Free Software Foundation, Inc., 51 Franklin St, \
-Fifth Floor, Boston, MA 02111-1301, États-Unis."
-
-IDS_WARRANTY_CAPTION, "AUCUNE GARANTIE"
-IDS_WARRANTY,
-"Cette bibliothèque est distribuée car potentiellement utile, \
-mais SANS AUCUNE GARANTIE, ni explicite ni implicite, y compris \
-les garanties de commercialisation ou d'adaptation dans un but \
-spécifique. Reportez-vous à la Licence Publique Générale GNU \
-Limitée pour plus de détails."
 }

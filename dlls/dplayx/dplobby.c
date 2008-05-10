@@ -694,7 +694,7 @@ extern HRESULT DPL_EnumAddress( LPDPENUMADDRESSCALLBACK lpEnumAddressCallback, L
     /* Invoke the enum method. If false is returned, stop enumeration */
     if ( !lpEnumAddressCallback( &lpElements->guidDataType,
                                  lpElements->dwDataSize,
-                                 (BYTE*)lpElements + sizeof( DPADDRESS ),
+                                 (const BYTE *)lpElements + sizeof( DPADDRESS ),
                                  lpContext ) )
     {
       break;
@@ -736,7 +736,7 @@ static HRESULT WINAPI IDirectPlayLobbyAImpl_EnumAddressTypes
     return DPERR_INVALIDPARAMS;
   }
 
-  if( !lpEnumAddressTypeCallback || !*lpEnumAddressTypeCallback )
+  if( !lpEnumAddressTypeCallback )
   {
      return DPERR_INVALIDPARAMS;
   }
@@ -892,7 +892,7 @@ static HRESULT WINAPI IDirectPlayLobbyAImpl_EnumLocalApplications
     return DPERR_INVALIDPARAMS;
   }
 
-  if( !lpEnumLocalAppCallback || !*lpEnumLocalAppCallback )
+  if( !lpEnumLocalAppCallback )
   {
      return DPERR_INVALIDPARAMS;
   }
@@ -1335,7 +1335,7 @@ static HRESULT WINAPI IDirectPlayLobbyWImpl_RunApplication
   HANDLE hReceiveEvent )
 {
   IDirectPlayLobbyWImpl *This = (IDirectPlayLobbyWImpl *)iface;
-  FIXME( "(%p)->(0x%08x,%p,%p,%p):stub\n", This, dwFlags, lpdwAppID, lpConn, (void *)hReceiveEvent );
+  FIXME( "(%p)->(0x%08x,%p,%p,%p):stub\n", This, dwFlags, lpdwAppID, lpConn, hReceiveEvent );
   return DPERR_OUTOFMEMORY;
 }
 
@@ -1388,7 +1388,7 @@ static HRESULT WINAPI IDirectPlayLobbyWImpl_SetConnectionSettings
 
   hr = DPLAYX_SetConnectionSettingsW( dwFlags, dwAppID, lpConn );
 
-  /* FIXME: Don't think that this is supposed to fail, but the docuementation
+  /* FIXME: Don't think that this is supposed to fail, but the documentation
             is somewhat sketchy. I'll try creating a lobby application
             for this... */
   if( hr == DPERR_NOTLOBBIED )
@@ -1422,7 +1422,7 @@ static HRESULT WINAPI IDirectPlayLobbyAImpl_SetConnectionSettings
 
   hr = DPLAYX_SetConnectionSettingsA( dwFlags, dwAppID, lpConn );
 
-  /* FIXME: Don't think that this is supposed to fail, but the docuementation
+  /* FIXME: Don't think that this is supposed to fail, but the documentation
             is somewhat sketchy. I'll try creating a lobby application
             for this... */
   if( hr == DPERR_NOTLOBBIED )
@@ -1574,7 +1574,7 @@ HRESULT DPL_CreateCompoundAddress
   {
     LPDPADDRESS lpdpAddress = (LPDPADDRESS)lpAddress;
 
-    CopyMemory( &lpdpAddress->guidDataType, &DPAID_TotalSize, sizeof( GUID ) );
+    lpdpAddress->guidDataType = DPAID_TotalSize;
     lpdpAddress->dwDataSize = sizeof( DWORD );
     lpAddress = (char *) lpAddress + sizeof( DPADDRESS );
 
@@ -1593,8 +1593,7 @@ HRESULT DPL_CreateCompoundAddress
     {
       LPDPADDRESS lpdpAddress = (LPDPADDRESS)lpAddress;
 
-      CopyMemory( &lpdpAddress->guidDataType, &lpElements->guidDataType,
-                  sizeof( GUID ) );
+      lpdpAddress->guidDataType = lpElements->guidDataType;
       lpdpAddress->dwDataSize = sizeof( GUID );
       lpAddress = (char *) lpAddress + sizeof( DPADDRESS );
 
@@ -1608,8 +1607,7 @@ HRESULT DPL_CreateCompoundAddress
     {
       LPDPADDRESS lpdpAddress = (LPDPADDRESS)lpAddress;
 
-      CopyMemory( &lpdpAddress->guidDataType, &lpElements->guidDataType,
-                  sizeof( GUID ) );
+      lpdpAddress->guidDataType = lpElements->guidDataType;
       lpdpAddress->dwDataSize = lpElements->dwDataSize;
       lpAddress = (char *) lpAddress + sizeof( DPADDRESS );
 
@@ -1625,8 +1623,7 @@ HRESULT DPL_CreateCompoundAddress
     {
       LPDPADDRESS lpdpAddress = (LPDPADDRESS)lpAddress;
 
-      CopyMemory( &lpdpAddress->guidDataType, &lpElements->guidDataType,
-                  sizeof( GUID ) );
+      lpdpAddress->guidDataType = lpElements->guidDataType;
       lpdpAddress->dwDataSize = lpElements->dwDataSize;
       lpAddress = (char *) lpAddress + sizeof( DPADDRESS );
 
@@ -1639,8 +1636,7 @@ HRESULT DPL_CreateCompoundAddress
     {
       LPDPADDRESS lpdpAddress = (LPDPADDRESS)lpAddress;
 
-      CopyMemory( &lpdpAddress->guidDataType, &lpElements->guidDataType,
-                  sizeof( GUID ) );
+      lpdpAddress->guidDataType = lpElements->guidDataType;
       lpdpAddress->dwDataSize = lpElements->dwDataSize;
       lpAddress = (char *) lpAddress + sizeof( DPADDRESS );
 
@@ -1651,8 +1647,7 @@ HRESULT DPL_CreateCompoundAddress
     {
       LPDPADDRESS lpdpAddress = (LPDPADDRESS)lpAddress;
 
-      CopyMemory( &lpdpAddress->guidDataType, &lpElements->guidDataType,
-                  sizeof( GUID ) );
+      lpdpAddress->guidDataType = lpElements->guidDataType;
       lpdpAddress->dwDataSize = lpElements->dwDataSize;
       lpAddress = (char *) lpAddress + sizeof( DPADDRESS );
 

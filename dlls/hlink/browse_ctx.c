@@ -18,20 +18,9 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include <stdarg.h>
-
-#define COBJMACROS
-
-#include "winerror.h"
-#include "windef.h"
-#include "winbase.h"
-#include "winuser.h"
-#include "ole2.h"
-#include "unknwn.h"
-#include "objidl.h"
+#include "hlink_private.h"
 
 #include "wine/debug.h"
-#include "hlink.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(hlink);
 
@@ -57,7 +46,7 @@ HRESULT WINAPI HLinkBrowseContext_Constructor(IUnknown *pUnkOuter, REFIID riid,
     if (pUnkOuter)
         return CLASS_E_NOAGGREGATION;
 
-    hl = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(HlinkBCImpl));
+    hl = heap_alloc_zero(sizeof(HlinkBCImpl));
     if (!hl)
         return E_OUTOFMEMORY;
 
@@ -106,10 +95,10 @@ static ULONG WINAPI IHlinkBC_fnRelease (IHlinkBrowseContext* iface)
         return refCount;
 
     TRACE("-- destroying IHlinkBrowseContext (%p)\n", This);
-    HeapFree(GetProcessHeap(), 0, This->BrowseWindowInfo);
+    heap_free(This->BrowseWindowInfo);
     if (This->CurrentPage)
         IHlink_Release(This->CurrentPage);
-    HeapFree(GetProcessHeap(), 0, This);
+    heap_free(This);
     return 0;
 }
 
@@ -166,8 +155,8 @@ static HRESULT WINAPI IHlinkBC_SetBrowseWindowInfo(IHlinkBrowseContext* iface,
     HlinkBCImpl  *This = (HlinkBCImpl*)iface;
     TRACE("(%p)->(%p)\n", This, phlbwi);
 
-    HeapFree(GetProcessHeap(), 0, This->BrowseWindowInfo);
-    This->BrowseWindowInfo = HeapAlloc(GetProcessHeap(), 0, phlbwi->cbSize);
+    heap_free(This->BrowseWindowInfo);
+    This->BrowseWindowInfo = heap_alloc(phlbwi->cbSize);
     memcpy(This->BrowseWindowInfo, phlbwi, phlbwi->cbSize);
 
     return S_OK;

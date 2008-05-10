@@ -166,7 +166,7 @@ static HRESULT WINAPI ConnectionPoint_GetConnectionInterface(IConnectionPoint *i
 
     TRACE("(%p)->(%p)\n", This, pIID);
 
-    memcpy(pIID, &This->iid, sizeof(IID));
+    *pIID = This->iid;
     return S_OK;
 }
 
@@ -206,10 +206,10 @@ static HRESULT WINAPI ConnectionPoint_Advise(IConnectionPoint *iface, IUnknown *
         }
 
         if(i == This->sinks_size)
-            This->sinks = shdocvw_realloc(This->sinks,
+            This->sinks = heap_realloc(This->sinks,
                                           (++This->sinks_size)*sizeof(*This->sinks));
     }else {
-        This->sinks = shdocvw_alloc(sizeof(*This->sinks));
+        This->sinks = heap_alloc(sizeof(*This->sinks));
         This->sinks_size = 1;
         i = 0;
     }
@@ -271,7 +271,7 @@ void call_sink(ConnectionPoint *This, DISPID dispid, DISPPARAMS *dispparams)
 static void ConnectionPoint_Create(REFIID riid, ConnectionPoint **cp,
                                    IConnectionPointContainer *container)
 {
-    ConnectionPoint *ret = shdocvw_alloc(sizeof(ConnectionPoint));
+    ConnectionPoint *ret = heap_alloc(sizeof(ConnectionPoint));
 
     ret->lpConnectionPointVtbl = &ConnectionPointVtbl;
 
@@ -279,7 +279,7 @@ static void ConnectionPoint_Create(REFIID riid, ConnectionPoint **cp,
     ret->sinks_size = 0;
     ret->container = container;
 
-    memcpy(&ret->iid, riid, sizeof(IID));
+    ret->iid = *riid;
 
     *cp = ret;
 }
@@ -293,8 +293,8 @@ static void ConnectionPoint_Destroy(ConnectionPoint *This)
             IDispatch_Release(This->sinks[i]);
     }
 
-    shdocvw_free(This->sinks);
-    shdocvw_free(This);
+    heap_free(This->sinks);
+    heap_free(This);
 }
 
 void ConnectionPointContainer_Init(ConnectionPointContainer *This, IUnknown *impl)

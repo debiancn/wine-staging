@@ -119,8 +119,7 @@ static LRESULT notify_hdr (const TRACKBAR_INFO *infoPtr, INT code, LPNMHDR pnmh)
     pnmh->hwndFrom = infoPtr->hwndSelf;
     pnmh->idFrom = GetWindowLongPtrW(infoPtr->hwndSelf, GWLP_ID);
     pnmh->code = code;
-    result = SendMessageW(infoPtr->hwndNotify, WM_NOTIFY,
-			  (WPARAM)pnmh->idFrom, (LPARAM)pnmh);
+    result = SendMessageW(infoPtr->hwndNotify, WM_NOTIFY, pnmh->idFrom, (LPARAM)pnmh);
 
     TRACE("  <= %ld\n", result);
 
@@ -440,8 +439,7 @@ TRACKBAR_CalcSelection (TRACKBAR_INFO *infoPtr)
         }
     }
 
-    TRACE("selection[left=%d, top=%d, right=%d, bottom=%d]\n",
-	   selection->left, selection->top, selection->right, selection->bottom);
+    TRACE("selection[%s]\n", wine_dbgstr_rect(selection));
 }
 
 static BOOL
@@ -811,7 +809,7 @@ TRACKBAR_UpdateToolTip (const TRACKBAR_INFO *infoPtr)
     ClientToScreen(infoPtr->hwndSelf, &pt);
 
     SendMessageW (infoPtr->hwndToolTip, TTM_TRACKPOSITION,
-                  0, (LPARAM)MAKELPARAM(pt.x, pt.y));
+                  0, MAKELPARAM(pt.x, pt.y));
 }
 
 
@@ -865,11 +863,12 @@ TRACKBAR_Refresh (TRACKBAR_INFO *infoPtr, HDC hdcDst)
     gcdrf = notify_customdraw(infoPtr, &nmcd, CDDS_PREPAINT);
     if (gcdrf & CDRF_SKIPDEFAULT) goto cleanup;
     
-    /* Erase backbround */
+    /* Erase background */
     if (gcdrf == CDRF_DODEFAULT ||
         notify_customdraw(infoPtr, &nmcd, CDDS_PREERASE) != CDRF_SKIPDEFAULT) {
-        if (GetWindowTheme (infoPtr->hwndSelf))
-            DrawThemeParentBackground (infoPtr->hwndSelf, hdc, &rcClient);
+        if (GetWindowTheme (infoPtr->hwndSelf)) {
+            DrawThemeParentBackground (infoPtr->hwndSelf, hdc, 0);
+        }
         else
 	    FillRect (hdc, &rcClient, GetSysColorBrush(COLOR_BTNFACE));
         if (gcdrf != CDRF_DODEFAULT)
@@ -1453,9 +1452,10 @@ TRACKBAR_Destroy (TRACKBAR_INFO *infoPtr)
     if (infoPtr->hwndToolTip)
     	DestroyWindow (infoPtr->hwndToolTip);
 
-    Free (infoPtr);
     SetWindowLongPtrW (infoPtr->hwndSelf, 0, 0);
     CloseThemeData (GetWindowTheme (infoPtr->hwndSelf));
+    Free (infoPtr);
+
     return 0;
 }
 

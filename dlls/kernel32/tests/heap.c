@@ -176,6 +176,33 @@ START_TEST(heap)
         "returned %d with %d (expected ERROR_INVALID_HANDLE)\n",
         res, GetLastError());
 
+    gbl = GlobalAlloc(GMEM_DDESHARE, 100);
+
+    /* first free */
+    mem = GlobalFree(gbl);
+    ok(mem == NULL, "Expected NULL, got %p\n", mem);
+
+    /* invalid free */
+    SetLastError(MAGIC_DEAD);
+    mem = GlobalFree(gbl);
+    ok(mem == gbl, "Expected gbl, got %p\n", mem);
+    ok(GetLastError() == ERROR_INVALID_HANDLE,
+       "Expected ERROR_INVALID_HANDLE, got %d\n", GetLastError());
+
+    gbl = GlobalAlloc(GMEM_DDESHARE, 100);
+
+    res = GlobalUnlock(gbl);
+    ok(res == 1, "Expected 1, got %d\n", res);
+
+    res = GlobalUnlock(gbl);
+    ok(res == 1, "Expected 1, got %d\n", res);
+
+    /* GlobalSize on an invalid handle */
+    SetLastError(MAGIC_DEAD);
+    size = GlobalSize((HGLOBAL)0xc042);
+    ok(size == 0, "Expected 0, got %ld\n", size);
+    ok(GetLastError() == ERROR_INVALID_HANDLE,
+       "Expected ERROR_INVALID_HANDLE, got %d\n", GetLastError());
 
     /* ####################################### */
     /* Local*() functions */

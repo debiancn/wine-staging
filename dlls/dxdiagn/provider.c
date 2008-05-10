@@ -20,9 +20,9 @@
  */
 
 #include "config.h"
-#include "wine/debug.h"
 
 #define COBJMACROS
+#define NONAMELESSUNION
 #include "dxdiag_private.h"
 #include "wine/unicode.h"
 #include "winver.h"
@@ -31,7 +31,9 @@
 #include "strmif.h"
 #include "vfw.h"
 #include "mmddk.h"
-#include <ddraw.h>
+#include "ddraw.h"
+
+#include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(dxdiag);
 
@@ -110,7 +112,7 @@ static HRESULT WINAPI IDxDiagProviderImpl_GetRootContainer(PDXDIAGPROVIDER iface
     if (FAILED(hr)) {
       return hr;
     }
-    hr = DXDiag_InitRootDXDiagContainer((PDXDIAGCONTAINER)This->pRootContainer);
+    hr = DXDiag_InitRootDXDiagContainer(This->pRootContainer);
   }
   return IDxDiagContainerImpl_QueryInterface((PDXDIAGCONTAINER)This->pRootContainer, &IID_IDxDiagContainer, (void**) ppInstance);
 }
@@ -205,7 +207,7 @@ static HRESULT DXDiag_AddFileDescContainer(IDxDiagContainer* pSubCont, const WCH
 
   retval = GetFileVersionInfoSizeW(szFile, &hdl);
   pVersionInfo = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, retval);
-  hr = GetFileVersionInfoW(szFile, 0, retval, pVersionInfo); 
+  boolret = GetFileVersionInfoW(szFile, 0, retval, pVersionInfo);
   boolret = VerQueryValueW(pVersionInfo, szSlashSep, (LPVOID) &pFileInfo, &uiLength);
 
   V_VT(&v) = VT_BSTR; V_BSTR(&v) = SysAllocString(szFile);
@@ -219,7 +221,7 @@ static HRESULT DXDiag_AddFileDescContainer(IDxDiagContainer* pSubCont, const WCH
   VariantClear(&v);
 
   if (boolret) {
-    snprintfW(szVersion_v, sizeof(szVersion_v), 
+    snprintfW(szVersion_v, sizeof(szVersion_v)/sizeof(szVersion_v[0]),
 	      szVersionFormat,
 	      HIWORD(pFileInfo->dwFileVersionMS), 
 	      LOWORD(pFileInfo->dwFileVersionMS),
@@ -267,6 +269,7 @@ static HRESULT DXDiag_InitDXDiagSystemInfoContainer(IDxDiagContainer* pSubCont) 
   static const WCHAR szDirectXVersionEnglish_v[] = {'4','.','0','9','.','0','0','0','0','.','0','9','0','4',0};
   static const WCHAR szDirectXVersionLongEnglish[] = {'s','z','D','i','r','e','c','t','X','V','e','r','s','i','o','n','L','o','n','g','E','n','g','l','i','s','h',0};
   static const WCHAR szDirectXVersionLongEnglish_v[] = {'=',' ','"','D','i','r','e','c','t','X',' ','9','.','0','c',' ','(','4','.','0','9','.','0','0','0','0','.','0','9','0','4',')',0};
+  static const WCHAR ullPhysicalMemory[] = {'u','l','l','P','h','y','s','i','c','a','l','M','e','m','o','r','y',0};
   /*static const WCHAR szDxDiagVersion[] = {'s','z','D','x','D','i','a','g','V','e','r','s','i','o','n',0};*/
   /*szWindowsDir*/
   /*szWindowsDir*/
@@ -274,6 +277,7 @@ static HRESULT DXDiag_InitDXDiagSystemInfoContainer(IDxDiagContainer* pSubCont) 
   /*"dwOSMinorVersion"*/
   /*"dwOSBuildNumber"*/
   /*"dwOSPlatformID"*/
+  MEMORYSTATUSEX msex;
   VARIANT v;
 
   V_VT(&v) = VT_UI4; V_UI4(&v) = 9;
@@ -293,6 +297,13 @@ static HRESULT DXDiag_InitDXDiagSystemInfoContainer(IDxDiagContainer* pSubCont) 
   VariantClear(&v);
   V_VT(&v) = VT_BOOL; V_BOOL(&v) = FALSE;
   hr = IDxDiagContainerImpl_AddProp(pSubCont, bDebug, &v);
+  VariantClear(&v);
+
+  msex.dwLength = sizeof(msex);
+  GlobalMemoryStatusEx( &msex );
+  V_VT(&v) = VT_UI8;
+  V_UI8(&v) = msex.ullTotalPhys;
+  hr = IDxDiagContainerImpl_AddProp(pSubCont, ullPhysicalMemory, &v);
   VariantClear(&v);
 
   return hr;
@@ -464,7 +475,7 @@ static HRESULT DXDiag_InitDXDiagDisplayContainer(IDxDiagContainer* pSubCont)
     {
         static const WCHAR mem_fmt[] = {'%','.','1','f',' ','M','B',0};
 
-        snprintfW( buffer, sizeof(buffer), mem_fmt, ((float)tmp) / 1000000.0 );
+        snprintfW( buffer, sizeof(buffer)/sizeof(buffer[0]), mem_fmt, ((float)tmp) / 1000000.0 );
         add_prop_str( pDisplayAdapterSubCont, szDisplayMemoryLocalized, buffer );
         add_prop_str( pDisplayAdapterSubCont, szDisplayMemoryEnglish, buffer );
     }
@@ -478,7 +489,7 @@ static HRESULT DXDiag_InitDXDiagDisplayContainer(IDxDiagContainer* pSubCont)
         if (surface_descr.dwFlags & DDSD_HEIGHT)
             add_prop_ui4( pDisplayAdapterSubCont, dwHeight, surface_descr.dwHeight );
         if (surface_descr.dwFlags & DDSD_PIXELFORMAT)
-            add_prop_ui4( pDisplayAdapterSubCont, dwBpp, surface_descr.ddpfPixelFormat.dwRGBBitCount );
+            add_prop_ui4( pDisplayAdapterSubCont, dwBpp, surface_descr.u4.ddpfPixelFormat.u1.dwRGBBitCount );
     }
 
     add_prop_str( pDisplayAdapterSubCont, szVendorId, szEmpty );

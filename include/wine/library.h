@@ -38,6 +38,8 @@ extern const char *wine_get_config_dir(void);
 extern const char *wine_get_data_dir(void);
 extern const char *wine_get_server_dir(void);
 extern const char *wine_get_user_name(void);
+extern const char *wine_get_version(void);
+extern const char *wine_get_build_id(void);
 extern void wine_init_argv0_path( const char *argv0 );
 extern void wine_exec_wine_binary( const char *name, char **argv, const char *env_var );
 
@@ -66,6 +68,7 @@ extern void wine_init( int argc, char *argv[], char *error, int error_size );
 /* portability */
 
 extern void DECLSPEC_NORETURN wine_switch_to_stack( void (*func)(void *), void *arg, void *stack );
+extern int wine_call_on_stack( int (*func)(void *), void *arg, void *stack );
 extern void wine_set_pe_load_area( void *base, size_t size );
 extern void wine_free_pe_load_area(void);
 

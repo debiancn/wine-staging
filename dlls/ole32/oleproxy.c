@@ -19,22 +19,6 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-/* Documentation on MSDN:
- *
- * (Top level COM documentation)
- * http://msdn.microsoft.com/library/default.asp?url=/library/en-us/dnanchor/html/componentdevelopmentank.asp
- *
- * (COM Proxy)
- * http://msdn.microsoft.com/library/default.asp?url=/library/en-us/com/htm/comext_1q0p.asp
- *
- * (COM Stub)
- * http://msdn.microsoft.com/library/default.asp?url=/library/en-us/com/htm/comext_1lia.asp
- *
- * (Marshal)
- * http://msdn.microsoft.com/library/default.asp?url=/library/en-us/com/htm/comext_1gfn.asp
- *
- */
-
 #include "config.h"
 
 #include <stdlib.h>
@@ -64,7 +48,7 @@ WINE_DEFAULT_DEBUG_CHANNEL(ole);
 
 static ULONG WINAPI RURpcProxyBufferImpl_Release(LPRPCPROXYBUFFER iface);
 
-/* From: http://msdn.microsoft.com/library/en-us/com/cmi_m_4lda.asp
+/* From msdn:
  *
  * The first time a client requests a pointer to an interface on a
  * particular object, COM loads an IClassFactory stub in the server
@@ -206,7 +190,7 @@ getbuffer:
         if (hres) return hres;
 
 	seekto.u.LowPart = 0;seekto.u.HighPart = 0;
-	hres = IStream_Seek(pStm,seekto,SEEK_SET,&newpos);
+	hres = IStream_Seek(pStm,seekto,STREAM_SEEK_SET,&newpos);
 	if (hres) {
             FIXME("IStream_Seek failed, %x\n",hres);
 	    return hres;
@@ -376,9 +360,9 @@ static HRESULT WINAPI CFProxy_CreateInstance(
      *
      * Data: Only the 'IID'.
      */
+    memset(&msg, 0, sizeof(msg));
     msg.iMethod  = 3;
     msg.cbBuffer = sizeof(*riid);
-    msg.Buffer	 = NULL;
     hres = IRpcChannelBuffer_GetBuffer(This->chanbuf,&msg,&IID_IClassFactory);
     if (hres) {
 	FIXME("IRpcChannelBuffer_GetBuffer failed with %x?\n",hres);
@@ -402,9 +386,10 @@ static HRESULT WINAPI CFProxy_CreateInstance(
     hGlobal = GlobalAlloc(GMEM_MOVEABLE|GMEM_NODISCARD|GMEM_SHARE,msg.cbBuffer);
     memcpy(GlobalLock(hGlobal),msg.Buffer,msg.cbBuffer);
     hres = CreateStreamOnHGlobal(hGlobal,TRUE,&pStream);
-    if (hres) {
+    if (hres != S_OK) {
 	FIXME("CreateStreamOnHGlobal failed with %x\n",hres);
 	IRpcChannelBuffer_FreeBuffer(This->chanbuf,&msg);
+        GlobalFree(hGlobal);
 	return hres;
     }
     hres = IStream_Read(pStream, ppv, sizeof(*ppv), NULL);
@@ -508,7 +493,10 @@ static ULONG WINAPI RemUnkStub_Release(LPRPCSTUBBUFFER iface)
   TRACE("(%p)->Release()\n",This);
   refs = InterlockedDecrement(&This->refs);
   if (!refs)
+  {
+    IRpcStubBuffer_Disconnect(iface);
     HeapFree(GetProcessHeap(), 0, This);
+  }
   return refs;
 }
 
@@ -570,9 +558,11 @@ static HRESULT WINAPI RemUnkStub_Invoke(LPRPCSTUBBUFFER iface,
     *(HRESULT *)buf = hr;
     buf += sizeof(HRESULT);
     
-    if (hr) return hr;
-    /* FIXME: pQIResults is a unique pointer so pQIResults can be NULL! */
-    memcpy(buf, pQIResults, cIids * sizeof(REMQIRESULT));
+    if (hr == S_OK)
+      /* FIXME: pQIResults is a unique pointer so pQIResults can be NULL! */
+      memcpy(buf, pQIResults, cIids * sizeof(REMQIRESULT));
+
+    CoTaskMemFree(pQIResults);
 
     break;
   }
@@ -1024,6 +1014,8 @@ HRESULT WINAPI DllGetClassObject(REFCLSID rclsid, REFIID iid,LPVOID *ppv)
         return CompositeMonikerCF_Create(iid, ppv);
     if (IsEqualCLSID(rclsid, &CLSID_ClassMoniker))
         return ClassMonikerCF_Create(iid, ppv);
+    if (IsEqualCLSID(rclsid, &CLSID_PointerMoniker))
+        return PointerMonikerCF_Create(iid, ppv);
 
     FIXME("\n\tCLSID:\t%s,\n\tIID:\t%s\n",debugstr_guid(rclsid),debugstr_guid(iid));
     return CLASS_E_CLASSNOTAVAILABLE;

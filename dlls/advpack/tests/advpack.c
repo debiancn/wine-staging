@@ -20,6 +20,7 @@
  */
 
 #include <stdio.h>
+#include <stdarg.h>
 #include <windows.h>
 #include <advpub.h>
 #include <assert.h>
@@ -34,6 +35,7 @@
 #define REG_VAL_EXISTS(key, value)   !RegQueryValueEx(key, value, NULL, NULL, NULL, NULL)
 #define OPEN_GUID_KEY() !RegOpenKey(HKEY_LOCAL_MACHINE, GUID_KEY, &guid)
 
+static HMODULE hAdvPack;
 static HRESULT (WINAPI *pCloseINFEngine)(HINF);
 static HRESULT (WINAPI *pDelNode)(LPCSTR,DWORD);
 static HRESULT (WINAPI *pGetVersionFromFile)(LPCSTR,LPDWORD,LPDWORD,BOOL);
@@ -43,8 +45,10 @@ static HRESULT (WINAPI *pTranslateInfString)(LPCSTR,LPCSTR,LPCSTR,LPCSTR,LPSTR,D
 static HRESULT (WINAPI *pTranslateInfStringEx)(HINF,PCSTR,PCSTR,PCSTR,PSTR,DWORD,PDWORD,PVOID);
 
 static CHAR inf_file[MAX_PATH];
+static CHAR PROG_FILES_ROOT[MAX_PATH];
 static CHAR PROG_FILES[MAX_PATH];
-static DWORD PROG_FILES_LEN;
+static CHAR APP_PATH[MAX_PATH];
+static DWORD APP_PATH_LEN;
 
 static void get_progfiles_dir(void)
 {
@@ -52,16 +56,18 @@ static void get_progfiles_dir(void)
     DWORD size = MAX_PATH;
 
     RegOpenKeyA(HKEY_LOCAL_MACHINE, "Software\\Microsoft\\Windows\\CurrentVersion", &hkey);
-    RegQueryValueExA(hkey, "ProgramFilesDir", NULL, NULL, (LPBYTE)PROG_FILES, &size);
+    RegQueryValueExA(hkey, "ProgramFilesDir", NULL, NULL, (LPBYTE)PROG_FILES_ROOT, &size);
     RegCloseKey(hkey);
 
-    lstrcatA(PROG_FILES, TEST_STRING1);
-    PROG_FILES_LEN = lstrlenA(PROG_FILES) + 1;
+    lstrcpyA(PROG_FILES, PROG_FILES_ROOT + 3); /* skip C:\ */
+    lstrcpyA(APP_PATH, PROG_FILES_ROOT);
+    lstrcatA(APP_PATH, TEST_STRING1);
+    APP_PATH_LEN = lstrlenA(APP_PATH) + 1;
 }
 
 static BOOL init_function_pointers(void)
 {
-    HMODULE hAdvPack = LoadLibraryA("advpack.dll");
+    hAdvPack = LoadLibraryA("advpack.dll");
 
     if (!hAdvPack)
         return FALSE;
@@ -180,10 +186,14 @@ static void delnode_test(void)
     currDir[currDirLen] = '\0';
 }
 
-static void append_str(char **str, const char *data)
+static void append_str(char **str, const char *data, ...)
 {
-    sprintf(*str, data);
+    va_list valist;
+
+    va_start(valist, data);
+    vsprintf(*str, data, valist);
     *str += strlen(*str);
+    va_end(valist);
 }
 
 static void create_inf_file(void)
@@ -198,6 +208,9 @@ static void create_inf_file(void)
     append_str(&ptr, "Signature=\"$Chicago$\"\n");
     append_str(&ptr, "[CustInstDestSection]\n");
     append_str(&ptr, "49001=ProgramFilesDir\n");
+    append_str(&ptr, "49010=DestA,1\n");
+    append_str(&ptr, "49020=DestB\n");
+    append_str(&ptr, "49030=DestC\n");
     append_str(&ptr, "[ProgramFilesDir]\n");
     append_str(&ptr, "HKLM,\"Software\\Microsoft\\Windows\\CurrentVersion\",");
     append_str(&ptr, "\"ProgramFilesDir\",,\"%%24%%\\%%LProgramF%%\"\n");
@@ -207,10 +220,20 @@ static void create_inf_file(void)
     append_str(&ptr, "[Options.NTx86]\n");
     append_str(&ptr, "49001=ProgramFilesDir\n");
     append_str(&ptr, "InstallDir=%%49001%%\\%%DefaultAppPath%%\n");
+    append_str(&ptr, "Result1=%%49010%%\n");
+    append_str(&ptr, "Result2=%%49020%%\n");
+    append_str(&ptr, "Result3=%%49030%%\n");
     append_str(&ptr, "CustomHDestination=CustInstDestSection\n");
     append_str(&ptr, "[Strings]\n");
     append_str(&ptr, "DefaultAppPath=\"Application Name\"\n");
-    append_str(&ptr, "LProgramF=\"Program Files\"\n");
+    append_str(&ptr, "LProgramF=\"%s\"\n", PROG_FILES);
+    append_str(&ptr, "[DestA]\n");
+    append_str(&ptr, "HKLM,\"Software\\Garbage\",\"ProgramFilesDir\",,'%%24%%\\%%LProgramF%%'\n");
+    append_str(&ptr, "[DestB]\n");
+    append_str(&ptr, "'HKLM','Software\\Microsoft\\Windows\\CurrentVersion',");
+    append_str(&ptr, "'ProgramFilesDir',,\"%%24%%\"\n");
+    append_str(&ptr, "[DestC]\n");
+    append_str(&ptr, "HKLM,\"Software\\Garbage\",\"ProgramFilesDir\",,'%%24%%'\n");
 
     WriteFile(hf, data, ptr - data, &dwNumberOfBytesWritten, NULL);
     CloseHandle(hf);
@@ -272,8 +295,8 @@ static void translateinfstring_test(void)
 
     if(hr == ERROR_SUCCESS)
     {
-        ok(!strcmp(buffer, PROG_FILES), "Expected '%s', got '%s'\n", PROG_FILES, buffer);
-        ok(dwSize == PROG_FILES_LEN, "Expected size %d, got %d\n", PROG_FILES_LEN, dwSize);
+        ok(!strcmp(buffer, APP_PATH), "Expected '%s', got '%s'\n", APP_PATH, buffer);
+        ok(dwSize == APP_PATH_LEN, "Expected size %d, got %d\n", APP_PATH_LEN, dwSize);
     }
 
     buffer[0] = 0;
@@ -388,14 +411,54 @@ static void translateinfstringex_test(void)
     ok(hr == S_OK, "Expected S_OK, got %08x\n", hr);
 
     /* translate the string with the install section specified */
-    memset(buffer, 'a', PROG_FILES_LEN);
-    buffer[PROG_FILES_LEN - 1] = '\0';
+    memset(buffer, 'a', APP_PATH_LEN);
+    buffer[APP_PATH_LEN - 1] = '\0';
     size = MAX_PATH;
     hr = pTranslateInfStringEx(hinf, inf_file, "Options.NTx86", "InstallDir",
                               buffer, size, &size, NULL);
     ok(hr == S_OK, "Expected S_OK, got %08x\n", hr);
-    ok(!strcmp(buffer, PROG_FILES), "Expected %s, got %s\n", PROG_FILES, buffer);
-    ok(size == PROG_FILES_LEN, "Expected size %d, got %d\n", PROG_FILES_LEN, size);
+    ok(!strcmp(buffer, APP_PATH), "Expected %s, got %s\n", APP_PATH, buffer);
+    ok(size == APP_PATH_LEN, "Expected size %d, got %d\n", APP_PATH_LEN, size);
+
+    /* Single quote test (Note size includes null on return from call) */
+    memset(buffer, 'a', APP_PATH_LEN);
+    buffer[APP_PATH_LEN - 1] = '\0';
+    size = MAX_PATH;
+    hr = pTranslateInfStringEx(hinf, inf_file, "Options.NTx86", "Result1",
+                              buffer, size, &size, NULL);
+    ok(hr == S_OK, "Expected S_OK, got %08x\n", hr);
+    ok(!lstrcmpi(buffer, PROG_FILES_ROOT),
+           "Expected %s, got %s\n", PROG_FILES_ROOT, buffer);
+    ok(size == lstrlenA(PROG_FILES_ROOT)+1, "Expected size %d, got %d\n",
+           lstrlenA(PROG_FILES_ROOT)+1, size);
+
+    memset(buffer, 'a', APP_PATH_LEN);
+    buffer[APP_PATH_LEN - 1] = '\0';
+    size = MAX_PATH;
+    hr = pTranslateInfStringEx(hinf, inf_file, "Options.NTx86", "Result2",
+                              buffer, size, &size, NULL);
+    ok(hr == S_OK, "Expected S_OK, got %08x\n", hr);
+    ok(!lstrcmpi(buffer, PROG_FILES_ROOT),
+           "Expected %s, got %s\n", PROG_FILES_ROOT, buffer);
+    ok(size == lstrlenA(PROG_FILES_ROOT)+1, "Expected size %d, got %d\n",
+           lstrlenA(PROG_FILES_ROOT)+1, size);
+
+    {
+        char drive[MAX_PATH];
+        lstrcpy(drive, PROG_FILES_ROOT);
+        drive[3] = 0x00; /* Just keep the system drive plus '\' */
+
+        memset(buffer, 'a', APP_PATH_LEN);
+        buffer[APP_PATH_LEN - 1] = '\0';
+        size = MAX_PATH;
+        hr = pTranslateInfStringEx(hinf, inf_file, "Options.NTx86", "Result3",
+                                  buffer, size, &size, NULL);
+        ok(hr == S_OK, "Expected S_OK, got %08x\n", hr);
+        ok(!lstrcmpi(buffer, drive),
+               "Expected %s, got %s\n", drive, buffer);
+        ok(size == lstrlenA(drive)+1, "Expected size %d, got %d\n",
+               lstrlenA(drive)+1, size);
+    }
 
     /* close the INF again */
     hr = pCloseINFEngine(hinf);
@@ -459,7 +522,7 @@ static void setperusersecvalues_test(void)
     /* set initial values */
     lstrcpy(peruser.szGUID, "guid");
     hr = pSetPerUserSecValues(&peruser);
-    ok(hr == S_OK, "Expected S_OK, got %d\n", hr);
+    ok(hr == S_OK, "Expected S_OK, got %08x\n", hr);
     ok(OPEN_GUID_KEY(), "Expected guid key to exist\n");
     ok(check_reg_str(guid, NULL, "displayname"), "Expected displayname\n");
     ok(check_reg_str(guid, "ComponentID", "compid"), "Expected compid\n");
@@ -476,7 +539,7 @@ static void setperusersecvalues_test(void)
     /* raise the version, but bRollback is FALSE, so vals not saved */
     lstrcpy(peruser.szVersion, "2,1,1,1");
     hr = pSetPerUserSecValues(&peruser);
-    ok(hr == S_OK, "Expected S_OK, got %d\n", hr);
+    ok(hr == S_OK, "Expected S_OK, got %08x\n", hr);
     ok(check_reg_str(guid, NULL, "displayname"), "Expected displayname\n");
     ok(check_reg_str(guid, "ComponentID", "compid"), "Expected compid\n");
     ok(check_reg_str(guid, "Locale", "locale"), "Expected locale\n");
@@ -493,7 +556,7 @@ static void setperusersecvalues_test(void)
     peruser.bRollback = TRUE;
     lstrcpy(peruser.szVersion, "3,1,1,1");
     hr = pSetPerUserSecValues(&peruser);
-    ok(hr == S_OK, "Expected S_OK, got %d\n", hr);
+    ok(hr == S_OK, "Expected S_OK, got %08x\n", hr);
     ok(check_reg_str(guid, NULL, "displayname"), "Expected displayname\n");
     ok(check_reg_str(guid, "ComponentID", "compid"), "Expected compid\n");
     ok(check_reg_str(guid, "Locale", "locale"), "Expected locale\n");
@@ -532,4 +595,6 @@ START_TEST(advpack)
     setperusersecvalues_test();
     translateinfstring_test();
     translateinfstringex_test();
+
+    FreeLibrary(hAdvPack);
 }

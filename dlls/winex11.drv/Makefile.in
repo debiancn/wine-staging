@@ -3,7 +3,8 @@ TOPOBJDIR = ../..
 SRCDIR    = @srcdir@
 VPATH     = @srcdir@
 MODULE    = winex11.drv
-IMPORTS   = user32 gdi32 advapi32 kernel32 ntdll
+IMPORTS   = user32 gdi32 advapi32 imm32 kernel32 ntdll
+DELAYIMPORTS = comctl32
 EXTRAINCL = @X_CFLAGS@
 EXTRALIBS = @X_LIBS@ @X_PRE_LIBS@ @XLIB@ @X_EXTRA_LIBS@
 
@@ -12,9 +13,7 @@ C_SRCS = \
 	bitmap.c \
 	brush.c \
 	clipboard.c \
-	clipping.c \
 	codepage.c \
-	dce.c \
 	desktop.c \
 	dib.c \
 	dib_convert.c \
@@ -22,6 +21,7 @@ C_SRCS = \
 	dib_src_swap.c \
 	event.c \
 	graphics.c \
+	ime.c \
 	init.c \
 	keyboard.c \
 	mouse.c \
@@ -30,9 +30,9 @@ C_SRCS = \
 	pen.c \
 	scroll.c \
 	settings.c \
+	systray.c \
 	text.c \
 	window.c \
-	winpos.c \
 	wintab.c \
 	x11ddraw.c \
 	x11drv_main.c \

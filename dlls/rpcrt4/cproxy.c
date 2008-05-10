@@ -58,10 +58,6 @@ static const IRpcProxyBufferVtbl StdProxy_Vtbl;
 
 #define ICOM_THIS_MULTI(impl,field,iface) impl* const This=(impl*)((char*)(iface) - offsetof(impl,field))
 
-/* How the Windows stubless proxy thunks work is explained at
- * http://msdn.microsoft.com/library/en-us/dnmsj99/html/com0199.asp,
- * but I'll use a slightly different method, to make life easier */
-
 #if defined(__i386__)
 
 #include "pshpack1.h"
@@ -364,6 +360,7 @@ void WINAPI NdrProxyGetBuffer(void *This,
     RpcRaiseException(hr);
     return;
   }
+  pStubMsg->fBufferValid = TRUE;
   pStubMsg->BufferStart = pStubMsg->RpcMsg->Buffer;
   pStubMsg->BufferEnd = pStubMsg->BufferStart + pStubMsg->BufferLength;
   pStubMsg->Buffer = pStubMsg->BufferStart;
@@ -408,11 +405,14 @@ void WINAPI NdrProxySendReceive(void *This,
 void WINAPI NdrProxyFreeBuffer(void *This,
                               PMIDL_STUB_MESSAGE pStubMsg)
 {
-  HRESULT hr;
-
   TRACE("(%p,%p)\n", This, pStubMsg);
-  hr = IRpcChannelBuffer_FreeBuffer(pStubMsg->pRpcChannelBuffer,
-                                   (RPCOLEMESSAGE*)pStubMsg->RpcMsg);
+
+  if (pStubMsg->fBufferValid)
+  {
+    IRpcChannelBuffer_FreeBuffer(pStubMsg->pRpcChannelBuffer,
+                                 (RPCOLEMESSAGE*)pStubMsg->RpcMsg);
+    pStubMsg->fBufferValid = TRUE;
+  }
 }
 
 /***********************************************************************

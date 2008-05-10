@@ -5,6 +5,7 @@
  * Copyright 2002 TransGaming Technologies (David Hammerton)
  * Copyright 2004 Mike McCormack for CodeWeavers
  * Copyright 2004, 2005 Michael Jung
+ * Copyright 2007 Vijay Kiran Kamuju
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -74,8 +75,7 @@ typedef struct tagCRYPTHASH
 #define RSAENH_MAX_BLOCK_SIZE      24
 #define RSAENH_KEYSTATE_IDLE       0
 #define RSAENH_KEYSTATE_ENCRYPTING 1
-#define RSAENH_KEYSTATE_DECRYPTING 2
-#define RSAENH_KEYSTATE_MASTERKEY  3
+#define RSAENH_KEYSTATE_MASTERKEY  2
 typedef struct _RSAENH_SCHANNEL_INFO 
 {
     SCHANNEL_ALG saEncAlg;
@@ -93,6 +93,7 @@ typedef struct tagCRYPTKEY
     DWORD       dwModeBits;
     DWORD       dwPermissions;
     DWORD       dwKeyLen;
+    DWORD       dwEffectiveKeyLen;
     DWORD       dwSaltLen;
     DWORD       dwBlockLen;
     DWORD       dwState;
@@ -110,6 +111,7 @@ typedef struct tagCRYPTKEY
 #define RSAENH_PERSONALITY_STRONG      1u
 #define RSAENH_PERSONALITY_ENHANCED    2u
 #define RSAENH_PERSONALITY_SCHANNEL    3u
+#define RSAENH_PERSONALITY_AES         4u
 
 #define RSAENH_MAGIC_CONTAINER         0x26384993u
 typedef struct tagKEYCONTAINER
@@ -152,9 +154,9 @@ typedef struct tagKEYCONTAINER
 /******************************************************************************
  * aProvEnumAlgsEx - Defines the capabilities of the CSP personalities.
  */
-#define RSAENH_MAX_ENUMALGS 20
+#define RSAENH_MAX_ENUMALGS 24
 #define RSAENH_PCT1_SSL2_SSL3_TLS1 (CRYPT_FLAG_PCT1|CRYPT_FLAG_SSL2|CRYPT_FLAG_SSL3|CRYPT_FLAG_TLS1)
-static const PROV_ENUMALGS_EX aProvEnumAlgsEx[4][RSAENH_MAX_ENUMALGS+1] =
+static const PROV_ENUMALGS_EX aProvEnumAlgsEx[5][RSAENH_MAX_ENUMALGS+1] =
 {
  {
   {CALG_RC2,       40, 40,   56,0,                    4,"RC2",     24,"RSA Data Security's RC2"},
@@ -227,6 +229,27 @@ static const PROV_ENUMALGS_EX aProvEnumAlgsEx[4][RSAENH_MAX_ENUMALGS+1] =
   {CALG_SCHANNEL_ENC_KEY,0,0,-1,0,                         12,"SCH ENC KEY",24,"SChannel Encryption Key"},
   {CALG_TLS1PRF,    0,  0,   -1,0,                          9,"TLS1 PRF",   28,"TLS1 Pseudo Random Function"},
   {0,               0,  0,    0,0,                          1,"",            1,""}
+ },
+ {
+  {CALG_RC2,      128, 40,  128,0,                    4,"RC2",     24,"RSA Data Security's RC2"},
+  {CALG_RC4,      128, 40,  128,0,                    4,"RC4",     24,"RSA Data Security's RC4"},
+  {CALG_DES,       56, 56,   56,0,                    4,"DES",     31,"Data Encryption Standard (DES)"},
+  {CALG_3DES_112, 112,112,  112,0,                   13,"3DES TWO KEY",19,"Two Key Triple DES"},
+  {CALG_3DES,     168,168,  168,0,                    5,"3DES",    21,"Three Key Triple DES"},
+  {CALG_AES,      128,128,  128,0,                    4,"AES",     35,"Advanced Encryption Standard (AES)"},
+  {CALG_AES_128,  128,128,  128,0,                    8,"AES-128", 39,"Advanced Encryption Standard (AES-128)"},
+  {CALG_AES_192,  192,192,  192,0,                    8,"AES-192", 39,"Advanced Encryption Standard (AES-192)"},
+  {CALG_AES_256,  256,256,  256,0,                    8,"AES-256", 39,"Advanced Encryption Standard (AES-256)"},
+  {CALG_SHA,      160,160,  160,CRYPT_FLAG_SIGNING,   6,"SHA-1",   30,"Secure Hash Algorithm (SHA-1)"},
+  {CALG_MD2,      128,128,  128,CRYPT_FLAG_SIGNING,   4,"MD2",     23,"Message Digest 2 (MD2)"},
+  {CALG_MD4,      128,128,  128,CRYPT_FLAG_SIGNING,   4,"MD4",     23,"Message Digest 4 (MD4)"},
+  {CALG_MD5,      128,128,  128,CRYPT_FLAG_SIGNING,   4,"MD5",     23,"Message Digest 5 (MD5)"},
+  {CALG_SSL3_SHAMD5,288,288,288,0,                   12,"SSL3 SHAMD5",12,"SSL3 SHAMD5"},
+  {CALG_MAC,        0,  0,    0,0,                    4,"MAC",     28,"Message Authentication Code"},
+  {CALG_RSA_SIGN,1024,384,16384,CRYPT_FLAG_SIGNING|CRYPT_FLAG_IPSEC,9,"RSA_SIGN",14,"RSA Signature"},
+  {CALG_RSA_KEYX,1024,384,16384,CRYPT_FLAG_SIGNING|CRYPT_FLAG_IPSEC,9,"RSA_KEYX",17,"RSA Key Exchange"},
+  {CALG_HMAC,       0,  0,    0,0,                    5,"HMAC",    18,"Hugo's MAC (HMAC)"},
+  {0,               0,  0,    0,0,                    1,"",         1,""}
  }
 };
 
@@ -521,11 +544,11 @@ static inline void free_hmac_info(PHMAC_INFO hmac_info) {
  * NOTES
  *  See Internet RFC 2104 for details on the HMAC algorithm.
  */
-static BOOL copy_hmac_info(PHMAC_INFO *dst, PHMAC_INFO src) {
+static BOOL copy_hmac_info(PHMAC_INFO *dst, const HMAC_INFO *src) {
     if (!src) return FALSE;
     *dst = HeapAlloc(GetProcessHeap(), 0, sizeof(HMAC_INFO));
     if (!*dst) return FALSE;
-    memcpy(*dst, src, sizeof(HMAC_INFO));
+    **dst = *src;
     (*dst)->pbInnerString = NULL;
     (*dst)->pbOuterString = NULL;
     if ((*dst)->cbInnerString == 0) (*dst)->cbInnerString = RSAENH_HMAC_DEF_PAD_LEN;
@@ -718,7 +741,8 @@ static inline void setup_key(CRYPTKEY *pCryptKey) {
     pCryptKey->dwState = RSAENH_KEYSTATE_IDLE;
     memcpy(pCryptKey->abChainVector, pCryptKey->abInitVector, sizeof(pCryptKey->abChainVector));
     setup_key_impl(pCryptKey->aiAlgid, &pCryptKey->context, pCryptKey->dwKeyLen, 
-                   pCryptKey->dwSaltLen, pCryptKey->abKeyValue);
+                   pCryptKey->dwEffectiveKeyLen, pCryptKey->dwSaltLen,
+                   pCryptKey->abKeyValue);
 }
 
 /******************************************************************************
@@ -803,8 +827,8 @@ static HCRYPTKEY new_key(HCRYPTPROV hProv, ALG_ID aiAlgid, DWORD dwFlags, CRYPTK
             }
     }
 
-    hCryptKey = (HCRYPTKEY)new_object(&handle_table, sizeof(CRYPTKEY), RSAENH_MAGIC_KEY, 
-                                      destroy_key, (OBJECTHDR**)&pCryptKey);
+    hCryptKey = new_object(&handle_table, sizeof(CRYPTKEY), RSAENH_MAGIC_KEY,
+                           destroy_key, (OBJECTHDR**)&pCryptKey);
     if (hCryptKey != (HCRYPTKEY)INVALID_HANDLE_VALUE)
     {
         pCryptKey->aiAlgid = aiAlgid;
@@ -813,6 +837,7 @@ static HCRYPTKEY new_key(HCRYPTPROV hProv, ALG_ID aiAlgid, DWORD dwFlags, CRYPTK
         pCryptKey->dwPermissions = CRYPT_ENCRYPT | CRYPT_DECRYPT | CRYPT_READ | CRYPT_WRITE | 
                                    CRYPT_MAC;
         pCryptKey->dwKeyLen = dwKeyLen >> 3;
+        pCryptKey->dwEffectiveKeyLen = 0;
         if ((dwFlags & CRYPT_CREATE_SALT) || (dwKeyLen == 40 && !(dwFlags & CRYPT_NO_SALT))) 
             pCryptKey->dwSaltLen = 16 /*FIXME*/ - pCryptKey->dwKeyLen;
         else
@@ -841,6 +866,14 @@ static HCRYPTKEY new_key(HCRYPTPROV hProv, ALG_ID aiAlgid, DWORD dwFlags, CRYPTK
                 pCryptKey->dwMode = CRYPT_MODE_CBC;
                 break;
 
+            case CALG_AES:
+            case CALG_AES_128:
+            case CALG_AES_192:
+            case CALG_AES_256:
+                pCryptKey->dwBlockLen = 16;
+                pCryptKey->dwMode = CRYPT_MODE_ECB;
+                break;
+
             case CALG_RSA_KEYX:
             case CALG_RSA_SIGN:
                 pCryptKey->dwBlockLen = dwKeyLen >> 3;
@@ -855,108 +888,190 @@ static HCRYPTKEY new_key(HCRYPTPROV hProv, ALG_ID aiAlgid, DWORD dwFlags, CRYPTK
 }
 
 /******************************************************************************
+ * store_key_pair [Internal]
+ *
+ * Stores a key pair to the registry
+ * 
+ * PARAMS
+ *  hCryptKey     [I] Handle to the key to be stored
+ *  hKey          [I] Registry key where the key pair is to be stored
+ *  szValueName   [I] Registry value where key pair's value is to be stored
+ *  dwFlags       [I] Flags for protecting the key
+ */
+static void store_key_pair(HCRYPTKEY hCryptKey, HKEY hKey, LPCSTR szValueName, DWORD dwFlags)
+{
+    DATA_BLOB blobIn, blobOut;
+    CRYPTKEY *pKey;
+    DWORD dwLen;
+    BYTE *pbKey;
+
+    if (lookup_handle(&handle_table, hCryptKey, RSAENH_MAGIC_KEY,
+                      (OBJECTHDR**)&pKey))
+    {
+        if (RSAENH_CPExportKey(pKey->hProv, hCryptKey, 0, PRIVATEKEYBLOB, 0, 0,
+            &dwLen))
+        {
+            pbKey = HeapAlloc(GetProcessHeap(), 0, dwLen);
+            if (pbKey)
+            {
+                if (RSAENH_CPExportKey(pKey->hProv, hCryptKey, 0,
+                                       PRIVATEKEYBLOB, 0, pbKey, &dwLen))
+                {
+                    blobIn.pbData = pbKey;
+                    blobIn.cbData = dwLen;
+
+                    if (CryptProtectData(&blobIn, NULL, NULL, NULL, NULL,
+                        dwFlags, &blobOut))
+                    {
+                        RegSetValueExA(hKey, szValueName, 0, REG_BINARY,
+                                       blobOut.pbData, blobOut.cbData);
+                        LocalFree(blobOut.pbData);
+                    }
+                }
+                HeapFree(GetProcessHeap(), 0, pbKey);
+            }
+        }
+        release_handle(&handle_table, hCryptKey, RSAENH_MAGIC_KEY);
+    }
+}
+
+/******************************************************************************
+ * create_container_key [Internal]
+ *
+ * Creates the registry key for a key container's persistent storage.
+ * 
+ * PARAMS
+ *  pKeyContainer [I] Pointer to the key container
+ *  sam           [I] Desired registry access
+ *  phKey         [O] Returned key
+ */
+static BOOL create_container_key(KEYCONTAINER *pKeyContainer, REGSAM sam, HKEY *phKey)
+{
+    CHAR szRSABase[MAX_PATH];
+    HKEY hRootKey;
+
+    sprintf(szRSABase, RSAENH_REGKEY, pKeyContainer->szName);
+
+    if (pKeyContainer->dwFlags & CRYPT_MACHINE_KEYSET)
+        hRootKey = HKEY_LOCAL_MACHINE;
+    else
+        hRootKey = HKEY_CURRENT_USER;
+
+    /* @@ Wine registry key: HKLM\Software\Wine\Crypto\RSA */
+    /* @@ Wine registry key: HKCU\Software\Wine\Crypto\RSA */
+    return RegCreateKeyExA(hRootKey, szRSABase, 0, NULL,
+                           REG_OPTION_NON_VOLATILE, sam, NULL, phKey, NULL)
+                           == ERROR_SUCCESS;
+}
+
+/******************************************************************************
+ * open_container_key [Internal]
+ *
+ * Opens a key container's persistent storage for reading.
+ *
+ * PARAMS
+ *  pszContainerName [I] Name of the container to be opened.  May be the empty
+ *                       string if the parent key of all containers is to be
+ *                       opened.
+ *  dwFlags          [I] Flags indicating which keyset to be opened.
+ *  phKey            [O] Returned key
+ */
+static BOOL open_container_key(LPCSTR pszContainerName, DWORD dwFlags, HKEY *phKey)
+{
+    CHAR szRSABase[MAX_PATH];
+    HKEY hRootKey;
+
+    sprintf(szRSABase, RSAENH_REGKEY, pszContainerName);
+
+    if (dwFlags & CRYPT_MACHINE_KEYSET)
+        hRootKey = HKEY_LOCAL_MACHINE;
+    else
+        hRootKey = HKEY_CURRENT_USER;
+
+    /* @@ Wine registry key: HKLM\Software\Wine\Crypto\RSA */
+    /* @@ Wine registry key: HKCU\Software\Wine\Crypto\RSA */
+    return RegOpenKeyExA(hRootKey, szRSABase, 0, KEY_READ, phKey) ==
+                         ERROR_SUCCESS;
+}
+
+/******************************************************************************
+ * delete_container_key [Internal]
+ *
+ * Deletes a key container's persistent storage.
+ *
+ * PARAMS
+ *  pszContainerName [I] Name of the container to be opened.
+ *  dwFlags          [I] Flags indicating which keyset to be opened.
+ */
+static BOOL delete_container_key(LPCSTR pszContainerName, DWORD dwFlags)
+{
+    CHAR szRegKey[MAX_PATH];
+
+    if (snprintf(szRegKey, MAX_PATH, RSAENH_REGKEY, pszContainerName) >= MAX_PATH) {
+        SetLastError(NTE_BAD_KEYSET_PARAM);
+        return FALSE;
+    } else {
+        HKEY hRootKey;
+        if (dwFlags & CRYPT_MACHINE_KEYSET)
+            hRootKey = HKEY_LOCAL_MACHINE;
+        else
+            hRootKey = HKEY_CURRENT_USER;
+        if (!RegDeleteKeyA(hRootKey, szRegKey)) {
+            SetLastError(ERROR_SUCCESS);
+            return TRUE;
+        } else {
+            SetLastError(NTE_BAD_KEYSET);
+            return FALSE;
+        }
+    }
+}
+
+/******************************************************************************
+ * store_key_container_keys [Internal]
+ *
+ * Stores key container's keys in a persistent location.
+ *
+ * PARAMS
+ *  pKeyContainer [I] Pointer to the key container whose keys are to be saved
+ */
+static void store_key_container_keys(KEYCONTAINER *pKeyContainer)
+{
+    HKEY hKey;
+    DWORD dwFlags;
+
+    /* On WinXP, persistent keys are stored in a file located at:
+     * $AppData$\\Microsoft\\Crypto\\RSA\\$SID$\\some_hex_string
+     */
+
+    if (pKeyContainer->dwFlags & CRYPT_MACHINE_KEYSET)
+        dwFlags = CRYPTPROTECT_LOCAL_MACHINE;
+    else
+        dwFlags = 0;
+
+    if (create_container_key(pKeyContainer, KEY_WRITE, &hKey))
+    {
+        store_key_pair(pKeyContainer->hKeyExchangeKeyPair, hKey,
+                       "KeyExchangeKeyPair", dwFlags);
+        store_key_pair(pKeyContainer->hSignatureKeyPair, hKey,
+                       "SignatureKeyPair", dwFlags);
+        RegCloseKey(hKey);
+    }
+}
+
+/******************************************************************************
  * destroy_key_container [Internal]
  *
  * Destructor for key containers.
- * 
+ *
  * PARAMS
  *  pObjectHdr [I] Pointer to the key container to be destroyed.
  */
 static void destroy_key_container(OBJECTHDR *pObjectHdr)
 {
     KEYCONTAINER *pKeyContainer = (KEYCONTAINER*)pObjectHdr;
-    DATA_BLOB blobIn, blobOut;
-    CRYPTKEY *pKey;
-    CHAR szRSABase[MAX_PATH];
-    HKEY hKey, hRootKey;
-    DWORD dwLen;
-    BYTE *pbKey;
 
-    if (!(pKeyContainer->dwFlags & CRYPT_VERIFYCONTEXT)) {
-        /* On WinXP, persistent keys are stored in a file located at: 
-         * $AppData$\\Microsoft\\Crypto\\RSA\\$SID$\\some_hex_string 
-         */
-        sprintf(szRSABase, RSAENH_REGKEY, pKeyContainer->szName);
-
-        if (pKeyContainer->dwFlags & CRYPT_MACHINE_KEYSET) {
-            hRootKey = HKEY_LOCAL_MACHINE;
-        } else {
-            hRootKey = HKEY_CURRENT_USER;
-        }
-        
-        /* @@ Wine registry key: HKLM\Software\Wine\Crypto\RSA */
-        /* @@ Wine registry key: HKCU\Software\Wine\Crypto\RSA */
-        if (RegCreateKeyExA(hRootKey, szRSABase, 0, NULL, REG_OPTION_NON_VOLATILE, 
-                            KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS)
-        {
-            if (lookup_handle(&handle_table, pKeyContainer->hKeyExchangeKeyPair, RSAENH_MAGIC_KEY, 
-                              (OBJECTHDR**)&pKey))
-            {
-                if (RSAENH_CPExportKey(pKey->hProv, pKeyContainer->hKeyExchangeKeyPair, 0, 
-                                       PRIVATEKEYBLOB, 0, 0, &dwLen)) 
-                {
-                    pbKey = HeapAlloc(GetProcessHeap(), 0, dwLen);
-                    if (pbKey) 
-                    {
-                        if (RSAENH_CPExportKey(pKey->hProv, pKeyContainer->hKeyExchangeKeyPair, 0,
-                                               PRIVATEKEYBLOB, 0, pbKey, &dwLen))
-                        {
-                            blobIn.pbData = pbKey;
-                            blobIn.cbData = dwLen;
-                                    
-                            if (CryptProtectData(&blobIn, NULL, NULL, NULL, NULL, 
-                                 (pKeyContainer->dwFlags & CRYPT_MACHINE_KEYSET) ? 
-                                   CRYPTPROTECT_LOCAL_MACHINE : 0, 
-                                 &blobOut)) 
-                            {
-                                RegSetValueExA(hKey, "KeyExchangeKeyPair", 0, REG_BINARY,
-                                               blobOut.pbData, blobOut.cbData);
-                                HeapFree(GetProcessHeap(), 0, blobOut.pbData);
-                            }
-                        }
-                        HeapFree(GetProcessHeap(), 0, pbKey);
-                    }
-                }
-                release_handle(&handle_table, pKeyContainer->hKeyExchangeKeyPair,
-                               RSAENH_MAGIC_KEY);
-            }
-
-            if (lookup_handle(&handle_table, pKeyContainer->hSignatureKeyPair, RSAENH_MAGIC_KEY, 
-                              (OBJECTHDR**)&pKey))
-            {
-                if (RSAENH_CPExportKey(pKey->hProv, pKeyContainer->hSignatureKeyPair, 0, 
-                                       PRIVATEKEYBLOB, 0, 0, &dwLen)) 
-                {
-                    pbKey = HeapAlloc(GetProcessHeap(), 0, dwLen);
-                    if (pbKey) 
-                    {
-                        if (RSAENH_CPExportKey(pKey->hProv, pKeyContainer->hSignatureKeyPair, 0, 
-                                               PRIVATEKEYBLOB, 0, pbKey, &dwLen))
-                        {
-                            blobIn.pbData = pbKey;
-                            blobIn.cbData = dwLen;
-                                    
-                            if (CryptProtectData(&blobIn, NULL, NULL, NULL, NULL, 
-                                 (pKeyContainer->dwFlags & CRYPT_MACHINE_KEYSET) ? 
-                                   CRYPTPROTECT_LOCAL_MACHINE : 0, 
-                                 &blobOut)) 
-                            {
-                                RegSetValueExA(hKey, "SignatureKeyPair", 0, REG_BINARY, 
-                                               blobOut.pbData, blobOut.cbData);
-                                HeapFree(GetProcessHeap(), 0, blobOut.pbData);
-                            }
-                        }
-                        HeapFree(GetProcessHeap(), 0, pbKey);
-                    }
-                }
-                release_handle(&handle_table, pKeyContainer->hSignatureKeyPair,
-                               RSAENH_MAGIC_KEY);
-            }
-        
-            RegCloseKey(hKey);
-        }
-    }
-    
+    if (!(pKeyContainer->dwFlags & CRYPT_VERIFYCONTEXT))
+        store_key_container_keys(pKeyContainer);
     HeapFree( GetProcessHeap(), 0, pKeyContainer );
 }
 
@@ -974,13 +1089,13 @@ static void destroy_key_container(OBJECTHDR *pObjectHdr)
  *  Success: Handle to the new key container.
  *  Failure: INVALID_HANDLE_VALUE
  */
-static HCRYPTPROV new_key_container(PCCH pszContainerName, DWORD dwFlags, PVTableProvStruc pVTable)
+static HCRYPTPROV new_key_container(PCCH pszContainerName, DWORD dwFlags, const VTableProvStruc *pVTable)
 {
     KEYCONTAINER *pKeyContainer;
     HCRYPTPROV hKeyContainer;
 
-    hKeyContainer = (HCRYPTPROV)new_object(&handle_table, sizeof(KEYCONTAINER), RSAENH_MAGIC_CONTAINER,
-                                           destroy_key_container, (OBJECTHDR**)&pKeyContainer);
+    hKeyContainer = new_object(&handle_table, sizeof(KEYCONTAINER), RSAENH_MAGIC_CONTAINER,
+                               destroy_key_container, (OBJECTHDR**)&pKeyContainer);
     if (hKeyContainer != (HCRYPTPROV)INVALID_HANDLE_VALUE)
     {
         lstrcpynA(pKeyContainer->szName, pszContainerName, MAX_PATH);
@@ -996,6 +1111,8 @@ static HCRYPTPROV new_key_container(PCCH pszContainerName, DWORD dwFlags, PVTabl
                 pKeyContainer->dwPersonality = RSAENH_PERSONALITY_ENHANCED;
             } else if (!strcmp(pVTable->pszProvName, MS_DEF_RSA_SCHANNEL_PROV_A)) { 
                 pKeyContainer->dwPersonality = RSAENH_PERSONALITY_SCHANNEL;
+            } else if (!strcmp(pVTable->pszProvName, MS_ENH_RSA_AES_PROV_A)) {
+                pKeyContainer->dwPersonality = RSAENH_PERSONALITY_AES;
             } else {
                 pKeyContainer->dwPersonality = RSAENH_PERSONALITY_STRONG;
             }
@@ -1004,25 +1121,59 @@ static HCRYPTPROV new_key_container(PCCH pszContainerName, DWORD dwFlags, PVTabl
         /* The new key container has to be inserted into the CSP immediately 
          * after creation to be available for CPGetProvParam's PP_ENUMCONTAINERS. */
         if (!(dwFlags & CRYPT_VERIFYCONTEXT)) {
-            CHAR szRSABase[MAX_PATH];
-            HKEY hRootKey, hKey;
+            HKEY hKey;
 
-            sprintf(szRSABase, RSAENH_REGKEY, pKeyContainer->szName);
-
-            if (pKeyContainer->dwFlags & CRYPT_MACHINE_KEYSET) {
-                hRootKey = HKEY_LOCAL_MACHINE;
-            } else {
-                hRootKey = HKEY_CURRENT_USER;
-            }
-
-            /* @@ Wine registry key: HKLM\Software\Wine\Crypto\RSA */
-            /* @@ Wine registry key: HKCU\Software\Wine\Crypto\RSA */
-            RegCreateKeyA(hRootKey, szRSABase, &hKey);
-            RegCloseKey(hKey);
+            if (create_container_key(pKeyContainer, KEY_WRITE, &hKey))
+                RegCloseKey(hKey);
         }
     }
 
     return hKeyContainer;
+}
+
+/******************************************************************************
+ * read_key_value [Internal]
+ *
+ * Reads a key pair value from the registry
+ *
+ * PARAMS
+ *  hKeyContainer [I] Crypt provider to use to import the key
+ *  hKey          [I] Registry key from which to read the key pair
+ *  szValueName   [I] Registry value from which to read the key pair's value
+ *  dwFlags       [I] Flags for unprotecting the key
+ *  phCryptKey    [O] Returned key
+ */
+static BOOL read_key_value(HCRYPTPROV hKeyContainer, HKEY hKey, LPCSTR szValueName, DWORD dwFlags, HCRYPTKEY *phCryptKey)
+{
+    DWORD dwValueType, dwLen;
+    BYTE *pbKey;
+    DATA_BLOB blobIn, blobOut;
+    BOOL ret = FALSE;
+
+    if (RegQueryValueExA(hKey, szValueName, 0, &dwValueType, NULL, &dwLen) ==
+        ERROR_SUCCESS)
+    {
+        pbKey = HeapAlloc(GetProcessHeap(), 0, dwLen);
+        if (pbKey)
+        {
+            if (RegQueryValueExA(hKey, szValueName, 0, &dwValueType, pbKey, &dwLen) ==
+                ERROR_SUCCESS)
+            {
+                blobIn.pbData = pbKey;
+                blobIn.cbData = dwLen;
+
+                if (CryptUnprotectData(&blobIn, NULL, NULL, NULL, NULL,
+                    dwFlags, &blobOut))
+                {
+                    ret = RSAENH_CPImportKey(hKeyContainer, blobOut.pbData, blobOut.cbData, 0, 0,
+                                             phCryptKey);
+                    LocalFree(blobOut.pbData);
+                }
+            }
+            HeapFree(GetProcessHeap(), 0, pbKey);
+        }
+    }
+    return ret;
 }
 
 /******************************************************************************
@@ -1039,28 +1190,14 @@ static HCRYPTPROV new_key_container(PCCH pszContainerName, DWORD dwFlags, PVTabl
  *  Success: Handle to the key container read from the registry
  *  Failure: INVALID_HANDLE_VALUE
  */
-static HCRYPTPROV read_key_container(PCHAR pszContainerName, DWORD dwFlags, PVTableProvStruc pVTable)
+static HCRYPTPROV read_key_container(PCHAR pszContainerName, DWORD dwFlags, const VTableProvStruc *pVTable)
 {
-    CHAR szRSABase[MAX_PATH];
-    BYTE *pbKey;
-    HKEY hKey, hRootKey;
-    DWORD dwValueType, dwLen;
+    HKEY hKey;
     KEYCONTAINER *pKeyContainer;
     HCRYPTPROV hKeyContainer;
-    DATA_BLOB blobIn, blobOut;
     HCRYPTKEY hCryptKey;
 
-    sprintf(szRSABase, RSAENH_REGKEY, pszContainerName);
-
-    if (dwFlags & CRYPT_MACHINE_KEYSET) {
-        hRootKey = HKEY_LOCAL_MACHINE;
-    } else {
-        hRootKey = HKEY_CURRENT_USER;
-    }
-
-    /* @@ Wine registry key: HKLM\Software\Wine\Crypto\RSA */
-    /* @@ Wine registry key: HKCU\Software\Wine\Crypto\RSA */
-    if (RegOpenKeyExA(hRootKey, szRSABase, 0, KEY_READ, &hKey) != ERROR_SUCCESS)
+    if (!open_container_key(pszContainerName, dwFlags, &hKey))
     {
         SetLastError(NTE_BAD_KEYSET);
         return (HCRYPTPROV)INVALID_HANDLE_VALUE;
@@ -1069,59 +1206,19 @@ static HCRYPTPROV read_key_container(PCHAR pszContainerName, DWORD dwFlags, PVTa
     hKeyContainer = new_key_container(pszContainerName, dwFlags, pVTable);
     if (hKeyContainer != (HCRYPTPROV)INVALID_HANDLE_VALUE)
     {
+        DWORD dwProtectFlags = (dwFlags & CRYPT_MACHINE_KEYSET) ?
+            CRYPTPROTECT_LOCAL_MACHINE : 0;
+
         if (!lookup_handle(&handle_table, hKeyContainer, RSAENH_MAGIC_CONTAINER, 
                            (OBJECTHDR**)&pKeyContainer))
             return (HCRYPTPROV)INVALID_HANDLE_VALUE;
     
-        if (RegQueryValueExA(hKey, "KeyExchangeKeyPair", 0, &dwValueType, NULL, &dwLen) == 
-            ERROR_SUCCESS) 
-        {
-            pbKey = HeapAlloc(GetProcessHeap(), 0, dwLen);
-            if (pbKey) 
-            {
-                if (RegQueryValueExA(hKey, "KeyExchangeKeyPair", 0, &dwValueType, pbKey, &dwLen) ==
-                    ERROR_SUCCESS)
-                {
-                    blobIn.pbData = pbKey;
-                    blobIn.cbData = dwLen;
-
-                    if (CryptUnprotectData(&blobIn, NULL, NULL, NULL, NULL, 
-                         (dwFlags & CRYPT_MACHINE_KEYSET) ? CRYPTPROTECT_LOCAL_MACHINE : 0, &blobOut))
-                    {
-                        if(RSAENH_CPImportKey(hKeyContainer, blobOut.pbData, blobOut.cbData, 0, 0,
-                                           &hCryptKey))
-                            pKeyContainer->hKeyExchangeKeyPair = hCryptKey;
-                        HeapFree(GetProcessHeap(), 0, blobOut.pbData);
-                    }
-                }
-                HeapFree(GetProcessHeap(), 0, pbKey);
-            }
-        }
-
-        if (RegQueryValueExA(hKey, "SignatureKeyPair", 0, &dwValueType, NULL, &dwLen) == 
-            ERROR_SUCCESS) 
-        {
-            pbKey = HeapAlloc(GetProcessHeap(), 0, dwLen);
-            if (pbKey) 
-            {
-                if (RegQueryValueExA(hKey, "SignatureKeyPair", 0, &dwValueType, pbKey, &dwLen) == 
-                    ERROR_SUCCESS)
-                {
-                    blobIn.pbData = pbKey;
-                    blobIn.cbData = dwLen;
-
-                    if (CryptUnprotectData(&blobIn, NULL, NULL, NULL, NULL, 
-                         (dwFlags & CRYPT_MACHINE_KEYSET) ? CRYPTPROTECT_LOCAL_MACHINE : 0, &blobOut))
-                    {
-                        if(RSAENH_CPImportKey(hKeyContainer, blobOut.pbData, blobOut.cbData, 0, 0,
-                                           &hCryptKey))
-                            pKeyContainer->hSignatureKeyPair = hCryptKey;
-                        HeapFree(GetProcessHeap(), 0, blobOut.pbData);
-                    }
-                }
-                HeapFree(GetProcessHeap(), 0, pbKey);
-            }
-        }
+        if (read_key_value(hKeyContainer, hKey, "KeyExchangeKeyPair",
+            dwProtectFlags, &hCryptKey))
+            pKeyContainer->hKeyExchangeKeyPair = hCryptKey;
+        if (read_key_value(hKeyContainer, hKey, "SignatureKeyPair",
+            dwProtectFlags, &hCryptKey))
+            pKeyContainer->hSignatureKeyPair = hCryptKey;
     }
 
     return hKeyContainer;
@@ -1448,7 +1545,6 @@ BOOL WINAPI RSAENH_CPAcquireContext(HCRYPTPROV *phProv, LPSTR pszContainer,
                    DWORD dwFlags, PVTableProvStruc pVTable)
 {
     CHAR szKeyContainerName[MAX_PATH];
-    CHAR szRegKey[MAX_PATH];
 
     TRACE("(phProv=%p, pszContainer=%s, dwFlags=%08x, pVTable=%p)\n", phProv,
           debugstr_a(pszContainer), dwFlags, pVTable);
@@ -1470,24 +1566,7 @@ BOOL WINAPI RSAENH_CPAcquireContext(HCRYPTPROV *phProv, LPSTR pszContainer,
             break;
 
         case CRYPT_DELETEKEYSET:
-            if (snprintf(szRegKey, MAX_PATH, RSAENH_REGKEY, szKeyContainerName) >= MAX_PATH) {
-                SetLastError(NTE_BAD_KEYSET_PARAM);
-                return FALSE;
-            } else {
-                HKEY hRootKey;
-                if (dwFlags & CRYPT_MACHINE_KEYSET)
-                    hRootKey = HKEY_LOCAL_MACHINE;
-                else
-                    hRootKey = HKEY_CURRENT_USER;
-                if (!RegDeleteKeyA(hRootKey, szRegKey)) {
-                    SetLastError(ERROR_SUCCESS);
-                    return TRUE;
-                } else {
-                    SetLastError(NTE_BAD_KEYSET);
-                    return FALSE;
-                }
-            }
-            break;
+            return delete_container_key(szKeyContainerName, dwFlags);
 
         case CRYPT_NEWKEYSET:
             *phProv = read_key_container(szKeyContainerName, dwFlags, pVTable);
@@ -1503,8 +1582,8 @@ BOOL WINAPI RSAENH_CPAcquireContext(HCRYPTPROV *phProv, LPSTR pszContainer,
 
         case CRYPT_VERIFYCONTEXT|CRYPT_NEWKEYSET:
         case CRYPT_VERIFYCONTEXT:
-            if (pszContainer) {
-                TRACE("pszContainer should be NULL\n");
+            if (pszContainer && *pszContainer) {
+                TRACE("pszContainer should be empty\n");
                 SetLastError(NTE_BAD_FLAGS);
                 return FALSE;
             }
@@ -1590,10 +1669,10 @@ BOOL WINAPI RSAENH_CPCreateHash(HCRYPTPROV hProv, ALG_ID Algid, HCRYPTKEY hKey, 
         }
     }
 
-    *phHash = (HCRYPTHASH)new_object(&handle_table, sizeof(CRYPTHASH), RSAENH_MAGIC_HASH,
-                                     destroy_hash, (OBJECTHDR**)&pCryptHash);
+    *phHash = new_object(&handle_table, sizeof(CRYPTHASH), RSAENH_MAGIC_HASH,
+                         destroy_hash, (OBJECTHDR**)&pCryptHash);
     if (!pCryptHash) return FALSE;
-    
+
     pCryptHash->aiAlgid = Algid;
     pCryptHash->hKey = hKey;
     pCryptHash->hProv = hProv;
@@ -1754,11 +1833,11 @@ BOOL WINAPI RSAENH_CPDuplicateHash(HCRYPTPROV hUID, HCRYPTHASH hHash, DWORD *pdw
         return FALSE;
     }
 
-    *phHash = (HCRYPTHASH)new_object(&handle_table, sizeof(CRYPTHASH), RSAENH_MAGIC_HASH, 
-                                     destroy_hash, (OBJECTHDR**)&pDestHash);
+    *phHash = new_object(&handle_table, sizeof(CRYPTHASH), RSAENH_MAGIC_HASH,
+                         destroy_hash, (OBJECTHDR**)&pDestHash);
     if (*phHash != (HCRYPTHASH)INVALID_HANDLE_VALUE)
     {
-        memcpy(pDestHash, pSrcHash, sizeof(CRYPTHASH));
+        *pDestHash = *pSrcHash;
         duplicate_hash_impl(pSrcHash->aiAlgid, &pSrcHash->context, &pDestHash->context);
         copy_hmac_info(&pDestHash->pHMACInfo, pSrcHash->pHMACInfo);
         copy_data_blob(&pDestHash->tpPRFParams.blobLabel, &pSrcHash->tpPRFParams.blobLabel);
@@ -1810,11 +1889,11 @@ BOOL WINAPI RSAENH_CPDuplicateKey(HCRYPTPROV hUID, HCRYPTKEY hKey, DWORD *pdwRes
         return FALSE;
     }
 
-    *phKey = (HCRYPTKEY)new_object(&handle_table, sizeof(CRYPTKEY), RSAENH_MAGIC_KEY, destroy_key, 
-                                   (OBJECTHDR**)&pDestKey);
+    *phKey = new_object(&handle_table, sizeof(CRYPTKEY), RSAENH_MAGIC_KEY, destroy_key,
+                        (OBJECTHDR**)&pDestKey);
     if (*phKey != (HCRYPTKEY)INVALID_HANDLE_VALUE)
     {
-        memcpy(pDestKey, pSrcKey, sizeof(CRYPTKEY));
+        *pDestKey = *pSrcKey;
         copy_data_blob(&pDestKey->siSChannelInfo.blobServerRandom,
                        &pSrcKey->siSChannelInfo.blobServerRandom);
         copy_data_blob(&pDestKey->siSChannelInfo.blobClientRandom, 
@@ -1907,16 +1986,16 @@ BOOL WINAPI RSAENH_CPEncrypt(HCRYPTPROV hProv, HCRYPTKEY hKey, HCRYPTHASH hHash,
             *pdwDataLen = dwEncryptedLen;
             return TRUE;
         }
-
-        for (i=*pdwDataLen; i<dwEncryptedLen && i<dwBufLen; i++) pbData[i] = dwEncryptedLen - *pdwDataLen;
-        *pdwDataLen = dwEncryptedLen; 
-
-        if (*pdwDataLen > dwBufLen) 
-        {
+        else if (dwEncryptedLen > dwBufLen) {
+            *pdwDataLen = dwEncryptedLen;
             SetLastError(ERROR_MORE_DATA);
             return FALSE;
         }
-    
+
+        /* Pad final block with length bytes */
+        for (i=*pdwDataLen; i<dwEncryptedLen; i++) pbData[i] = dwEncryptedLen - *pdwDataLen;
+        *pdwDataLen = dwEncryptedLen;
+
         for (i=0, in=pbData; i<*pdwDataLen; i+=pCryptKey->dwBlockLen, in+=pCryptKey->dwBlockLen) {
             switch (pCryptKey->dwMode) {
                 case CRYPT_MODE_ECB:
@@ -2035,9 +2114,9 @@ BOOL WINAPI RSAENH_CPDecrypt(HCRYPTPROV hProv, HCRYPTKEY hKey, HCRYPTHASH hHash,
     }
 
     if (pCryptKey->dwState == RSAENH_KEYSTATE_IDLE) 
-        pCryptKey->dwState = RSAENH_KEYSTATE_DECRYPTING;
+        pCryptKey->dwState = RSAENH_KEYSTATE_ENCRYPTING;
 
-    if (pCryptKey->dwState != RSAENH_KEYSTATE_DECRYPTING)
+    if (pCryptKey->dwState != RSAENH_KEYSTATE_ENCRYPTING)
     {
         SetLastError(NTE_BAD_DATA);
         return FALSE;
@@ -2077,7 +2156,28 @@ BOOL WINAPI RSAENH_CPDecrypt(HCRYPTPROV hProv, HCRYPTKEY hKey, HCRYPTHASH hHash,
             }
             memcpy(in, out, pCryptKey->dwBlockLen);
         }
-        if (Final) *pdwDataLen -= pbData[*pdwDataLen-1]; 
+        if (Final) {
+            if (pbData[*pdwDataLen-1] &&
+             pbData[*pdwDataLen-1] <= pCryptKey->dwBlockLen &&
+             pbData[*pdwDataLen-1] < *pdwDataLen) {
+                BOOL padOkay = TRUE;
+
+                /* check that every bad byte has the same value */
+                for (i = 1; padOkay && i < pbData[*pdwDataLen-1]; i++)
+                    if (pbData[*pdwDataLen - i - 1] != pbData[*pdwDataLen - 1])
+                        padOkay = FALSE;
+                if (padOkay)
+                    *pdwDataLen -= pbData[*pdwDataLen-1];
+                else {
+                    SetLastError(NTE_BAD_DATA);
+                    return FALSE;
+                }
+            }
+            else {
+                SetLastError(NTE_BAD_DATA);
+                return FALSE;
+            }
+        }
 
     } else if (GET_ALG_TYPE(pCryptKey->aiAlgid) == ALG_TYPE_STREAM) {
         encrypt_stream_impl(pCryptKey->aiAlgid, &pCryptKey->context, pbData, *pdwDataLen);
@@ -2494,6 +2594,10 @@ BOOL WINAPI RSAENH_CPGenKey(HCRYPTPROV hProv, ALG_ID Algid, DWORD dwFlags, HCRYP
         case CALG_DES:
         case CALG_3DES_112:
         case CALG_3DES:
+        case CALG_AES:
+        case CALG_AES_128:
+        case CALG_AES_192:
+        case CALG_AES_256:
         case CALG_PCT1_MASTER:
         case CALG_SSL2_MASTER:
         case CALG_SSL3_MASTER:
@@ -2693,6 +2797,14 @@ BOOL WINAPI RSAENH_CPSetKeyParam(HCRYPTPROV hProv, HCRYPTKEY hKey, DWORD dwParam
     }
     
     switch (dwParam) {
+        case KP_PADDING:
+            /* The MS providers only support PKCS5_PADDING */
+            if (*(DWORD *)pbData != PKCS5_PADDING) {
+                SetLastError(NTE_BAD_DATA);
+                return FALSE;
+            }
+            return TRUE;
+
         case KP_MODE:
             pCryptKey->dwMode = *(DWORD*)pbData;
             return TRUE;
@@ -2707,6 +2819,49 @@ BOOL WINAPI RSAENH_CPSetKeyParam(HCRYPTPROV hProv, HCRYPTKEY hKey, DWORD dwParam
 
         case KP_IV:
             memcpy(pCryptKey->abInitVector, pbData, pCryptKey->dwBlockLen);
+            setup_key(pCryptKey);
+            return TRUE;
+
+        case KP_SALT_EX:
+        {
+            CRYPT_INTEGER_BLOB *blob = (CRYPT_INTEGER_BLOB *)pbData;
+
+            /* salt length can't be greater than 128 bits = 16 bytes */
+            if (blob->cbData > 16)
+            {
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return FALSE;
+            }
+            memcpy(pCryptKey->abKeyValue + pCryptKey->dwKeyLen, blob->pbData,
+                   blob->cbData);
+            pCryptKey->dwSaltLen = blob->cbData;
+            setup_key(pCryptKey);
+            return TRUE;
+        }
+
+        case KP_EFFECTIVE_KEYLEN:
+            switch (pCryptKey->aiAlgid) {
+                case CALG_RC2:
+                    if (!pbData)
+                    {
+                        SetLastError(ERROR_INVALID_PARAMETER);
+                        return FALSE;
+                    }
+                    else if (!*(DWORD *)pbData || *(DWORD *)pbData > 1024)
+                    {
+                        SetLastError(NTE_BAD_DATA);
+                        return FALSE;
+                    }
+                    else
+                    {
+                        pCryptKey->dwEffectiveKeyLen = *(DWORD *)pbData;
+                        setup_key(pCryptKey);
+                    }
+                    break;
+                default:
+                    SetLastError(NTE_BAD_TYPE);
+                    return FALSE;
+            }
             return TRUE;
 
         case KP_SCHANNEL_ALG:
@@ -2770,7 +2925,7 @@ BOOL WINAPI RSAENH_CPGetKeyParam(HCRYPTPROV hProv, HCRYPTKEY hKey, DWORD dwParam
                                  DWORD *pdwDataLen, DWORD dwFlags)
 {
     CRYPTKEY *pCryptKey;
-    DWORD dwBitLen;
+    DWORD dwValue;
         
     TRACE("(hProv=%08lx, hKey=%08lx, dwParam=%08x, pbData=%p, pdwDataLen=%p dwFlags=%08x)\n",
           hProv, hKey, dwParam, pbData, pdwDataLen, dwFlags);
@@ -2802,13 +2957,24 @@ BOOL WINAPI RSAENH_CPGetKeyParam(HCRYPTPROV hProv, HCRYPTKEY hKey, DWORD dwParam
             return copy_param(pbData, pdwDataLen, 
                     (CONST BYTE*)&pCryptKey->abKeyValue[pCryptKey->dwKeyLen], pCryptKey->dwSaltLen);
         
+        case KP_PADDING:
+            dwValue = PKCS5_PADDING;
+            return copy_param(pbData, pdwDataLen, (CONST BYTE*)&dwValue, sizeof(DWORD));
+
         case KP_KEYLEN:
-            dwBitLen = pCryptKey->dwKeyLen << 3;
-            return copy_param(pbData, pdwDataLen, (CONST BYTE*)&dwBitLen, sizeof(DWORD));
+            dwValue = pCryptKey->dwKeyLen << 3;
+            return copy_param(pbData, pdwDataLen, (CONST BYTE*)&dwValue, sizeof(DWORD));
         
+        case KP_EFFECTIVE_KEYLEN:
+            if (pCryptKey->dwEffectiveKeyLen)
+                dwValue = pCryptKey->dwEffectiveKeyLen;
+            else
+                dwValue = pCryptKey->dwKeyLen << 3;
+            return copy_param(pbData, pdwDataLen, (CONST BYTE*)&dwValue, sizeof(DWORD));
+
         case KP_BLOCKLEN:
-            dwBitLen = pCryptKey->dwBlockLen << 3;
-            return copy_param(pbData, pdwDataLen, (CONST BYTE*)&dwBitLen, sizeof(DWORD));
+            dwValue = pCryptKey->dwBlockLen << 3;
+            return copy_param(pbData, pdwDataLen, (CONST BYTE*)&dwValue, sizeof(DWORD));
     
         case KP_MODE:
             return copy_param(pbData, pdwDataLen, (CONST BYTE*)&pCryptKey->dwMode, sizeof(DWORD));
@@ -2859,14 +3025,13 @@ BOOL WINAPI RSAENH_CPGetProvParam(HCRYPTPROV hProv, DWORD dwParam, BYTE *pbData,
     KEYCONTAINER *pKeyContainer;
     PROV_ENUMALGS provEnumalgs;
     DWORD dwTemp;
-    CHAR szRSABase[MAX_PATH];
-    HKEY hKey, hRootKey;
+    HKEY hKey;
    
-    /* This is for dwParam 41, which does not seem to be documented
-     * on MSDN. IE6 SP1 asks for it in the 'About' dialog, however.
+    /* This is for dwParam PP_CRYPT_COUNT_KEY_USE.
+     * IE6 SP1 asks for it in the 'About' dialog.
      * Returning this BLOB seems to satisfy IE. The marked 0x00 seem 
      * to be 'don't care's. If you know anything more specific about
-     * provider parameter 41, please report to wine-devel@winehq.org */
+     * this provider parameter, please report to wine-devel@winehq.org */
     static CONST BYTE abWTF[96] = { 
         0xb0, 0x25,     0x63,     0x86, 0x9c, 0xab,     0xb6,     0x37, 
         0xe8, 0x82, /**/0x00,/**/ 0x72, 0x06, 0xb2, /**/0x00,/**/ 0x3b, 
@@ -2946,15 +3111,7 @@ BOOL WINAPI RSAENH_CPGetProvParam(HCRYPTPROV hProv, DWORD dwParam, BYTE *pbData,
                 return TRUE;
             }
  
-            sprintf(szRSABase, RSAENH_REGKEY, "");
-
-            if (dwFlags & CRYPT_MACHINE_KEYSET) {
-                hRootKey = HKEY_LOCAL_MACHINE;
-            } else {
-                hRootKey = HKEY_CURRENT_USER;
-            }
-
-            if (RegOpenKeyExA(hRootKey, szRSABase, 0, KEY_READ, &hKey) != ERROR_SUCCESS)
+            if (!open_container_key("", dwFlags, &hKey))
             {
                 SetLastError(ERROR_NO_MORE_ITEMS);
                 return FALSE;
@@ -3018,7 +3175,7 @@ BOOL WINAPI RSAENH_CPGetProvParam(HCRYPTPROV hProv, DWORD dwParam, BYTE *pbData,
                                   sizeof(PROV_ENUMALGS_EX));
             }
 
-        case 41: /* Undocumented. Asked for by IE About dialog */
+        case PP_CRYPT_COUNT_KEY_USE: /* Asked for by IE About dialog */
             return copy_param(pbData, pdwDataLen, abWTF, sizeof(abWTF));
 
         default:
@@ -3665,7 +3822,7 @@ cleanup:
     return res;
 }
 
-static const WCHAR szProviderKeys[4][97] = {
+static const WCHAR szProviderKeys[5][104] = {
     {   'S','o','f','t','w','a','r','e','\\',
         'M','i','c','r','o','s','o','f','t','\\','C','r','y','p','t','o','g','r',
         'a','p','h','y','\\','D','e','f','a','u','l','t','s','\\','P','r','o','v',
@@ -3689,9 +3846,14 @@ static const WCHAR szProviderKeys[4][97] = {
         'C','r','y','p','t','o','g','r','a','p','h','y','\\','D','e','f','a','u','l','t','s','\\',
         'P','r','o','v','i','d','e','r','\\','M','i','c','r','o','s','o','f','t',' ',
         'R','S','A',' ','S','C','h','a','n','n','e','l',' ',
+        'C','r','y','p','t','o','g','r','a','p','h','i','c',' ','P','r','o','v','i','d','e','r',0 },
+    {   'S','o','f','t','w','a','r','e','\\','M','i','c','r','o','s','o','f','t','\\',
+        'C','r','y','p','t','o','g','r','a','p','h','y','\\','D','e','f','a','u','l','t','s','\\',
+        'P','r','o','v','i','d','e','r','\\','M','i','c','r','o','s','o','f','t',' ',
+        'E','n','h','a','n','c','e','d',' ','R','S','A',' ','a','n','d',' ','A','E','S',' ',
         'C','r','y','p','t','o','g','r','a','p','h','i','c',' ','P','r','o','v','i','d','e','r',0 }
 };
-static const WCHAR szDefaultKeys[2][65] = {
+static const WCHAR szDefaultKeys[3][65] = {
     {   'S','o','f','t','w','a','r','e','\\',
         'M','i','c','r','o','s','o','f','t','\\','C','r','y','p','t','o','g','r',
         'a','p','h','y','\\','D','e','f','a','u','l','t','s','\\','P','r','o','v',
@@ -3699,7 +3861,11 @@ static const WCHAR szDefaultKeys[2][65] = {
     {   'S','o','f','t','w','a','r','e','\\',
         'M','i','c','r','o','s','o','f','t','\\','C','r','y','p','t','o','g','r',
         'a','p','h','y','\\','D','e','f','a','u','l','t','s','\\','P','r','o','v',
-        'i','d','e','r',' ','T','y','p','e','s','\\','T','y','p','e',' ','0','1','2',0 }
+        'i','d','e','r',' ','T','y','p','e','s','\\','T','y','p','e',' ','0','1','2',0 },
+    {   'S','o','f','t','w','a','r','e','\\',
+        'M','i','c','r','o','s','o','f','t','\\','C','r','y','p','t','o','g','r',
+        'a','p','h','y','\\','D','e','f','a','u','l','t','s','\\','P','r','o','v',
+        'i','d','e','r',' ','T','y','p','e','s','\\','T','y','p','e',' ','0','2','4',0 }
 };
 
 
@@ -3731,7 +3897,7 @@ HRESULT WINAPI DllRegisterServer(void)
     long apiRet;
     int i;
 
-    for (i=0; i<4; i++) {
+    for (i=0; i<5; i++) {
         apiRet = RegCreateKeyExW(HKEY_LOCAL_MACHINE, szProviderKeys[i], 0, NULL,
             REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &key, &dp);
 
@@ -3743,8 +3909,21 @@ HRESULT WINAPI DllRegisterServer(void)
                 static const WCHAR szRSABase[] = { 'r','s','a','e','n','h','.','d','l','l',0 };
                 static const WCHAR szType[] = { 'T','y','p','e',0 };
                 static const WCHAR szSignature[] = { 'S','i','g','n','a','t','u','r','e',0 };
-                DWORD type = (i == 3) ? PROV_RSA_SCHANNEL : PROV_RSA_FULL;
-                DWORD sign = 0xdeadbeef;
+                DWORD type, sign;
+
+                switch(i)
+                {
+                    case 3:
+                        type=PROV_RSA_SCHANNEL;
+                        break;
+                    case 4:
+                        type=PROV_RSA_AES;
+                        break;
+                    default:
+                        type=PROV_RSA_FULL;
+                        break;
+                }
+                sign = 0xdeadbeef;
                 RegSetValueExW(key, szImagePath, 0, REG_SZ, (const BYTE *)szRSABase,
                                (lstrlenW(szRSABase) + 1) * sizeof(WCHAR));
                 RegSetValueExW(key, szType, 0, REG_DWORD, (LPBYTE)&type, sizeof(type));
@@ -3754,30 +3933,35 @@ HRESULT WINAPI DllRegisterServer(void)
         }
     }
     
-    for (i=0; i<2; i++) {
-        apiRet = RegCreateKeyExW(HKEY_LOCAL_MACHINE, szDefaultKeys[i], 0, NULL, 
+    for (i=0; i<3; i++) {
+        apiRet = RegCreateKeyExW(HKEY_LOCAL_MACHINE, szDefaultKeys[i], 0, NULL,
                                  REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &key, &dp);
         if (apiRet == ERROR_SUCCESS)
         {
             if (dp == REG_CREATED_NEW_KEY)
             {
                 static const WCHAR szName[] = { 'N','a','m','e',0 };
-                static const WCHAR szRSAName[2][46] = {
+                static const WCHAR szRSAName[3][54] = {
                   { 'M','i','c','r','o','s','o','f','t',' ', 'B','a','s','e',' ',
                     'C','r','y','p','t','o','g','r','a','p','h','i','c',' ', 
                     'P','r','o','v','i','d','e','r',' ','v','1','.','0',0 },
                   { 'M','i','c','r','o','s','o','f','t',' ','R','S','A',' ',
                     'S','C','h','a','n','n','e','l',' ',
                     'C','r','y','p','t','o','g','r','a','p','h','i','c',' ',
+                    'P','r','o','v','i','d','e','r',0 },
+                  { 'M','i','c','r','o','s','o','f','t',' ','E','n','h','a','n','c','e','d',' ',
+                    'R','S','A',' ','a','n','d',' ','A','E','S',' ',
+                    'C','r','y','p','t','o','g','r','a','p','h','i','c',' ',
                     'P','r','o','v','i','d','e','r',0 } };
                 static const WCHAR szTypeName[] = { 'T','y','p','e','N','a','m','e',0 };
-                static const WCHAR szRSATypeName[2][38] = { 
+                static const WCHAR szRSATypeName[3][38] = {
                   { 'R','S','A',' ','F','u','l','l',' ',
                        '(','S','i','g','n','a','t','u','r','e',' ','a','n','d',' ',
                     'K','e','y',' ','E','x','c','h','a','n','g','e',')',0 },
-                  { 'R','S','A',' ','S','C','h','a','n','n','e','l',0 } };
+                  { 'R','S','A',' ','S','C','h','a','n','n','e','l',0 },
+                  { 'R','S','A',' ','F','u','l','l',' ','a','n','d',' ','A','E','S',0 } };
 
-                RegSetValueExW(key, szName, 0, REG_SZ, 
+                RegSetValueExW(key, szName, 0, REG_SZ,
                                 (const BYTE *)szRSAName[i], lstrlenW(szRSAName[i])*sizeof(WCHAR)+sizeof(WCHAR));
                 RegSetValueExW(key, szTypeName, 0, REG_SZ, 
                                 (const BYTE *)szRSATypeName[i], lstrlenW(szRSATypeName[i])*sizeof(WCHAR)+sizeof(WCHAR));
@@ -3808,7 +3992,9 @@ HRESULT WINAPI DllUnregisterServer(void)
     RegDeleteKeyW(HKEY_LOCAL_MACHINE, szProviderKeys[1]);
     RegDeleteKeyW(HKEY_LOCAL_MACHINE, szProviderKeys[2]);
     RegDeleteKeyW(HKEY_LOCAL_MACHINE, szProviderKeys[3]);
+    RegDeleteKeyW(HKEY_LOCAL_MACHINE, szProviderKeys[4]);
     RegDeleteKeyW(HKEY_LOCAL_MACHINE, szDefaultKeys[0]);
     RegDeleteKeyW(HKEY_LOCAL_MACHINE, szDefaultKeys[1]);
+    RegDeleteKeyW(HKEY_LOCAL_MACHINE, szDefaultKeys[2]);
     return S_OK;
 }

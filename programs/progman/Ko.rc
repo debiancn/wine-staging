@@ -3,7 +3,7 @@
  *
  * Copyright 1996 Ulrich Schmid
  * Copyright 2002 Sylvain Petreolle
- * Copyright 2006 YunSong Hwang
+ * Copyright 2006,2007 YunSong Hwang
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -22,7 +22,7 @@
 
 /* Menu */
 
-MAIN_MENU MENU LANGUAGE LANG_KOREAN, SUBLANG_NEUTRAL
+MAIN_MENU MENU LANGUAGE LANG_KOREAN, SUBLANG_DEFAULT
 {
 POPUP "파일(&F)" {
    MENUITEM "새 작업(&N)...",              PM_NEW
@@ -163,7 +163,7 @@ LANGUAGE LANG_KOREAN, SUBLANG_NEUTRAL
 STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "아이콘 바꾸기"
 {
-LTEXT     "파일 이름(&F):",    PM_ICON_FILE_TXT,    5, 15,  40, 10
+LTEXT     "파일이름(&F):",    PM_ICON_FILE_TXT,    5, 15,  40, 10
 EDITTEXT                         PM_ICON_FILE,       45, 15,  85, 15, WS_TABSTOP
 LTEXT     "현재 아이콘(&I):", PM_SYMBOL_LIST_TXT,  5, 30, 125, 10
 COMBOBOX                         PM_SYMBOL_LIST,      5, 40, 125, 50,

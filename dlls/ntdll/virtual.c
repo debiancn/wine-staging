@@ -41,6 +41,9 @@
 #ifdef HAVE_SYS_MMAN_H
 # include <sys/mman.h>
 #endif
+#ifdef HAVE_VALGRIND_MEMCHECK_H
+# include <valgrind/memcheck.h>
+#endif
 
 #define NONAMELESSUNION
 #define NONAMELESSSTRUCT
@@ -568,6 +571,19 @@ static BOOL VIRTUAL_SetProt( FILE_VIEW *view, /* [in] Pointer to view */
     TRACE("%p-%p %s\n",
           base, (char *)base + size - 1, VIRTUAL_GetProtStr( vprot ) );
 
+    /* if setting stack guard pages, store the permissions first, as the guard may be
+     * triggered at any point after mprotect and change the permissions again */
+    if ((vprot & VPROT_GUARD) &&
+        ((char *)base >= (char *)NtCurrentTeb()->DeallocationStack) &&
+        ((char *)base < (char *)NtCurrentTeb()->Tib.StackBase))
+    {
+        memset( view->prot + (((char *)base - (char *)view->base) >> page_shift),
+                vprot, size >> page_shift );
+        mprotect( base, size, unix_prot );
+        VIRTUAL_DEBUG_DUMP_VIEW( view );
+        return TRUE;
+    }
+
     if (force_exec_prot && (unix_prot & PROT_READ) && !(unix_prot & PROT_EXEC))
     {
         TRACE( "forcing exec permission on %p-%p\n", base, (char *)base + size - 1 );
@@ -824,7 +840,12 @@ static NTSTATUS map_file_into_view( struct file_view *view, int fd, size_t start
         /* page-aligned (EINVAL), or because the underlying filesystem */
         /* does not support mmap() (ENOEXEC,ENODEV), we do it by hand. */
         if ((errno != ENOEXEC) && (errno != EINVAL) && (errno != ENODEV)) return FILE_GetNtStatus();
-        if (shared_write) return FILE_GetNtStatus();  /* we cannot fake shared write mappings */
+        if (shared_write)  /* we cannot fake shared write mappings */
+        {
+            if (errno == EINVAL) return STATUS_INVALID_PARAMETER;
+            ERR( "shared writable mmap not supported, broken filesystem?\n" );
+            return STATUS_NOT_SUPPORTED;
+        }
     }
 
     /* Reserve the memory with an anonymous mmap */
@@ -855,76 +876,6 @@ static NTSTATUS decommit_pages( struct file_view *view, size_t start, size_t siz
         return STATUS_SUCCESS;
     }
     return FILE_GetNtStatus();
-}
-
-
-/***********************************************************************
- *           do_relocations
- *
- * Apply the relocations to a mapped PE image
- */
-static int do_relocations( char *base, const IMAGE_DATA_DIRECTORY *dir,
-                           int delta, SIZE_T total_size )
-{
-    IMAGE_BASE_RELOCATION *rel;
-
-    TRACE_(module)( "relocating from %p-%p to %p-%p\n",
-                    base - delta, base - delta + total_size, base, base + total_size );
-
-    for (rel = (IMAGE_BASE_RELOCATION *)(base + dir->VirtualAddress);
-         ((char *)rel < base + dir->VirtualAddress + dir->Size) && rel->SizeOfBlock;
-         rel = (IMAGE_BASE_RELOCATION*)((char*)rel + rel->SizeOfBlock) )
-    {
-        char *page = base + rel->VirtualAddress;
-        WORD *TypeOffset = (WORD *)(rel + 1);
-        int i, count = (rel->SizeOfBlock - sizeof(*rel)) / sizeof(*TypeOffset);
-
-        if (!count) continue;
-
-        /* sanity checks */
-        if ((char *)rel + rel->SizeOfBlock > base + dir->VirtualAddress + dir->Size)
-        {
-            ERR_(module)("invalid relocation %p,%x,%d at %p,%x,%x\n",
-                         rel, rel->VirtualAddress, rel->SizeOfBlock,
-                         base, dir->VirtualAddress, dir->Size );
-            return 0;
-        }
-
-        if (page > base + total_size)
-        {
-            WARN_(module)("skipping %d relocations for page %p beyond module %p-%p\n",
-                          count, page, base, base + total_size );
-            continue;
-        }
-
-        TRACE_(module)("%d relocations for page %x\n", count, rel->VirtualAddress);
-
-        /* patching in reverse order */
-        for (i = 0 ; i < count; i++)
-        {
-            int offset = TypeOffset[i] & 0xFFF;
-            int type = TypeOffset[i] >> 12;
-            switch(type)
-            {
-            case IMAGE_REL_BASED_ABSOLUTE:
-                break;
-            case IMAGE_REL_BASED_HIGH:
-                *(short*)(page+offset) += HIWORD(delta);
-                break;
-            case IMAGE_REL_BASED_LOW:
-                *(short*)(page+offset) += LOWORD(delta);
-                break;
-            case IMAGE_REL_BASED_HIGHLOW:
-                *(int*)(page+offset) += delta;
-                /* FIXME: if this is an exported address, fire up enhanced logic */
-                break;
-            default:
-                FIXME_(module)("Unknown/unsupported fixup type %d.\n", type);
-                break;
-            }
-        }
-    }
-    return 1;
 }
 
 
@@ -1034,16 +985,7 @@ static NTSTATUS map_image( HANDLE hmapping, int fd, char *base, SIZE_T total_siz
         VIRTUAL_SetProt( view, ptr, total_size,
                          VPROT_COMMITTED | VPROT_READ | VPROT_WRITECOPY | VPROT_EXEC );
 
-        /* perform relocations if necessary */
-        /* FIXME: not 100% compatible, Windows doesn't do this for non page-aligned binaries */
-        if (ptr != base)
-        {
-            const IMAGE_DATA_DIRECTORY *relocs;
-            relocs = &nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC];
-            if (relocs->VirtualAddress && relocs->Size)
-                do_relocations( ptr, relocs, ptr - base, total_size );
-        }
-
+        /* no relocations are performed on non page-aligned binaries */
         goto done;
     }
 
@@ -1142,29 +1084,35 @@ static NTSTATUS map_image( HANDLE hmapping, int fd, char *base, SIZE_T total_siz
 
     /* perform base relocation, if necessary */
 
-    if (ptr != base)
+    if (ptr != base &&
+        ((nt->FileHeader.Characteristics & IMAGE_FILE_DLL) ||
+          !NtCurrentTeb()->Peb->ImageBaseAddress) )
     {
+        int delta = ptr - base;
+        IMAGE_BASE_RELOCATION *rel, *end;
         const IMAGE_DATA_DIRECTORY *relocs;
 
-        relocs = &nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC];
         if (nt->FileHeader.Characteristics & IMAGE_FILE_RELOCS_STRIPPED)
         {
-            WARN( "Need to relocate module from addr %lx, but there are no relocation records\n",
-                  (ULONG_PTR)nt->OptionalHeader.ImageBase );
+            WARN_(module)( "Need to relocate module from %p to %p, but there are no relocation records\n",
+                           base, ptr );
             status = STATUS_CONFLICTING_ADDRESSES;
             goto error;
         }
 
-        /* FIXME: If we need to relocate a system DLL (base > 2GB) we should
-         *        really make sure that the *new* base address is also > 2GB.
-         *        Some DLLs really check the MSB of the module handle :-/
-         */
-        if ((nt->OptionalHeader.ImageBase & 0x80000000) && !((ULONG_PTR)base & 0x80000000))
-            ERR( "Forced to relocate system DLL (base > 2GB). This is not good.\n" );
+        TRACE_(module)( "relocating from %p-%p to %p-%p\n",
+                        base, base + total_size, ptr, ptr + total_size );
 
-        if (!do_relocations( ptr, relocs, ptr - base, total_size ))
+        relocs = &nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC];
+        rel = (IMAGE_BASE_RELOCATION *)(ptr + relocs->VirtualAddress);
+        end = (IMAGE_BASE_RELOCATION *)(ptr + relocs->VirtualAddress + relocs->Size);
+
+        while (rel < end && rel->SizeOfBlock)
         {
-            goto error;
+            rel = LdrProcessRelocationBlock( ptr + rel->VirtualAddress,
+                                             (rel->SizeOfBlock - sizeof(*rel)) / sizeof(USHORT),
+                                             (USHORT *)(rel + 1), delta );
+            if (!rel) goto error;
         }
     }
 
@@ -1246,6 +1194,55 @@ void virtual_init_threading(void)
 
 
 /***********************************************************************
+ *           virtual_alloc_thread_stack
+ */
+NTSTATUS virtual_alloc_thread_stack( void *base, SIZE_T size )
+{
+    FILE_VIEW *view;
+    NTSTATUS status;
+    sigset_t sigset;
+
+    server_enter_uninterrupted_section( &csVirtual, &sigset );
+
+    if (base)  /* already allocated, create a system view */
+    {
+        size = ROUND_SIZE( base, size );
+        base = ROUND_ADDR( base, page_mask );
+        if ((status = create_view( &view, base, size,
+                                   VPROT_READ | VPROT_WRITE | VPROT_COMMITTED )) != STATUS_SUCCESS)
+            goto done;
+        view->flags |= VFLAG_VALLOC | VFLAG_SYSTEM;
+    }
+    else
+    {
+        size = (size + 0xffff) & ~0xffff;  /* round to 64K boundary */
+        if ((status = map_view( &view, NULL, size, 0xffff, 0,
+                                VPROT_READ | VPROT_WRITE | VPROT_COMMITTED )) != STATUS_SUCCESS)
+            goto done;
+        view->flags |= VFLAG_VALLOC;
+#ifdef VALGRIND_STACK_REGISTER
+    /* no need to de-register the stack as it's the one of the main thread */
+        VALGRIND_STACK_REGISTER( view->base, (char *)view->base + view->size );
+#endif
+    }
+
+    /* setup no access guard page */
+    VIRTUAL_SetProt( view, view->base, page_size, VPROT_COMMITTED );
+    VIRTUAL_SetProt( view, (char *)view->base + page_size, page_size,
+                     VPROT_READ | VPROT_WRITE | VPROT_COMMITTED | VPROT_GUARD );
+
+    /* note: limit is lower than base since the stack grows down */
+    NtCurrentTeb()->DeallocationStack = view->base;
+    NtCurrentTeb()->Tib.StackBase     = (char *)view->base + view->size;
+    NtCurrentTeb()->Tib.StackLimit    = (char *)view->base + 2 * page_size;
+
+done:
+    server_leave_uninterrupted_section( &csVirtual, &sigset );
+    return status;
+}
+
+
+/***********************************************************************
  *           VIRTUAL_HandleFault
  */
 NTSTATUS VIRTUAL_HandleFault( LPCVOID addr )
@@ -1266,6 +1263,36 @@ NTSTATUS VIRTUAL_HandleFault( LPCVOID addr )
         }
     }
     server_leave_uninterrupted_section( &csVirtual, &sigset );
+    return ret;
+}
+
+
+
+/***********************************************************************
+ *           virtual_handle_stack_fault
+ *
+ * Handle an access fault inside the current thread stack.
+ * Called from inside a signal handler.
+ */
+BOOL virtual_handle_stack_fault( void *addr )
+{
+    FILE_VIEW *view;
+    BOOL ret = FALSE;
+
+    RtlEnterCriticalSection( &csVirtual );  /* no need for signal masking inside signal handler */
+    if ((view = VIRTUAL_FindView( addr )))
+    {
+        void *page = ROUND_ADDR( addr, page_mask );
+        BYTE vprot = view->prot[((const char *)page - (const char *)view->base) >> page_shift];
+        if (vprot & VPROT_GUARD)
+        {
+            VIRTUAL_SetProt( view, page, page_size, vprot & ~VPROT_GUARD );
+            if ((char *)page + page_size == NtCurrentTeb()->Tib.StackLimit)
+                NtCurrentTeb()->Tib.StackLimit = page;
+            ret = TRUE;
+        }
+    }
+    RtlLeaveCriticalSection( &csVirtual );
     return ret;
 }
 
@@ -1362,6 +1389,8 @@ NTSTATUS WINAPI NtAllocateVirtualMemory( HANDLE process, PVOID *ret, ULONG zero_
     {
         apc_call_t call;
         apc_result_t result;
+
+        memset( &call, 0, sizeof(call) );
 
         call.virtual_alloc.type      = APC_VIRTUAL_ALLOC;
         call.virtual_alloc.addr      = *ret;
@@ -1484,6 +1513,8 @@ NTSTATUS WINAPI NtFreeVirtualMemory( HANDLE process, PVOID *addr_ptr, SIZE_T *si
         apc_call_t call;
         apc_result_t result;
 
+        memset( &call, 0, sizeof(call) );
+
         call.virtual_free.type      = APC_VIRTUAL_FREE;
         call.virtual_free.addr      = addr;
         call.virtual_free.size      = size;
@@ -1579,6 +1610,8 @@ NTSTATUS WINAPI NtProtectVirtualMemory( HANDLE process, PVOID *addr_ptr, SIZE_T 
     {
         apc_call_t call;
         apc_result_t result;
+
+        memset( &call, 0, sizeof(call) );
 
         call.virtual_protect.type = APC_VIRTUAL_PROTECT;
         call.virtual_protect.addr = addr;
@@ -1680,6 +1713,8 @@ NTSTATUS WINAPI NtQueryVirtualMemory( HANDLE process, LPCVOID addr,
         NTSTATUS status;
         apc_call_t call;
         apc_result_t result;
+
+        memset( &call, 0, sizeof(call) );
 
         call.virtual_query.type = APC_VIRTUAL_QUERY;
         call.virtual_query.addr = addr;
@@ -1787,6 +1822,8 @@ NTSTATUS WINAPI NtLockVirtualMemory( HANDLE process, PVOID *addr, SIZE_T *size, 
         apc_call_t call;
         apc_result_t result;
 
+        memset( &call, 0, sizeof(call) );
+
         call.virtual_lock.type = APC_VIRTUAL_LOCK;
         call.virtual_lock.addr = *addr;
         call.virtual_lock.size = *size;
@@ -1822,6 +1859,8 @@ NTSTATUS WINAPI NtUnlockVirtualMemory( HANDLE process, PVOID *addr, SIZE_T *size
         apc_call_t call;
         apc_result_t result;
 
+        memset( &call, 0, sizeof(call) );
+
         call.virtual_unlock.type = APC_VIRTUAL_UNLOCK;
         call.virtual_unlock.addr = *addr;
         call.virtual_unlock.size = *size;
@@ -1855,10 +1894,21 @@ NTSTATUS WINAPI NtCreateSection( HANDLE *handle, ACCESS_MASK access, const OBJEC
     NTSTATUS ret;
     BYTE vprot;
     DWORD len = (attr && attr->ObjectName) ? attr->ObjectName->Length : 0;
+    struct security_descriptor *sd = NULL;
+    struct object_attributes objattr;
 
     /* Check parameters */
 
     if (len > MAX_PATH*sizeof(WCHAR)) return STATUS_NAME_TOO_LONG;
+
+    objattr.rootdir = attr ? attr->RootDirectory : 0;
+    objattr.sd_len = 0;
+    objattr.name_len = len;
+    if (attr)
+    {
+        ret = NTDLL_create_struct_sd( attr->SecurityDescriptor, &sd, &objattr.sd_len );
+        if (ret != STATUS_SUCCESS) return ret;
+    }
 
     vprot = VIRTUAL_GetProt( protect );
     if (sec_flags & SEC_RESERVE)
@@ -1875,16 +1925,19 @@ NTSTATUS WINAPI NtCreateSection( HANDLE *handle, ACCESS_MASK access, const OBJEC
     {
         req->access      = access;
         req->attributes  = (attr) ? attr->Attributes : 0;
-        req->rootdir     = attr ? attr->RootDirectory : 0;
         req->file_handle = file;
-        req->size_high   = size ? size->u.HighPart : 0;
-        req->size_low    = size ? size->u.LowPart : 0;
+        req->size        = size ? size->QuadPart : 0;
         req->protect     = vprot;
+        wine_server_add_data( req, &objattr, sizeof(objattr) );
+        if (objattr.sd_len) wine_server_add_data( req, sd, objattr.sd_len );
         if (len) wine_server_add_data( req, attr->ObjectName->Buffer, len );
         ret = wine_server_call( req );
         *handle = reply->handle;
     }
     SERVER_END_REQ;
+
+    NTDLL_free_struct_sd( sd );
+
     return ret;
 }
 
@@ -1922,13 +1975,14 @@ NTSTATUS WINAPI NtMapViewOfSection( HANDLE handle, HANDLE process, PVOID *addr_p
                                     SECTION_INHERIT inherit, ULONG alloc_type, ULONG protect )
 {
     NTSTATUS res;
+    ULONGLONG full_size;
     SIZE_T size = 0;
     SIZE_T mask = get_mask( zero_bits );
     int unix_handle = -1, needs_close;
     int prot;
     void *base;
     struct file_view *view;
-    DWORD size_low, size_high, header_size, shared_size;
+    DWORD header_size;
     HANDLE dup_mapping, shared_file;
     LARGE_INTEGER offset;
     sigset_t sigset;
@@ -1948,12 +2002,13 @@ NTSTATUS WINAPI NtMapViewOfSection( HANDLE handle, HANDLE process, PVOID *addr_p
         apc_call_t call;
         apc_result_t result;
 
+        memset( &call, 0, sizeof(call) );
+
         call.map_view.type        = APC_MAP_VIEW;
         call.map_view.handle      = handle;
         call.map_view.addr        = *addr_ptr;
         call.map_view.size        = *size_ptr;
-        call.map_view.offset_low  = offset.u.LowPart;
-        call.map_view.offset_high = offset.u.HighPart;
+        call.map_view.offset      = offset.QuadPart;
         call.map_view.zero_bits   = zero_bits;
         call.map_view.alloc_type  = alloc_type;
         call.map_view.prot        = protect;
@@ -1974,19 +2029,18 @@ NTSTATUS WINAPI NtMapViewOfSection( HANDLE handle, HANDLE process, PVOID *addr_p
         res = wine_server_call( req );
         prot        = reply->protect;
         base        = reply->base;
-        size_low    = reply->size_low;
-        size_high   = reply->size_high;
+        full_size   = reply->size;
         header_size = reply->header_size;
         dup_mapping = reply->mapping;
         shared_file = reply->shared_file;
-        shared_size = reply->shared_size;
     }
     SERVER_END_REQ;
     if (res) return res;
 
-    size = ((ULONGLONG)size_high << 32) | size_low;
-    if (sizeof(size) == sizeof(size_low) && size_high)
-        ERR( "Sizes larger than 4Gb (%x%08x) not supported on this platform\n", size_high, size_low );
+    size = full_size;
+    if (sizeof(size) < sizeof(full_size) && (size != full_size))
+        ERR( "Sizes larger than 4Gb (%x%08x) not supported on this platform\n",
+             (DWORD)(full_size >> 32), (DWORD)full_size );
 
     if ((res = server_get_unix_fd( handle, 0, &unix_handle, &needs_close, NULL, NULL ))) goto done;
 
@@ -2109,6 +2163,8 @@ NTSTATUS WINAPI NtUnmapViewOfSection( HANDLE process, PVOID addr )
         apc_call_t call;
         apc_result_t result;
 
+        memset( &call, 0, sizeof(call) );
+
         call.unmap_view.type = APC_UNMAP_VIEW;
         call.unmap_view.addr = addr;
         status = NTDLL_queue_process_apc( process, &call, &result );
@@ -2143,6 +2199,8 @@ NTSTATUS WINAPI NtFlushVirtualMemory( HANDLE process, LPCVOID *addr_ptr,
     {
         apc_call_t call;
         apc_result_t result;
+
+        memset( &call, 0, sizeof(call) );
 
         call.virtual_flush.type = APC_VIRTUAL_FLUSH;
         call.virtual_flush.addr = addr;
@@ -2212,4 +2270,16 @@ NTSTATUS WINAPI NtWriteVirtualMemory( HANDLE process, void *addr, const void *bu
     SERVER_END_REQ;
     if (bytes_written) *bytes_written = size;
     return status;
+}
+
+
+/***********************************************************************
+ *             NtAreMappedFilesTheSame   (NTDLL.@)
+ *             ZwAreMappedFilesTheSame   (NTDLL.@)
+ */
+NTSTATUS WINAPI NtAreMappedFilesTheSame(PVOID addr1, PVOID addr2)
+{
+    TRACE("%p %p\n", addr1, addr2);
+
+    return STATUS_NOT_SAME_DEVICE;
 }

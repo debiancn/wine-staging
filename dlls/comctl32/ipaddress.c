@@ -100,8 +100,7 @@ static INT IPADDRESS_IPNotify (const IPADDRESS_INFO *infoPtr, INT field, INT val
     nmip.iField = field;
     nmip.iValue = value;
 
-    SendMessageW (infoPtr->Notify, WM_NOTIFY,
-                  (WPARAM)nmip.hdr.idFrom, (LPARAM)&nmip);
+    SendMessageW (infoPtr->Notify, WM_NOTIFY, nmip.hdr.idFrom, (LPARAM)&nmip);
 
     TRACE("<-- %d\n", nmip.iValue);
 
@@ -546,7 +545,6 @@ IPADDRESS_WindowProc (HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
 	case WM_ENABLE:
 	    return IPADDRESS_Enable (infoPtr, (BOOL)wParam);
-	    break;
 
 	case WM_PAINT:
 	    return IPADDRESS_Paint (infoPtr, (HDC)wParam);

@@ -61,6 +61,8 @@ static LRESULT WINAPI shell_embedding_proc(HWND hwnd, UINT msg, WPARAM wParam, L
     switch(msg) {
     case WM_SIZE:
         return resize_window(This, LOWORD(lParam), HIWORD(lParam));
+    case WM_DOCHOSTTASK:
+        return process_dochost_task(&This->doc_host, lParam);
     }
 
     return DefWindowProcW(hwnd, msg, wParam, lParam);
@@ -166,7 +168,11 @@ static HRESULT activate_ui(WebBrowser *This, IOleClientSite *active_site)
     static const WCHAR wszitem[] = {'i','t','e','m',0};
 
     if(This->inplace)
+    {
+        if(This->shell_embedding_hwnd)
+            ShowWindow(This->shell_embedding_hwnd, SW_SHOW);
         return S_OK;
+    }
 
     hres = activate_inplace(This, active_site);
     if(FAILED(hres))
@@ -355,8 +361,11 @@ static HRESULT WINAPI OleObject_SetHostNames(IOleObject *iface, LPCOLESTR szCont
         LPCOLESTR szContainerObj)
 {
     WebBrowser *This = OLEOBJ_THIS(iface);
-    FIXME("(%p)->(%s, %s)\n", This, debugstr_w(szContainerApp), debugstr_w(szContainerObj));
-    return E_NOTIMPL;
+
+    TRACE("(%p)->(%s, %s)\n", This, debugstr_w(szContainerApp), debugstr_w(szContainerObj));
+
+    /* We have nothing to do here. */
+    return S_OK;
 }
 
 static HRESULT WINAPI OleObject_Close(IOleObject *iface, DWORD dwSaveOption)
@@ -416,6 +425,11 @@ static HRESULT WINAPI OleObject_DoVerb(IOleObject *iface, LONG iVerb, struct tag
     case OLEIVERB_INPLACEACTIVATE:
         TRACE("OLEIVERB_INPLACEACTIVATE\n");
         return activate_inplace(This, pActiveSite);
+    case OLEIVERB_HIDE:
+        TRACE("OLEIVERB_HIDE\n");
+        if(This->shell_embedding_hwnd)
+            ShowWindow(This->shell_embedding_hwnd, SW_HIDE);
+        return S_OK;
     default:
         FIXME("stub for %d\n", iVerb);
         break;
@@ -467,7 +481,7 @@ static HRESULT WINAPI OleObject_SetExtent(IOleObject *iface, DWORD dwDrawAspect,
     TRACE("(%p)->(%x %p)\n", This, dwDrawAspect, psizel);
 
     /* Tests show that dwDrawAspect is ignored */
-    memcpy(&This->extent, psizel, sizeof(SIZEL));
+    This->extent = *psizel;
     return S_OK;
 }
 
@@ -478,7 +492,7 @@ static HRESULT WINAPI OleObject_GetExtent(IOleObject *iface, DWORD dwDrawAspect,
     TRACE("(%p)->(%x, %p)\n", This, dwDrawAspect, psizel);
 
     /* Tests show that dwDrawAspect is ignored */
-    memcpy(psizel, &This->extent, sizeof(SIZEL));
+    *psizel = This->extent;
     return S_OK;
 }
 
@@ -617,10 +631,10 @@ static HRESULT WINAPI OleInPlaceObject_SetObjectRects(IOleInPlaceObject *iface,
 
     TRACE("(%p)->(%p %p)\n", This, lprcPosRect, lprcClipRect);
 
-    memcpy(&This->pos_rect, lprcPosRect, sizeof(RECT));
+    This->pos_rect = *lprcPosRect;
 
     if(lprcClipRect)
-        memcpy(&This->clip_rect, lprcClipRect, sizeof(RECT));
+        This->clip_rect = *lprcClipRect;
 
     if(This->shell_embedding_hwnd) {
         SetWindowPos(This->shell_embedding_hwnd, NULL,

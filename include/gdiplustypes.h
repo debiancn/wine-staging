@@ -42,10 +42,67 @@ enum Status{
     UnsupportedGdiplusVersion   = 17,
     GdiplusNotInitialized       = 18,
     PropertyNotFound            = 19,
-    PropertyNotSupported        = 20
+    PropertyNotSupported        = 20,
+    ProfileNotFound             = 21
 };
 
+
 #ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef BOOL (CALLBACK * ImageAbort)(VOID *);
+typedef ImageAbort DrawImageAbort;
+typedef ImageAbort GetThumbnailImageAbort;
+
+#ifdef __cplusplus
+}
+#endif
+
+
+#ifdef __cplusplus
+
+class Point
+{
+public:
+   Point()
+   {
+       X = Y = 0;
+   }
+
+   Point(IN const Point &pt)
+   {
+       X = pt.X;
+       Y = pt.Y;
+   }
+
+   /* FIXME: missing constructor that takes a Size */
+
+   Point(IN INT x, IN INT y)
+   {
+       X = x;
+       Y = y;
+   }
+
+   Point operator+(IN const Point& pt) const
+   {
+       return Point(X + pt.X, Y + pt.Y);
+   }
+
+   Point operator-(IN const Point& pt) const
+   {
+       return Point(X - pt.X, Y - pt.Y);
+   }
+
+   BOOL Equals(IN const Point& pt)
+   {
+       return (X == pt.X) && (Y == pt.Y);
+   }
+
+public:
+    INT X;
+    INT Y;
+};
 
 class PointF
 {
@@ -132,7 +189,23 @@ public:
     REAL Height;
 };
 
+/* FIXME: missing the methods. */
+class Rect
+{
+public:
+    INT X;
+    INT Y;
+    INT Width;
+    INT Height;
+};
+
 #else /* end of c++ typedefs */
+
+typedef struct Point
+{
+    INT X;
+    INT Y;
+} Point;
 
 typedef struct PointF
 {
@@ -154,6 +227,14 @@ typedef struct RectF
     REAL Width;
     REAL Height;
 } RectF;
+
+typedef struct Rect
+{
+    INT X;
+    INT Y;
+    INT Width;
+    INT Height;
+} Rect;
 
 typedef enum Status Status;
 

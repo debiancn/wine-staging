@@ -577,15 +577,17 @@ DWORD WINAPI GetTempPathW( DWORD count, LPWSTR path )
 {
     static const WCHAR tmp[]  = { 'T', 'M', 'P', 0 };
     static const WCHAR temp[] = { 'T', 'E', 'M', 'P', 0 };
+    static const WCHAR userprofile[] = { 'U','S','E','R','P','R','O','F','I','L','E',0 };
     WCHAR tmp_path[MAX_PATH];
     UINT ret;
 
     TRACE("%u,%p\n", count, path);
 
-    if (!(ret = GetEnvironmentVariableW( tmp, tmp_path, MAX_PATH )))
-        if (!(ret = GetEnvironmentVariableW( temp, tmp_path, MAX_PATH )))
-            if (!(ret = GetCurrentDirectoryW( MAX_PATH, tmp_path )))
-                return 0;
+    if (!(ret = GetEnvironmentVariableW( tmp, tmp_path, MAX_PATH )) &&
+        !(ret = GetEnvironmentVariableW( temp, tmp_path, MAX_PATH )) &&
+        !(ret = GetEnvironmentVariableW( userprofile, tmp_path, MAX_PATH )) &&
+        !(ret = GetWindowsDirectoryW( tmp_path, MAX_PATH )))
+        return 0;
 
     if (ret > MAX_PATH)
     {
@@ -879,12 +881,14 @@ BOOL WINAPI CopyFileW( LPCWSTR source, LPCWSTR dest, BOOL fail_if_exists )
                      NULL, OPEN_EXISTING, 0, 0)) == INVALID_HANDLE_VALUE)
     {
         WARN("Unable to open source %s\n", debugstr_w(source));
+        HeapFree( GetProcessHeap(), 0, buffer );
         return FALSE;
     }
 
     if (!GetFileInformationByHandle( h1, &info ))
     {
         WARN("GetFileInformationByHandle returned error for %s\n", debugstr_w(source));
+        HeapFree( GetProcessHeap(), 0, buffer );
         CloseHandle( h1 );
         return FALSE;
     }
@@ -894,6 +898,7 @@ BOOL WINAPI CopyFileW( LPCWSTR source, LPCWSTR dest, BOOL fail_if_exists )
                              info.dwFileAttributes, h1 )) == INVALID_HANDLE_VALUE)
     {
         WARN("Unable to open dest %s\n", debugstr_w(dest));
+        HeapFree( GetProcessHeap(), 0, buffer );
         CloseHandle( h1 );
         return FALSE;
     }
@@ -1005,6 +1010,9 @@ BOOL WINAPI MoveFileWithProgressW( LPCWSTR source, LPCWSTR dest,
     if (!dest)
         return DeleteFileW( source );
 
+    if (flag & MOVEFILE_WRITE_THROUGH)
+        FIXME("MOVEFILE_WRITE_THROUGH unimplemented\n");
+
     /* check if we are allowed to rename the source */
 
     if (!RtlDosPathNameToNtPathName_U( source, &nt_name, NULL, NULL ))
@@ -1037,15 +1045,6 @@ BOOL WINAPI MoveFileWithProgressW( LPCWSTR source, LPCWSTR dest,
         goto error;
     }
 
-    if (info.FileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-    {
-        if (flag & MOVEFILE_REPLACE_EXISTING)  /* cannot replace directory */
-        {
-            SetLastError( ERROR_INVALID_PARAMETER );
-            goto error;
-        }
-    }
-
     /* we must have write access to the destination, and it must */
     /* not exist except if MOVEFILE_REPLACE_EXISTING is set */
 
@@ -1056,13 +1055,18 @@ BOOL WINAPI MoveFileWithProgressW( LPCWSTR source, LPCWSTR dest,
     }
     status = NtOpenFile( &dest_handle, GENERIC_READ | GENERIC_WRITE, &attr, &io, 0,
                          FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT );
-    if (status == STATUS_SUCCESS)
+    if (status == STATUS_SUCCESS)  /* destination exists */
     {
         NtClose( dest_handle );
         if (!(flag & MOVEFILE_REPLACE_EXISTING))
         {
             SetLastError( ERROR_ALREADY_EXISTS );
             RtlFreeUnicodeString( &nt_name );
+            goto error;
+        }
+        else if (info.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) /* cannot replace directory */
+        {
+            SetLastError( ERROR_ACCESS_DENIED );
             goto error;
         }
     }

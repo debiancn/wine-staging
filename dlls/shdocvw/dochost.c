@@ -25,6 +25,27 @@ WINE_DEFAULT_DEBUG_CHANNEL(shdocvw);
 
 static ATOM doc_view_atom = 0;
 
+void push_dochost_task(DocHost *This, task_header_t *task, task_proc_t proc, BOOL send)
+{
+    task->proc = proc;
+
+    /* FIXME: Don't use lParam */
+    if(send)
+        SendMessageW(This->frame_hwnd, WM_DOCHOSTTASK, 0, (LPARAM)task);
+    else
+        PostMessageW(This->frame_hwnd, WM_DOCHOSTTASK, 0, (LPARAM)task);
+}
+
+LRESULT process_dochost_task(DocHost *This, LPARAM lparam)
+{
+    task_header_t *task = (task_header_t*)lparam;
+
+    task->proc(This, task);
+
+    heap_free(task);
+    return 0;
+}
+
 static void navigate_complete(DocHost *This)
 {
     IDispatch *disp = NULL;
@@ -57,9 +78,10 @@ static void navigate_complete(DocHost *This)
     SysFreeString(V_BSTR(&url));
     if(disp)
         IDispatch_Release(disp);
+    This->busy = VARIANT_FALSE;
 }
 
-static LRESULT navigate2(DocHost *This)
+void object_available(DocHost *This)
 {
     IHlinkTarget *hlink;
     HRESULT hres;
@@ -68,25 +90,25 @@ static LRESULT navigate2(DocHost *This)
 
     if(!This->document) {
         WARN("document == NULL\n");
-        return 0;
+        return;
     }
 
     hres = IUnknown_QueryInterface(This->document, &IID_IHlinkTarget, (void**)&hlink);
     if(FAILED(hres)) {
         FIXME("Could not get IHlinkTarget interface\n");
-        return 0;
+        return;
     }
 
     hres = IHlinkTarget_Navigate(hlink, 0, NULL);
     IHlinkTarget_Release(hlink);
     if(FAILED(hres)) {
         FIXME("Navigate failed\n");
-        return 0;
+        return;
     }
 
     navigate_complete(This);
 
-    return 0;
+    return;
 }
 
 static LRESULT resize_document(DocHost *This, LONG width, LONG height)
@@ -117,8 +139,6 @@ static LRESULT WINAPI doc_view_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
     switch(msg) {
     case WM_SIZE:
         return resize_document(This, LOWORD(lParam), HIWORD(lParam));
-    case WB_WM_NAVIGATE2:
-        return navigate2(This);
     }
 
     return DefWindowProcW(hwnd, msg, wParam, lParam);
@@ -337,8 +357,13 @@ static HRESULT WINAPI DocHostUIHandler_HideUI(IDocHostUIHandler2 *iface)
 static HRESULT WINAPI DocHostUIHandler_UpdateUI(IDocHostUIHandler2 *iface)
 {
     DocHost *This = DOCHOSTUI_THIS(iface);
-    FIXME("(%p)\n", This);
-    return E_NOTIMPL;
+
+    TRACE("(%p)\n", This);
+
+    if(!This->hostui)
+        return S_FALSE;
+
+    return IDocHostUIHandler_UpdateUI(This->hostui);
 }
 
 static HRESULT WINAPI DocHostUIHandler_EnableModeless(IDocHostUIHandler2 *iface,
@@ -406,7 +431,13 @@ static HRESULT WINAPI DocHostUIHandler_GetExternal(IDocHostUIHandler2 *iface,
         IDispatch **ppDispatch)
 {
     DocHost *This = DOCHOSTUI_THIS(iface);
-    FIXME("(%p)->(%p)\n", This, ppDispatch);
+
+    TRACE("(%p)->(%p)\n", This, ppDispatch);
+
+    if(This->hostui)
+        return IDocHostUIHandler_GetExternal(This->hostui, ppDispatch);
+
+    FIXME("default action not implemented\n");
     return E_NOTIMPL;
 }
 

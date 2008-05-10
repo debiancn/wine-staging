@@ -19,7 +19,7 @@
 /* Wine "bootup" handler application
  *
  * This app handles the various "hooks" windows allows for applications to perform
- * as part of the bootstrap process. Theses are roughly devided into three types.
+ * as part of the bootstrap process. These are roughly divided into three types.
  * Knowledge base articles that explain this are 137367, 179365, 232487 and 232509.
  * Also, 119941 has some info on grpconv.exe
  * The operations performed are (by order of execution):
@@ -29,7 +29,7 @@
  * - PendingRenameOperations (rename operations left in the registry - Win NT+ only)
  *
  * Startup (before the user logs in)
- * - Services (NT, ?semi-synchronous?, not implemented yet)
+ * - Services (NT)
  * - HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\RunServicesOnce (9x, asynch)
  * - HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\RunServices (9x, asynch)
  * 
@@ -54,20 +54,33 @@
 #include "config.h"
 #include "wine/port.h"
 
+#define COBJMACROS
 #define WIN32_LEAN_AND_MEAN
 
+#include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
+#include <stdlib.h>
 #ifdef HAVE_GETOPT_H
 # include <getopt.h>
 #endif
+#ifdef HAVE_SYS_STAT_H
+# include <sys/stat.h>
+#endif
+#ifdef HAVE_UNISTD_H
+# include <unistd.h>
+#endif
 #include <windows.h>
+#include <wine/svcctl.h>
+#include <wine/unicode.h>
+#include <wine/library.h>
 #include <wine/debug.h>
 
-#define COBJMACROS
 #include <shlobj.h>
 #include <shobjidl.h>
 #include <shlwapi.h>
 #include <shellapi.h>
+#include <setupapi.h>
 
 WINE_DEFAULT_DEBUG_CHANNEL(wineboot);
 
@@ -76,40 +89,72 @@ WINE_DEFAULT_DEBUG_CHANNEL(wineboot);
 extern BOOL shutdown_close_windows( BOOL force );
 extern void kill_processes( BOOL kill_desktop );
 
-static BOOL GetLine( HANDLE hFile, char *buf, size_t buflen )
+static WCHAR windowsdir[MAX_PATH];
+
+/* retrieve the (unix) path to the wine.inf file */
+static char *get_wine_inf_path(void)
 {
-    unsigned int i=0;
-    DWORD r;
-    buf[0]='\0';
+    const char *build_dir, *data_dir;
+    char *name = NULL;
 
-    do
+    if ((data_dir = wine_get_data_dir()))
     {
-        DWORD read;
-        if( !ReadFile( hFile, buf, 1, &read, NULL ) || read!=1 )
+        if (!(name = HeapAlloc( GetProcessHeap(), 0, strlen(data_dir) + sizeof("/wine.inf") )))
+            return NULL;
+        strcpy( name, data_dir );
+        strcat( name, "/wine.inf" );
+    }
+    else if ((build_dir = wine_get_build_dir()))
+    {
+        if (!(name = HeapAlloc( GetProcessHeap(), 0, strlen(build_dir) + sizeof("/tools/wine.inf") )))
+            return NULL;
+        strcpy( name, build_dir );
+        strcat( name, "/tools/wine.inf" );
+    }
+    return name;
+}
+
+/* update the timestamp if different from the reference time */
+static BOOL update_timestamp( const char *config_dir, unsigned long timestamp, int force )
+{
+    BOOL ret = FALSE;
+    int fd, count;
+    char buffer[100];
+    char *file = HeapAlloc( GetProcessHeap(), 0, strlen(config_dir) + sizeof("/.update-timestamp") );
+
+    if (!file) return FALSE;
+    strcpy( file, config_dir );
+    strcat( file, "/.update-timestamp" );
+
+    if ((fd = open( file, O_RDWR )) != -1)
+    {
+        if ((count = read( fd, buffer, sizeof(buffer) - 1 )) >= 0)
         {
-            return FALSE;
+            buffer[count] = 0;
+            if (!strncmp( buffer, "disable", sizeof("disable")-1 )) goto done;
+            if (!force && timestamp == strtoul( buffer, NULL, 10 )) goto done;
         }
-
-    } while( isspace( *buf ) );
-
-    while( buf[i]!='\n' && i<=buflen &&
-            ReadFile( hFile, buf+i+1, 1, &r, NULL ) )
+        lseek( fd, 0, SEEK_SET );
+        ftruncate( fd, 0 );
+    }
+    else
     {
-        ++i;
+        if (errno != ENOENT) goto done;
+        if ((fd = open( file, O_WRONLY | O_CREAT | O_TRUNC, 0666 )) == -1) goto done;
     }
 
-
-    if( buf[i]!='\n' )
+    count = sprintf( buffer, "%lu\n", timestamp );
+    if (write( fd, buffer, count ) != count)
     {
-	return FALSE;
+        WINE_WARN( "failed to update timestamp in %s\n", file );
+        ftruncate( fd, 0 );
     }
+    else ret = TRUE;
 
-    if( i>0 && buf[i-1]=='\r' )
-        --i;
-
-    buf[i]='\0';
-
-    return TRUE;
+done:
+    if (fd != -1) close( fd );
+    HeapFree( GetProcessHeap(), 0, file );
+    return ret;
 }
 
 /* Performs the rename operations dictated in %SystemRoot%\Wininit.ini.
@@ -117,85 +162,53 @@ static BOOL GetLine( HANDLE hFile, char *buf, size_t buflen )
  */
 static BOOL wininit(void)
 {
-    const char * const RENAME_FILE="wininit.ini";
-    const char * const RENAME_FILE_TO="wininit.bak";
-    const char * const RENAME_FILE_SECTION="[rename]";
-    char buffer[MAX_LINE_LENGTH];
-    HANDLE hFile;
+    static const WCHAR nulW[] = {'N','U','L',0};
+    static const WCHAR renameW[] = {'r','e','n','a','m','e',0};
+    static const WCHAR wininitW[] = {'w','i','n','i','n','i','t','.','i','n','i',0};
+    static const WCHAR wininitbakW[] = {'w','i','n','i','n','i','t','.','b','a','k',0};
+    WCHAR initial_buffer[1024];
+    WCHAR *str, *buffer = initial_buffer;
+    DWORD size = sizeof(initial_buffer)/sizeof(WCHAR);
+    DWORD res;
 
-
-    hFile=CreateFileA(RENAME_FILE, GENERIC_READ,
-		    FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL,
-		    NULL );
-    
-    if( hFile==INVALID_HANDLE_VALUE )
+    for (;;)
     {
-	DWORD err=GetLastError();
-	
-	if( err==ERROR_FILE_NOT_FOUND )
-	{
-	    /* No file - nothing to do. Great! */
-	    WINE_TRACE("Wininit.ini not present - no renaming to do\n");
-
-	    return TRUE;
-	}
-
-	WINE_ERR("There was an error in reading wininit.ini file - %d\n",
-		GetLastError() );
-
-	return FALSE;
+        if (!(res = GetPrivateProfileSectionW( renameW, buffer, size, wininitW ))) return TRUE;
+        if (res < size - 2) break;
+        if (buffer != initial_buffer) HeapFree( GetProcessHeap(), 0, buffer );
+        size *= 2;
+        if (!(buffer = HeapAlloc( GetProcessHeap(), 0, size * sizeof(WCHAR) ))) return FALSE;
     }
 
-    printf("Wine is finalizing your software installation. This may take a few minutes,\n");
-    printf("though it never actually does.\n");
-
-    while( GetLine( hFile, buffer, sizeof(buffer) ) &&
-	    lstrcmpiA(buffer,RENAME_FILE_SECTION)!=0  )
-	; /* Read the lines until we match the rename section */
-
-    while( GetLine( hFile, buffer, sizeof(buffer) ) && buffer[0]!='[' )
+    for (str = buffer; *str; str += strlenW(str) + 1)
     {
-	/* First, make sure this is not a comment */
-	if( buffer[0]!=';' && buffer[0]!='\0' )
-	{
-	    char * value;
+        WCHAR *value;
 
-	    value=strchr(buffer, '=');
+        if (*str == ';') continue;  /* comment */
+        if (!(value = strchrW( str, '=' ))) continue;
 
-	    if( value==NULL )
-	    {
-		WINE_WARN("Line with no \"=\" in it in wininit.ini - %s\n",
-			buffer);
-	    } else
-	    {
-		/* split the line into key and value */
-		*(value++)='\0';
+        /* split the line into key and value */
+        *value++ = 0;
 
-                if( lstrcmpiA( "NUL", buffer )==0 )
-                {
-                    WINE_TRACE("Deleting file \"%s\"\n", value );
-                    /* A file to delete */
-                    if( !DeleteFileA( value ) )
-                        WINE_WARN("Error deleting file \"%s\"\n", value);
-                } else
-                {
-                    WINE_TRACE("Renaming file \"%s\" to \"%s\"\n", value,
-                            buffer );
+        if (!lstrcmpiW( nulW, str ))
+        {
+            WINE_TRACE("Deleting file %s\n", wine_dbgstr_w(value) );
+            if( !DeleteFileW( value ) )
+                WINE_WARN("Error deleting file %s\n", wine_dbgstr_w(value) );
+        }
+        else
+        {
+            WINE_TRACE("Renaming file %s to %s\n", wine_dbgstr_w(value), wine_dbgstr_w(str) );
 
-                    if( !MoveFileExA(value, buffer, MOVEFILE_COPY_ALLOWED|
-                            MOVEFILE_REPLACE_EXISTING) )
-                    {
-                        WINE_WARN("Error renaming \"%s\" to \"%s\"\n", value,
-                                buffer );
-                    }
-                }
-	    }
-	}
+            if( !MoveFileExW(value, str, MOVEFILE_COPY_ALLOWED | MOVEFILE_REPLACE_EXISTING) )
+                WINE_WARN("Error renaming %s to %s\n", wine_dbgstr_w(value), wine_dbgstr_w(str) );
+        }
+        str = value;
     }
 
-    CloseHandle( hFile );
+    if (buffer != initial_buffer) HeapFree( GetProcessHeap(), 0, buffer );
 
-    if( !MoveFileExA( RENAME_FILE, RENAME_FILE_TO, MOVEFILE_REPLACE_EXISTING) )
+    if( !MoveFileExW( wininitW, wininitbakW, MOVEFILE_REPLACE_EXISTING) )
     {
         WINE_ERR("Couldn't rename wininit.ini, error %d\n", GetLastError() );
 
@@ -225,18 +238,8 @@ static BOOL pendingRename(void)
     if( (res=RegOpenKeyExW( HKEY_LOCAL_MACHINE, SessionW, 0, KEY_ALL_ACCESS, &hSession ))
             !=ERROR_SUCCESS )
     {
-        if( res==ERROR_FILE_NOT_FOUND )
-        {
-            WINE_TRACE("The key was not found - skipping\n");
-            res=TRUE;
-        }
-        else
-        {
-            WINE_ERR("Couldn't open key, error %d\n", res );
-            res=FALSE;
-        }
-
-        goto end;
+        WINE_TRACE("The key was not found - skipping\n");
+        return TRUE;
     }
 
     res=RegQueryValueExW( hSession, ValueName, NULL, NULL /* The value type does not really interest us, as it is not
@@ -391,9 +394,7 @@ static DWORD runCmd(LPWSTR cmdline, LPCWSTR dir, BOOL wait, BOOL minimized)
 
     if( !CreateProcessW(NULL, cmdline, NULL, NULL, FALSE, 0, NULL, dir, &si, &info) )
     {
-        WINE_ERR("Failed to run command %s (%d)\n", wine_dbgstr_w(cmdline),
-                 GetLastError() );
-
+        WINE_WARN("Failed to run command %s (%d)\n", wine_dbgstr_w(cmdline), GetLastError() );
         return INVALID_RUNCMD_RETURN;
     }
 
@@ -406,6 +407,7 @@ static DWORD runCmd(LPWSTR cmdline, LPCWSTR dir, BOOL wait, BOOL minimized)
         GetExitCodeProcess(info.hProcess, &exit_code);
     }
 
+    CloseHandle( info.hThread );
     CloseHandle( info.hProcess );
 
     return exit_code;
@@ -426,8 +428,8 @@ static BOOL ProcessRunKeys( HKEY hkRoot, LPCWSTR szKeyName, BOOL bDelete,
     static const WCHAR WINKEY_NAME[]={'S','o','f','t','w','a','r','e','\\',
         'M','i','c','r','o','s','o','f','t','\\','W','i','n','d','o','w','s','\\',
         'C','u','r','r','e','n','t','V','e','r','s','i','o','n',0};
-    HKEY hkWin=NULL, hkRun=NULL;
-    DWORD res=ERROR_SUCCESS;
+    HKEY hkWin, hkRun;
+    DWORD res;
     DWORD i, nMaxCmdLine=0, nMaxValue=0;
     WCHAR *szCmdLine=NULL;
     WCHAR *szValue=NULL;
@@ -437,36 +439,19 @@ static BOOL ProcessRunKeys( HKEY hkRoot, LPCWSTR szKeyName, BOOL bDelete,
     else
         WINE_TRACE("processing %s entries under HKCU\n",wine_dbgstr_w(szKeyName) );
 
-    if( (res=RegOpenKeyExW( hkRoot, WINKEY_NAME, 0, KEY_READ, &hkWin ))!=ERROR_SUCCESS )
+    if (RegOpenKeyExW( hkRoot, WINKEY_NAME, 0, KEY_READ, &hkWin ) != ERROR_SUCCESS)
+        return TRUE;
+
+    if (RegOpenKeyExW( hkWin, szKeyName, 0, bDelete?KEY_ALL_ACCESS:KEY_READ, &hkRun ) != ERROR_SUCCESS)
     {
-        WINE_ERR("RegOpenKey failed on Software\\Microsoft\\Windows\\CurrentVersion (%d)\n",
-                res);
-
-        goto end;
+        RegCloseKey( hkWin );
+        return TRUE;
     }
+    RegCloseKey( hkWin );
 
-    if( (res=RegOpenKeyExW( hkWin, szKeyName, 0, bDelete?KEY_ALL_ACCESS:KEY_READ, &hkRun ))!=
-            ERROR_SUCCESS)
-    {
-        if( res==ERROR_FILE_NOT_FOUND )
-        {
-            WINE_TRACE("Key doesn't exist - nothing to be done\n");
-
-            res=ERROR_SUCCESS;
-        }
-        else
-            WINE_ERR("RegOpenKey failed on run key (%d)\n", res);
-
-        goto end;
-    }
-    
     if( (res=RegQueryInfoKeyW( hkRun, NULL, NULL, NULL, NULL, NULL, NULL, &i, &nMaxValue,
                     &nMaxCmdLine, NULL, NULL ))!=ERROR_SUCCESS )
-    {
-        WINE_ERR("Couldn't query key info (%d)\n", res );
-
         goto end;
-    }
 
     if( i==0 )
     {
@@ -530,14 +515,15 @@ static BOOL ProcessRunKeys( HKEY hkRoot, LPCWSTR szKeyName, BOOL bDelete,
     res=ERROR_SUCCESS;
 
 end:
+    HeapFree( GetProcessHeap(), 0, szValue );
+    HeapFree( GetProcessHeap(), 0, szCmdLine );
+
     if( hkRun!=NULL )
         RegCloseKey( hkRun );
-    if( hkWin!=NULL )
-        RegCloseKey( hkWin );
 
     WINE_TRACE("done\n");
 
-    return res==ERROR_SUCCESS?TRUE:FALSE;
+    return res==ERROR_SUCCESS;
 }
 
 /*
@@ -546,80 +532,170 @@ end:
  * known good versions. The only programs that should install into this dll
  * cache are Windows Updates and IE (which is treated like a Windows Update)
  *
- * Implementing this allows installing ie in win2k mode to actaully install the
+ * Implementing this allows installing ie in win2k mode to actually install the
  * system dlls that we expect and need
  */
 static int ProcessWindowsFileProtection(void)
 {
-    WIN32_FIND_DATA finddata;
-    LPSTR custom_dllcache = NULL;
-    static CHAR default_dllcache[] = "C:\\Windows\\System32\\dllcache";
+    static const WCHAR winlogonW[] = {'S','o','f','t','w','a','r','e','\\',
+                                      'M','i','c','r','o','s','o','f','t','\\',
+                                      'W','i','n','d','o','w','s',' ','N','T','\\',
+                                      'C','u','r','r','e','n','t','V','e','r','s','i','o','n','\\',
+                                      'W','i','n','l','o','g','o','n',0};
+    static const WCHAR cachedirW[] = {'S','F','C','D','l','l','C','a','c','h','e','D','i','r',0};
+    static const WCHAR dllcacheW[] = {'\\','d','l','l','c','a','c','h','e','\\','*',0};
+    static const WCHAR wildcardW[] = {'\\','*',0};
+    WIN32_FIND_DATAW finddata;
     HANDLE find_handle;
     BOOL find_rc;
     DWORD rc;
     HKEY hkey;
-    LPSTR dllcache;
-    CHAR find_string[MAX_PATH];
-    CHAR windowsdir[MAX_PATH];
+    LPWSTR dllcache = NULL;
 
-    rc = RegOpenKeyA( HKEY_LOCAL_MACHINE, "Software\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon", &hkey );
-    if (rc == ERROR_SUCCESS)
+    if (!RegOpenKeyW( HKEY_LOCAL_MACHINE, winlogonW, &hkey ))
     {
         DWORD sz = 0;
-        rc = RegQueryValueEx( hkey, "SFCDllCacheDir", 0, NULL, NULL, &sz);
-        if (rc == ERROR_MORE_DATA)
+        if (!RegQueryValueExW( hkey, cachedirW, 0, NULL, NULL, &sz))
         {
-            sz++;
-            custom_dllcache = HeapAlloc(GetProcessHeap(),0,sz);
-            RegQueryValueEx( hkey, "SFCDllCacheDir", 0, NULL, (LPBYTE)custom_dllcache, &sz);
+            sz += sizeof(WCHAR);
+            dllcache = HeapAlloc(GetProcessHeap(),0,sz + sizeof(wildcardW));
+            RegQueryValueExW( hkey, cachedirW, 0, NULL, (LPBYTE)dllcache, &sz);
+            strcatW( dllcache, wildcardW );
         }
     }
     RegCloseKey(hkey);
 
-    if (custom_dllcache)
-        dllcache = custom_dllcache;
-    else
-        dllcache = default_dllcache;
+    if (!dllcache)
+    {
+        DWORD sz = GetSystemDirectoryW( NULL, 0 );
+        dllcache = HeapAlloc( GetProcessHeap(), 0, sz * sizeof(WCHAR) + sizeof(dllcacheW));
+        GetSystemDirectoryW( dllcache, sz );
+        strcatW( dllcache, dllcacheW );
+    }
 
-    strcpy(find_string,dllcache);
-    strcat(find_string,"\\*.*");
-
-    GetWindowsDirectory(windowsdir,MAX_PATH);
-
-    find_handle = FindFirstFile(find_string,&finddata);
+    find_handle = FindFirstFileW(dllcache,&finddata);
+    dllcache[ strlenW(dllcache) - 2] = 0; /* strip off wildcard */
     find_rc = find_handle != INVALID_HANDLE_VALUE;
     while (find_rc)
     {
-        CHAR targetpath[MAX_PATH];
-        CHAR currentpath[MAX_PATH];
+        static const WCHAR dotW[] = {'.',0};
+        static const WCHAR dotdotW[] = {'.','.',0};
+        WCHAR targetpath[MAX_PATH];
+        WCHAR currentpath[MAX_PATH];
         UINT sz;
         UINT sz2;
-        CHAR tempfile[MAX_PATH];
+        WCHAR tempfile[MAX_PATH];
 
-        if (strcmp(finddata.cFileName,".") == 0 ||
-            strcmp(finddata.cFileName,"..") == 0)
+        if (strcmpW(finddata.cFileName,dotW) == 0 || strcmpW(finddata.cFileName,dotdotW) == 0)
         {
-            find_rc = FindNextFile(find_handle,&finddata);
+            find_rc = FindNextFileW(find_handle,&finddata);
             continue;
         }
 
         sz = MAX_PATH;
         sz2 = MAX_PATH;
-        VerFindFile(VFFF_ISSHAREDFILE, finddata.cFileName, windowsdir, 
-                windowsdir, currentpath, &sz, targetpath,&sz2);
+        VerFindFileW(VFFF_ISSHAREDFILE, finddata.cFileName, windowsdir,
+                     windowsdir, currentpath, &sz, targetpath, &sz2);
         sz = MAX_PATH;
-        rc = VerInstallFile(0, finddata.cFileName, finddata.cFileName,
-                            dllcache, targetpath, currentpath, tempfile,&sz);
+        rc = VerInstallFileW(0, finddata.cFileName, finddata.cFileName,
+                             dllcache, targetpath, currentpath, tempfile, &sz);
         if (rc != ERROR_SUCCESS)
         {
-            WINE_ERR("WFP: %s error 0x%x\n",finddata.cFileName,rc);
-            DeleteFile(tempfile);
+            WINE_WARN("WFP: %s error 0x%x\n",wine_dbgstr_w(finddata.cFileName),rc);
+            DeleteFileW(tempfile);
         }
-        find_rc = FindNextFile(find_handle,&finddata);
+
+        /* now delete the source file so that we don't try to install it over and over again */
+        lstrcpynW( targetpath, dllcache, MAX_PATH - 1 );
+        sz = strlenW( targetpath );
+        targetpath[sz++] = '\\';
+        lstrcpynW( targetpath + sz, finddata.cFileName, MAX_PATH - sz );
+        if (!DeleteFileW( targetpath ))
+            WINE_WARN( "failed to delete %s: error %u\n", wine_dbgstr_w(targetpath), GetLastError() );
+
+        find_rc = FindNextFileW(find_handle,&finddata);
     }
     FindClose(find_handle);
-    HeapFree(GetProcessHeap(),0,custom_dllcache);
+    HeapFree(GetProcessHeap(),0,dllcache);
     return 1;
+}
+
+static BOOL start_services_process(void)
+{
+    static const WCHAR svcctl_started_event[] = SVCCTL_STARTED_EVENT;
+    static const WCHAR services[] = {'\\','s','e','r','v','i','c','e','s','.','e','x','e',0};
+    PROCESS_INFORMATION pi;
+    STARTUPINFOW si;
+    HANDLE wait_handles[2];
+    WCHAR path[MAX_PATH];
+
+    if (!GetSystemDirectoryW(path, MAX_PATH - strlenW(services)))
+        return FALSE;
+    strcatW(path, services);
+    ZeroMemory(&si, sizeof(si));
+    si.cb = sizeof(si);
+    if (!CreateProcessW(path, path, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi))
+    {
+        WINE_ERR("Couldn't start services.exe: error %u\n", GetLastError());
+        return FALSE;
+    }
+    CloseHandle(pi.hThread);
+
+    wait_handles[0] = CreateEventW(NULL, TRUE, FALSE, svcctl_started_event);
+    wait_handles[1] = pi.hProcess;
+
+    /* wait for the event to become available or the process to exit */
+    if ((WaitForMultipleObjects(2, wait_handles, FALSE, INFINITE)) == WAIT_OBJECT_0 + 1)
+    {
+        DWORD exit_code;
+        GetExitCodeProcess(pi.hProcess, &exit_code);
+        WINE_ERR("Unexpected termination of services.exe - exit code %d\n", exit_code);
+        CloseHandle(pi.hProcess);
+        CloseHandle(wait_handles[0]);
+        return FALSE;
+    }
+
+    CloseHandle(pi.hProcess);
+    CloseHandle(wait_handles[0]);
+    return TRUE;
+}
+
+/* execute rundll32 on the wine.inf file if necessary */
+static void update_wineprefix( int force )
+{
+    static const WCHAR cmdlineW[] = {'D','e','f','a','u','l','t','I','n','s','t','a','l','l',' ',
+                                     '1','2','8',' ','\\','\\','?','\\','u','n','i','x' };
+
+    const char *config_dir = wine_get_config_dir();
+    char *inf_path = get_wine_inf_path();
+    struct stat st;
+
+    if (!inf_path)
+    {
+        WINE_WARN( "cannot find path to wine.inf file\n" );
+        return;
+    }
+    if (stat( inf_path, &st ) == -1)
+    {
+        WINE_WARN( "cannot stat wine.inf file: %s\n", strerror(errno) );
+        goto done;
+    }
+
+    if (update_timestamp( config_dir, st.st_mtime, force ))
+    {
+        WCHAR *buffer;
+        DWORD len = MultiByteToWideChar( CP_UNIXCP, 0, inf_path, -1, NULL, 0 );
+        if (!(buffer = HeapAlloc( GetProcessHeap(), 0, sizeof(cmdlineW) + len*sizeof(WCHAR) ))) goto done;
+        memcpy( buffer, cmdlineW, sizeof(cmdlineW) );
+        MultiByteToWideChar( CP_UNIXCP, 0, inf_path, -1, buffer + sizeof(cmdlineW)/sizeof(WCHAR), len );
+
+        InstallHinfSectionW( 0, 0, buffer, 0 );
+        HeapFree( GetProcessHeap(), 0, buffer );
+        WINE_MESSAGE( "wine: configuration in '%s' has been updated.\n", config_dir );
+    }
+
+done:
+    HeapFree( GetProcessHeap(), 0, inf_path );
 }
 
 /* Process items in the StartUp group of the user's Programs under the Start Menu. Some installers put
@@ -628,7 +704,6 @@ static BOOL ProcessStartupItems(void)
 {
     BOOL ret = FALSE;
     HRESULT hr;
-    int iRet;
     IMalloc *ppM = NULL;
     IShellFolder *psfDesktop = NULL, *psfStartup = NULL;
     LPITEMIDLIST pidlStartup = NULL, pidlItem;
@@ -686,8 +761,13 @@ static BOOL ProcessStartupItems(void)
 	    if (FAILED(hr))
 		WINE_TRACE("Unable to parse display name.\n");
 	    else
-		if ((iRet = (int)ShellExecuteW(NULL, NULL, wszCommand, NULL, NULL, SW_SHOWNORMAL)) <= 32)
-		    WINE_ERR("Error %d executing command %s.\n", iRet, wine_dbgstr_w(wszCommand));
+            {
+                HINSTANCE hinst;
+
+                hinst = ShellExecuteW(NULL, NULL, wszCommand, NULL, NULL, SW_SHOWNORMAL);
+                if (PtrToUlong(hinst) <= 32)
+                    WINE_WARN("Error %p executing command %s.\n", hinst, wine_dbgstr_w(wszCommand));
+            }
 	}
 
 	IMalloc_Free(ppM, pidlItem);
@@ -711,79 +791,54 @@ static void usage(void)
     WINE_MESSAGE( "    -h,--help         Display this help message\n" );
     WINE_MESSAGE( "    -e,--end-session  End the current session cleanly\n" );
     WINE_MESSAGE( "    -f,--force        Force exit for processes that don't exit cleanly\n" );
+    WINE_MESSAGE( "    -i,--init         Perform initialization for first Wine instance\n" );
     WINE_MESSAGE( "    -k,--kill         Kill running processes without any cleanup\n" );
     WINE_MESSAGE( "    -r,--restart      Restart only, don't do normal startup operations\n" );
     WINE_MESSAGE( "    -s,--shutdown     Shutdown only, don't reboot\n" );
+    WINE_MESSAGE( "    -u,--update       Update the wineprefix directory\n" );
 }
 
-static const char short_options[] = "efhkrs";
+static const char short_options[] = "efhikrsu";
 
 static const struct option long_options[] =
 {
     { "help",        0, 0, 'h' },
     { "end-session", 0, 0, 'e' },
     { "force",       0, 0, 'f' },
+    { "init" ,       0, 0, 'i' },
     { "kill",        0, 0, 'k' },
     { "restart",     0, 0, 'r' },
     { "shutdown",    0, 0, 's' },
+    { "update",      0, 0, 'u' },
     { NULL,          0, 0, 0 }
 };
 
-struct op_mask {
-    BOOL w9xonly; /* Perform only operations done on Windows 9x */
-    BOOL ntonly; /* Perform only operations done on Windows NT */
-    BOOL startup; /* Perform the operations that are performed every boot */
-    BOOL preboot; /* Perform file renames typically done before the system starts */
-    BOOL prelogin; /* Perform the operations typically done before the user logs in */
-    BOOL postlogin; /* Operations done after login */
-};
-
-static const struct op_mask SESSION_START={FALSE, FALSE, TRUE, TRUE, TRUE, TRUE},
-    SETUP={FALSE, FALSE, FALSE, TRUE, TRUE, TRUE};
-
 int main( int argc, char *argv[] )
 {
-    struct op_mask ops = SESSION_START; /* Which of the ops do we want to perform? */
+    extern HANDLE __wine_make_process_system(void);
+    static const WCHAR wineboot_eventW[] = {'_','_','w','i','n','e','b','o','o','t','_','e','v','e','n','t',0};
+
     /* First, set the current directory to SystemRoot */
-    TCHAR gen_path[MAX_PATH];
-    DWORD res;
     int optc;
-    int end_session = 0, force = 0, kill = 0, restart = 0, shutdown = 0;
+    int end_session = 0, force = 0, init = 0, kill = 0, restart = 0, shutdown = 0, update = 0;
+    HANDLE event;
+    SECURITY_ATTRIBUTES sa;
 
-    res=GetWindowsDirectory( gen_path, sizeof(gen_path) );
-    
-    if( res==0 )
-    {
-	WINE_ERR("Couldn't get the windows directory - error %d\n",
-		GetLastError() );
-
-	return 100;
-    }
-
-    if( res>=sizeof(gen_path) )
-    {
-	WINE_ERR("Windows path too long (%d)\n", res );
-
-	return 100;
-    }
-
-    if( !SetCurrentDirectory( gen_path ) )
-    {
-        WINE_ERR("Cannot set the dir to %s (%d)\n", gen_path, GetLastError() );
-
-        return 100;
-    }
-
+    GetWindowsDirectoryW( windowsdir, MAX_PATH );
+    if( !SetCurrentDirectoryW( windowsdir ) )
+        WINE_ERR("Cannot set the dir to %s (%d)\n", wine_dbgstr_w(windowsdir), GetLastError() );
 
     while ((optc = getopt_long(argc, argv, short_options, long_options, NULL )) != -1)
     {
         switch(optc)
         {
-        case 'e': end_session = 1; break;
+        case 'e': end_session = kill = 1; break;
         case 'f': force = 1; break;
+        case 'i': init = 1; break;
         case 'k': kill = 1; break;
         case 'r': restart = 1; break;
         case 's': shutdown = 1; break;
+        case 'u': update = 1; break;
         case 'h': usage(); return 0;
         case '?': usage(); return 1;
         }
@@ -794,37 +849,41 @@ int main( int argc, char *argv[] )
         if (!shutdown_close_windows( force )) return 1;
     }
 
-    if (end_session || kill) kill_processes( shutdown );
+    if (kill) kill_processes( shutdown );
 
     if (shutdown) return 0;
 
-    if (restart) ops = SETUP;
+    sa.nLength = sizeof(sa);
+    sa.lpSecurityDescriptor = NULL;
+    sa.bInheritHandle = TRUE;  /* so that services.exe inherits it */
+    event = CreateEventW( &sa, TRUE, FALSE, wineboot_eventW );
 
-    /* Perform the ops by order, stopping if one fails, skipping if necessary */
-    /* Shachar: Sorry for the perl syntax */
-    res=(ops.ntonly || !ops.preboot || wininit())&&
-        (ops.w9xonly || !ops.preboot || pendingRename()) &&
-        (ops.ntonly || !ops.prelogin ||
-         ProcessRunKeys( HKEY_LOCAL_MACHINE, runkeys_names[RUNKEY_RUNSERVICESONCE],
-                TRUE, FALSE )) &&
-        (ops.ntonly || !ops.prelogin ||
-         ProcessWindowsFileProtection()) &&
-        (ops.ntonly || !ops.prelogin || !ops.startup ||
-         ProcessRunKeys( HKEY_LOCAL_MACHINE, runkeys_names[RUNKEY_RUNSERVICES],
-                FALSE, FALSE )) &&
-        (!ops.postlogin ||
-         ProcessRunKeys( HKEY_LOCAL_MACHINE, runkeys_names[RUNKEY_RUNONCE],
-                TRUE, TRUE )) &&
-        (!ops.postlogin || !ops.startup ||
-         ProcessRunKeys( HKEY_LOCAL_MACHINE, runkeys_names[RUNKEY_RUN],
-                FALSE, FALSE )) &&
-        (!ops.postlogin || !ops.startup ||
-         ProcessRunKeys( HKEY_CURRENT_USER, runkeys_names[RUNKEY_RUN],
-                FALSE, FALSE )) &&
-	(!ops.postlogin || !ops.startup ||
-	 ProcessStartupItems( ));
+    ResetEvent( event );  /* in case this is a restart */
+
+    wininit();
+    pendingRename();
+
+    ProcessWindowsFileProtection();
+    ProcessRunKeys( HKEY_LOCAL_MACHINE, runkeys_names[RUNKEY_RUNSERVICESONCE], TRUE, FALSE );
+
+    if (init || (kill && !restart))
+    {
+        ProcessRunKeys( HKEY_LOCAL_MACHINE, runkeys_names[RUNKEY_RUNSERVICES], FALSE, FALSE );
+        start_services_process();
+    }
+    if (init || update) update_wineprefix( update );
+
+    ProcessRunKeys( HKEY_LOCAL_MACHINE, runkeys_names[RUNKEY_RUNONCE], TRUE, TRUE );
+
+    if (!init && !restart)
+    {
+        ProcessRunKeys( HKEY_LOCAL_MACHINE, runkeys_names[RUNKEY_RUN], FALSE, FALSE );
+        ProcessRunKeys( HKEY_CURRENT_USER, runkeys_names[RUNKEY_RUN], FALSE, FALSE );
+        ProcessStartupItems();
+    }
 
     WINE_TRACE("Operation done\n");
 
-    return res?0:101;
+    SetEvent( event );
+    return 0;
 }

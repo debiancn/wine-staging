@@ -521,15 +521,15 @@ LONG CoreAudio_WaveInit(void)
                                                                                                 (char) (status >> 16),
                                                                                                 (char) (status >> 8),
                                                                                                 (char) status);
-        return 1;
+        return DRV_FAILURE;
     }
     if (CoreAudio_DefaultDevice.outputDeviceID == kAudioDeviceUnknown) {
         ERR("AudioHardwareGetProperty: CoreAudio_DefaultDevice.outputDeviceID == kAudioDeviceUnknown\n");
-        return 1;
+        return DRV_FAILURE;
     }
     
     if ( ! CoreAudio_GetDevCaps() )
-        return 1;
+        return DRV_FAILURE;
     
     CoreAudio_DefaultDevice.interface_name=HeapAlloc(GetProcessHeap(),0,strlen(CoreAudio_DefaultDevice.dev_name)+1);
     sprintf(CoreAudio_DefaultDevice.interface_name, "%s", CoreAudio_DefaultDevice.dev_name);
@@ -646,7 +646,7 @@ LONG CoreAudio_WaveInit(void)
     if (!messageThreadPortName)
     {
         ERR("Can't create message thread port name\n");
-        return 1;
+        return DRV_FAILURE;
     }
 
     port_ReceiveInMessageThread = CFMessagePortCreateLocal(kCFAllocatorDefault, messageThreadPortName,
@@ -655,7 +655,7 @@ LONG CoreAudio_WaveInit(void)
     {
         ERR("Can't create message thread local port\n");
         CFRelease(messageThreadPortName);
-        return 1;
+        return DRV_FAILURE;
     }
 
     Port_SendToMessageThread = CFMessagePortCreateRemote(kCFAllocatorDefault, messageThreadPortName);
@@ -664,7 +664,7 @@ LONG CoreAudio_WaveInit(void)
     {
         ERR("Can't create port for sending to message thread\n");
         CFRelease(port_ReceiveInMessageThread);
-        return 1;
+        return DRV_FAILURE;
     }
 
     /* Cannot WAIT for any events because we are called from the loader (which has a lock on loading stuff) */
@@ -681,12 +681,12 @@ LONG CoreAudio_WaveInit(void)
         CFRelease(port_ReceiveInMessageThread);
         CFRelease(Port_SendToMessageThread);
         Port_SendToMessageThread = NULL;
-        return 1;
+        return DRV_FAILURE;
     }
 
     /* The message thread is responsible for releasing port_ReceiveInMessageThread. */
 
-    return 0;
+    return DRV_SUCCESS;
 }
 
 void CoreAudio_WaveRelease(void)
@@ -855,12 +855,12 @@ static DWORD wodOpen(WORD wDevID, LPWAVEOPENDESC lpDesc, DWORD dwFlags)
     }
 
     wwo->state = WINE_WS_STOPPED;
-                
+
     wwo->wFlags = HIWORD(dwFlags & CALLBACK_TYPEMASK);
-    
-    memcpy(&wwo->waveDesc, lpDesc, 	     sizeof(WAVEOPENDESC));
+
+    wwo->waveDesc = *lpDesc;
     memcpy(&wwo->format,   lpDesc->lpFormat, sizeof(PCMWAVEFORMAT));
-    
+
     if (wwo->format.wBitsPerSample == 0) {
 	WARN("Resetting zeroed wBitsPerSample\n");
 	wwo->format.wBitsPerSample = 8 *
@@ -1450,7 +1450,7 @@ static DWORD wodDsDesc(UINT wDevID, PDSDRIVERDESC desc)
      * DirectSound clients.  However, it only does this if we respond
      * successfully to the DRV_QUERYDSOUNDDESC message.  It's enough to fill in
      * the driver and device names of the description output parameter. */
-    memcpy(desc, &(WOutDev[wDevID].cadev->ds_desc), sizeof(DSDRIVERDESC));
+    *desc = WOutDev[wDevID].cadev->ds_desc;
     return MMSYSERR_NOERROR;
 }
 
@@ -1579,6 +1579,7 @@ OSStatus CoreAudio_woAudioUnitIOProc(void *inRefCon,
             needNotify = 1;
         }
     }
+    ioData->mBuffers[0].mDataByteSize = dataProvided;
 
     OSSpinLockUnlock(&wwo->lock);
 
@@ -1836,7 +1837,7 @@ static DWORD widOpen(WORD wDevID, LPWAVEOPENDESC lpDesc, DWORD dwFlags)
     wwi->state = WINE_WS_STOPPED;
     wwi->wFlags = HIWORD(dwFlags & CALLBACK_TYPEMASK);
 
-    memcpy(&wwi->waveDesc, lpDesc,              sizeof(WAVEOPENDESC));
+    wwi->waveDesc = *lpDesc;
     memcpy(&wwi->format,   lpDesc->lpFormat,    sizeof(PCMWAVEFORMAT));
 
     if (wwi->format.wBitsPerSample == 0)
@@ -1876,7 +1877,7 @@ static DWORD widOpen(WORD wDevID, LPWAVEOPENDESC lpDesc, DWORD dwFlags)
     }
 
     /* Keep a copy of the buffer list structure (but not the buffers themselves)
-     * in case AudioUnitRender clobbers the original, as it is wont to do. */
+     * in case AudioUnitRender clobbers the original, as it won't to do. */
     wwi->bufferListCopy = HeapAlloc(GetProcessHeap(), 0, AUDIOBUFFERLISTSIZE(wwi->bufferList->mNumberBuffers));
     if (wwi->bufferListCopy == NULL)
     {
@@ -2129,6 +2130,29 @@ static DWORD widStop(WORD wDevID)
     return ret;
 }
 
+/**************************************************************************
+ *                      widGetPos                                 [internal]
+ */
+static DWORD widGetPos(WORD wDevID, LPMMTIME lpTime, UINT size)
+{
+    DWORD		    val;
+    WINE_WAVEIN*    wwi;
+
+    TRACE("(%u);\n", wDevID);
+    if (wDevID >= MAX_WAVEINDRV)
+    {
+        WARN("invalid device ID\n");
+        return MMSYSERR_INVALHANDLE;
+    }
+
+    wwi = &WInDev[wDevID];
+
+    OSSpinLockLock(&WInDev[wDevID].lock);
+    val = wwi->dwTotalRecorded;
+    OSSpinLockUnlock(&WInDev[wDevID].lock);
+
+    return bytes_to_mmtime(lpTime, val, &wwi->format);
+}
 
 /**************************************************************************
  *                      widReset                                [internal]
@@ -2283,6 +2307,7 @@ DWORD WINAPI CoreAudio_widMessage(WORD wDevID, WORD wMsg, DWORD dwUser,
         case WIDM_RESET:            return widReset         (wDevID);
         case WIDM_START:            return widStart         (wDevID);
         case WIDM_STOP:             return widStop          (wDevID);
+        case WIDM_GETPOS:           return widGetPos        (wDevID, (LPMMTIME)dwParam1, (UINT)dwParam2  );
         case DRV_QUERYDEVICEINTERFACESIZE: return widDevInterfaceSize       (wDevID, (LPDWORD)dwParam1);
         case DRV_QUERYDEVICEINTERFACE:     return widDevInterface           (wDevID, (PWCHAR)dwParam1, dwParam2);
         case DRV_QUERYDSOUNDIFACE:  return widDsCreate   (wDevID, (PIDSCDRIVER*)dwParam1);

@@ -55,8 +55,20 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(console);
 
+static CRITICAL_SECTION CONSOLE_CritSect;
+static CRITICAL_SECTION_DEBUG critsect_debug =
+{
+    0, 0, &CONSOLE_CritSect,
+    { &critsect_debug.ProcessLocksList, &critsect_debug.ProcessLocksList },
+      0, 0, { (DWORD_PTR)(__FILE__ ": CONSOLE_CritSect") }
+};
+static CRITICAL_SECTION CONSOLE_CritSect = { &critsect_debug, -1, 0, 0, 0, 0 };
+
 static const WCHAR coninW[] = {'C','O','N','I','N','$',0};
 static const WCHAR conoutW[] = {'C','O','N','O','U','T','$',0};
+
+/* FIXME: this is not thread safe */
+static HANDLE console_wait_event;
 
 /* map input records to ASCII */
 static void input_records_WtoA( INPUT_RECORD *buffer, int count )
@@ -125,8 +137,16 @@ static void char_info_AtoW( CHAR_INFO *buffer, int count )
  */
 HWND WINAPI GetConsoleWindow(VOID)
 {
-    FIXME("stub\n");
-    return NULL;
+    HWND hWnd = NULL;
+
+    SERVER_START_REQ(get_console_input_info)
+    {
+        req->handle = 0;
+        if (!wine_server_call_err(req)) hWnd = reply->win;
+    }
+    SERVER_END_REQ;
+
+    return hWnd;
 }
 
 
@@ -361,9 +381,6 @@ BOOL WINAPI CloseConsoleHandle(HANDLE handle)
  */
 HANDLE WINAPI GetConsoleInputWaitHandle(void)
 {
-    static HANDLE console_wait_event;
- 
-    /* FIXME: this is not thread safe */
     if (!console_wait_event)
     {
         SERVER_START_REQ(get_console_wait_event)
@@ -957,6 +974,57 @@ BOOL WINAPI SetConsoleTitleA( LPCSTR title )
 
 
 /***********************************************************************
+ *            GetConsoleKeyboardLayoutNameA   (KERNEL32.@)
+ */
+BOOL WINAPI GetConsoleKeyboardLayoutNameA(LPSTR layoutName)
+{
+    FIXME( "stub %p\n", layoutName);
+    return TRUE;
+}
+
+/***********************************************************************
+ *            GetConsoleKeyboardLayoutNameW   (KERNEL32.@)
+ */
+BOOL WINAPI GetConsoleKeyboardLayoutNameW(LPWSTR layoutName)
+{
+    FIXME( "stub %p\n", layoutName);
+    return TRUE;
+}
+
+static WCHAR input_exe[MAX_PATH + 1];
+
+/***********************************************************************
+ *            GetConsoleInputExeNameW   (KERNEL32.@)
+ */
+BOOL WINAPI GetConsoleInputExeNameW(DWORD buflen, LPWSTR buffer)
+{
+    TRACE("%u %p\n", buflen, buffer);
+
+    RtlEnterCriticalSection(&CONSOLE_CritSect);
+    if (buflen > strlenW(input_exe)) strcpyW(buffer, input_exe);
+    else SetLastError(ERROR_BUFFER_OVERFLOW);
+    RtlLeaveCriticalSection(&CONSOLE_CritSect);
+
+    return TRUE;
+}
+
+/***********************************************************************
+ *            GetConsoleInputExeNameA   (KERNEL32.@)
+ */
+BOOL WINAPI GetConsoleInputExeNameA(DWORD buflen, LPSTR buffer)
+{
+    TRACE("%u %p\n", buflen, buffer);
+
+    RtlEnterCriticalSection(&CONSOLE_CritSect);
+    if (WideCharToMultiByte(CP_ACP, 0, input_exe, -1, NULL, 0, NULL, NULL) <= buflen)
+        WideCharToMultiByte(CP_ACP, 0, input_exe, -1, buffer, buflen, NULL, NULL);
+    else SetLastError(ERROR_BUFFER_OVERFLOW);
+    RtlLeaveCriticalSection(&CONSOLE_CritSect);
+
+    return TRUE;
+}
+
+/***********************************************************************
  *            GetConsoleTitleA   (KERNEL32.@)
  *
  * See GetConsoleTitleW.
@@ -1063,6 +1131,9 @@ BOOL WINAPI FreeConsole(VOID)
 {
     BOOL ret;
 
+    /* invalidate local copy of input event handle */
+    console_wait_event = 0;
+
     SERVER_START_REQ(free_console)
     {
         ret = !wine_server_call_err( req );
@@ -1090,6 +1161,9 @@ static  BOOL    start_console_renderer_helper(const char* appname, STARTUPINFOA*
         CreateProcessA(NULL, buffer, NULL, NULL, TRUE, DETACHED_PROCESS,
                        NULL, NULL, si, &pi))
     {
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+
         if (WaitForSingleObject(hEvent, INFINITE) != WAIT_OBJECT_0) return FALSE;
 
         TRACE("Started wineconsole pid=%08x tid=%08x\n",
@@ -1161,6 +1235,9 @@ BOOL WINAPI AllocConsole(void)
     }
     /* happens when we're running on a Unix console */
     if (handle_in != INVALID_HANDLE_VALUE) CloseHandle(handle_in);
+
+    /* invalidate local copy of input event handle */
+    console_wait_event = 0;
 
     GetStartupInfoA(&siCurrent);
 
@@ -1291,17 +1368,20 @@ BOOL WINAPI ReadConsoleW(HANDLE hConsoleInput, LPVOID lpBuffer,
 	/* FIXME: should we read at least 1 char? The SDK does not say */
 	/* wait for at least one available input record (it doesn't mean we'll have
 	 * chars stored in xbuf...)
+	 *
+	 * Although SDK doc keeps silence about 1 char, SDK examples assume
+	 * that we should wait for at least one character (not key). --KS
 	 */
 	charsread = 0;
         do 
 	{
 	    if (read_console_input(hConsoleInput, &ir, timeout) != rci_gotone) break;
-            timeout = 0;
 	    if (ir.EventType == KEY_EVENT && ir.Event.KeyEvent.bKeyDown &&
 		ir.Event.KeyEvent.uChar.UnicodeChar &&
 		!(ir.Event.KeyEvent.dwControlKeyState & ENHANCED_KEY))
 	    {
 		xbuf[charsread++] = ir.Event.KeyEvent.uChar.UnicodeChar;
+		timeout = 0;
 	    }
         } while (charsread < nNumberOfCharsToRead);
         /* nothing has been read */
@@ -1421,35 +1501,45 @@ BOOL WINAPI GetNumberOfConsoleMouseButtons(LPDWORD nrofbuttons)
 
 /******************************************************************************
  *  SetConsoleInputExeNameW	 [KERNEL32.@]
- *
- * BUGS
- *   Unimplemented
  */
 BOOL WINAPI SetConsoleInputExeNameW(LPCWSTR name)
 {
-    FIXME("(%s): stub!\n", debugstr_w(name));
+    TRACE("(%s)\n", debugstr_w(name));
 
-    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+    if (!name || !name[0])
+    {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+
+    RtlEnterCriticalSection(&CONSOLE_CritSect);
+    if (strlenW(name) < sizeof(input_exe)/sizeof(WCHAR)) strcpyW(input_exe, name);
+    RtlLeaveCriticalSection(&CONSOLE_CritSect);
+
     return TRUE;
 }
 
 /******************************************************************************
  *  SetConsoleInputExeNameA	 [KERNEL32.@]
- *
- * BUGS
- *   Unimplemented
  */
 BOOL WINAPI SetConsoleInputExeNameA(LPCSTR name)
 {
-    int		len = MultiByteToWideChar(CP_ACP, 0, name, -1, NULL, 0);
-    LPWSTR	xptr = HeapAlloc(GetProcessHeap(), 0, len * sizeof(WCHAR));
-    BOOL	ret;
+    int len;
+    LPWSTR nameW;
+    BOOL ret;
 
-    if (!xptr) return FALSE;
+    if (!name || !name[0])
+    {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
 
-    MultiByteToWideChar(CP_ACP, 0, name, -1, xptr, len);
-    ret = SetConsoleInputExeNameW(xptr);
-    HeapFree(GetProcessHeap(), 0, xptr);
+    len = MultiByteToWideChar(CP_ACP, 0, name, -1, NULL, 0);
+    if (!(nameW = HeapAlloc(GetProcessHeap(), 0, len * sizeof(WCHAR)))) return FALSE;
+
+    MultiByteToWideChar(CP_ACP, 0, name, -1, nameW, len);
+    ret = SetConsoleInputExeNameW(nameW);
+    HeapFree(GetProcessHeap(), 0, nameW);
 
     return ret;
 }
@@ -1487,15 +1577,6 @@ struct ConsoleHandler
 
 static struct ConsoleHandler    CONSOLE_DefaultConsoleHandler = {CONSOLE_DefaultHandler, NULL};
 static struct ConsoleHandler*   CONSOLE_Handlers = &CONSOLE_DefaultConsoleHandler;
-
-static CRITICAL_SECTION CONSOLE_CritSect;
-static CRITICAL_SECTION_DEBUG critsect_debug =
-{
-    0, 0, &CONSOLE_CritSect,
-    { &critsect_debug.ProcessLocksList, &critsect_debug.ProcessLocksList },
-      0, 0, { (DWORD_PTR)(__FILE__ ": CONSOLE_CritSect") }
-};
-static CRITICAL_SECTION CONSOLE_CritSect = { &critsect_debug, -1, 0, 0, 0, 0 };
 
 /*****************************************************************************/
 
@@ -1564,9 +1645,9 @@ BOOL WINAPI SetConsoleCtrlHandler(PHANDLER_ROUTINE func, BOOL add)
     return ret;
 }
 
-static WINE_EXCEPTION_FILTER(CONSOLE_CtrlEventHandler)
+static LONG WINAPI CONSOLE_CtrlEventHandler(EXCEPTION_POINTERS *eptr)
 {
-    TRACE("(%x)\n", GetExceptionCode());
+    TRACE("(%x)\n", eptr->ExceptionRecord->ExceptionCode);
     return EXCEPTION_EXECUTE_HANDLER;
 }
 
@@ -1668,8 +1749,8 @@ BOOL WINAPI GenerateConsoleCtrlEvent(DWORD dwCtrlEvent,
     }
     SERVER_END_REQ;
 
-    /* FIXME: shall this function be synchronous, ie only return when all events
-     * have been handled by all processes in the given group ?
+    /* FIXME: Shall this function be synchronous, i.e., only return when all events
+     * have been handled by all processes in the given group?
      * As of today, we don't wait...
      */
     return ret;
@@ -1714,7 +1795,7 @@ HANDLE WINAPI CreateConsoleScreenBuffer(DWORD dwDesiredAccess, DWORD dwShareMode
         req->access     = dwDesiredAccess;
         req->attributes = (sa && sa->bInheritHandle) ? OBJ_INHERIT : 0;
         req->share      = dwShareMode;
-	if (!wine_server_call_err( req )) ret = reply->handle_out;
+        if (!wine_server_call_err( req )) ret = console_handle_map(reply->handle_out);
     }
     SERVER_END_REQ;
 
@@ -2503,6 +2584,7 @@ BOOL	CONSOLE_AppendHistory(const WCHAR* ptr)
     BOOL	ret;
 
     while (len && (ptr[len - 1] == '\n' || ptr[len - 1] == '\r')) len--;
+    if (!len) return FALSE;
 
     SERVER_START_REQ( append_console_input_history )
     {

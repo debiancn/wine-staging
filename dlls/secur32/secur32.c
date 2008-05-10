@@ -169,7 +169,7 @@ PWSTR SECUR32_strdupW(PCWSTR str)
 
     if (str)
     {
-        ret = (PWSTR)SECUR32_ALLOC((lstrlenW(str) + 1) * sizeof(WCHAR));
+        ret = HeapAlloc(GetProcessHeap(), 0, (lstrlenW(str) + 1) * sizeof(WCHAR));
         if (ret)
             lstrcpyW(ret, str);
     }
@@ -188,7 +188,7 @@ PWSTR SECUR32_AllocWideFromMultiByte(PCSTR str)
 
         if (charsNeeded)
         {
-            ret = (PWSTR)SECUR32_ALLOC(charsNeeded * sizeof(WCHAR));
+            ret = HeapAlloc(GetProcessHeap(), 0, charsNeeded * sizeof(WCHAR));
             if (ret)
                 MultiByteToWideChar(CP_ACP, 0, str, -1, ret, charsNeeded);
         }
@@ -211,7 +211,7 @@ PSTR SECUR32_AllocMultiByteFromWide(PCWSTR str)
 
         if (charsNeeded)
         {
-            ret = (PSTR)SECUR32_ALLOC(charsNeeded);
+            ret = HeapAlloc(GetProcessHeap(), 0, charsNeeded);
             if (ret)
                 WideCharToMultiByte(CP_ACP, 0, str, -1, ret, charsNeeded,
                  NULL, NULL);
@@ -567,8 +567,9 @@ static void SECUR32_initializeProviders(void)
         {
             WCHAR *ptr;
 
+            size = size / sizeof(WCHAR);
             for (ptr = securityPkgNames;
-             ptr < (PWSTR)((PBYTE)securityPkgNames + size); )
+              ptr < securityPkgNames + size; )
             {
                 WCHAR *comma;
 
@@ -588,7 +589,7 @@ static void SECUR32_initializeProviders(void)
     }
 }
 
-SecurePackage *SECUR32_findPackageW(PWSTR packageName)
+SecurePackage *SECUR32_findPackageW(PCWSTR packageName)
 {
     SecurePackage *ret = NULL;
     BOOL matched = FALSE;
@@ -634,7 +635,7 @@ SecurePackage *SECUR32_findPackageW(PWSTR packageName)
     return ret;
 }
 
-SecurePackage *SECUR32_findPackageA(PSTR packageName)
+SecurePackage *SECUR32_findPackageA(PCSTR packageName)
 {
     SecurePackage *ret;
 
@@ -663,8 +664,8 @@ static void SECUR32_freeProviders(void)
     {
         LIST_FOR_EACH_ENTRY(package, &packageTable->table, SecurePackage, entry)
         {
-            SECUR32_FREE(package->infoW.Name);
-            SECUR32_FREE(package->infoW.Comment);
+            HeapFree(GetProcessHeap(), 0, package->infoW.Name);
+            HeapFree(GetProcessHeap(), 0, package->infoW.Comment);
         }
 
         HeapFree(GetProcessHeap(), 0, packageTable);
@@ -675,7 +676,7 @@ static void SECUR32_freeProviders(void)
     {
         LIST_FOR_EACH_ENTRY(provider, &providerTable->table, SecureProvider, entry)
         {
-            SECUR32_FREE(provider->moduleName);
+            HeapFree(GetProcessHeap(), 0, provider->moduleName);
             if (provider->lib)
                 FreeLibrary(provider->lib);
         }
@@ -698,7 +699,7 @@ static void SECUR32_freeProviders(void)
  */
 SECURITY_STATUS WINAPI FreeContextBuffer(PVOID pv)
 {
-    SECUR32_FREE(pv);
+    HeapFree(GetProcessHeap(), 0, pv);
 
     return SEC_E_OK;
 }
@@ -731,7 +732,7 @@ SECURITY_STATUS WINAPI EnumerateSecurityPackagesW(PULONG pcPackages,
         }
         if (bytesNeeded)
         {
-            *ppPackageInfo = (PSecPkgInfoW)SECUR32_ALLOC(bytesNeeded);
+            *ppPackageInfo = HeapAlloc(GetProcessHeap(), 0, bytesNeeded);
             if (*ppPackageInfo)
             {
                 ULONG i = 0;
@@ -744,7 +745,7 @@ SECURITY_STATUS WINAPI EnumerateSecurityPackagesW(PULONG pcPackages,
                 {
                     PSecPkgInfoW pkgInfo = *ppPackageInfo + i++;
 
-                    memcpy(pkgInfo, &package->infoW, sizeof(SecPkgInfoW));
+                    *pkgInfo = package->infoW;
                     if (package->infoW.Name)
                     {
                         TRACE("Name[%d] = %s\n", i - 1, debugstr_w(package->infoW.Name));
@@ -778,7 +779,7 @@ SECURITY_STATUS WINAPI EnumerateSecurityPackagesW(PULONG pcPackages,
  * structures) into an array of SecPkgInfoA structures, which it returns.
  */
 static PSecPkgInfoA thunk_PSecPkgInfoWToA(ULONG cPackages,
- const PSecPkgInfoW info)
+ const SecPkgInfoW *info)
 {
     PSecPkgInfoA ret;
 
@@ -796,7 +797,7 @@ static PSecPkgInfoA thunk_PSecPkgInfoWToA(ULONG cPackages,
                 bytesNeeded += WideCharToMultiByte(CP_ACP, 0, info[i].Comment,
                  -1, NULL, 0, NULL, NULL);
         }
-        ret = (PSecPkgInfoA)SECUR32_ALLOC(bytesNeeded);
+        ret = HeapAlloc(GetProcessHeap(), 0, bytesNeeded);
         if (ret)
         {
             PSTR nextString;
@@ -1048,29 +1049,6 @@ BOOLEAN WINAPI GetUserNameExW(
 {
     FIXME("%d %p %p\n", NameFormat, lpNameBuffer, nSize);
     return FALSE;
-}
-
-NTSTATUS WINAPI LsaCallAuthenticationPackage(
-  HANDLE LsaHandle, ULONG AuthenticationPackage, PVOID ProtocolSubmitBuffer,
-  ULONG SubmitBufferLength, PVOID* ProtocolReturnBuffer, PULONG ReturnBufferLength,
-  PNTSTATUS ProtocolStatus)
-{
-    FIXME("%p %d %p %d %p %p %p\n", LsaHandle, AuthenticationPackage,
-          ProtocolSubmitBuffer, SubmitBufferLength, ProtocolReturnBuffer,
-          ReturnBufferLength, ProtocolStatus);
-    return 0;
-}
-
-NTSTATUS WINAPI LsaConnectUntrusted(PHANDLE LsaHandle)
-{
-    FIXME("%p\n", LsaHandle);
-    return 0;
-}
-
-NTSTATUS WINAPI LsaDeregisterLogonProcess(HANDLE LsaHandle)
-{
-    FIXME("%p\n", LsaHandle);
-    return 0;
 }
 
 BOOLEAN WINAPI TranslateNameA(

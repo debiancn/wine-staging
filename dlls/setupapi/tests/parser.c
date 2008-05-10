@@ -36,14 +36,12 @@ static LPCWSTR (WINAPI *pSetupGetField)(PINFCONTEXT,DWORD);
 
 static void init_function_pointers(void)
 {
-    hSetupAPI = LoadLibraryA("setupapi.dll");
-    if (!hSetupAPI)
-        return;
+    hSetupAPI = GetModuleHandleA("setupapi.dll");
 
     pSetupGetField = (void *)GetProcAddress(hSetupAPI, "pSetupGetField"); 
 }
 
-static const char tmpfile[] = ".\\tmp.inf";
+static const char tmpfilename[] = ".\\tmp.inf";
 
 /* some large strings */
 #define A255 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
@@ -62,18 +60,19 @@ static const char tmpfile[] = ".\\tmp.inf";
 #define STR_SECTION "[Strings]\nfoo=aaa\nbar=bbb\nloop=%loop2%\nloop2=%loop%\n" \
                     "per%%cent=abcd\nper=1\ncent=2\n22=foo\n" \
                     "big=" A400 "\n" \
+                    "mydrive=\"C:\\\"\n" \
                     "verybig=" A400 A400 A400 "\n"
 
 /* create a new file with specified contents and open it */
 static HINF test_file_contents( const char *data, UINT *err_line )
 {
     DWORD res;
-    HANDLE handle = CreateFileA( tmpfile, GENERIC_READ|GENERIC_WRITE,
+    HANDLE handle = CreateFileA( tmpfilename, GENERIC_READ|GENERIC_WRITE,
                                  FILE_SHARE_READ|FILE_SHARE_WRITE, NULL, CREATE_ALWAYS, 0, 0 );
     if (handle == INVALID_HANDLE_VALUE) return 0;
     if (!WriteFile( handle, data, strlen(data), &res, NULL )) trace( "write error\n" );
     CloseHandle( handle );
-    return SetupOpenInfFileA( tmpfile, 0, INF_STYLE_WIN4, err_line );
+    return SetupOpenInfFileA( tmpfilename, 0, INF_STYLE_WIN4, err_line );
 }
 
 static const char *get_string_field( INFCONTEXT *context, DWORD index )
@@ -286,6 +285,9 @@ static const struct
  { "ab=cd\",\"ef",         "ab",            { "cd,ef" } },
  { "ab=cd\",ef",           "ab",            { "cd,ef" } },
  { "ab=cd\",ef\\\nab",     "ab",            { "cd,ef\\" } },
+
+ /* single quotes (unhandled)*/
+ { "HKLM,A,B,'C',D",       NULL,            { "HKLM", "A","B","'C'","D" } },
  /* spaces */
  { " a b = c , d \n",      "a b",           { "c", "d" } },
  { " a b = c ,\" d\" \n",  "a b",           { "c", " d" } },
@@ -317,6 +319,16 @@ static const struct
  { "a=%big%%big%%big%%big%\n" STR_SECTION,   "a", { A400 A400 A400 A400 } },
  { "a=%big%%big%%big%%big%%big%%big%%big%%big%%big%\n" STR_SECTION,   "a", { A400 A400 A400 A400 A400 A400 A400 A400 A400 } },
  { "a=%big%%big%%big%%big%%big%%big%%big%%big%%big%%big%%big%\n" STR_SECTION,   "a", { A4097 /*MAX_INF_STRING_LENGTH+1*/ } },
+
+ /* Prove expansion of system entries removes extra \'s and string
+    replacements doesn't                                            */
+ { "ab=\"%24%\"\n" STR_SECTION,           "ab", { "C:\\" } },
+ { "ab=\"%mydrive%\"\n" STR_SECTION,      "ab", { "C:\\" } },
+ { "ab=\"%24%\\fred\"\n" STR_SECTION,     "ab", { "C:\\fred" } },
+ { "ab=\"%mydrive%\\fred\"\n" STR_SECTION,"ab", { "C:\\\\fred" } },
+ /* Confirm duplicate \'s kept */
+ { "ab=\"%24%\\\\fred\"",      "ab",            { "C:\\\\fred" } },
+ { "ab=C:\\\\FRED",            "ab",            { "C:\\\\FRED" } },
 };
 
 /* check the key of a certain line */
@@ -449,11 +461,6 @@ static void test_pSetupGetField(void)
         field = pSetupGetField( &context, i );
         ok( field != NULL, "Failed to get field %i\n", i );
         ok( !lstrcmpW( getfield_res[i], field ), "Wrong string returned\n" );
-
-        ret = HeapFree( GetProcessHeap(), 0, (LPVOID)field );
-        ok( !ret, "Expected HeapFree to fail\n" );
-        ok( GetLastError() == ERROR_INVALID_PARAMETER,
-            "Expected ERROR_INVALID_PARAMETER, got %u\n", GetLastError() );
     }
 
     field = pSetupGetField( &context, 3 );
@@ -468,6 +475,181 @@ static void test_pSetupGetField(void)
     SetupCloseInfFile( hinf );
 }
 
+static void test_SetupGetIntField(void)
+{
+    static const struct
+    {
+        const char *key;
+        const char *fields;
+        DWORD index;
+        INT value;
+        DWORD err;
+    } keys[] =
+    {
+    /* key     fields            index   expected int  errorcode */
+    {  "Key=", "48",             1,      48,           ERROR_SUCCESS },
+    {  "Key=", "48",             0,      -1,           ERROR_INVALID_DATA },
+    {  "123=", "48",             0,      123,          ERROR_SUCCESS },
+    {  "Key=", "0x4",            1,      4,            ERROR_SUCCESS },
+    {  "Key=", "Field1",         1,      -1,           ERROR_INVALID_DATA },
+    {  "Key=", "Field1,34",      2,      34,           ERROR_SUCCESS },
+    {  "Key=", "Field1,,Field3", 2,      0,            ERROR_SUCCESS },
+    {  "Key=", "Field1,",        2,      0,            ERROR_SUCCESS }
+    };
+    unsigned int i;
+
+    for (i = 0; i < sizeof(keys)/sizeof(keys[0]); i++)
+    {
+        HINF hinf;
+        char buffer[MAX_INF_STRING_LENGTH];
+        INFCONTEXT context;
+        UINT err;
+        BOOL retb;
+        INT intfield;
+
+        strcpy( buffer, STD_HEADER "[TestSection]\n" );
+        strcat( buffer, keys[i].key );
+        strcat( buffer, keys[i].fields );
+        hinf = test_file_contents( buffer, &err);
+        ok( hinf != NULL, "Expected valid INF file\n" );
+
+        SetupFindFirstLineA( hinf, "TestSection", "Key", &context );
+        SetLastError( 0xdeadbeef );
+        intfield = -1;
+        retb = SetupGetIntField( &context, keys[i].index, &intfield );
+        if ( keys[i].err == ERROR_SUCCESS )
+        {
+            ok( retb, "Expected success\n" );
+            ok( GetLastError() == ERROR_SUCCESS ||
+                GetLastError() == 0xdeadbeef /* win9x, NT4 */,
+                "Expected ERROR_SUCCESS or 0xdeadbeef, got %u\n", GetLastError() );
+        }
+        else
+        {
+            ok( !retb, "Expected failure\n" );
+            ok( GetLastError() == keys[i].err,
+                "Expected %d, got %u\n", keys[i].err, GetLastError() );
+        }
+        ok( intfield == keys[i].value, "Expected %d, got %d\n", keys[i].value, intfield );
+
+        SetupCloseInfFile( hinf );
+    }
+}
+
+static void test_GLE(void)
+{
+    static const char *inf =
+        "[Version]\n"
+        "Signature=\"$Windows NT$\"\n"
+        "[Sectionname]\n"
+        "Keyname1=Field1,Field2,Field3\n"
+        "\n"
+        "Keyname2=Field4,Field5\n";
+    HINF hinf;
+    UINT err;
+    INFCONTEXT context;
+    BOOL retb;
+    LONG retl;
+    char buf[MAX_INF_STRING_LENGTH];
+    int bufsize = MAX_INF_STRING_LENGTH;
+    DWORD retsize;
+
+    hinf = test_file_contents( inf, &err );
+    ok( hinf != NULL, "Expected valid INF file\n" );
+
+    SetLastError(0xdeadbeef);
+    retb = SetupFindFirstLineA( hinf, "ImNotThere", NULL, &context );
+    ok(!retb, "Expected failure\n");
+    ok(GetLastError() == ERROR_LINE_NOT_FOUND,
+        "Expected ERROR_LINE_NOT_FOUND, got %08x\n", GetLastError());
+
+    SetLastError(0xdeadbeef);
+    retb = SetupFindFirstLineA( hinf, "ImNotThere", "ImNotThere", &context );
+    ok(!retb, "Expected failure\n");
+    ok(GetLastError() == ERROR_LINE_NOT_FOUND,
+        "Expected ERROR_LINE_NOT_FOUND, got %08x\n", GetLastError());
+
+    SetLastError(0xdeadbeef);
+    retb = SetupFindFirstLineA( hinf, "Sectionname", NULL, &context );
+    ok(retb, "Expected success\n");
+    ok(GetLastError() == ERROR_SUCCESS,
+        "Expected ERROR_SUCCESS, got %08x\n", GetLastError());
+
+    SetLastError(0xdeadbeef);
+    retb = SetupFindFirstLineA( hinf, "Sectionname", "ImNotThere", &context );
+    ok(!retb, "Expected failure\n");
+    ok(GetLastError() == ERROR_LINE_NOT_FOUND,
+        "Expected ERROR_LINE_NOT_FOUND, got %08x\n", GetLastError());
+
+    SetLastError(0xdeadbeef);
+    retb = SetupFindFirstLineA( hinf, "Sectionname", "Keyname1", &context );
+    ok(retb, "Expected success\n");
+    ok(GetLastError() == ERROR_SUCCESS,
+        "Expected ERROR_SUCCESS, got %08x\n", GetLastError());
+
+    SetLastError(0xdeadbeef);
+    retb = SetupFindNextMatchLineA( &context, "ImNotThere", &context );
+    ok(!retb, "Expected failure\n");
+    ok(GetLastError() == ERROR_LINE_NOT_FOUND,
+        "Expected ERROR_LINE_NOT_FOUND, got %08x\n", GetLastError());
+
+    SetLastError(0xdeadbeef);
+    retb = SetupFindNextMatchLineA( &context, "Keyname2", &context );
+    ok(retb, "Expected success\n");
+    ok(GetLastError() == ERROR_SUCCESS,
+        "Expected ERROR_SUCCESS, got %08x\n", GetLastError());
+
+    SetLastError(0xdeadbeef);
+    retl = SetupGetLineCountA( hinf, "ImNotThere");
+    ok(retl == -1, "Expected -1, got %d\n", retl);
+    ok(GetLastError() == ERROR_SECTION_NOT_FOUND,
+        "Expected ERROR_SECTION_NOT_FOUND, got %08x\n", GetLastError());
+
+    SetLastError(0xdeadbeef);
+    retl = SetupGetLineCountA( hinf, "Sectionname");
+    ok(retl == 2, "Expected 2, got %d\n", retl);
+    ok(GetLastError() == ERROR_SUCCESS,
+        "Expected ERROR_SUCCESS, got %08x\n", GetLastError());
+
+    SetLastError(0xdeadbeef);
+    retb = SetupGetLineTextA( NULL, hinf, "ImNotThere", "ImNotThere", buf, bufsize, &retsize);
+    ok(!retb, "Expected failure\n");
+    ok(GetLastError() == ERROR_LINE_NOT_FOUND,
+        "Expected ERROR_LINE_NOT_FOUND, got %08x\n", GetLastError());
+
+    SetLastError(0xdeadbeef);
+    retb = SetupGetLineTextA( NULL, hinf, "Sectionname", "ImNotThere", buf, bufsize, &retsize);
+    ok(!retb, "Expected failure\n");
+    ok(GetLastError() == ERROR_LINE_NOT_FOUND,
+        "Expected ERROR_LINE_NOT_FOUND, got %08x\n", GetLastError());
+
+    SetLastError(0xdeadbeef);
+    retb = SetupGetLineTextA( NULL, hinf, "Sectionname", "Keyname1", buf, bufsize, &retsize);
+    ok(retb, "Expected success\n");
+    ok(GetLastError() == ERROR_SUCCESS,
+        "Expected ERROR_SUCCESS, got %08x\n", GetLastError());
+
+    SetLastError(0xdeadbeef);
+    retb = SetupGetLineByIndexA( hinf, "ImNotThere", 1, &context );
+    ok(!retb, "Expected failure\n");
+    ok(GetLastError() == ERROR_LINE_NOT_FOUND,
+        "Expected ERROR_LINE_NOT_FOUND, got %08x\n", GetLastError());
+
+    SetLastError(0xdeadbeef);
+    retb = SetupGetLineByIndexA( hinf, "Sectionname", 1, &context );
+    ok(retb, "Expected success\n");
+    ok(GetLastError() == ERROR_SUCCESS,
+        "Expected ERROR_SUCCESS, got %08x\n", GetLastError());
+
+    SetLastError(0xdeadbeef);
+    retb = SetupGetLineByIndexA( hinf, "Sectionname", 3, &context );
+    ok(!retb, "Expected failure\n");
+    ok(GetLastError() == ERROR_LINE_NOT_FOUND,
+        "Expected ERROR_LINE_NOT_FOUND, got %08x\n", GetLastError());
+
+    SetupCloseInfFile( hinf );
+}
+
 START_TEST(parser)
 {
     init_function_pointers();
@@ -476,5 +658,7 @@ START_TEST(parser)
     test_key_names();
     test_close_inf_file();
     test_pSetupGetField();
-    DeleteFileA( tmpfile );
+    test_SetupGetIntField();
+    test_GLE();
+    DeleteFileA( tmpfilename );
 }

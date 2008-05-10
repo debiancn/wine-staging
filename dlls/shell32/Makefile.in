@@ -4,10 +4,9 @@ TOPOBJDIR = ../..
 SRCDIR    = @srcdir@
 VPATH     = @srcdir@
 MODULE    = shell32.dll
-IMPORTLIB = libshell32.$(IMPLIBEXT)
-IMPORTS   = shlwapi comctl32 user32 gdi32 advapi32 kernel32 ntdll
+IMPORTLIB = shell32
+IMPORTS   = uuid shlwapi comctl32 user32 gdi32 advapi32 kernel32 ntdll
 DELAYIMPORTS = ole32 oleaut32
-EXTRALIBS = -luuid
 
 C_SRCS = \
 	autocomplete.c \
@@ -38,6 +37,7 @@ C_SRCS = \
 	shfldr_desktop.c \
 	shfldr_fs.c \
 	shfldr_mycomp.c \
+	shfldr_netplaces.c \
 	shfldr_unixfs.c \
 	shlexec.c \
 	shlfileop.c \
@@ -53,25 +53,6 @@ C_SRCS = \
 	xdg.c
 
 RC_SRCS = shres.rc
-RC_BINSRC = shres.rc
-RC_BINARIES = \
-	cdrom.ico \
-	desktop.ico \
-	delete.ico \
-	document.ico \
-	drive.ico \
-	floppy.ico \
-	folder.ico \
-	folder_open.ico \
-	mycomputer.ico \
-	mydocs.ico \
-	netdrive.ico \
-	netdrive2.ico \
-	printer.ico \
-	ramdisk.ico \
-	searching.avi \
-	shortcut.ico \
-	trash_file.ico
 
 C_SRCS16  = shell.c
 RC_SRCS16 = version16.rc

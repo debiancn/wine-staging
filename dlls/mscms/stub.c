@@ -29,21 +29,9 @@
 #include "winuser.h"
 #include "icm.h"
 
+#include "mscms_priv.h"
+
 WINE_DEFAULT_DEBUG_CHANNEL(mscms);
-
-BOOL WINAPI AssociateColorProfileWithDeviceA( PCSTR machine, PCSTR profile, PCSTR device )
-{
-    FIXME( "( %p, %p, %p ) stub\n", machine, profile, device );
-
-    return TRUE;
-}
-
-BOOL WINAPI AssociateColorProfileWithDeviceW( PCWSTR machine, PCWSTR profile, PCWSTR device )
-{
-    FIXME( "( %p, %p, %p ) stub\n", machine, profile, device );
-
-    return TRUE;
-}
 
 BOOL WINAPI CheckBitmapBits( HTRANSFORM transform, PVOID srcbits, BMFORMAT format, DWORD width,
                              DWORD height, DWORD stride, PBYTE result, PBMCALLBACKFN callback,
@@ -98,20 +86,6 @@ BOOL WINAPI CreateProfileFromLogColorSpaceW( LPLOGCOLORSPACEW space, PBYTE *buff
     FIXME( "( %p, %p ) stub\n", space, buffer );
 
     return FALSE;
-}
-
-BOOL WINAPI DisassociateColorProfileFromDeviceA( PCSTR machine, PCSTR profile, PCSTR device )
-{
-    FIXME( "( %p, %p, %p ) stub\n", machine, profile, device );
-
-    return TRUE;
-}
-
-BOOL WINAPI DisassociateColorProfileFromDeviceW( PCWSTR machine, PCWSTR profile, PCWSTR device )
-{
-    FIXME( "( %p, %p, %p ) stub\n", machine, profile, device );
-
-    return TRUE;
 }
 
 DWORD WINAPI GenerateCopyFilePaths( LPCWSTR printer, LPCWSTR directory, LPBYTE clientinfo,
@@ -177,7 +151,7 @@ BOOL WINAPI RegisterCMMW( PCWSTR machine, DWORD id, PCWSTR dll )
 
 BOOL WINAPI SelectCMM( DWORD id )
 {
-    FIXME( "( 0x%08x ) stub\n", id );
+    FIXME( "(%x) stub\n", id );
 
     return TRUE;
 }
@@ -212,15 +186,6 @@ BOOL WINAPI SpoolerCopyFileEvent( LPWSTR printer, LPWSTR key, DWORD event )
 {
     FIXME( "( %s, %s, 0x%08x ) stub\n", debugstr_w(printer), debugstr_w(key), event );
     return TRUE;
-}
-
-BOOL WINAPI TranslateColors( HTRANSFORM transform, PCOLOR inputcolors, DWORD number,
-                             COLORTYPE input, PCOLOR outputcolors, COLORTYPE output )
-{
-    FIXME( "( %p, %p, 0x%08x, 0x%08x, %p, 0x%08x ) stub\n", transform, inputcolors,
-           number, input, outputcolors, output );
-
-    return FALSE;
 }
 
 BOOL WINAPI UnregisterCMMA( PCSTR machine, DWORD id )

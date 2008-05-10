@@ -6,12 +6,14 @@ TESTDLL   = kernel32.dll
 IMPORTS   = advapi32 kernel32
 
 CTESTS = \
+	actctx.c \
 	alloc.c \
 	atom.c \
 	change.c \
 	codepage.c \
 	comm.c \
 	console.c \
+	debugger.c \
 	directory.c \
 	drive.c \
 	environ.c \
@@ -36,6 +38,8 @@ CTESTS = \
 	version.c \
 	virtual.c \
 	volume.c
+
+RC_SRCS = resource.rc
 
 @MAKE_TEST_RULES@
 

@@ -100,7 +100,7 @@ static HRESULT WINAPI IDirectMusicContainerImpl_IDirectMusicContainer_EnumObject
 			return E_POINTER;
 		}
 	}
-	/* check if we wszAlias is big enough */
+	/* check if wszAlias is big enough */
 	if (pwszAlias && IsBadWritePtr (pwszAlias, DMUS_MAX_FILENAME_SIZE)) {
 		ERR(": wszAlias bad write pointer\n");
 		return E_POINTER;		
@@ -120,7 +120,7 @@ static HRESULT WINAPI IDirectMusicContainerImpl_IDirectMusicContainer_EnumObject
 						result = DMUS_S_STRING_TRUNCATED;
 				}
 				if (pDesc)
-					memcpy (pDesc, &pContainedObject->Desc, sizeof(DMUS_OBJECTDESC));
+					*pDesc = pContainedObject->Desc;
 				return result;
 			}
 			dwCount++;
@@ -158,7 +158,7 @@ static HRESULT WINAPI IDirectMusicContainerImpl_IDirectMusicObject_GetDescriptor
 	ICOM_THIS_MULTI(IDirectMusicContainerImpl, ObjectVtbl, iface);
 	TRACE("(%p, %p):\n", This, pDesc);
 	
-	/* check if whe can write to whole pDesc */
+	/* check if we can write to whole pDesc */
 	if (IsBadReadPtr (pDesc, sizeof(DWORD))) {
 		ERR(": pDesc->dwSize bad read pointer\n");
 		return E_POINTER;
@@ -171,10 +171,10 @@ static HRESULT WINAPI IDirectMusicContainerImpl_IDirectMusicObject_GetDescriptor
 		ERR(": pDesc bad write pointer\n");
 		return E_POINTER;
 	}
-	
+
 	DM_STRUCT_INIT(pDesc);
-	memcpy (pDesc, &This->Desc, sizeof(DMUS_OBJECTDESC));
-	
+	*pDesc = This->Desc;
+
 	return S_OK;
 }
 
@@ -184,7 +184,7 @@ static HRESULT WINAPI IDirectMusicContainerImpl_IDirectMusicObject_SetDescriptor
 	ICOM_THIS_MULTI(IDirectMusicContainerImpl, ObjectVtbl, iface);
 	TRACE("(%p, %p):\n", This, pDesc);
 
-	/* check if whe can read whole pDesc */
+	/* check if we can read whole pDesc */
 	if (IsBadReadPtr (pDesc, sizeof(DWORD))) {
 		ERR(": pDesc->dwSize bad read pointer\n");
 		return E_POINTER;
@@ -199,7 +199,7 @@ static HRESULT WINAPI IDirectMusicContainerImpl_IDirectMusicObject_SetDescriptor
 	}
 
 	if (pDesc->dwValidData & DMUS_OBJ_OBJECT) {
-		memcpy (&This->Desc.guidObject, &pDesc->guidObject, sizeof(GUID));
+		This->Desc.guidObject = pDesc->guidObject;
 		dwNewFlags |= DMUS_OBJ_OBJECT;
 	}
 	if (pDesc->dwValidData & DMUS_OBJ_NAME) {
@@ -276,7 +276,7 @@ static HRESULT WINAPI IDirectMusicContainerImpl_IDirectMusicObject_ParseDescript
 				TRACE_(dmfile)(": container form\n");
 				/* set guidClass */
 				pDesc->dwValidData |= DMUS_OBJ_CLASS;
-				memcpy (&pDesc->guidClass, &CLSID_DirectMusicContainer, sizeof(CLSID));				
+				pDesc->guidClass = CLSID_DirectMusicContainer;
 				do {
 					IStream_Read (pStream, &Chunk, sizeof(FOURCC)+sizeof(DWORD), NULL);
 					StreamCount += sizeof(FOURCC) + sizeof(DWORD) + Chunk.dwSize;
@@ -461,7 +461,7 @@ static HRESULT WINAPI IDirectMusicContainerImpl_IPersistStream_Load (LPPERSISTST
 		ERR(": pStm bad read pointer\n");
 		return E_POINTER;
 	}
-	/* if stream is already set, this means we're loaded already */
+	/* if stream is already set, this means the container is already loaded */
 	if (This->pStream) {
 		TRACE(": stream is already set, which means container is already loaded\n");
 		return DMUS_E_ALREADY_LOADED;
@@ -490,7 +490,7 @@ static HRESULT WINAPI IDirectMusicContainerImpl_IPersistStream_Load (LPPERSISTST
 			switch (Chunk.fccID) {
 				case DMUS_FOURCC_CONTAINER_FORM: {
 					TRACE_(dmfile)(": container form\n");
-					memcpy (&This->Desc.guidClass, &CLSID_DirectMusicContainer, sizeof(CLSID));
+					This->Desc.guidClass = CLSID_DirectMusicContainer;
 					This->Desc.dwValidData |= DMUS_OBJ_CLASS;
 					do {
 						IStream_Read (pStm, &Chunk, sizeof(FOURCC)+sizeof(DWORD), NULL);
@@ -618,7 +618,7 @@ static HRESULT WINAPI IDirectMusicContainerImpl_IPersistStream_Load (LPPERSISTST
 																		TRACE_(dmdump)(": contained object header: \n%s\n", debugstr_DMUS_IO_CONTAINED_OBJECT_HEADER(&tmpObjectHeader));
 																		/* copy guidClass */
 																		pNewEntry->Desc.dwValidData |= DMUS_OBJ_CLASS;
-																		memcpy (&pNewEntry->Desc.guidClass, &tmpObjectHeader.guidClassID, sizeof(GUID));
+																		pNewEntry->Desc.guidClass = tmpObjectHeader.guidClassID;
 																		/* store flags */
 																		pNewEntry->dwFlags = tmpObjectHeader.dwFlags;
 																		break;
@@ -648,7 +648,7 @@ static HRESULT WINAPI IDirectMusicContainerImpl_IPersistStream_Load (LPPERSISTST
 																							if (!IsEqualCLSID (&pNewEntry->Desc.guidClass, &tmpReferenceHeader.guidClassID)) ERR(": object header declares different CLSID than reference header?\n");
 																							/* it shouldn't be necessary to copy guidClass, since it was set in contained object header already...
 																							   yet if they happen to be different, I'd rather stick to this one */
-																							memcpy (&pNewEntry->Desc.guidClass, &tmpReferenceHeader.guidClassID, sizeof(GUID));
+																							pNewEntry->Desc.guidClass = tmpReferenceHeader.guidClassID;
 																							pNewEntry->Desc.dwValidData |= tmpReferenceHeader.dwValidData;
 																							break;																	
 																						}
@@ -923,9 +923,9 @@ HRESULT WINAPI DMUSIC_DestroyDirectMusicContainerImpl (LPDIRECTMUSICCONTAINER if
 	LIST_FOR_EACH (pEntry, This->pContainedObjects) {
 		pContainedObject = LIST_ENTRY (pEntry, WINE_CONTAINER_ENTRY, entry);
 		/* my tests indicate that container releases objects *only* 
-		   if they were loaded at it's load-time (makes sense, it doesn't
+		   if they were loaded at its load-time (makes sense, it doesn't
 		   have pointers to objects otherwise); BTW: native container seems
-		   ti ignore the flags (I won't) */
+		   to ignore the flags (I won't) */
 		if (pContainedObject->pObject && !(pContainedObject->dwFlags & DMUS_CONTAINED_OBJF_KEEP)) {
 			/* flags say it shouldn't be kept in loader's cache */
 			IDirectMusicLoader_ReleaseObject (pLoader, pContainedObject->pObject);

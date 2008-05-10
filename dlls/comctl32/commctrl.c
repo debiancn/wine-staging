@@ -71,6 +71,58 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(commctrl);
 
+
+#define NAME       "microsoft.windows.common-controls"
+#define FILE       "comctl32.dll"
+#define VERSION    "6.0.2600.2982"
+#define PUBLIC_KEY "6595b64144ccf1df"
+
+#ifdef __i386__
+#define ARCH "x86"
+#elif defined __x86_64__
+#define ARCH "amd64"
+#else
+#define ARCH "none"
+#endif
+
+static const char manifest[] =
+    "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
+    "<assembly xmlns=\"urn:schemas-microsoft-com:asm.v1\" manifestVersion=\"1.0\">\n"
+    "  <assemblyIdentity type=\"win32\" name=\"" NAME "\" version=\"" VERSION "\" processorArchitecture=\"" ARCH "\" publicKeyToken=\"" PUBLIC_KEY "\"/>\n"
+    "  <file name=\"" FILE "\">\n"
+    "    <windowClass>Button</windowClass>\n"
+    "    <windowClass>ButtonListBox</windowClass>\n"
+    "    <windowClass>ComboBoxEx32</windowClass>\n"
+    "    <windowClass>ComboLBox</windowClass>\n"
+    "    <windowClass>Combobox</windowClass>\n"
+    "    <windowClass>Edit</windowClass>\n"
+    "    <windowClass>Listbox</windowClass>\n"
+    "    <windowClass>NativeFontCtl</windowClass>\n"
+    "    <windowClass>ReBarWindow32</windowClass>\n"
+    "    <windowClass>ScrollBar</windowClass>\n"
+    "    <windowClass>Static</windowClass>\n"
+    "    <windowClass>SysAnimate32</windowClass>\n"
+    "    <windowClass>SysDateTimePick32</windowClass>\n"
+    "    <windowClass>SysHeader32</windowClass>\n"
+    "    <windowClass>SysIPAddress32</windowClass>\n"
+    "    <windowClass>SysLink</windowClass>\n"
+    "    <windowClass>SysListView32</windowClass>\n"
+    "    <windowClass>SysMonthCal32</windowClass>\n"
+    "    <windowClass>SysPager</windowClass>\n"
+    "    <windowClass>SysTabControl32</windowClass>\n"
+    "    <windowClass>SysTreeView32</windowClass>\n"
+    "    <windowClass>ToolbarWindow32</windowClass>\n"
+    "    <windowClass>msctls_hotkey32</windowClass>\n"
+    "    <windowClass>msctls_progress32</windowClass>\n"
+    "    <windowClass>msctls_statusbar32</windowClass>\n"
+    "    <windowClass>msctls_trackbar32</windowClass>\n"
+    "    <windowClass>msctls_updown32</windowClass>\n"
+    "    <windowClass>tooltips_class32</windowClass>\n"
+    "  </file>\n"
+    "</assembly>\n";
+
+static const char manifest_filename[] = ARCH "_" NAME "_" PUBLIC_KEY "_" VERSION "_none_deadbeef.manifest";
+
 LRESULT WINAPI COMCTL32_SubclassProc (HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
 LPWSTR  COMCTL32_wSubclass = NULL;
@@ -90,6 +142,47 @@ static const WORD wPattern55AA[] =
 static const WCHAR strCC32SubclassInfo[] = {
     'C','C','3','2','S','u','b','c','l','a','s','s','I','n','f','o',0
 };
+
+static BOOL create_manifest( BOOL install )
+{
+    static const WCHAR winsxsW[] = {'\\','w','i','n','s','x','s',0};
+    static const WCHAR manifestsW[] = {'\\','m','a','n','i','f','e','s','t','s','\\',0};
+
+    DWORD len, written;
+    WCHAR *buffer;
+    HANDLE file;
+    BOOL ret = FALSE;
+
+    len = MultiByteToWideChar( CP_UTF8, 0, manifest_filename, sizeof(manifest_filename), NULL, 0 );
+    len += GetWindowsDirectoryW( NULL, 0 );
+    len += lstrlenW(winsxsW);
+    len += lstrlenW(manifestsW);
+    if (!(buffer = HeapAlloc( GetProcessHeap(), 0, len * sizeof(WCHAR) ))) return FALSE;
+    GetWindowsDirectoryW( buffer, len );
+    lstrcatW( buffer, winsxsW );
+    CreateDirectoryW( buffer, NULL );
+    lstrcatW( buffer, manifestsW );
+    CreateDirectoryW( buffer, NULL );
+    MultiByteToWideChar( CP_UTF8, 0, manifest_filename, sizeof(manifest_filename),
+                         buffer + lstrlenW(buffer), len );
+    if (install)
+    {
+        file = CreateFileW( buffer, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL );
+        if (file != INVALID_HANDLE_VALUE)
+        {
+            ret = (WriteFile( file, manifest, sizeof(manifest)-1, &written, NULL ) &&
+                   written == sizeof(manifest)-1);
+            CloseHandle( file );
+            if (!ret) DeleteFileW( buffer );
+            else TRACE("created %s\n", debugstr_w(buffer));
+        }
+    }
+    else ret = DeleteFileW( buffer );
+
+    HeapFree( GetProcessHeap(), 0, buffer );
+    return ret;
+}
+
 
 /***********************************************************************
  * DllMain [Internal]
@@ -114,7 +207,7 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
 	case DLL_PROCESS_ATTACH:
             DisableThreadLibraryCalls(hinstDLL);
 
-            COMCTL32_hModule = (HMODULE)hinstDLL;
+            COMCTL32_hModule = hinstDLL;
 
             /* add global subclassing atom (used by 'tooltip' and 'updown') */
             COMCTL32_wSubclass = (LPWSTR)(DWORD_PTR)GlobalAddAtomW (strCC32SubclassInfo);
@@ -250,7 +343,7 @@ MenuHelp (UINT uMsg, WPARAM wParam, LPARAM lParam, HMENU hMainMenu,
 	    else {
 		/* menu item was selected */
 		if (HIWORD(wParam) & MF_POPUP)
-		    uMenuID = (UINT)*(lpwIDs+1);
+		    uMenuID = *(lpwIDs+1);
 		else
 		    uMenuID = (UINT)LOWORD(wParam);
 		TRACE("uMenuID = %u\n", uMenuID);
@@ -621,8 +714,8 @@ InitCommonControls (void)
  *     Failure: FALSE
  *
  * NOTES
- *     Probaly all versions of comctl32 initializes the Win95 controls in DllMain
- *     during DLL initializaiton. Starting from comctl32 v5.82 all the controls
+ *     Probably all versions of comctl32 initializes the Win95 controls in DllMain
+ *     during DLL initialization. Starting from comctl32 v5.82 all the controls
  *     are initialized there. We follow this behaviour and this function is just
  *     a dummy.
  *
@@ -704,7 +797,7 @@ CreateToolbarEx (HWND hwnd, DWORD style, UINT wID, INT nBitmaps,
 
 
 	/* add bitmaps */
-	if (nBitmaps > 0)
+	if (nBitmaps > 0 || hBMInst == HINST_COMMCTRL)
 	{
 	    tbab.hInst = hBMInst;
 	    tbab.nID   = wBMID;
@@ -792,7 +885,7 @@ CreateMappedBitmap (HINSTANCE hInstance, INT_PTR idBitmap, UINT wFlags,
 	return 0;
     RtlMoveMemory (lpBitmapInfo, lpBitmap, nSize);
 
-    pColorTable = (RGBQUAD*)(((LPBYTE)lpBitmapInfo)+(UINT)lpBitmapInfo->biSize);
+    pColorTable = (RGBQUAD*)(((LPBYTE)lpBitmapInfo) + lpBitmapInfo->biSize);
 
     for (iColor = 0; iColor < nColorTableSize; iColor++) {
 	for (i = 0; i < iMaps; i++) {
@@ -814,8 +907,8 @@ CreateMappedBitmap (HINSTANCE hInstance, INT_PTR idBitmap, UINT wFlags,
 	    }
 	}
     }
-    nWidth  = (INT)lpBitmapInfo->biWidth;
-    nHeight = (INT)lpBitmapInfo->biHeight;
+    nWidth  = lpBitmapInfo->biWidth;
+    nHeight = lpBitmapInfo->biHeight;
     hdcScreen = GetDC (NULL);
     hbm = CreateCompatibleBitmap (hdcScreen, nWidth, nHeight);
     if (hbm) {
@@ -917,10 +1010,9 @@ HRESULT WINAPI DllGetVersion (DLLVERSIONINFO *pdvi)
  */
 HRESULT WINAPI DllInstall(BOOL bInstall, LPCWSTR cmdline)
 {
-  FIXME("(%s, %s): stub\n", bInstall?"TRUE":"FALSE",
-	debugstr_w(cmdline));
-
-  return S_OK;
+    TRACE("(%u, %s): stub\n", bInstall, debugstr_w(cmdline));
+    if (!create_manifest( bInstall )) return HRESULT_FROM_WIN32(GetLastError());
+    return S_OK;
 }
 
 /***********************************************************************
@@ -999,7 +1091,7 @@ VOID WINAPI InitMUILanguage (LANGID uiLang)
  * BUGS
  *     If an application manually subclasses a window after subclassing it with
  *     this API and then with this API again, then none of the previous 
- *     subclasses get called or the origional window procedure.
+ *     subclasses get called or the original window procedure.
  */
 
 BOOL WINAPI SetWindowSubclass (HWND hWnd, SUBCLASSPROC pfnSubclass,
@@ -1165,7 +1257,7 @@ BOOL WINAPI RemoveWindowSubclass(HWND hWnd, SUBCLASSPROC pfnSubclass, UINT_PTR u
    
    if (!stack->SubclassProcs && !stack->running) {
       TRACE("Last Subclass removed, cleaning up\n");
-      /* clean up our heap and reset the origional window procedure */
+      /* clean up our heap and reset the original window procedure */
       if (IsWindowUnicode (hWnd))
          SetWindowLongPtrW (hWnd, GWLP_WNDPROC, (DWORD_PTR)stack->origproc);
       else
@@ -1207,7 +1299,7 @@ LRESULT WINAPI COMCTL32_SubclassProc (HWND hWnd, UINT uMsg, WPARAM wParam, LPARA
     
    if (!stack->SubclassProcs && !stack->running) {
       TRACE("Last Subclass removed, cleaning up\n");
-      /* clean up our heap and reset the origional window procedure */
+      /* clean up our heap and reset the original window procedure */
       if (IsWindowUnicode (hWnd))
          SetWindowLongPtrW (hWnd, GWLP_WNDPROC, (DWORD_PTR)stack->origproc);
       else
@@ -1333,6 +1425,7 @@ COMCTL32_RefreshSysColors(void)
     comctl32_color.clrBtnFace = GetSysColor (COLOR_BTNFACE);
     comctl32_color.clrHighlight = GetSysColor (COLOR_HIGHLIGHT);
     comctl32_color.clrHighlightText = GetSysColor (COLOR_HIGHLIGHTTEXT);
+    comctl32_color.clrHotTrackingColor = GetSysColor (COLOR_HOTLIGHT);
     comctl32_color.clr3dHilight = GetSysColor (COLOR_3DHILIGHT);
     comctl32_color.clr3dShadow = GetSysColor (COLOR_3DSHADOW);
     comctl32_color.clr3dDkShadow = GetSysColor (COLOR_3DDKSHADOW);
@@ -1528,10 +1621,10 @@ LRESULT WINAPI SetPathWordBreakProc(HWND hwnd, BOOL bSet)
  *
  * Draw text with shadow.
  */
-int WINAPI DrawShadowText(HDC hdc, LPCWSTR pszText, UINT cch, const RECT *pRect, DWORD dwFlags,
+int WINAPI DrawShadowText(HDC hdc, LPCWSTR pszText, UINT cch, RECT *rect, DWORD dwFlags,
                           COLORREF crText, COLORREF crShadow, int ixOffset, int iyOffset)
 {
-    FIXME("(%p, %s, %d, %p, %d, 0x%08x, 0x%08x, %d, %d): stub\n", hdc, debugstr_w(pszText), cch, pRect, dwFlags,
+    FIXME("(%p, %s, %d, %p, %d, 0x%08x, 0x%08x, %d, %d): stub\n", hdc, debugstr_w(pszText), cch, rect, dwFlags,
                                                                   crText, crShadow, ixOffset, iyOffset);
-    return DrawTextW(hdc, pszText, cch, (LPRECT)pRect, DT_LEFT);
+    return DrawTextW(hdc, pszText, cch, rect, DT_LEFT);
 }

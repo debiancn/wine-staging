@@ -93,7 +93,7 @@ static DWORD widNotifyClient(WINE_WAVEDEV* wwi, WORD wMsg, DWORD dwParam1, DWORD
 /**************************************************************************
  * 			widGetDevCaps				[internal]
  */
-static DWORD widGetDevCaps(WORD wDevID, LPWAVEOUTCAPSW lpCaps, DWORD dwSize)
+static DWORD widGetDevCaps(WORD wDevID, LPWAVEINCAPSW lpCaps, DWORD dwSize)
 {
     TRACE("(%u, %p, %u);\n", wDevID, lpCaps, dwSize);
 
@@ -146,164 +146,89 @@ static	DWORD	CALLBACK	widRecorder(LPVOID pmt)
     WAVEHDR*		lpWaveHdr;
     DWORD		dwSleepTime;
     DWORD		bytesRead;
-    LPVOID		buffer = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, wwi->dwPeriodSize);
-    char               *pOffset = buffer;
     enum win_wm_message msg;
     DWORD		param;
     HANDLE		ev;
     DWORD               frames_per_period;
 
     wwi->state = WINE_WS_STOPPED;
-    wwi->dwTotalRecorded = 0;
+    InterlockedExchange((LONG*)&wwi->dwTotalRecorded, 0);
     wwi->lpQueuePtr = NULL;
 
     SetEvent(wwi->hStartUpEvent);
 
     /* make sleep time to be # of ms to output a period */
-    dwSleepTime = (1024/*wwi-dwPeriodSize => overrun!*/ * 1000) / wwi->format.Format.nAvgBytesPerSec;
+    dwSleepTime = (wwi->dwPeriodSize * 1000) / wwi->format.Format.nAvgBytesPerSec;
     frames_per_period = snd_pcm_bytes_to_frames(wwi->pcm, wwi->dwPeriodSize);
-    TRACE("sleeptime=%d ms\n", dwSleepTime);
+    TRACE("sleeptime=%d ms, total buffer length=%d ms (%d bytes)\n", dwSleepTime, wwi->dwBufferSize * 1000 / wwi->format.Format.nAvgBytesPerSec, wwi->dwBufferSize);
 
     for (;;) {
 	/* wait for dwSleepTime or an event in thread's queue */
-	/* FIXME: could improve wait time depending on queue state,
-	 * ie, number of queued fragments
-	 */
 	if (wwi->lpQueuePtr != NULL && wwi->state == WINE_WS_PLAYING)
         {
-	    int periods;
-	    DWORD frames;
-	    DWORD bytes;
-	    DWORD read;
+            DWORD frames;
+            DWORD bytes;
+            DWORD read;
 
             lpWaveHdr = wwi->lpQueuePtr;
             /* read all the fragments accumulated so far */
-	    frames = snd_pcm_avail_update(wwi->pcm);
-	    bytes = snd_pcm_frames_to_bytes(wwi->pcm, frames);
-            TRACE("frames = %d  bytes = %d\n", frames, bytes);
-	    periods = bytes / wwi->dwPeriodSize;
-            while ((periods > 0) && (wwi->lpQueuePtr))
+            frames = snd_pcm_avail_update(wwi->pcm);
+            bytes = snd_pcm_frames_to_bytes(wwi->pcm, frames);
+
+            TRACE("frames = %d  bytes = %d state=%d\n", frames, bytes, snd_pcm_state(wwi->pcm));
+            if (snd_pcm_state(wwi->pcm) == SND_PCM_STATE_XRUN)
             {
-		periods--;
-		bytes = wwi->dwPeriodSize;
-                TRACE("bytes = %d\n",bytes);
-                if (lpWaveHdr->dwBufferLength - lpWaveHdr->dwBytesRecorded >= wwi->dwPeriodSize)
-                {
-                    /* directly read fragment in wavehdr */
-                    read = wwi->read(wwi->pcm, lpWaveHdr->lpData + lpWaveHdr->dwBytesRecorded, frames_per_period);
-		    bytesRead = snd_pcm_frames_to_bytes(wwi->pcm, read);
-
-                    TRACE("bytesRead=%d (direct)\n", bytesRead);
-		    if (bytesRead != (DWORD) -1)
-		    {
-			/* update number of bytes recorded in current buffer and by this device */
-                        lpWaveHdr->dwBytesRecorded += bytesRead;
-			wwi->dwTotalRecorded       += bytesRead;
-
-			/* buffer is full. notify client */
-			if (lpWaveHdr->dwBytesRecorded == lpWaveHdr->dwBufferLength)
-			{
-			    /* must copy the value of next waveHdr, because we have no idea of what
-			     * will be done with the content of lpWaveHdr in callback
-			     */
-			    LPWAVEHDR	lpNext = lpWaveHdr->lpNext;
-
-			    lpWaveHdr->dwFlags &= ~WHDR_INQUEUE;
-			    lpWaveHdr->dwFlags |=  WHDR_DONE;
-
-			    wwi->lpQueuePtr = lpNext;
-			    widNotifyClient(wwi, WIM_DATA, (DWORD)lpWaveHdr, 0);
-			    lpWaveHdr = lpNext;
-			}
-                    } else {
-                        TRACE("read(%s, %p, %d) failed (%s)\n", wwi->pcmname,
-                            lpWaveHdr->lpData + lpWaveHdr->dwBytesRecorded,
-                            frames_per_period, strerror(errno));
-                    }
-                }
-		else
-		{
-                    /* read the fragment in a local buffer */
-		    read = wwi->read(wwi->pcm, buffer, frames_per_period);
-		    bytesRead = snd_pcm_frames_to_bytes(wwi->pcm, read);
-                    pOffset = buffer;
-
-                    TRACE("bytesRead=%d (local)\n", bytesRead);
-
-		    if (bytesRead == (DWORD) -1) {
-			TRACE("read(%s, %p, %d) failed (%s)\n", wwi->pcmname,
-			      buffer, frames_per_period, strerror(errno));
-			continue;
-		    }
-
-                    /* copy data in client buffers */
-                    while (bytesRead != (DWORD) -1 && bytesRead > 0)
-                    {
-                        DWORD dwToCopy = min (bytesRead, lpWaveHdr->dwBufferLength - lpWaveHdr->dwBytesRecorded);
-
-                        memcpy(lpWaveHdr->lpData + lpWaveHdr->dwBytesRecorded,
-                               pOffset,
-                               dwToCopy);
-
-                        /* update number of bytes recorded in current buffer and by this device */
-                        lpWaveHdr->dwBytesRecorded += dwToCopy;
-                        wwi->dwTotalRecorded += dwToCopy;
-                        bytesRead -= dwToCopy;
-                        pOffset   += dwToCopy;
-
-                        /* client buffer is full. notify client */
-                        if (lpWaveHdr->dwBytesRecorded == lpWaveHdr->dwBufferLength)
-                        {
-			    /* must copy the value of next waveHdr, because we have no idea of what
-			     * will be done with the content of lpWaveHdr in callback
-			     */
-			    LPWAVEHDR	lpNext = lpWaveHdr->lpNext;
-			    TRACE("lpNext=%p\n", lpNext);
-
-                            lpWaveHdr->dwFlags &= ~WHDR_INQUEUE;
-                            lpWaveHdr->dwFlags |=  WHDR_DONE;
-
-			    wwi->lpQueuePtr = lpNext;
-                            widNotifyClient(wwi, WIM_DATA, (DWORD)lpWaveHdr, 0);
-
-			    lpWaveHdr = lpNext;
-			    if (!lpNext && bytesRead) {
-				/* before we give up, check for more header messages */
-				while (ALSA_PeekRingMessage(&wwi->msgRing, &msg, &param, &ev))
-				{
-				    if (msg == WINE_WM_HEADER) {
-					LPWAVEHDR hdr;
-					ALSA_RetrieveRingMessage(&wwi->msgRing, &msg, &param, &ev);
-					hdr = ((LPWAVEHDR)param);
-					TRACE("msg = %s, hdr = %p, ev = %p\n", ALSA_getCmdString(msg), hdr, ev);
-					hdr->lpNext = 0;
-					if (lpWaveHdr == 0) {
-					    /* new head of queue */
-					    wwi->lpQueuePtr = lpWaveHdr = hdr;
-					} else {
-					    /* insert buffer at the end of queue */
-					    LPWAVEHDR*  wh;
-					    for (wh = &(wwi->lpQueuePtr); *wh; wh = &((*wh)->lpNext));
-					    *wh = hdr;
-					}
-				    } else
-					break;
-				}
-
-				if (lpWaveHdr == 0) {
-                                    /* no more buffer to copy data to, but we did read more.
-                                     * what hasn't been copied will be dropped
-                                     */
-                                    WARN("buffer under run! %u bytes dropped.\n", bytesRead);
-                                    wwi->lpQueuePtr = NULL;
-                                    break;
-				}
-                            }
-                        }
-		    }
-		}
+                FIXME("Recovering from XRUN!\n");
+                snd_pcm_prepare(wwi->pcm);
+                frames = snd_pcm_avail_update(wwi->pcm);
+                bytes = snd_pcm_frames_to_bytes(wwi->pcm, frames);
+                snd_pcm_start(wwi->pcm);
+                snd_pcm_forward(wwi->pcm, frames - snd_pcm_bytes_to_frames(wwi->pcm, wwi->dwPeriodSize));
+                continue;
             }
-	}
+            while (frames > 0 && wwi->lpQueuePtr)
+            {
+                TRACE("bytes = %d\n", bytes);
+                if (lpWaveHdr->dwBufferLength - lpWaveHdr->dwBytesRecorded < bytes)
+                {
+                    bytes = lpWaveHdr->dwBufferLength - lpWaveHdr->dwBytesRecorded;
+                    frames = snd_pcm_bytes_to_frames(wwi->pcm, bytes);
+                }
+                /* directly read fragment in wavehdr */
+                read = wwi->read(wwi->pcm, lpWaveHdr->lpData + lpWaveHdr->dwBytesRecorded, frames);
+                bytesRead = snd_pcm_frames_to_bytes(wwi->pcm, read);
+
+                TRACE("bytesRead=(%d(%d)/(%d)) -> (%d/%d)\n", bytesRead, read, frames, lpWaveHdr->dwBufferLength, lpWaveHdr->dwBufferLength - lpWaveHdr->dwBytesRecorded);
+                if (read != (DWORD) -1)
+                {
+                    /* update number of bytes recorded in current buffer and by this device */
+                    lpWaveHdr->dwBytesRecorded += bytesRead;
+                    InterlockedExchangeAdd((LONG*)&wwi->dwTotalRecorded, bytesRead);
+                    frames -= read;
+                    bytes -= bytesRead;
+
+                    /* buffer is full. notify client */
+                    if (!snd_pcm_bytes_to_frames(wwi->pcm, lpWaveHdr->dwBytesRecorded - lpWaveHdr->dwBufferLength))
+                    {
+                        /* must copy the value of next waveHdr, because we have no idea of what
+                         * will be done with the content of lpWaveHdr in callback
+                         */
+                        LPWAVEHDR	lpNext = lpWaveHdr->lpNext;
+
+                        lpWaveHdr->dwFlags &= ~WHDR_INQUEUE;
+                        lpWaveHdr->dwFlags |=  WHDR_DONE;
+
+                        wwi->lpQueuePtr = lpNext;
+                        widNotifyClient(wwi, WIM_DATA, (DWORD)lpWaveHdr, 0);
+                        lpWaveHdr = lpNext;
+                    }
+                } else {
+                    WARN("read(%s, %p, %d) failed (%d/%s)\n", wwi->pcmname,
+                        lpWaveHdr->lpData + lpWaveHdr->dwBytesRecorded,
+                        frames, frames, snd_strerror(read));
+                }
+            }
+        }
 
         ALSA_WaitRingMessage(&wwi->msgRing, dwSleepTime);
 
@@ -382,13 +307,8 @@ static	DWORD	CALLBACK	widRecorder(LPVOID pmt)
 		wwi->hThread = 0;
 		wwi->state = WINE_WS_CLOSED;
 		SetEvent(ev);
-		HeapFree(GetProcessHeap(), 0, buffer);
 		ExitThread(0);
 		/* shouldn't go here */
-	    case WINE_WM_UPDATE:
-		SetEvent(ev);
-		break;
-
 	    default:
 		FIXME("unknown message %d\n", msg);
 		break;
@@ -419,9 +339,7 @@ static DWORD widOpen(WORD wDevID, LPWAVEOPENDESC lpDesc, DWORD dwFlags)
     snd_pcm_t *                 pcm;
     int                         err;
     int                         dir;
-
-    snd_pcm_hw_params_alloca(&hw_params);
-    snd_pcm_sw_params_alloca(&sw_params);
+    DWORD                       ret;
 
     /* JPW TODO - review this code */
     TRACE("(%u, %p, %08X);\n", wDevID, lpDesc, dwFlags);
@@ -456,10 +374,6 @@ static DWORD widOpen(WORD wDevID, LPWAVEOPENDESC lpDesc, DWORD dwFlags)
         return MMSYSERR_ALLOCATED;
     }
 
-    if ((dwFlags & WAVE_DIRECTSOUND) && !(wwi->dwSupport & WAVECAPS_DIRECTSOUND))
-	/* not supported, ignore it */
-	dwFlags &= ~WAVE_DIRECTSOUND;
-
     wwi->pcm = 0;
     flags = SND_PCM_NONBLOCK;
 
@@ -471,7 +385,7 @@ static DWORD widOpen(WORD wDevID, LPWAVEOPENDESC lpDesc, DWORD dwFlags)
 
     wwi->wFlags = HIWORD(dwFlags & CALLBACK_TYPEMASK);
 
-    memcpy(&wwi->waveDesc, lpDesc, sizeof(WAVEOPENDESC));
+    wwi->waveDesc = *lpDesc;
     ALSA_copyFormat(lpDesc->lpFormat, &wwi->format);
 
     if (wwi->format.Format.wBitsPerSample == 0) {
@@ -482,6 +396,9 @@ static DWORD widOpen(WORD wDevID, LPWAVEOPENDESC lpDesc, DWORD dwFlags)
 	    wwi->format.Format.nChannels;
     }
 
+    hw_params = HeapAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY, snd_pcm_hw_params_sizeof() );
+    sw_params = HeapAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY, snd_pcm_sw_params_sizeof() );
+
     snd_pcm_hw_params_any(pcm, hw_params);
 
 #define EXIT_ON_ERROR(f,e,txt) do \
@@ -490,8 +407,8 @@ static DWORD widOpen(WORD wDevID, LPWAVEOPENDESC lpDesc, DWORD dwFlags)
     if ( (err = (f) ) < 0) \
     { \
 	WARN(txt ": %s\n", snd_strerror(err)); \
-	snd_pcm_close(pcm); \
-	return e; \
+	ret = (e); \
+        goto error; \
     } \
 } while(0)
 
@@ -512,27 +429,27 @@ static DWORD widOpen(WORD wDevID, LPWAVEOPENDESC lpDesc, DWORD dwFlags)
         IsEqualGUID(&wwi->format.SubFormat, &KSDATAFORMAT_SUBTYPE_PCM))) {
         format = (wwi->format.Format.wBitsPerSample == 8) ? SND_PCM_FORMAT_U8 :
                  (wwi->format.Format.wBitsPerSample == 16) ? SND_PCM_FORMAT_S16_LE :
-                 (wwi->format.Format.wBitsPerSample == 24) ? SND_PCM_FORMAT_S24_LE :
+                 (wwi->format.Format.wBitsPerSample == 24) ? SND_PCM_FORMAT_S24_3LE :
                  (wwi->format.Format.wBitsPerSample == 32) ? SND_PCM_FORMAT_S32_LE : -1;
     } else if ((wwi->format.Format.wFormatTag == WAVE_FORMAT_EXTENSIBLE) &&
         IsEqualGUID(&wwi->format.SubFormat, &KSDATAFORMAT_SUBTYPE_IEEE_FLOAT)){
         format = (wwi->format.Format.wBitsPerSample == 32) ? SND_PCM_FORMAT_FLOAT_LE : -1;
     } else if (wwi->format.Format.wFormatTag == WAVE_FORMAT_MULAW) {
         FIXME("unimplemented format: WAVE_FORMAT_MULAW\n");
-        snd_pcm_close(pcm);
-        return WAVERR_BADFORMAT;
+        ret = WAVERR_BADFORMAT;
+        goto error;
     } else if (wwi->format.Format.wFormatTag == WAVE_FORMAT_ALAW) {
         FIXME("unimplemented format: WAVE_FORMAT_ALAW\n");
-        snd_pcm_close(pcm);
-        return WAVERR_BADFORMAT;
+        ret = WAVERR_BADFORMAT;
+        goto error;
     } else if (wwi->format.Format.wFormatTag == WAVE_FORMAT_ADPCM) {
         FIXME("unimplemented format: WAVE_FORMAT_ADPCM\n");
-        snd_pcm_close(pcm);
-        return WAVERR_BADFORMAT;
+        ret = WAVERR_BADFORMAT;
+        goto error;
     } else {
         ERR("invalid format: %0x04x\n", wwi->format.Format.wFormatTag);
-        snd_pcm_close(pcm);
-        return WAVERR_BADFORMAT;
+        ret = WAVERR_BADFORMAT;
+        goto error;
     }
 
     EXIT_ON_ERROR( snd_pcm_hw_params_set_format(pcm, hw_params, format), WAVERR_BADFORMAT, "unable to set required format");
@@ -542,13 +459,13 @@ static DWORD widOpen(WORD wDevID, LPWAVEOPENDESC lpDesc, DWORD dwFlags)
     err = snd_pcm_hw_params_set_rate_near(pcm, hw_params, &rate, &dir);
     if (err < 0) {
 	WARN("Rate %d Hz not available for playback: %s\n", wwi->format.Format.nSamplesPerSec, snd_strerror(rate));
-	snd_pcm_close(pcm);
-        return WAVERR_BADFORMAT;
+        ret = WAVERR_BADFORMAT;
+        goto error;
     }
     if (!ALSA_NearMatch(rate, wwi->format.Format.nSamplesPerSec)) {
 	WARN("Rate doesn't match (requested %d Hz, got %d Hz)\n", wwi->format.Format.nSamplesPerSec, rate);
-	snd_pcm_close(pcm);
-        return WAVERR_BADFORMAT;
+        ret = WAVERR_BADFORMAT;
+        goto error;
     }
 
     dir=0;
@@ -563,10 +480,9 @@ static DWORD widOpen(WORD wDevID, LPWAVEOPENDESC lpDesc, DWORD dwFlags)
     err = snd_pcm_hw_params_get_buffer_size(hw_params, &buffer_size);
 
     snd_pcm_sw_params_current(pcm, sw_params);
-    EXIT_ON_ERROR( snd_pcm_sw_params_set_start_threshold(pcm, sw_params, dwFlags & WAVE_DIRECTSOUND ? INT_MAX : 1 ), MMSYSERR_ERROR, "unable to set start threshold");
+    EXIT_ON_ERROR( snd_pcm_sw_params_set_start_threshold(pcm, sw_params, 1), MMSYSERR_ERROR, "unable to set start threshold");
     EXIT_ON_ERROR( snd_pcm_sw_params_set_silence_size(pcm, sw_params, 0), MMSYSERR_ERROR, "unable to set silence size");
     EXIT_ON_ERROR( snd_pcm_sw_params_set_avail_min(pcm, sw_params, period_size), MMSYSERR_ERROR, "unable to set avail min");
-    EXIT_ON_ERROR( snd_pcm_sw_params_set_xfer_align(pcm, sw_params, 1), MMSYSERR_ERROR, "unable to set xfer align");
     EXIT_ON_ERROR( snd_pcm_sw_params_set_silence_threshold(pcm, sw_params, 0), MMSYSERR_ERROR, "unable to set silence threshold");
     EXIT_ON_ERROR( snd_pcm_sw_params(pcm, sw_params), MMSYSERR_ERROR, "unable to set sw params for playback");
 #undef EXIT_ON_ERROR
@@ -588,30 +504,30 @@ static DWORD widOpen(WORD wDevID, LPWAVEOPENDESC lpDesc, DWORD dwFlags)
 
     ALSA_InitRingMessage(&wwi->msgRing);
 
-    wwi->dwPeriodSize = period_size;
-    /*if (wwi->dwFragmentSize % wwi->format.Format.nBlockAlign)
-	ERR("Fragment doesn't contain an integral number of data blocks\n");
-    */
+    wwi->dwPeriodSize = snd_pcm_frames_to_bytes(pcm, period_size);
     TRACE("dwPeriodSize=%u\n", wwi->dwPeriodSize);
     TRACE("wBitsPerSample=%u, nAvgBytesPerSec=%u, nSamplesPerSec=%u, nChannels=%u nBlockAlign=%u!\n",
 	  wwi->format.Format.wBitsPerSample, wwi->format.Format.nAvgBytesPerSec,
 	  wwi->format.Format.nSamplesPerSec, wwi->format.Format.nChannels,
 	  wwi->format.Format.nBlockAlign);
 
-    if (!(dwFlags & WAVE_DIRECTSOUND)) {
-	wwi->hStartUpEvent = CreateEventW(NULL, FALSE, FALSE, NULL);
-	wwi->hThread = CreateThread(NULL, 0, widRecorder, (LPVOID)(DWORD)wDevID, 0, &(wwi->dwThreadID));
-        if (wwi->hThread)
-            SetThreadPriority(wwi->hThread, THREAD_PRIORITY_TIME_CRITICAL);
-	WaitForSingleObject(wwi->hStartUpEvent, INFINITE);
-	CloseHandle(wwi->hStartUpEvent);
-    } else {
-	wwi->hThread = INVALID_HANDLE_VALUE;
-	wwi->dwThreadID = 0;
-    }
+    wwi->hStartUpEvent = CreateEventW(NULL, FALSE, FALSE, NULL);
+    wwi->hThread = CreateThread(NULL, 0, widRecorder, (LPVOID)(DWORD)wDevID, 0, &(wwi->dwThreadID));
+    if (wwi->hThread)
+        SetThreadPriority(wwi->hThread, THREAD_PRIORITY_TIME_CRITICAL);
+    WaitForSingleObject(wwi->hStartUpEvent, INFINITE);
+    CloseHandle(wwi->hStartUpEvent);
     wwi->hStartUpEvent = INVALID_HANDLE_VALUE;
 
+    HeapFree( GetProcessHeap(), 0, hw_params );
+    HeapFree( GetProcessHeap(), 0, sw_params );
     return widNotifyClient(wwi, WIM_OPEN, 0L, 0L);
+
+error:
+    snd_pcm_close(pcm);
+    HeapFree( GetProcessHeap(), 0, hw_params );
+    HeapFree( GetProcessHeap(), 0, sw_params );
+    return ret;
 }
 
 
@@ -684,6 +600,7 @@ static DWORD widAddBuffer(WORD wDevID, LPWAVEHDR lpWaveHdr, DWORD dwSize)
 
     lpWaveHdr->dwFlags &= ~WHDR_DONE;
     lpWaveHdr->dwFlags |= WHDR_INQUEUE;
+    lpWaveHdr->dwBytesRecorded = 0;
     lpWaveHdr->lpNext = 0;
 
     ALSA_AddRingMessage(&WInDev[wDevID].msgRing, WINE_WM_HEADER, (DWORD)lpWaveHdr, FALSE);
@@ -784,8 +701,6 @@ static DWORD widGetPosition(WORD wDevID, LPMMTIME lpTime, DWORD uSize)
     }
 
     wwi = &WInDev[wDevID];
-    ALSA_AddRingMessage(&wwi->msgRing, WINE_WM_UPDATE, 0, TRUE);
-
     return ALSA_bytes_to_mmtime(lpTime, wwi->dwTotalRecorded, &wwi->format);
 }
 
@@ -825,28 +740,6 @@ static DWORD widDevInterface(UINT wDevID, PWCHAR dwParam1, DWORD dwParam2)
 }
 
 /**************************************************************************
- *                              widDsCreate                     [internal]
- */
-static DWORD widDsCreate(UINT wDevID, PIDSCDRIVER* drv)
-{
-    TRACE("(%d,%p)\n",wDevID,drv);
-
-    /* the HAL isn't much better than the HEL if we can't do mmap() */
-    FIXME("DirectSoundCapture not implemented\n");
-    FIXME("The (slower) DirectSound HEL mode will be used instead.\n");
-    return MMSYSERR_NOTSUPPORTED;
-}
-
-/**************************************************************************
- *                              widDsDesc                       [internal]
- */
-static DWORD widDsDesc(UINT wDevID, PDSDRIVERDESC desc)
-{
-    memcpy(desc, &(WInDev[wDevID].ds_desc), sizeof(DSDRIVERDESC));
-    return MMSYSERR_NOERROR;
-}
-
-/**************************************************************************
  * 				widMessage (WINEALSA.@)
  */
 DWORD WINAPI ALSA_widMessage(UINT wDevID, UINT wMsg, DWORD dwUser,
@@ -867,7 +760,7 @@ DWORD WINAPI ALSA_widMessage(UINT wDevID, UINT wMsg, DWORD dwUser,
     case WIDM_ADDBUFFER:	return widAddBuffer	(wDevID, (LPWAVEHDR)dwParam1,		dwParam2);
     case WIDM_PREPARE:	 	return MMSYSERR_NOTSUPPORTED;
     case WIDM_UNPREPARE: 	return MMSYSERR_NOTSUPPORTED;
-    case WIDM_GETDEVCAPS:	return widGetDevCaps	(wDevID, (LPWAVEOUTCAPSW)dwParam1,	dwParam2);
+    case WIDM_GETDEVCAPS:	return widGetDevCaps	(wDevID, (LPWAVEINCAPSW)dwParam1,	dwParam2);
     case WIDM_GETNUMDEVS:	return widGetNumDevs	();
     case WIDM_GETPOS:	 	return widGetPosition	(wDevID, (LPMMTIME)dwParam1, 		dwParam2);
     case WIDM_RESET:		return widReset		(wDevID);

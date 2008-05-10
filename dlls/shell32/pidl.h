@@ -49,7 +49,7 @@
 * a pidl of NULL means the desktop
 *
 * The structure of the pidl seems to be a union. The first byte of the
-* PIDLDATA desribes the type of pidl.
+* PIDLDATA describes the type of pidl.
 *
 *	object        ! first byte /  ! format       ! living space
 *	              ! size
@@ -252,8 +252,10 @@ LPITEMIDLIST	_ILCreateIExplore	(void);
 LPITEMIDLIST	_ILCreateControlPanel	(void);
 LPITEMIDLIST	_ILCreatePrinters	(void);
 LPITEMIDLIST	_ILCreateNetwork	(void);
+LPITEMIDLIST	_ILCreateNetHood	(void);
 LPITEMIDLIST	_ILCreateBitBucket	(void);
 LPITEMIDLIST	_ILCreateDrive		(LPCWSTR);
+LPITEMIDLIST    _ILCreateEntireNetwork  (void);
 
 /*
  * helper functions (getting struct-pointer)
@@ -275,8 +277,8 @@ BOOL	pcheck	(LPCITEMIDLIST pidl);
  * aPidl helper
  */
 void _ILFreeaPidl(LPITEMIDLIST * apidl, UINT cidl);
-LPITEMIDLIST * _ILCopyaPidl(LPCITEMIDLIST * apidlsrc, UINT cidl);
-LPITEMIDLIST * _ILCopyCidaToaPidl(LPITEMIDLIST* pidl, LPIDA cida);
+LPITEMIDLIST * _ILCopyaPidl(const LPCITEMIDLIST * apidlsrc, UINT cidl);
+LPITEMIDLIST * _ILCopyCidaToaPidl(LPITEMIDLIST* pidl, const CIDA * cida);
 
 BOOL WINAPI ILGetDisplayNameExA(LPSHELLFOLDER psf, LPCITEMIDLIST pidl, LPSTR path, DWORD type);
 BOOL WINAPI ILGetDisplayNameExW(LPSHELLFOLDER psf, LPCITEMIDLIST pidl, LPWSTR path, DWORD type);

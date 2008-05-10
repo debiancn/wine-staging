@@ -3,8 +3,12 @@ TOPOBJDIR = ../..
 SRCDIR    = @srcdir@
 VPATH     = @srcdir@
 MODULE    = msftedit.dll
-IMPORTS   = riched20 kernel32
-EXTRALIBS = -luuid
+IMPORTS   = uuid riched20 kernel32
+
+C_SRCS = \
+	msftedit_main.c
+
+RC_SRCS = version.rc
 
 @MAKE_DLL_RULES@
 

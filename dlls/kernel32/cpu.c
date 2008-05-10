@@ -319,7 +319,7 @@ BOOL WINAPI QueryPerformanceCounter(PLARGE_INTEGER counter)
 /****************************************************************************
  *		QueryPerformanceFrequency (KERNEL32.@)
  *
- * Get the resolution of the performace counter.
+ * Get the resolution of the performance counter.
  *
  * PARAMS
  *  frequency [O] Destination for the counter resolution
@@ -370,7 +370,7 @@ VOID WINAPI GetSystemInfo(
 
 	TRACE("si=0x%p\n", si);
 	if (cache) {
-		memcpy(si,&cachedsi,sizeof(*si));
+		*si = cachedsi;
 		return;
 	}
 	memset(PF,0,sizeof(PF));
@@ -392,7 +392,7 @@ VOID WINAPI GetSystemInfo(
 	cachedsi.wProcessorRevision		= 0;
 
 	cache = 1; /* even if there is no more info, we now have a cache entry */
-	memcpy(si,&cachedsi,sizeof(*si));
+	*si = cachedsi;
 
 	/* Hmm, reasonable processor feature defaults? */
 
@@ -454,19 +454,10 @@ VOID WINAPI GetSystemInfo(
 				case 5: cachedsi.dwProcessorType = PROCESSOR_INTEL_PENTIUM;
 					cachedsi.wProcessorLevel= 5;
 					break;
-				case 6: cachedsi.dwProcessorType = PROCESSOR_INTEL_PENTIUM;
-					cachedsi.wProcessorLevel= 6;
-					break;
-				case 1: /* two-figure levels */
-                                    if (value[1] == '5')
-                                    {
-                                        cachedsi.dwProcessorType = PROCESSOR_INTEL_PENTIUM;
-                                        cachedsi.wProcessorLevel= 6;
-                                        break;
-                                    }
-                                    /* fall through */
+
 				default:
-					FIXME("unknown cpu family '%s', please report ! (-> setting to 386)\n", value);
+					cachedsi.dwProcessorType = PROCESSOR_INTEL_PENTIUM;
+					cachedsi.wProcessorLevel = atoi(value);
 					break;
 				}
 			}
@@ -641,7 +632,8 @@ VOID WINAPI GetSystemInfo(
         }
 #elif defined(__FreeBSD__)
 	{
-	int ret, len, num;
+	int ret, num;
+	unsigned len;
 
         get_cpuinfo( &cachedsi );
 
@@ -682,12 +674,12 @@ VOID WINAPI GetSystemInfo(
 	}
 	valSize = sizeof(int);
 	if (sysctlbyname ("hw.ncpu", &value, &valSize, NULL, 0) == 0)
-	cachedsi.dwNumberOfProcessors = value;
- 
+            cachedsi.dwNumberOfProcessors = value;
+
 	valSize = sizeof(int);
 	if (sysctlbyname ("hw.activecpu", &value, &valSize, NULL, 0) == 0)
-	    cachedsi.dwActiveProcessorMask = value;
-	    
+	    cachedsi.dwActiveProcessorMask = (1 << value) - 1;
+
 	valSize = sizeof(int);
 	if (sysctlbyname ("hw.cputype", &cputype, &valSize, NULL, 0) == 0)
 	{
@@ -729,7 +721,7 @@ VOID WINAPI GetSystemInfo(
 			    case CPU_SUBTYPE_POWERPC_750:
 			    case CPU_SUBTYPE_POWERPC_7400:
 			    case CPU_SUBTYPE_POWERPC_7450:
-				/* G3/G4 derivate from 603 so ... */
+				/* G3/G4 derive from 603 so ... */
 				cachedsi.dwProcessorType = PROCESSOR_PPC_603;
 				cachedsi.wProcessorLevel = 6;
 				break;
@@ -787,7 +779,7 @@ VOID WINAPI GetSystemInfo(
         if (!cachedsi.dwActiveProcessorMask)
             cachedsi.dwActiveProcessorMask = (1 << cachedsi.dwNumberOfProcessors) - 1;
 
-        memcpy(si,&cachedsi,sizeof(*si));
+        *si = cachedsi;
 
         TRACE("<- CPU arch %d, res'd %d, pagesize %d, minappaddr %p, maxappaddr %p,"
               " act.cpumask %08x, numcpus %d, CPU type %d, allocgran. %d, CPU level %d, CPU rev %d\n",
@@ -807,7 +799,12 @@ VOID WINAPI GetSystemInfo(
 VOID WINAPI GetNativeSystemInfo(
     LPSYSTEM_INFO si	/* [out] Destination for system information, may not be NULL */)
 {
-    FIXME("(%p) using GetSystemInfo()\n", si);
+    static BOOL reported = FALSE;
+    if (!reported) {
+        FIXME("(%p) using GetSystemInfo()\n", si);
+        reported = TRUE;
+    } else
+        TRACE("(%p) using GetSystemInfo()\n", si);
     GetSystemInfo(si); 
 }
 

@@ -34,6 +34,8 @@
 #include "msidefs.h"
 #include "msipriv.h"
 #include "objidl.h"
+#include "propvarutil.h"
+#include "msiserver.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(msi);
 
@@ -76,6 +78,10 @@ typedef struct {
 } PROPERTY_DATA;
  
 #include "poppack.h"
+
+static HRESULT (WINAPI *pPropVariantChangeType)
+    (PROPVARIANT *ppropvarDest, REFPROPVARIANT propvarSrc,
+     PROPVAR_CHANGE_FLAGS flags, VARTYPE vt);
 
 #define SECT_HDR_SIZE (sizeof(PROPERTYSECTIONHEADER))
 
@@ -143,6 +149,22 @@ static UINT get_property_count( const PROPVARIANT *property )
     return n;
 }
 
+static UINT propvar_changetype(PROPVARIANT *changed, PROPVARIANT *property, VARTYPE vt)
+{
+    HRESULT hr;
+    HMODULE propsys = LoadLibraryA("propsys.dll");
+    pPropVariantChangeType = (void *)GetProcAddress(propsys, "PropVariantChangeType");
+
+    if (!pPropVariantChangeType)
+    {
+        ERR("PropVariantChangeType function missing!\n");
+        return ERROR_FUNCTION_FAILED;
+    }
+
+    hr = pPropVariantChangeType(changed, property, 0, vt);
+    return (hr == S_OK) ? ERROR_SUCCESS : ERROR_FUNCTION_FAILED;
+}
+
 /* FIXME: doesn't deal with endian conversion */
 static void read_properties_from_data( PROPVARIANT *prop, LPBYTE data, DWORD sz )
 {
@@ -150,7 +172,8 @@ static void read_properties_from_data( PROPVARIANT *prop, LPBYTE data, DWORD sz 
     DWORD i;
     int size;
     PROPERTY_DATA *propdata;
-    PROPVARIANT *property;
+    PROPVARIANT property, *ptr;
+    PROPVARIANT changed;
     PROPERTYIDOFFSET *idofs;
     PROPERTYSECTIONHEADER *section_hdr;
 
@@ -160,6 +183,12 @@ static void read_properties_from_data( PROPVARIANT *prop, LPBYTE data, DWORD sz 
     /* now set all the properties */
     for( i = 0; i < section_hdr->cProperties; i++ )
     {
+        if( idofs[i].propid >= MSI_MAX_PROPS )
+        {
+            ERR("Unknown property ID %d\n", idofs[i].propid );
+            break;
+        }
+
         type = get_type( idofs[i].propid );
         if( type == VT_EMPTY )
         {
@@ -169,45 +198,41 @@ static void read_properties_from_data( PROPVARIANT *prop, LPBYTE data, DWORD sz 
 
         propdata = (PROPERTY_DATA*) &data[ idofs[i].dwOffset ];
 
-        /* check the type is the same as we expect */
-        if( type != propdata->type )
-        {
-            ERR("wrong type %d != %d\n", type, propdata->type);
-            break;
-        }
-
         /* check we don't run off the end of the data */
         size = sz - idofs[i].dwOffset - sizeof(DWORD);
         if( sizeof(DWORD) > size ||
-            ( type == VT_FILETIME && sizeof(FILETIME) > size ) ||
-            ( type == VT_LPSTR && (propdata->u.str.len + sizeof(DWORD)) > size ) )
+            ( propdata->type == VT_FILETIME && sizeof(FILETIME) > size ) ||
+            ( propdata->type == VT_LPSTR && (propdata->u.str.len + sizeof(DWORD)) > size ) )
         {
             ERR("not enough data\n");
             break;
         }
 
-        if( idofs[i].propid >= MSI_MAX_PROPS )
-        {
-            ERR("Unknown property ID %d\n", idofs[i].propid );
-            break;
-        }
-
-        property = &prop[ idofs[i].propid ];
-        property->vt = type;
-
-        if( type == VT_LPSTR )
+        property.vt = propdata->type;
+        if( propdata->type == VT_LPSTR )
         {
             LPSTR str = msi_alloc( propdata->u.str.len );
             memcpy( str, propdata->u.str.str, propdata->u.str.len );
             str[ propdata->u.str.len - 1 ] = 0;
-            property->u.pszVal = str;
+            property.u.pszVal = str;
         }
-        else if( type == VT_FILETIME )
-            property->u.filetime = propdata->u.ft;
-        else if( type == VT_I2 )
-            property->u.iVal = propdata->u.i2;
-        else if( type == VT_I4 )
-            property->u.lVal = propdata->u.i4;
+        else if( propdata->type == VT_FILETIME )
+            property.u.filetime = propdata->u.ft;
+        else if( propdata->type == VT_I2 )
+            property.u.iVal = propdata->u.i2;
+        else if( propdata->type == VT_I4 )
+            property.u.lVal = propdata->u.i4;
+
+        /* check the type is the same as we expect */
+        if( type != propdata->type )
+        {
+            propvar_changetype(&changed, &property, type);
+            ptr = &changed;
+        }
+        else
+            ptr = &property;
+
+        prop[ idofs[i].propid ] = *ptr;
     }
 }
 
@@ -346,7 +371,7 @@ static UINT save_summary_info( const MSISUMMARYINFO * si, IStream *stm )
     LPBYTE data = NULL;
     ULONG count, sz;
     HRESULT r;
-    int i, n;
+    int i;
 
     /* write the header */
     sz = sizeof set_hdr;
@@ -362,7 +387,7 @@ static UINT save_summary_info( const MSISUMMARYINFO * si, IStream *stm )
 
     /* write the format header */
     sz = sizeof format_hdr;
-    memcpy( &format_hdr.fmtid, &FMTID_SummaryInformation, sizeof (FMTID) );
+    format_hdr.fmtid = FMTID_SummaryInformation;
     format_hdr.dwOffset = sizeof format_hdr + sizeof set_hdr;
     r = IStream_Write( stm, &format_hdr, sz, &count );
     if( FAILED(r) || count != sz )
@@ -372,7 +397,6 @@ static UINT save_summary_info( const MSISUMMARYINFO * si, IStream *stm )
     section_hdr.cbSection = sizeof section_hdr;
     section_hdr.cbSection += (get_property_count( si->property ) * sizeof idofs[0]);
     section_hdr.cProperties = 0;
-    n = 0;
     for( i = 0; i < MSI_MAX_PROPS; i++ )
     {
         sz = write_property_to_data( &si->property[i], NULL );
@@ -459,7 +483,28 @@ UINT WINAPI MsiGetSummaryInformationW( MSIHANDLE hDatabase,
     {
         db = msihandle2msiinfo( hDatabase, MSIHANDLETYPE_DATABASE );
         if( !db )
-            return ERROR_INVALID_PARAMETER;
+        {
+            HRESULT hr;
+            IWineMsiRemoteDatabase *remote_database;
+
+            remote_database = (IWineMsiRemoteDatabase *)msi_get_remote( hDatabase );
+            if ( !remote_database )
+                return ERROR_INVALID_HANDLE;
+
+            hr = IWineMsiRemoteDatabase_GetSummaryInformation( remote_database,
+                                                               uiUpdateCount, pHandle );
+            IWineMsiRemoteDatabase_Release( remote_database );
+
+            if (FAILED(hr))
+            {
+                if (HRESULT_FACILITY(hr) == FACILITY_WIN32)
+                    return HRESULT_CODE(hr);
+
+                return ERROR_FUNCTION_FAILED;
+            }
+
+            return ERROR_SUCCESS;
+        }
     }
 
     si = MSI_GetSummaryInformationW( db->storage, uiUpdateCount );
@@ -502,7 +547,7 @@ UINT WINAPI MsiGetSummaryInformationA(MSIHANDLE hDatabase,
     return ret;
 }
 
-UINT WINAPI MsiSummaryInfoGetPropertyCount(MSIHANDLE hSummaryInfo, UINT *pCount)
+UINT WINAPI MsiSummaryInfoGetPropertyCount(MSIHANDLE hSummaryInfo, PUINT pCount)
 {
     MSISUMMARYINFO *si;
 
@@ -578,7 +623,7 @@ static UINT get_prop( MSIHANDLE handle, UINT uiProperty, UINT *puiDataType,
         break;
     case VT_FILETIME:
         if( pftValue )
-            memcpy(pftValue, &prop->u.filetime, sizeof (FILETIME) );
+            *pftValue = prop->u.filetime;
         break;
     case VT_EMPTY:
         break;
@@ -619,8 +664,8 @@ LPWSTR msi_get_suminfo_product( IStorage *stg )
 }
 
 UINT WINAPI MsiSummaryInfoGetPropertyA(
-      MSIHANDLE handle, UINT uiProperty, UINT *puiDataType, INT *piValue,
-      FILETIME *pftValue, LPSTR szValueBuf, DWORD *pcchValueBuf)
+      MSIHANDLE handle, UINT uiProperty, PUINT puiDataType, LPINT piValue,
+      FILETIME *pftValue, LPSTR szValueBuf, LPDWORD pcchValueBuf)
 {
     awstring str;
 
@@ -635,8 +680,8 @@ UINT WINAPI MsiSummaryInfoGetPropertyA(
 }
 
 UINT WINAPI MsiSummaryInfoGetPropertyW(
-      MSIHANDLE handle, UINT uiProperty, UINT *puiDataType, INT *piValue,
-      FILETIME *pftValue, LPWSTR szValueBuf, DWORD *pcchValueBuf)
+      MSIHANDLE handle, UINT uiProperty, PUINT puiDataType, LPINT piValue,
+      FILETIME *pftValue, LPWSTR szValueBuf, LPDWORD pcchValueBuf)
 {
     awstring str;
 
@@ -699,7 +744,7 @@ static UINT set_prop( MSIHANDLE handle, UINT uiProperty, UINT uiDataType,
         prop->u.iVal = iValue;
         break;
     case VT_FILETIME:
-        memcpy( &prop->u.filetime, pftValue, sizeof prop->u.filetime );
+        prop->u.filetime = *pftValue;
         break;
     case VT_LPSTR:
         if( str->unicode )

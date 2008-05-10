@@ -31,7 +31,7 @@
  * TODO:
  * 	-- CCS_BOTTOM (default)
  * 	-- CCS_LEFT
- * 	-- CCS_NODEVIDER
+ * 	-- CCS_NODIVIDER
  * 	-- CCS_NOMOVEX
  * 	-- CCS_NOMOVEY
  * 	-- CCS_NOPARENTALIGN
@@ -114,8 +114,8 @@ STATUSBAR_DrawSizeGrip (HTHEME theme, HDC hdc, LPRECT lpRect)
     POINT pt;
     INT i;
 
-    TRACE("draw size grip %d,%d - %d,%d\n", lpRect->left, lpRect->top, lpRect->right, lpRect->bottom);
-    
+    TRACE("draw size grip %s\n", wine_dbgstr_rect(lpRect));
+
     if (theme)
     {
         RECT gripperRect;
@@ -175,7 +175,7 @@ STATUSBAR_DrawPart (const STATUS_INFO *infoPtr, HDC hdc, const STATUSWINDOWPART 
     HTHEME theme = GetWindowTheme (infoPtr->Self);
     int themePart = SP_PANE;
 
-    TRACE("part bound %d,%d - %d,%d\n", r.left, r.top, r.right, r.bottom);
+    TRACE("part bound %s\n", wine_dbgstr_rect(&r));
     if (part->style & SBT_POPOUT)
         border = BDR_RAISEDOUTER;
     else if (part->style & SBT_NOBORDERS)
@@ -333,7 +333,7 @@ STATUSBAR_SetPartBounds (STATUS_INFO *infoPtr)
 
     /* get our window size */
     GetClientRect (infoPtr->Self, &rect);
-    TRACE("client wnd size is %d,%d - %d,%d\n", rect.left, rect.top, rect.right, rect.bottom);
+    TRACE("client wnd size is %s\n", wine_dbgstr_rect(&rect));
 
     rect.left += infoPtr->horizontalBorder;
     rect.top += infoPtr->verticalBorder;
@@ -633,7 +633,6 @@ STATUSBAR_SetMinHeight (STATUS_INFO *infoPtr, INT height)
 	RECT parent_rect;
         HTHEME theme;
 
-	GetClientRect (infoPtr->Notify, &parent_rect);
 	infoPtr->height = height + infoPtr->verticalBorder;
         
         if ((theme = GetWindowTheme (infoPtr->Self)))
@@ -651,13 +650,14 @@ STATUSBAR_SetMinHeight (STATUS_INFO *infoPtr, INT height)
             ReleaseDC (infoPtr->Self, hdc);
         }
         
-	width = parent_rect.right - parent_rect.left;
-	x = parent_rect.left;
-	y = parent_rect.bottom - infoPtr->height;
-	MoveWindow (infoPtr->Self, parent_rect.left,
-		    parent_rect.bottom - infoPtr->height,
-		    width, infoPtr->height, TRUE);
-	STATUSBAR_SetPartBounds (infoPtr);
+        if (GetClientRect (infoPtr->Notify, &parent_rect))
+        {
+            width = parent_rect.right - parent_rect.left;
+            x = parent_rect.left;
+            y = parent_rect.bottom - infoPtr->height;
+            MoveWindow (infoPtr->Self, x, y, width, infoPtr->height, TRUE);
+            STATUSBAR_SetPartBounds (infoPtr);
+        }
     }
 
     return TRUE;
@@ -668,7 +668,7 @@ static BOOL
 STATUSBAR_SetParts (STATUS_INFO *infoPtr, INT count, LPINT parts)
 {
     STATUSWINDOWPART *tmp;
-    int	i, oldNumParts;
+    UINT i, oldNumParts;
 
     TRACE("(%d,%p)\n", count, parts);
 
@@ -700,7 +700,7 @@ STATUSBAR_SetParts (STATUS_INFO *infoPtr, INT count, LPINT parts)
 	infoPtr->parts[i].x = parts[i];
 
     if (infoPtr->hwndToolTip) {
-	INT nTipCount, i;
+	UINT nTipCount;
 	TTTOOLINFOW ti;
 
 	ZeroMemory (&ti, sizeof(TTTOOLINFOW));
@@ -984,12 +984,6 @@ STATUSBAR_WMCreate (HWND hwnd, const CREATESTRUCTA *lpCreate)
     dwStyle = GetWindowLongW (hwnd, GWL_STYLE);
     /* native seems to clear WS_BORDER, too */
     dwStyle &= ~WS_BORDER;
-
-    /* statusbars on managed windows should not have SIZEGRIP style */
-    if ((dwStyle & SBARS_SIZEGRIP) && lpCreate->hwndParent &&
-        GetPropA( lpCreate->hwndParent, "__wine_x11_managed" ))
-        dwStyle &= ~SBARS_SIZEGRIP;
-
     SetWindowLongW (hwnd, GWL_STYLE, dwStyle);
 
     if ((hdc = GetDC (hwnd))) {
@@ -1019,8 +1013,7 @@ STATUSBAR_WMCreate (HWND hwnd, const CREATESTRUCTA *lpCreate)
 	    nmttc.hdr.code = NM_TOOLTIPSCREATED;
 	    nmttc.hwndToolTips = infoPtr->hwndToolTip;
 
-	    SendMessageW (lpCreate->hwndParent, WM_NOTIFY,
-			    (WPARAM)nmttc.hdr.idFrom, (LPARAM)&nmttc);
+	    SendMessageW (lpCreate->hwndParent, WM_NOTIFY, nmttc.hdr.idFrom, (LPARAM)&nmttc);
 	}
     }
 
@@ -1191,13 +1184,13 @@ STATUSBAR_WMSize (STATUS_INFO *infoPtr, WORD flags)
     if (GetWindowLongW(infoPtr->Self, GWL_STYLE) & CCS_NORESIZE) return FALSE;
 
     /* width and height don't apply */
-    GetClientRect (infoPtr->Notify, &parent_rect);
+    if (!GetClientRect (infoPtr->Notify, &parent_rect))
+        return FALSE;
+
     width = parent_rect.right - parent_rect.left;
     x = parent_rect.left;
     y = parent_rect.bottom - infoPtr->height;
-    MoveWindow (infoPtr->Self, parent_rect.left,
-		parent_rect.bottom - infoPtr->height,
-		width, infoPtr->height, TRUE);
+    MoveWindow (infoPtr->Self, x, y, width, infoPtr->height, TRUE);
     STATUSBAR_SetPartBounds (infoPtr);
     return TRUE;
 }

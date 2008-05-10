@@ -3,18 +3,13 @@ TOPOBJDIR = ../..
 SRCDIR    = @srcdir@
 VPATH     = @srcdir@
 MODULE    = explorer.exe
-APPMODE   = -mwindows
-IMPORTS   = user32 gdi32 advapi32 kernel32 ntdll 
+APPMODE   = -mwindows -municode
+IMPORTS   = rpcrt4 user32 gdi32 advapi32 kernel32 ntdll
 DELAYIMPORTS = comctl32
-EXTRADEFS = @HALINCL@
-EXTRALIBS = @DISKARBITRATIONLIB@
 
 C_SRCS = \
 	desktop.c \
-	device.c \
-	diskarb.c \
 	explorer.c \
-	hal.c \
 	systray.c
 
 @MAKE_PROG_RULES@

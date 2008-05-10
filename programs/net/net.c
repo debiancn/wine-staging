@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <windows.h>
+#include <lm.h>
 #include "resources.h"
 
 #define NET_START 0001
@@ -34,6 +35,59 @@ int output_string(int msg, ...)
     vprintf(msg_buffer, arguments);
     va_end(arguments);
     return 0;
+}
+
+BOOL output_error_string(DWORD error)
+{
+    LPSTR pBuffer;
+    if (FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM |
+            FORMAT_MESSAGE_IGNORE_INSERTS | FORMAT_MESSAGE_ALLOCATE_BUFFER,
+            NULL, error, 0, (LPSTR)&pBuffer, 0, NULL))
+    {
+        fputs(pBuffer, stdout);
+        LocalFree(pBuffer);
+        return TRUE;
+    }
+    return FALSE;
+}
+
+static BOOL net_use(int argc, char *argv[])
+{
+    USE_INFO_2 *buffer, *connection;
+    DWORD read, total, resume_handle, rc, i;
+    const char *status_description[] = { "OK", "Paused", "Disconnected", "An error occurred",
+                                         "A network error occurred", "Connection is being made",
+					 "Reconnecting" };
+    resume_handle = 0;
+    buffer = NULL;
+
+    if(argc<3)
+    {
+        do {
+            rc = NetUseEnum(NULL, 2, (BYTE **) &buffer, 2048, &read, &total, &resume_handle);
+            if (rc != ERROR_MORE_DATA && rc != ERROR_SUCCESS)
+            {
+                break;
+            }
+
+	    if(total == 0)
+	    {
+	        output_string(STRING_NO_ENTRIES);
+		break;
+	    }
+
+            output_string(STRING_USE_HEADER);
+            for (i = 0, connection = buffer; i < read; ++i, ++connection)
+                output_string(STRING_USE_ENTRY, status_description[connection->ui2_status], connection->ui2_local,
+				connection->ui2_remote, connection->ui2_refcount);
+
+            if (buffer != NULL) NetApiBufferFree(buffer);
+        } while (rc == ERROR_MORE_DATA);
+
+	return TRUE;
+    }
+
+    return FALSE;
 }
 
 static BOOL StopService(SC_HANDLE SCManager, SC_HANDLE serviceHandle)
@@ -99,15 +153,23 @@ static BOOL net_service(int operation, char *service_name)
         output_string(STRING_START_SVC, service_display_name);
         result = StartService(serviceHandle, 0, NULL);
 
-        if(result) output_string(STRING_START_SVC_SUCCESS);
-        else output_string(STRING_START_SVC_FAIL);
+        if(result) output_string(STRING_START_SVC_SUCCESS, service_display_name);
+        else
+        {
+            if (!output_error_string(GetLastError()))
+                output_string(STRING_START_SVC_FAIL, service_display_name);
+        }
         break;
     case NET_STOP:
         output_string(STRING_STOP_SVC, service_display_name);
         result = StopService(SCManager, serviceHandle);
 
         if(result) output_string(STRING_STOP_SVC_SUCCESS, service_display_name);
-        else output_string(STRING_STOP_SVC_FAIL, service_display_name);
+        else
+        {
+            if (!output_error_string(GetLastError()))
+                output_string(STRING_STOP_SVC_FAIL, service_display_name);
+        }
         break;
     }
 
@@ -157,6 +219,11 @@ int main(int argc, char *argv[])
             return 1;
         }
         return 0;
+    }
+
+    if(!strcasecmp(argv[1], "use"))
+    {
+        if(!net_use(argc, argv)) return 1;
     }
 
     return 0;

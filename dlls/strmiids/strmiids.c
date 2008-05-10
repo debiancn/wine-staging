@@ -35,3 +35,4 @@
 #include "strmif.h"
 #include "control.h"
 #include "amstream.h"
+#include "qedit.h"

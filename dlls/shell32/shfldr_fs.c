@@ -588,7 +588,7 @@ IShellFolder_fnGetAttributesOf (IShellFolder2 * iface, UINT cidl,
         IShellFolder *psfParent = NULL;
         LPCITEMIDLIST rpidl = NULL;
 
-        hr = SHBindToParent(This->pidlRoot, &IID_IShellFolder, (LPVOID*)&psfParent, (LPCITEMIDLIST*)&rpidl);
+        hr = SHBindToParent(This->pidlRoot, &IID_IShellFolder, (LPVOID*)&psfParent, &rpidl);
         if(SUCCEEDED(hr)) {
             SHELL32_GetItemAttributes (psfParent, rpidl, rgfInOut);
             IShellFolder_Release(psfParent);
@@ -712,7 +712,7 @@ static const WCHAR NeverShowExtW[] = { 'N','e','v','e','r','S','h','o','w','E',
  *  TRUE, if the filename's extension should be hidden
  *  FALSE, otherwise.
  */
-BOOL SHELL_FS_HideExtension(LPWSTR szPath)
+BOOL SHELL_FS_HideExtension(LPCWSTR szPath)
 {
     HKEY hKey;
     DWORD dwData;
@@ -1080,11 +1080,12 @@ ISFHelper_fnGetUniqueName (ISFHelper * iface, LPWSTR pwszName, UINT uLen)
     IEnumIDList *penum;
     HRESULT hr;
     WCHAR wszText[MAX_PATH];
-    const WCHAR wszNewFolder[] = {'N','e','w',' ','F','o','l','d','e','r',0 };
+    WCHAR wszNewFolder[25];
     const WCHAR wszFormat[] = {'%','s',' ','%','d',0 };
 
     TRACE ("(%p)(%p %u)\n", This, pwszName, uLen);
 
+    LoadStringW(shell32_hInstance, IDS_NEWFOLDER, wszNewFolder,  sizeof(wszNewFolder)/sizeof(WCHAR));
     if (uLen < sizeof(wszNewFolder)/sizeof(WCHAR) + 3)
         return E_POINTER;
 
@@ -1154,9 +1155,9 @@ ISFHelper_fnAddFolder (ISFHelper * iface, HWND hwnd, LPCWSTR pwszName,
 
         /* Cannot Create folder because of permissions */
         LoadStringW (shell32_hInstance, IDS_CREATEFOLDER_DENIED, wszTempText,
-         sizeof (wszTempText));
+         sizeof (wszTempText)/sizeof (wszTempText[0]));
         LoadStringW (shell32_hInstance, IDS_CREATEFOLDER_CAPTION, wszCaption,
-         sizeof (wszCaption));
+         sizeof (wszCaption)/sizeof (wszCaption[0]));
         sprintfW (wszText, wszTempText, wszNewDir);
         MessageBoxW (hwnd, wszText, wszCaption, MB_OK | MB_ICONEXCLAMATION);
     }
@@ -1170,7 +1171,7 @@ ISFHelper_fnAddFolder (ISFHelper * iface, HWND hwnd, LPCWSTR pwszName,
  * Builds a list of paths like the one used in SHFileOperation from a table of
  * PIDLs relative to the given base folder
  */
-static WCHAR *build_paths_list(LPCWSTR wszBasePath, int cidl, LPCITEMIDLIST *pidls)
+static WCHAR *build_paths_list(LPCWSTR wszBasePath, int cidl, const LPCITEMIDLIST *pidls)
 {
     WCHAR *wszPathsList;
     WCHAR *wszListPos;
@@ -1461,7 +1462,7 @@ IFSFldr_PersistFolder3_InitializeEx (IPersistFolder3 * iface,
     This->pidlRoot = ILClone (pidlRoot);
 
     /*
-     *  the target folder is spezified in csidl OR pidlTargetFolder OR
+     *  the target folder is specified in csidl OR pidlTargetFolder OR
      *  szTargetParsingName
      */
     if (ppfti) {

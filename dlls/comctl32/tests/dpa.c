@@ -218,7 +218,7 @@ static void test_dpa(void)
 
     /* Set item with out of bound index */
     ok(pDPA_SetPtr(dpa, 1, (PVOID)6), "\n");
-    /* Fill the greated gap */
+    /* Fill the created gap */
     ok(pDPA_SetPtr(dpa, 0, (PVOID)5), "\n");
     rc=CheckDPA(dpa, 0x56, &dw);
     ok(rc, "dw=0x%x\n", dw);
@@ -428,7 +428,6 @@ static void test_dpa(void)
             rc=CheckDPA(dpa, 0x123456, &dw);
             ok(rc, "dw=0x%x\n", dw);
         }
-        pDPA_Destroy(dpa);
 
         ret = IStream_Release(pStm);
         ok(!ret, "ret=%d\n", ret);
@@ -454,6 +453,4 @@ START_TEST(dpa)
         test_dpa();
     else
         trace("skipping tests\n");
-
-    FreeLibrary(hcomctl32);
 }

@@ -48,7 +48,7 @@ void ME_EmptyUndoStack(ME_TextEditor *editor)
   } 
 }
 
-ME_UndoItem *ME_AddUndoItem(ME_TextEditor *editor, ME_DIType type, ME_DisplayItem *pdi) {
+ME_UndoItem *ME_AddUndoItem(ME_TextEditor *editor, ME_DIType type, const ME_DisplayItem *pdi) {
   if (editor->nUndoMode == umIgnore)
     return NULL;
   else if (editor->nUndoLimit == 0)
@@ -56,21 +56,28 @@ ME_UndoItem *ME_AddUndoItem(ME_TextEditor *editor, ME_DIType type, ME_DisplayIte
   else
   {
     ME_DisplayItem *pItem = (ME_DisplayItem *)ALLOC_OBJ(ME_UndoItem);
+    ((ME_UndoItem *)pItem)->nCR = ((ME_UndoItem *)pItem)->nLF = -1;
     switch(type)
     {
     case diUndoEndTransaction:
       break;
     case diUndoSetParagraphFormat:
       assert(pdi);
-      CopyMemory(&pItem->member.para, &pdi->member.para, sizeof(ME_Paragraph));
+      pItem->member.para = pdi->member.para;
       pItem->member.para.pFmt = ALLOC_OBJ(PARAFORMAT2);
-      CopyMemory(pItem->member.para.pFmt, pdi->member.para.pFmt, sizeof(PARAFORMAT2));
+      *pItem->member.para.pFmt = *pdi->member.para.pFmt;
       break;
     case diUndoInsertRun:
       assert(pdi);
-      CopyMemory(&pItem->member.run, &pdi->member.run, sizeof(ME_Run));
+      pItem->member.run = pdi->member.run;
       pItem->member.run.strText = ME_StrDup(pItem->member.run.strText);
       ME_AddRefStyle(pItem->member.run.style);
+      if (pdi->member.run.ole_obj)
+      {
+        pItem->member.run.ole_obj = ALLOC_OBJ(*pItem->member.run.ole_obj);
+        ME_CopyReObject(pItem->member.run.ole_obj, pdi->member.run.ole_obj);
+      }
+      else pItem->member.run.ole_obj = NULL;
       break;
     case diUndoSetCharFormat:
     case diUndoSetDefaultCharFormat:
@@ -219,9 +226,12 @@ static void ME_PlayUndoItem(ME_TextEditor *editor, ME_DisplayItem *pItem)
     ME_CursorFromCharOfs(editor, pUItem->nStart, &tmp);
     if (tmp.nOffset)
       tmp.pRun = ME_SplitRunSimple(editor, tmp.pRun, tmp.nOffset);
-    new_para = ME_SplitParagraph(editor, tmp.pRun, tmp.pRun->member.run.style);
+    assert(pUItem->nCR >= 0);
+    assert(pUItem->nLF >= 0);
+    new_para = ME_SplitParagraph(editor, tmp.pRun, tmp.pRun->member.run.style,
+      pUItem->nCR, pUItem->nLF);
     assert(pItem->member.para.pFmt->cbSize == sizeof(PARAFORMAT2));
-    CopyMemory(new_para->member.para.pFmt, pItem->member.para.pFmt, sizeof(PARAFORMAT2));
+    *new_para->member.para.pFmt = *pItem->member.para.pFmt;
     break;
   }
   default:
@@ -241,7 +251,7 @@ void ME_Undo(ME_TextEditor *editor) {
   if (!editor->pUndoStack)
     return;
     
-  /* watch out for uncommited transactions ! */
+  /* watch out for uncommitted transactions ! */
   assert(editor->pUndoStack->type == diUndoEndTransaction);
   
   editor->nUndoMode = umAddToRedo;
@@ -274,7 +284,7 @@ void ME_Redo(ME_TextEditor *editor) {
   if (!editor->pRedoStack)
     return;
     
-  /* watch out for uncommited transactions ! */
+  /* watch out for uncommitted transactions ! */
   assert(editor->pRedoStack->type == diUndoEndTransaction);
   
   editor->nUndoMode = umAddBackToUndo;

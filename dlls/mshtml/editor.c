@@ -16,8 +16,6 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "config.h"
-
 #include <stdarg.h>
 #include <stdio.h>
 
@@ -26,7 +24,6 @@
 #include "windef.h"
 #include "winbase.h"
 #include "winuser.h"
-#include "winnls.h"
 #include "ole2.h"
 #include "mshtmcid.h"
 
@@ -34,10 +31,12 @@
 #include "wine/unicode.h"
 
 #include "mshtml_private.h"
+#include "resource.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(mshtml);
 
 #define NSCMD_ALIGN        "cmd_align"
+#define NSCMD_BEGINLINE    "cmd_beginLine"
 #define NSCMD_BOLD         "cmd_bold"
 #define NSCMD_CHARNEXT     "cmd_charNext"
 #define NSCMD_CHARPREVIOUS "cmd_charPrevious"
@@ -45,24 +44,33 @@ WINE_DEFAULT_DEBUG_CHANNEL(mshtml);
 #define NSCMD_CUT          "cmd_cut"
 #define NSCMD_DELETECHARFORWARD   "cmd_deleteCharForward"
 #define NSCMD_DELETEWORDFORWARD   "cmd_deleteWordForward"
+#define NSCMD_ENDLINE      "cmd_endLine"
 #define NSCMD_FONTCOLOR    "cmd_fontColor"
 #define NSCMD_FONTFACE     "cmd_fontFace"
 #define NSCMD_INDENT       "cmd_indent"
 #define NSCMD_INSERTHR     "cmd_insertHR"
+#define NSCMD_INSERTLINKNOUI    "cmd_insertLinkNoUI"
 #define NSCMD_ITALIC       "cmd_italic"
 #define NSCMD_LINENEXT     "cmd_lineNext"
 #define NSCMD_LINEPREVIOUS "cmd_linePrevious"
+#define NSCMD_MOVEBOTTOM   "cmd_moveBottom"
 #define NSCMD_MOVEPAGEDOWN "cmd_movePageDown"
 #define NSCMD_MOVEPAGEUP   "cmd_movePageUp"
+#define NSCMD_MOVETOP      "cmd_moveTop"
 #define NSCMD_OL           "cmd_ol"
 #define NSCMD_OUTDENT      "cmd_outdent"
 #define NSCMD_PASTE        "cmd_paste"
+#define NSCMD_SELECTALL           "cmd_selectAll"
+#define NSCMD_SELECTBEGINLINE     "cmd_selectBeginLine"
+#define NSCMD_SELECTBOTTOM        "cmd_selectBottom"
 #define NSCMD_SELECTCHARNEXT      "cmd_selectCharNext"
 #define NSCMD_SELECTCHARPREVIOUS  "cmd_selectCharPrevious"
+#define NSCMD_SELECTENDLINE       "cmd_selectEndLine"
 #define NSCMD_SELECTLINENEXT      "cmd_selectLineNext"
 #define NSCMD_SELECTLINEPREVIOUS  "cmd_selectLinePrevious"
 #define NSCMD_SELECTPAGEDOWN      "cmd_selectPageDown"
 #define NSCMD_SELECTPAGEUP        "cmd_selectPageUp"
+#define NSCMD_SELECTTOP           "cmd_selectTop"
 #define NSCMD_SELECTWORDNEXT      "cmd_selectWordNext"
 #define NSCMD_SELECTWORDPREVIOUS  "cmd_selectWordPrevious"
 #define NSCMD_UL           "cmd_ul"
@@ -82,38 +90,28 @@ WINE_DEFAULT_DEBUG_CHANNEL(mshtml);
 #define DOM_VK_RIGHT    VK_RIGHT
 #define DOM_VK_DOWN     VK_DOWN
 #define DOM_VK_DELETE   VK_DELETE
+#define DOM_VK_HOME     VK_HOME
+#define DOM_VK_END      VK_END
 
 static const WCHAR wszFont[] = {'f','o','n','t',0};
 static const WCHAR wszSize[] = {'s','i','z','e',0};
 
-static void do_ns_command(NSContainer *This, const char *cmd, nsICommandParams *nsparam)
+void set_dirty(HTMLDocument *This, VARIANT_BOOL dirty)
 {
-    nsICommandManager *cmdmgr;
-    nsIInterfaceRequestor *iface_req;
     nsresult nsres;
 
-    TRACE("(%p)\n", This);
-
-    nsres = nsIWebBrowser_QueryInterface(This->webbrowser,
-            &IID_nsIInterfaceRequestor, (void**)&iface_req);
-    if(NS_FAILED(nsres)) {
-        ERR("Could not get nsIInterfaceRequestor: %08x\n", nsres);
+    if(This->usermode != EDITMODE || !This->nscontainer || !This->nscontainer->editor)
         return;
+
+    if(dirty) {
+        nsres = nsIEditor_IncrementModificationCount(This->nscontainer->editor, 1);
+        if(NS_FAILED(nsres))
+            ERR("IncrementModificationCount failed: %08x\n", nsres);
+    }else {
+        nsres = nsIEditor_ResetModificationCount(This->nscontainer->editor);
+        if(NS_FAILED(nsres))
+            ERR("ResetModificationCount failed: %08x\n", nsres);
     }
-
-    nsres = nsIInterfaceRequestor_GetInterface(iface_req, &IID_nsICommandManager,
-                                               (void**)&cmdmgr);
-    nsIInterfaceRequestor_Release(iface_req);
-    if(NS_FAILED(nsres)) {
-        ERR("Could not get nsICommandManager: %08x\n", nsres);
-        return;
-    }
-
-    nsres = nsICommandManager_DoCommand(cmdmgr, cmd, nsparam, NULL);
-    if(NS_FAILED(nsres))
-        ERR("DoCommand(%s) failed: %08x\n", debugstr_a(cmd), nsres);
-
-    nsICommandManager_Release(cmdmgr);
 }
 
 static void do_ns_editor_command(NSContainer *This, const char *cmd)
@@ -131,19 +129,9 @@ static void do_ns_editor_command(NSContainer *This, const char *cmd)
 static nsresult get_ns_command_state(NSContainer *This, const char *cmd, nsICommandParams *nsparam)
 {
     nsICommandManager *cmdmgr;
-    nsIInterfaceRequestor *iface_req;
     nsresult nsres;
 
-    nsres = nsIWebBrowser_QueryInterface(This->webbrowser,
-            &IID_nsIInterfaceRequestor, (void**)&iface_req);
-    if(NS_FAILED(nsres)) {
-        ERR("Could not get nsIInterfaceRequestor: %08x\n", nsres);
-        return nsres;
-    }
-
-    nsres = nsIInterfaceRequestor_GetInterface(iface_req, &IID_nsICommandManager,
-                                               (void**)&cmdmgr);
-    nsIInterfaceRequestor_Release(iface_req);
+    nsres = get_nsinterface((nsISupports*)This->webbrowser, &IID_nsICommandManager, (void**)&cmdmgr);
     if(NS_FAILED(nsres)) {
         ERR("Could not get nsICommandManager: %08x\n", nsres);
         return nsres;
@@ -262,7 +250,7 @@ static void remove_child_attr(nsIDOMElement *elem, LPCWSTR tag, nsAString *attr_
 
             nsAString_Init(&tag_str, NULL);
             nsIDOMElement_GetTagName(child_elem, &tag_str);
-            nsAString_GetData(&tag_str, &ctag, NULL);
+            nsAString_GetData(&tag_str, &ctag);
 
             if(!strcmpiW(ctag, tag))
                 /* FIXME: remove node if there are no more attributes */
@@ -309,7 +297,7 @@ static void get_font_size(HTMLDocument *This, WCHAR *ret)
 
             nsAString_Init(&tag_str, NULL);
             nsIDOMElement_GetTagName(elem, &tag_str);
-            nsAString_GetData(&tag_str, &tag, NULL);
+            nsAString_GetData(&tag_str, &tag);
 
             if(!strcmpiW(tag, wszFont)) {
                 nsAString size_str, val_str;
@@ -321,7 +309,7 @@ static void get_font_size(HTMLDocument *This, WCHAR *ret)
                 nsAString_Init(&val_str, NULL);
 
                 nsIDOMElement_GetAttribute(elem, &size_str, &val_str);
-                nsAString_GetData(&val_str, &val, NULL);
+                nsAString_GetData(&val_str, &val);
 
                 if(*val) {
                     TRACE("found size %s\n", debugstr_w(val));
@@ -396,7 +384,7 @@ static void set_font_size(HTMLDocument *This, LPCWSTR size)
     if(collapsed) {
         nsISelection_Collapse(nsselection, (nsIDOMNode*)elem, 0);
     }else {
-        /* Remove all size attrbutes from the range */
+        /* Remove all size attributes from the range */
         remove_child_attr(elem, wszFont, &size_str);
         nsISelection_SelectAllChildren(nsselection, (nsIDOMNode*)elem);
     }
@@ -410,74 +398,11 @@ static void set_font_size(HTMLDocument *This, LPCWSTR size)
 
     nsISelection_Release(nsselection);
     nsIDOMDocument_Release(nsdoc);
+
+    set_dirty(This, VARIANT_TRUE);
 }
 
-static BOOL is_visible_text_node(nsIDOMNode *node)
-{
-    nsIDOMCharacterData *char_data;
-    nsAString data_str;
-    LPCWSTR data, ptr;
-    PRUint32 len;
-
-    nsIDOMNode_QueryInterface(node, &IID_nsIDOMCharacterData, (void**)&char_data);
-
-    nsIDOMCharacterData_GetLength(char_data, &len);
-
-    nsAString_Init(&data_str, NULL);
-    nsIDOMCharacterData_GetData(char_data, &data_str);
-    nsAString_GetData(&data_str, &data, NULL);
-
-    if(*data == '\n') {
-        len--;
-        for(ptr=data+1; ptr && isspaceW(*ptr); ptr++)
-            len--;
-    }
-
-    nsAString_Finish(&data_str);
-
-    nsIDOMCharacterData_Release(char_data);
-
-    return len != 0;
-}
-
-static nsIDOMNode *get_child_text_node(nsIDOMNode *node, BOOL first)
-{
-    nsIDOMNode *iter, *iter2;
-
-    if(first)
-        nsIDOMNode_GetFirstChild(node, &iter);
-    else
-        nsIDOMNode_GetLastChild(node, &iter);
-
-    while(iter) {
-        PRUint16 node_type;
-
-        nsIDOMNode_GetNodeType(iter, &node_type);
-        switch(node_type) {
-        case TEXT_NODE:
-            if(is_visible_text_node(iter))
-                return iter;
-        case ELEMENT_NODE:
-            iter2 = get_child_text_node(iter, first);
-            if(iter2) {
-                nsIDOMNode_Release(iter);
-                return iter2;
-            }
-        }
-
-        if(first)
-            nsIDOMNode_GetNextSibling(iter, &iter2);
-        else
-            nsIDOMNode_GetPreviousSibling(iter, &iter2);
-
-        nsIDOMNode_Release(iter);
-        iter = iter2;
-    }
-
-    return NULL;
-}
-
-static void handle_arrow_key(HTMLDocument *This, nsIDOMKeyEvent *event, const char **cmds)
+static void handle_arrow_key(HTMLDocument *This, nsIDOMKeyEvent *event, const char * const cmds[4])
 {
     int i=0;
     PRBool b;
@@ -507,7 +432,7 @@ void handle_edit_event(HTMLDocument *This, nsIDOMEvent *event)
 
     switch(code) {
     case DOM_VK_LEFT: {
-        static const char *cmds[] = {
+        static const char * const cmds[] = {
             NSCMD_CHARPREVIOUS,
             NSCMD_WORDPREVIOUS,
             NSCMD_SELECTCHARPREVIOUS,
@@ -519,7 +444,7 @@ void handle_edit_event(HTMLDocument *This, nsIDOMEvent *event)
         break;
     }
     case DOM_VK_RIGHT: {
-        static const char *cmds[] = {
+        static const char * const cmds[] = {
             NSCMD_CHARNEXT,
             NSCMD_WORDNEXT,
             NSCMD_SELECTCHARNEXT,
@@ -531,7 +456,7 @@ void handle_edit_event(HTMLDocument *This, nsIDOMEvent *event)
         break;
     }
     case DOM_VK_UP: {
-        static const char *cmds[] = {
+        static const char * const cmds[] = {
             NSCMD_LINEPREVIOUS,
             NSCMD_MOVEPAGEUP,
             NSCMD_SELECTLINEPREVIOUS,
@@ -543,7 +468,7 @@ void handle_edit_event(HTMLDocument *This, nsIDOMEvent *event)
         break;
     }
     case DOM_VK_DOWN: {
-        static const char *cmds[] = {
+        static const char * const cmds[] = {
             NSCMD_LINENEXT,
             NSCMD_MOVEPAGEDOWN,
             NSCMD_SELECTLINENEXT,
@@ -555,7 +480,7 @@ void handle_edit_event(HTMLDocument *This, nsIDOMEvent *event)
         break;
     }
     case DOM_VK_DELETE: {
-        static const char *cmds[] = {
+        static const char * const cmds[] = {
             NSCMD_DELETECHARFORWARD,
             NSCMD_DELETEWORDFORWARD,
             NULL, NULL
@@ -565,9 +490,39 @@ void handle_edit_event(HTMLDocument *This, nsIDOMEvent *event)
         handle_arrow_key(This, key_event, cmds);
         break;
     }
+    case DOM_VK_HOME: {
+        static const char * const cmds[] = {
+            NSCMD_BEGINLINE,
+            NSCMD_MOVETOP,
+            NSCMD_SELECTBEGINLINE,
+            NSCMD_SELECTTOP
+        };
+
+        TRACE("home\n");
+        handle_arrow_key(This, key_event, cmds);
+        break;
+    }
+    case DOM_VK_END: {
+        static const char * const cmds[] = {
+            NSCMD_ENDLINE,
+            NSCMD_MOVEBOTTOM,
+            NSCMD_SELECTENDLINE,
+            NSCMD_SELECTBOTTOM
+        };
+
+        TRACE("end\n");
+        handle_arrow_key(This, key_event, cmds);
+        break;
+    }
     }
 
     nsIDOMKeyEvent_Release(key_event);
+}
+
+void handle_edit_load(HTMLDocument *This)
+{
+    This->nscontainer->reset_focus = GetFocus();
+    get_editor_controller(This->nscontainer);
 }
 
 static void set_ns_fontname(NSContainer *This, const char *fontname)
@@ -601,7 +556,6 @@ static HRESULT exec_fontname(HTMLDocument *This, DWORD cmdexecopt, VARIANT *in, 
 
     if(in) {
         char *stra;
-        DWORD len;
 
         if(V_VT(in) != VT_BSTR) {
             FIXME("Unsupported vt=%d\n", V_VT(out));
@@ -610,13 +564,9 @@ static HRESULT exec_fontname(HTMLDocument *This, DWORD cmdexecopt, VARIANT *in, 
 
         TRACE("%s\n", debugstr_w(V_BSTR(in)));
 
-        len = WideCharToMultiByte(CP_ACP, 0, V_BSTR(in), -1, NULL, 0, NULL, NULL);
-        stra = mshtml_alloc(len);
-        WideCharToMultiByte(CP_ACP, 0, V_BSTR(in), -1, stra, -1, NULL, NULL);
-
+        stra = heap_strdupWtoA(V_BSTR(in));
         set_ns_fontname(This->nscontainer, stra);
-
-        mshtml_free(stra);
+        heap_free(stra);
 
         update_doc(This, UPDATE_UI);
     }
@@ -628,6 +578,9 @@ static HRESULT exec_fontname(HTMLDocument *This, DWORD cmdexecopt, VARIANT *in, 
         DWORD len;
         nsresult nsres;
 
+        V_VT(out) = VT_BSTR;
+        V_BSTR(out) = NULL;
+
         nsparam = create_nscommand_params();
 
         nsres = get_ns_command_state(This->nscontainer, NSCMD_FONTFACE, nsparam);
@@ -638,13 +591,12 @@ static HRESULT exec_fontname(HTMLDocument *This, DWORD cmdexecopt, VARIANT *in, 
         nsICommandParams_Release(nsparam);
 
         len = MultiByteToWideChar(CP_ACP, 0, stra, -1, NULL, 0);
-        strw = mshtml_alloc(len*sizeof(WCHAR));
+        strw = heap_alloc(len*sizeof(WCHAR));
         MultiByteToWideChar(CP_ACP, 0, stra, -1, strw, -1);
         nsfree(stra);
 
-        V_VT(out) = VT_BSTR;
         V_BSTR(out) = SysAllocString(strw);
-        mshtml_free(strw);
+        heap_free(strw);
     }
 
     return S_OK;
@@ -712,6 +664,27 @@ static HRESULT exec_fontsize(HTMLDocument *This, DWORD cmdexecopt, VARIANT *in, 
         update_doc(This, UPDATE_UI);
     }
 
+    return S_OK;
+}
+
+static HRESULT exec_font(HTMLDocument *This, DWORD cmdexecopt, VARIANT *in, VARIANT *out)
+{
+
+    FIXME("(%p)->(%p %p)\n", This, in, out);
+    return E_NOTIMPL;
+}
+
+static HRESULT exec_selectall(HTMLDocument *This, DWORD cmdexecopt, VARIANT *in, VARIANT *out)
+{
+    TRACE("(%p)\n", This);
+
+    if(in || out)
+        FIXME("unsupported args\n");
+
+    if(This->nscontainer)
+        do_ns_command(This->nscontainer, NSCMD_SELECTALL, NULL);
+
+    update_doc(This, UPDATE_UI);
     return S_OK;
 }
 
@@ -991,6 +964,21 @@ HRESULT editor_exec_paste(HTMLDocument *This, DWORD cmdexecopt, VARIANT *in, VAR
     return S_OK;
 }
 
+static HRESULT exec_setdirty(HTMLDocument *This, DWORD cmdexecopt, VARIANT *in, VARIANT *out)
+{
+    TRACE("(%p)->(%08x %p %p)\n", This, cmdexecopt, in, out);
+
+    if(!in)
+        return S_OK;
+
+    if(V_VT(in) == VT_BOOL)
+        set_dirty(This, V_BOOL(in));
+    else
+        FIXME("unsupported vt=%d\n", V_VT(in));
+
+    return S_OK;
+}
+
 static HRESULT query_edit_status(HTMLDocument *This, OLECMD *cmd)
 {
     switch(cmd->cmdID) {
@@ -1042,8 +1030,229 @@ static HRESULT query_edit_status(HTMLDocument *This, OLECMD *cmd)
         TRACE("CGID_MSHTML: IDM_OUTDENT\n");
         cmd->cmdf = query_ns_edit_status(This, NULL);
         break;
+    case IDM_HYPERLINK:
+        TRACE("CGID_MSHTML: IDM_HYPERLINK\n");
+        cmd->cmdf = query_ns_edit_status(This, NULL);
+        break;
     }
 
+    return S_OK;
+}
+
+static INT_PTR CALLBACK hyperlink_dlgproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
+{
+    static const WCHAR wszOther[] = {'(','o','t','h','e','r',')',0};
+
+    switch (msg)
+    {
+        case WM_INITDIALOG:
+        {
+            static const WCHAR wszFile[] = {'f','i','l','e',':',0};
+            static const WCHAR wszFtp[] = {'f','t','p',':',0};
+            static const WCHAR wszHttp[] = {'h','t','t','p',':',0};
+            static const WCHAR wszHttps[] = {'h','t','t','p','s',':',0};
+            static const WCHAR wszMailto[] = {'m','a','i','l','t','o',':',0};
+            static const WCHAR wszNews[] = {'n','e','w','s',':',0};
+            INT def_idx;
+            HWND hwndCB = GetDlgItem(hwnd, IDC_TYPE);
+            HWND hwndURL = GetDlgItem(hwnd, IDC_URL);
+            INT len;
+
+            SetWindowLongPtrW(hwnd, DWLP_USER, lparam);
+
+            SendMessageW(hwndCB, CB_INSERTSTRING, -1, (LPARAM)wszOther);
+            SendMessageW(hwndCB, CB_INSERTSTRING, -1, (LPARAM)wszFile);
+            SendMessageW(hwndCB, CB_INSERTSTRING, -1, (LPARAM)wszFtp);
+            def_idx = SendMessageW(hwndCB, CB_INSERTSTRING, -1, (LPARAM)wszHttp);
+            SendMessageW(hwndCB, CB_INSERTSTRING, -1, (LPARAM)wszHttps);
+            SendMessageW(hwndCB, CB_INSERTSTRING, -1, (LPARAM)wszMailto);
+            SendMessageW(hwndCB, CB_INSERTSTRING, -1, (LPARAM)wszNews);
+            SendMessageW(hwndCB, CB_SETCURSEL, def_idx, 0);
+
+            /* force the updating of the URL edit box */
+            SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(IDC_TYPE, CBN_SELCHANGE), (LPARAM)hwndCB);
+
+            SetFocus(hwndURL);
+            len = SendMessageW(hwndURL, WM_GETTEXTLENGTH, 0, 0);
+            SendMessageW(hwndURL, EM_SETSEL, 0, len);
+
+            return FALSE;
+        }
+        case WM_COMMAND:
+            switch (wparam)
+            {
+                case MAKEWPARAM(IDCANCEL, BN_CLICKED):
+                    EndDialog(hwnd, wparam);
+                    return TRUE;
+                case MAKEWPARAM(IDOK, BN_CLICKED):
+                {
+                    BSTR *url = (BSTR *)GetWindowLongPtrW(hwnd, DWLP_USER);
+                    HWND hwndURL = GetDlgItem(hwnd, IDC_URL);
+                    INT len = GetWindowTextLengthW(hwndURL);
+                    *url = SysAllocStringLen(NULL, len + 1);
+                    GetWindowTextW(hwndURL, *url, len + 1);
+                    EndDialog(hwnd, wparam);
+                    return TRUE;
+                }
+                case MAKEWPARAM(IDC_TYPE, CBN_SELCHANGE):
+                {
+                    HWND hwndURL = GetDlgItem(hwnd, IDC_URL);
+                    INT item;
+                    INT len;
+                    LPWSTR type;
+                    LPWSTR url;
+                    LPWSTR p;
+                    static const WCHAR wszSlashSlash[] = {'/','/'};
+
+                    /* get string of currently selected hyperlink type */
+                    item = SendMessageW((HWND)lparam, CB_GETCURSEL, 0, 0);
+                    len = SendMessageW((HWND)lparam, CB_GETLBTEXTLEN, item, 0);
+                    type = HeapAlloc(GetProcessHeap(), 0, (len + 1) * sizeof(WCHAR));
+                    SendMessageW((HWND)lparam, CB_GETLBTEXT, item, (LPARAM)type);
+
+                    if (!strcmpW(type, wszOther))
+                        *type = '\0';
+
+                    /* get current URL */
+                    len = GetWindowTextLengthW(hwndURL);
+                    url = HeapAlloc(GetProcessHeap(), 0, (len + strlenW(type) + 3) * sizeof(WCHAR));
+                    GetWindowTextW(hwndURL, url, len + 1);
+
+                    /* strip off old protocol */
+                    p = strchrW(url, ':');
+                    if (p && p[1] == '/' && p[2] == '/')
+                        p += 3;
+                    if (!p) p = url;
+                    memmove(url + (*type != '\0' ? strlenW(type) + 2 : 0), p, (len + 1 - (p - url)) * sizeof(WCHAR));
+
+                    /* add new protocol */
+                    if (*type != '\0')
+                    {
+                        memcpy(url, type, strlenW(type) * sizeof(WCHAR));
+                        memcpy(url + strlenW(type), wszSlashSlash, sizeof(wszSlashSlash));
+                    }
+
+                    SetWindowTextW(hwndURL, url);
+
+                    HeapFree(GetProcessHeap(), 0, url);
+                    HeapFree(GetProcessHeap(), 0, type);
+                    return TRUE;
+                }
+            }
+            return FALSE;
+        case WM_CLOSE:
+            EndDialog(hwnd, IDCANCEL);
+            return TRUE;
+        default:
+            return FALSE;
+    }
+}
+
+static HRESULT exec_hyperlink(HTMLDocument *This, DWORD cmdexecopt, VARIANT *in, VARIANT *out)
+{
+    BSTR url = NULL;
+    INT ret;
+    nsISelection *nsselection;
+    nsIDOMDocument *nsdoc;
+    nsresult nsres;
+    HRESULT hres = E_FAIL;
+
+    TRACE("%p, 0x%x, %p, %p\n", This, cmdexecopt, in, out);
+
+    if (cmdexecopt == OLECMDEXECOPT_DONTPROMPTUSER)
+    {
+        if (!in || V_VT(in) != VT_BSTR)
+        {
+            WARN("invalid arg\n");
+            return E_INVALIDARG;
+        }
+        url = V_BSTR(in);
+    }
+    else
+    {
+        ret = DialogBoxParamW(hInst, MAKEINTRESOURCEW(IDD_HYPERLINK), NULL /* FIXME */, hyperlink_dlgproc, (LPARAM)&url);
+        if (ret != IDOK)
+            return OLECMDERR_E_CANCELED;
+    }
+
+    nsselection = get_ns_selection(This);
+    if (!nsselection)
+        return E_FAIL;
+
+    nsres = nsIWebNavigation_GetDocument(This->nscontainer->navigation, &nsdoc);
+    if(NS_SUCCEEDED(nsres))
+    {
+        static const WCHAR wszA[] = {'a',0};
+        static const WCHAR wszHref[] = {'h','r','e','f',0};
+        nsIHTMLEditor *html_editor;
+        nsIDOMNode *text_node;
+        nsIDOMElement *anchor_elem;
+        nsIDOMNode *unused_node;
+        nsAString a_str;
+        nsAString href_str;
+        nsAString ns_url;
+        PRBool insert_link_at_caret;
+
+        nsAString_Init(&a_str, wszA);
+        nsAString_Init(&href_str, wszHref);
+        nsAString_Init(&ns_url, url);
+
+        /* create an element for the link */
+        nsIDOMDocument_CreateElement(nsdoc, &a_str, &anchor_elem);
+        nsIDOMElement_SetAttribute(anchor_elem, &href_str, &ns_url);
+
+        nsAString_Finish(&href_str);
+        nsAString_Finish(&a_str);
+
+        nsISelection_GetIsCollapsed(nsselection, &insert_link_at_caret);
+
+        /* create an element with text of URL */
+        if (insert_link_at_caret)
+        {
+            nsIDOMDocument_CreateTextNode(nsdoc, &ns_url, (nsIDOMText **)&text_node);
+
+            /* wrap the <a> tags around the text element */
+            nsIDOMElement_AppendChild(anchor_elem, text_node, &unused_node);
+            nsIDOMNode_Release(text_node);
+            nsIDOMNode_Release(unused_node);
+        }
+
+        nsAString_Finish(&ns_url);
+
+        nsIEditor_QueryInterface(This->nscontainer->editor, &IID_nsIHTMLEditor, (void **)&html_editor);
+        if (html_editor)
+        {
+            if (insert_link_at_caret)
+            {
+                /* add them to the document at the caret position */
+                nsres = nsIHTMLEditor_InsertElementAtSelection(html_editor, anchor_elem, FALSE);
+                nsISelection_SelectAllChildren(nsselection, (nsIDOMNode*)anchor_elem);
+            }
+            else /* add them around the selection using the magic provided to us by nsIHTMLEditor */
+                nsres = nsIHTMLEditor_InsertLinkAroundSelection(html_editor, anchor_elem);
+            nsIHTMLEditor_Release(html_editor);
+        }
+
+        nsIDOMElement_Release(anchor_elem);
+        nsIDOMDocument_Release(nsdoc);
+
+        hres = NS_SUCCEEDED(nsres) ? S_OK : E_FAIL;
+    }
+
+    nsISelection_Release(nsselection);
+
+    if (cmdexecopt != OLECMDEXECOPT_DONTPROMPTUSER)
+        SysFreeString(url);
+
+    TRACE("-- 0x%08x\n", nsres);
+    return hres;
+}
+
+static HRESULT query_selall_status(HTMLDocument *This, OLECMD *cmd)
+{
+    TRACE("(%p)->(%p)\n", This, cmd);
+
+    cmd->cmdf = OLECMDF_SUPPORTED|OLECMDF_ENABLED;
     return S_OK;
 }
 
@@ -1051,12 +1260,14 @@ const cmdtable_t editmode_cmds[] = {
     {IDM_DELETE,          query_edit_status,    exec_delete},
     {IDM_FONTNAME,        query_edit_status,    exec_fontname},
     {IDM_FONTSIZE,        query_edit_status,    exec_fontsize},
+    {IDM_SELECTALL,       query_selall_status , exec_selectall},
     {IDM_FORECOLOR,       query_edit_status,    exec_forecolor},
     {IDM_BOLD,            query_edit_status,    exec_bold},
     {IDM_ITALIC,          query_edit_status,    exec_italic},
     {IDM_JUSTIFYCENTER,   query_justify,        exec_justifycenter},
     {IDM_JUSTIFYRIGHT,    query_justify,        exec_justifyright},
     {IDM_JUSTIFYLEFT,     query_justify,        exec_justifyleft},
+    {IDM_FONT,            NULL,                 exec_font},
     {IDM_UNDERLINE,       query_edit_status,    exec_underline},
     {IDM_HORIZONTALLINE,  query_edit_status,    exec_horizontalline},
     {IDM_ORDERLIST,       query_edit_status,    exec_orderlist},
@@ -1064,6 +1275,8 @@ const cmdtable_t editmode_cmds[] = {
     {IDM_INDENT,          query_edit_status,    exec_indent},
     {IDM_OUTDENT,         query_edit_status,    exec_outdent},
     {IDM_COMPOSESETTINGS, NULL,                 exec_composesettings},
+    {IDM_HYPERLINK,       query_edit_status,    exec_hyperlink},
+    {IDM_SETDIRTY,        NULL,                 exec_setdirty},
     {0,NULL,NULL}
 };
 
@@ -1075,4 +1288,16 @@ void init_editor(HTMLDocument *This)
         return;
 
     set_ns_fontname(This->nscontainer, "Times New Roman");
+}
+
+HRESULT editor_is_dirty(HTMLDocument *This)
+{
+    PRBool modified;
+
+    if(!This->nscontainer || !This->nscontainer->editor)
+        return S_FALSE;
+
+    nsIEditor_GetDocumentModified(This->nscontainer->editor, &modified);
+
+    return modified ? S_OK : S_FALSE;
 }

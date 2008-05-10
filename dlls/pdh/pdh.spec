@@ -3,17 +3,20 @@
 @ stub PdhAdd009CounterW
 @ stdcall PdhAddCounterA(ptr str long ptr)
 @ stdcall PdhAddCounterW(ptr wstr long ptr)
+@ stdcall PdhAddEnglishCounterA(ptr str long ptr)
+@ stdcall PdhAddEnglishCounterW(ptr wstr long ptr)
 @ stub PdhBindInputDataSourceA
 @ stub PdhBindInputDataSourceW
 @ stub PdhBrowseCountersA
 @ stub PdhBrowseCountersHA
 @ stub PdhBrowseCountersHW
 @ stub PdhBrowseCountersW
-@ stub PdhCalculateCounterFromRawValue
+@ stdcall PdhCalculateCounterFromRawValue(ptr long ptr ptr ptr)
 @ stub PdhCloseLog
 @ stdcall PdhCloseQuery(ptr)
 @ stdcall PdhCollectQueryData(ptr)
-@ stub PdhCollectQueryDataEx
+@ stdcall PdhCollectQueryDataWithTime(ptr ptr)
+@ stdcall PdhCollectQueryDataEx(ptr long ptr)
 @ stub PdhComputeCounterStatistics
 @ stub PdhConnectMachineA
 @ stub PdhConnectMachineW
@@ -72,15 +75,15 @@
 @ stub PdhLogServiceCommandW
 @ stub PdhLogServiceControlA
 @ stub PdhLogServiceControlW
-@ stub PdhLookupPerfIndexByNameA
-@ stub PdhLookupPerfIndexByNameW
-@ stub PdhLookupPerfNameByIndexA
-@ stub PdhLookupPerfNameByIndexW
+@ stdcall PdhLookupPerfIndexByNameA(str str ptr)
+@ stdcall PdhLookupPerfIndexByNameW(wstr wstr ptr)
+@ stdcall PdhLookupPerfNameByIndexA(str long ptr ptr)
+@ stdcall PdhLookupPerfNameByIndexW(wstr long ptr ptr)
 @ stub PdhMakeCounterPathA
 @ stub PdhMakeCounterPathW
 @ stub PdhOpenLogA
 @ stub PdhOpenLogW
-@ stub PdhOpenQuery
+@ stdcall PdhOpenQuery(wstr long ptr) PdhOpenQueryW
 @ stdcall PdhOpenQueryA(str long ptr)
 @ stub PdhOpenQueryH
 @ stdcall PdhOpenQueryW(wstr long ptr)
@@ -134,8 +137,10 @@
 @ stub PdhUpdateLogA
 @ stub PdhUpdateLogFileCatalog
 @ stub PdhUpdateLogW
-@ stub PdhValidatePathA
-@ stub PdhValidatePathW
+@ stdcall PdhValidatePathA(str)
+@ stdcall PdhValidatePathExA(ptr str)
+@ stdcall PdhValidatePathExW(ptr wstr)
+@ stdcall PdhValidatePathW(wstr)
 @ stub PdhVbAddCounter
 @ stub PdhVbCreateCounterPathList
 @ stub PdhVbGetCounterPathElements

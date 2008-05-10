@@ -6,6 +6,7 @@ TESTDLL   = user32.dll
 IMPORTS   = user32 gdi32 advapi32 kernel32
 
 CTESTS = \
+	broadcast.c \
 	class.c \
 	clipboard.c \
 	combo.c \
@@ -21,6 +22,8 @@ CTESTS = \
 	monitor.c \
 	msg.c \
 	resource.c \
+	scroll.c \
+	static.c \
 	sysparams.c \
 	text.c \
 	win.c \
@@ -28,10 +31,6 @@ CTESTS = \
 	wsprintf.c
 
 RC_SRCS = resource.rc
-
-RC_BINSRC = resource.rc
-RC_BINARIES = \
-	test_mono.bmp
 
 @MAKE_TEST_RULES@
 

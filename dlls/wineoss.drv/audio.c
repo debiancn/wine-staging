@@ -65,10 +65,11 @@
 #include "mmddk.h"
 #include "mmreg.h"
 #include "dsound.h"
-#include "dsdriver.h"
 #include "ks.h"
 #include "ksguid.h"
 #include "ksmedia.h"
+#include "initguid.h"
+#include "dsdriver.h"
 #include "oss.h"
 #include "wine/debug.h"
 
@@ -81,7 +82,6 @@ WINE_DEFAULT_DEBUG_CHANNEL(wave);
 
 #ifdef HAVE_OSS
 
-OSS_DEVICE      OSS_Devices[MAX_WAVEDRV];
 WINE_WAVEOUT    WOutDev[MAX_WAVEDRV];
 WINE_WAVEIN     WInDev[MAX_WAVEDRV];
 unsigned        numOutDev;
@@ -183,17 +183,17 @@ static DWORD wodDevInterfaceSize(UINT wDevID, LPDWORD dwParam1)
 {
     TRACE("(%u, %p)\n", wDevID, dwParam1);
 
-    *dwParam1 = MultiByteToWideChar(CP_ACP, 0, WOutDev[wDevID].ossdev->interface_name, -1,
+    *dwParam1 = MultiByteToWideChar(CP_ACP, 0, WOutDev[wDevID].ossdev.interface_name, -1,
                                     NULL, 0 ) * sizeof(WCHAR);
     return MMSYSERR_NOERROR;
 }
 
 static DWORD wodDevInterface(UINT wDevID, PWCHAR dwParam1, DWORD dwParam2)
 {
-    if (dwParam2 >= MultiByteToWideChar(CP_ACP, 0, WOutDev[wDevID].ossdev->interface_name, -1,
+    if (dwParam2 >= MultiByteToWideChar(CP_ACP, 0, WOutDev[wDevID].ossdev.interface_name, -1,
                                         NULL, 0 ) * sizeof(WCHAR))
     {
-        MultiByteToWideChar(CP_ACP, 0, WOutDev[wDevID].ossdev->interface_name, -1,
+        MultiByteToWideChar(CP_ACP, 0, WOutDev[wDevID].ossdev.interface_name, -1,
                             dwParam1, dwParam2 / sizeof(WCHAR));
 	return MMSYSERR_NOERROR;
     }
@@ -205,17 +205,17 @@ static DWORD widDevInterfaceSize(UINT wDevID, LPDWORD dwParam1)
 {
     TRACE("(%u, %p)\n", wDevID, dwParam1);
 
-    *dwParam1 = MultiByteToWideChar(CP_ACP, 0, WInDev[wDevID].ossdev->interface_name, -1,
+    *dwParam1 = MultiByteToWideChar(CP_ACP, 0, WInDev[wDevID].ossdev.interface_name, -1,
                                     NULL, 0 ) * sizeof(WCHAR);
     return MMSYSERR_NOERROR;
 }
 
 static DWORD widDevInterface(UINT wDevID, PWCHAR dwParam1, DWORD dwParam2)
 {
-    if (dwParam2 >= MultiByteToWideChar(CP_ACP, 0, WInDev[wDevID].ossdev->interface_name, -1,
+    if (dwParam2 >= MultiByteToWideChar(CP_ACP, 0, WInDev[wDevID].ossdev.interface_name, -1,
                                         NULL, 0 ) * sizeof(WCHAR))
     {
-        MultiByteToWideChar(CP_ACP, 0, WInDev[wDevID].ossdev->interface_name, -1,
+        MultiByteToWideChar(CP_ACP, 0, WInDev[wDevID].ossdev.interface_name, -1,
                             dwParam1, dwParam2 / sizeof(WCHAR));
 	return MMSYSERR_NOERROR;
     }
@@ -389,18 +389,16 @@ static DWORD      OSS_RawOpenDevice(OSS_DEVICE* ossdev, int strict_format)
     }
     ossdev->fd = fd;
 
+    ossdev->bOutputEnabled = TRUE;	/* OSS enables by default */
+    ossdev->bInputEnabled  = TRUE;	/* OSS enables by default */
+    if (ossdev->open_access == O_RDONLY)
+        ossdev->bOutputEnabled = FALSE;
+    if (ossdev->open_access == O_WRONLY)
+        ossdev->bInputEnabled = FALSE;
+
     if (ossdev->bTriggerSupport) {
 	int trigger;
-	rc = ioctl(fd, SNDCTL_DSP_GETTRIGGER, &trigger);
-	if (rc != 0) {
-	    ERR("ioctl(%s, SNDCTL_DSP_GETTRIGGER) failed (%s)\n",
-		ossdev->dev_name, strerror(errno));
-	    goto error;
-	}
-	
-    	ossdev->bOutputEnabled = ((trigger & PCM_ENABLE_OUTPUT) == PCM_ENABLE_OUTPUT);
-    	ossdev->bInputEnabled  = ((trigger & PCM_ENABLE_INPUT) == PCM_ENABLE_INPUT);
-
+        trigger = getEnables(ossdev);
         /* If we do not have full duplex, but they opened RDWR 
         ** (as you have to in order for an mmap to succeed)
         ** then we start out with input off
@@ -411,15 +409,7 @@ static DWORD      OSS_RawOpenDevice(OSS_DEVICE* ossdev, int strict_format)
             trigger &= ~PCM_ENABLE_INPUT;
 	    ioctl(fd, SNDCTL_DSP_SETTRIGGER, &trigger);
         }
-    } else {
-    	ossdev->bOutputEnabled = TRUE;	/* OSS enables by default */
-    	ossdev->bInputEnabled  = TRUE;	/* OSS enables by default */
     }
-
-    if (ossdev->open_access == O_RDONLY)
-        ossdev->bOutputEnabled = FALSE;
-    if (ossdev->open_access == O_WRONLY)
-        ossdev->bInputEnabled = FALSE;
 
     return MMSYSERR_NOERROR;
 
@@ -720,7 +710,29 @@ static BOOL OSS_WaveOutInit(OSS_DEVICE* ossdev)
 
     ioctl(ossdev->fd, SNDCTL_DSP_RESET, 0);
 
-#ifdef SOUND_MIXER_INFO
+#if defined(SNDCTL_MIXERINFO)
+    {
+        int mixer;
+        if ((mixer = open(ossdev->mixer_name, O_RDONLY|O_NDELAY)) >= 0) {
+            oss_mixerinfo info;
+            info.dev = 0;
+            if (ioctl(mixer, SNDCTL_MIXERINFO, &info) >= 0) {
+                lstrcpynA(ossdev->ds_desc.szDesc, info.name, sizeof(info.name));
+                strcpy(ossdev->ds_desc.szDrvname, "wineoss.drv");
+                MultiByteToWideChar(CP_ACP, 0, info.name, sizeof(info.name),
+                                    ossdev->out_caps.szPname,
+                                    sizeof(ossdev->out_caps.szPname) / sizeof(WCHAR));
+                TRACE("%s: %s\n", ossdev->mixer_name, ossdev->ds_desc.szDesc);
+                has_mixer = TRUE;
+            } else {
+                WARN("%s: cannot read SNDCTL_MIXERINFO!\n", ossdev->mixer_name);
+            }
+            close(mixer);
+        } else {
+            WARN("open(%s) failed (%s)\n", ossdev->mixer_name , strerror(errno));
+        }
+    }
+#elif defined(SOUND_MIXER_INFO)
     {
         int mixer;
         if ((mixer = open(ossdev->mixer_name, O_RDONLY|O_NDELAY)) >= 0) {
@@ -761,6 +773,12 @@ static BOOL OSS_WaveOutInit(OSS_DEVICE* ossdev)
 
     /* direct sound caps */
     ossdev->ds_caps.dwFlags = DSCAPS_CERTIFIED;
+    ossdev->ds_caps.dwFlags |= DSCAPS_SECONDARY8BIT;
+    ossdev->ds_caps.dwFlags |= DSCAPS_SECONDARY16BIT;
+    ossdev->ds_caps.dwFlags |= DSCAPS_SECONDARYMONO;
+    ossdev->ds_caps.dwFlags |= DSCAPS_SECONDARYSTEREO;
+    ossdev->ds_caps.dwFlags |= DSCAPS_CONTINUOUSRATE;
+
     ossdev->ds_caps.dwPrimaryBuffers = 1;
     ossdev->ds_caps.dwMinSecondarySampleRate = DSBFREQUENCY_MIN;
     ossdev->ds_caps.dwMaxSecondarySampleRate = DSBFREQUENCY_MAX;
@@ -832,14 +850,6 @@ static BOOL OSS_WaveOutInit(OSS_DEVICE* ossdev)
         if ((arg & DSP_CAP_MULTI) &&
             (ossdev->out_caps.dwSupport & WAVECAPS_DIRECTSOUND)) {
             TRACE("hardware secondary buffer support available\n");
-            if (ossdev->ds_caps.dwFlags & DSCAPS_PRIMARY8BIT)
-                ossdev->ds_caps.dwFlags |= DSCAPS_SECONDARY8BIT;
-            if (ossdev->ds_caps.dwFlags & DSCAPS_PRIMARY16BIT)
-                ossdev->ds_caps.dwFlags |= DSCAPS_SECONDARY16BIT;
-            if (ossdev->ds_caps.dwFlags & DSCAPS_PRIMARYMONO)
-                ossdev->ds_caps.dwFlags |= DSCAPS_SECONDARYMONO;
-            if (ossdev->ds_caps.dwFlags & DSCAPS_PRIMARYSTEREO)
-                ossdev->ds_caps.dwFlags |= DSCAPS_SECONDARYSTEREO;
 
             ossdev->ds_caps.dwMaxHwMixingAllBuffers = 16;
             ossdev->ds_caps.dwMaxHwMixingStaticBuffers = 0;
@@ -874,7 +884,26 @@ static BOOL OSS_WaveInInit(OSS_DEVICE* ossdev)
 
     ioctl(ossdev->fd, SNDCTL_DSP_RESET, 0);
 
-#ifdef SOUND_MIXER_INFO
+#if defined(SNDCTL_MIXERINFO)
+    {
+        int mixer;
+        if ((mixer = open(ossdev->mixer_name, O_RDONLY|O_NDELAY)) >= 0) {
+            oss_mixerinfo info;
+            info.dev = 0;
+            if (ioctl(mixer, SNDCTL_MIXERINFO, &info) >= 0) {
+                MultiByteToWideChar(CP_ACP, 0, info.name, -1,
+                                    ossdev->in_caps.szPname,
+                                    sizeof(ossdev->in_caps.szPname) / sizeof(WCHAR));
+                TRACE("%s: %s\n", ossdev->mixer_name, ossdev->ds_desc.szDesc);
+            } else {
+                WARN("%s: cannot read SNDCTL_MIXERINFO!\n", ossdev->mixer_name);
+            }
+            close(mixer);
+        } else {
+            WARN("open(%s) failed (%s)\n", ossdev->mixer_name, strerror(errno));
+        }
+    }
+#elif defined(SOUND_MIXER_INFO)
     {
         int mixer;
         if ((mixer = open(ossdev->mixer_name, O_RDONLY|O_NDELAY)) >= 0) {
@@ -995,7 +1024,23 @@ static void OSS_WaveFullDuplexInit(OSS_DEVICE* ossdev)
 
     ioctl(ossdev->fd, SNDCTL_DSP_RESET, 0);
 
-#ifdef SOUND_MIXER_INFO
+#if defined(SNDCTL_MIXERINFO)
+    {
+        int mixer;
+        if ((mixer = open(ossdev->mixer_name, O_RDWR|O_NDELAY)) >= 0) {
+            oss_mixerinfo info;
+            info.dev = 0;
+            if (ioctl(mixer, SNDCTL_MIXERINFO, &info) >= 0) {
+                has_mixer = TRUE;
+            } else {
+                WARN("%s: cannot read SNDCTL_MIXERINFO!\n", ossdev->mixer_name);
+            }
+            close(mixer);
+        } else {
+            WARN("open(%s) failed (%s)\n", ossdev->mixer_name , strerror(errno));
+        }
+    }
+#elif defined(SOUND_MIXER_INFO)
     {
         int mixer;
         if ((mixer = open(ossdev->mixer_name, O_RDWR|O_NDELAY)) >= 0) {
@@ -1106,46 +1151,47 @@ LRESULT OSS_WaveInit(void)
     char* str;
     int i;
 
+    /* FIXME: Remove unneeded members of WOutDev and WInDev */
     TRACE("()\n");
 
     str=getenv("AUDIODEV");
     if (str!=NULL)
     {
-        OSS_Devices[0].dev_name=StrDup(str,"");
-        OSS_Devices[0].mixer_name=StrDup(getenv("MIXERDEV"),"/dev/mixer");
+        WOutDev[0].ossdev.dev_name = WInDev[0].ossdev.dev_name = StrDup(str,"");
+        WOutDev[0].ossdev.mixer_name = WInDev[0].ossdev.mixer_name = StrDup(getenv("MIXERDEV"),"/dev/mixer");
         for (i = 1; i < MAX_WAVEDRV; ++i)
         {
-            OSS_Devices[i].dev_name=StrDup("",NULL);
-            OSS_Devices[i].mixer_name=StrDup("",NULL);
+            WOutDev[i].ossdev.dev_name = WInDev[i].ossdev.dev_name = StrDup("",NULL);
+            WOutDev[i].ossdev.mixer_name = WInDev[i].ossdev.mixer_name = StrDup("",NULL);
         }
     }
     else
     {
-        OSS_Devices[0].dev_name=StrDup("/dev/dsp",NULL);
-        OSS_Devices[0].mixer_name=StrDup("/dev/mixer",NULL);
+        WOutDev[0].ossdev.dev_name = WInDev[0].ossdev.dev_name = StrDup("/dev/dsp",NULL);
+        WOutDev[0].ossdev.mixer_name = WInDev[0].ossdev.mixer_name = StrDup("/dev/mixer",NULL);
         for (i = 1; i < MAX_WAVEDRV; ++i)
         {
-            OSS_Devices[i].dev_name=HeapAlloc(GetProcessHeap(),0,11);
-            sprintf(OSS_Devices[i].dev_name, "/dev/dsp%d", i);
-            OSS_Devices[i].mixer_name=HeapAlloc(GetProcessHeap(),0,13);
-            sprintf(OSS_Devices[i].mixer_name, "/dev/mixer%d", i);
+            WOutDev[i].ossdev.dev_name = WInDev[i].ossdev.dev_name = HeapAlloc(GetProcessHeap(),0,11);
+            sprintf(WOutDev[i].ossdev.dev_name, "/dev/dsp%d", i);
+            WOutDev[i].ossdev.mixer_name = WInDev[i].ossdev.mixer_name = HeapAlloc(GetProcessHeap(),0,13);
+            sprintf(WOutDev[i].ossdev.mixer_name, "/dev/mixer%d", i);
         }
     }
 
     for (i = 0; i < MAX_WAVEDRV; ++i)
     {
-        OSS_Devices[i].interface_name=HeapAlloc(GetProcessHeap(),0,9+strlen(OSS_Devices[i].dev_name)+1);
-        sprintf(OSS_Devices[i].interface_name, "wineoss: %s", OSS_Devices[i].dev_name);
+        WOutDev[i].ossdev.interface_name = WInDev[i].ossdev.interface_name =
+            HeapAlloc(GetProcessHeap(),0,9+strlen(WOutDev[i].ossdev.dev_name)+1);
+        sprintf(WOutDev[i].ossdev.interface_name, "wineoss: %s", WOutDev[i].ossdev.dev_name);
     }
 
     /* start with output devices */
     for (i = 0; i < MAX_WAVEDRV; ++i)
     {
-        if (*OSS_Devices[i].dev_name=='\0' || OSS_WaveOutInit(&OSS_Devices[i]))
+        if (*WOutDev[i].ossdev.dev_name == '\0' || OSS_WaveOutInit(&WOutDev[i].ossdev))
         {
             WOutDev[numOutDev].state = WINE_WS_CLOSED;
-            WOutDev[numOutDev].ossdev = &OSS_Devices[i];
-	    WOutDev[numOutDev].volume = 0xffffffff;
+            WOutDev[numOutDev].volume = 0xffffffff;
             numOutDev++;
         }
     }
@@ -1153,29 +1199,28 @@ LRESULT OSS_WaveInit(void)
     /* then do input devices */
     for (i = 0; i < MAX_WAVEDRV; ++i)
     {
-        if (*OSS_Devices[i].dev_name=='\0' || OSS_WaveInInit(&OSS_Devices[i]))
+        if (*WInDev[i].ossdev.dev_name=='\0' || OSS_WaveInInit(&WInDev[i].ossdev))
         {
             WInDev[numInDev].state = WINE_WS_CLOSED;
-            WInDev[numInDev].ossdev = &OSS_Devices[i];
             numInDev++;
         }
     }
 
     /* finish with the full duplex bits */
     for (i = 0; i < MAX_WAVEDRV; i++)
-        if (*OSS_Devices[i].dev_name!='\0')
-            OSS_WaveFullDuplexInit(&OSS_Devices[i]);
+        if (*WOutDev[i].ossdev.dev_name!='\0')
+            OSS_WaveFullDuplexInit(&WOutDev[i].ossdev);
 
     TRACE("%d wave out devices\n", numOutDev);
     for (i = 0; i < numOutDev; i++) {
-        TRACE("%d: %s, %s, %s\n", i, WOutDev[i].ossdev->dev_name,
-              WOutDev[i].ossdev->mixer_name, WOutDev[i].ossdev->interface_name);
+        TRACE("%d: %s, %s, %s\n", i, WOutDev[i].ossdev.dev_name,
+              WOutDev[i].ossdev.mixer_name, WOutDev[i].ossdev.interface_name);
     }
 
     TRACE("%d wave in devices\n", numInDev);
     for (i = 0; i < numInDev; i++) {
-        TRACE("%d: %s, %s, %s\n", i, WInDev[i].ossdev->dev_name,
-              WInDev[i].ossdev->mixer_name, WInDev[i].ossdev->interface_name);
+        TRACE("%d: %s, %s, %s\n", i, WInDev[i].ossdev.dev_name,
+              WInDev[i].ossdev.mixer_name, WInDev[i].ossdev.interface_name);
     }
 
     return 0;
@@ -1193,12 +1238,11 @@ LRESULT OSS_WaveExit(void)
 
     for (i = 0; i < MAX_WAVEDRV; ++i)
     {
-        HeapFree(GetProcessHeap(), 0, OSS_Devices[i].dev_name);
-        HeapFree(GetProcessHeap(), 0, OSS_Devices[i].mixer_name);
-        HeapFree(GetProcessHeap(), 0, OSS_Devices[i].interface_name);
+        HeapFree(GetProcessHeap(), 0, WOutDev[i].ossdev.dev_name);
+        HeapFree(GetProcessHeap(), 0, WOutDev[i].ossdev.mixer_name);
+        HeapFree(GetProcessHeap(), 0, WOutDev[i].ossdev.interface_name);
     }
 
-    ZeroMemory(OSS_Devices, sizeof(OSS_Devices));
     ZeroMemory(WOutDev, sizeof(WOutDev));
     ZeroMemory(WInDev, sizeof(WInDev));
 
@@ -1255,7 +1299,7 @@ static int OSS_DestroyRingMessage(OSS_MSG_RING* omr)
 /******************************************************************
  *		OSS_AddRingMessage
  *
- * Inserts a new message into the ring (should be called from DriverProc derivated routines)
+ * Inserts a new message into the ring (should be called from DriverProc derived routines)
  */
 static int OSS_AddRingMessage(OSS_MSG_RING* omr, enum win_wm_message msg, DWORD param, BOOL wait)
 {
@@ -1413,8 +1457,8 @@ static BOOL wodUpdatePlayedTotal(WINE_WAVEOUT* wwo, audio_buf_info* info)
     DWORD notplayed;
     if (!info) info = &dspspace;
 
-    if (ioctl(wwo->ossdev->fd, SNDCTL_DSP_GETOSPACE, info) < 0) {
-        ERR("ioctl(%s, SNDCTL_DSP_GETOSPACE) failed (%s)\n", wwo->ossdev->dev_name, strerror(errno));
+    if (ioctl(wwo->ossdev.fd, SNDCTL_DSP_GETOSPACE, info) < 0) {
+        ERR("ioctl(%s, SNDCTL_DSP_GETOSPACE) failed (%s)\n", wwo->ossdev.dev_name, strerror(errno));
         return FALSE;
     }
 
@@ -1432,7 +1476,7 @@ static BOOL wodUpdatePlayedTotal(WINE_WAVEOUT* wwo, audio_buf_info* info)
         }
         else
             /* Some OSS drivers will clean up nicely if given a POST, so give 'em the chance... */
-            ioctl(wwo->ossdev->fd, SNDCTL_DSP_POST, 0);
+            ioctl(wwo->ossdev.fd, SNDCTL_DSP_POST, 0);
     }
 
     wwo->dwPlayedTotal = wwo->dwWrittenTotal - notplayed;
@@ -1562,9 +1606,9 @@ static BOOL wodPlayer_WriteMaxFrags(WINE_WAVEOUT* wwo, DWORD* bytes)
 
     if (toWrite > 0)
     {
-        written = write(wwo->ossdev->fd, wwo->lpPlayPtr->lpData + wwo->dwPartialOffset, toWrite);
+        written = write(wwo->ossdev.fd, wwo->lpPlayPtr->lpData + wwo->dwPartialOffset, toWrite);
         if (written <= 0) {
-            TRACE("write(%s, %p, %d) failed (%s) returned %d\n", wwo->ossdev->dev_name,
+            TRACE("write(%s, %p, %d) failed (%s) returned %d\n", wwo->ossdev.dev_name,
                 wwo->lpPlayPtr->lpData + wwo->dwPartialOffset, toWrite, strerror(errno), written);
             return FALSE;
         }
@@ -1653,7 +1697,7 @@ static	void	wodPlayer_Reset(WINE_WAVEOUT* wwo, BOOL reset)
     wodPlayer_NotifyCompletions(wwo, FALSE);
 
     /* flush all possible output */
-    if (OSS_ResetDevice(wwo->ossdev) != MMSYSERR_NOERROR)
+    if (OSS_ResetDevice(&wwo->ossdev) != MMSYSERR_NOERROR)
     {
 	wwo->hThread = 0;
 	wwo->state = WINE_WS_STOPPED;
@@ -1822,7 +1866,7 @@ static DWORD wodPlayer_FeedDSP(WINE_WAVEOUT* wwo)
             /* OSS doesn't start before it gets either 2 fragments or a SNDCTL_DSP_POST;
              * if it didn't get one, we give it the other */
             if (wwo->dwBufferSize < availInQ + 2 * wwo->dwFragmentSize)
-                ioctl(wwo->ossdev->fd, SNDCTL_DSP_POST, 0);
+                ioctl(wwo->ossdev.fd, SNDCTL_DSP_POST, 0);
             wwo->bNeedPost = FALSE;
         }
     }
@@ -1837,7 +1881,7 @@ static DWORD wodPlayer_FeedDSP(WINE_WAVEOUT* wwo)
 static	DWORD	CALLBACK	wodPlayer(LPVOID pmt)
 {
     WORD	  uDevID = (DWORD)pmt;
-    WINE_WAVEOUT* wwo = (WINE_WAVEOUT*)&WOutDev[uDevID];
+    WINE_WAVEOUT* wwo = &WOutDev[uDevID];
     DWORD         dwNextFeedTime = INFINITE;   /* Time before DSP needs feeding */
     DWORD         dwNextNotifyTime = INFINITE; /* Time before next wave completion */
     DWORD         dwSleepTime;
@@ -1867,7 +1911,7 @@ static	DWORD	CALLBACK	wodPlayer(LPVOID pmt)
 		wodPlayer_ProcessMessages(wwo);
 		if (!wwo->lpPlayPtr) {
 		    TRACE("flushing\n");
-		    ioctl(wwo->ossdev->fd, SNDCTL_DSP_SYNC, 0);
+		    ioctl(wwo->ossdev.fd, SNDCTL_DSP_SYNC, 0);
 		    wwo->dwPlayedTotal = wwo->dwWrittenTotal;
                     dwNextNotifyTime = wodPlayer_NotifyCompletions(wwo, FALSE);
 		} else {
@@ -1898,10 +1942,10 @@ static DWORD wodGetDevCaps(WORD wDevID, LPWAVEOUTCAPSW lpCaps, DWORD dwSize)
 	return MMSYSERR_BADDEVICEID;
     }
 
-    if (WOutDev[wDevID].ossdev->open_access == O_RDWR)
-        memcpy(lpCaps, &WOutDev[wDevID].ossdev->duplex_out_caps, min(dwSize, sizeof(*lpCaps)));
+    if (WOutDev[wDevID].ossdev.open_access == O_RDWR)
+        memcpy(lpCaps, &WOutDev[wDevID].ossdev.duplex_out_caps, min(dwSize, sizeof(*lpCaps)));
     else
-        memcpy(lpCaps, &WOutDev[wDevID].ossdev->out_caps, min(dwSize, sizeof(*lpCaps)));
+        memcpy(lpCaps, &WOutDev[wDevID].ossdev.out_caps, min(dwSize, sizeof(*lpCaps)));
 
     return MMSYSERR_NOERROR;
 }
@@ -1952,12 +1996,12 @@ DWORD wodOpen(WORD wDevID, LPWAVEOPENDESC lpDesc, DWORD dwFlags)
     wwo = &WOutDev[wDevID];
 
     if ((dwFlags & WAVE_DIRECTSOUND) &&
-        !(wwo->ossdev->duplex_out_caps.dwSupport & WAVECAPS_DIRECTSOUND))
+        !(wwo->ossdev.duplex_out_caps.dwSupport & WAVECAPS_DIRECTSOUND))
 	/* not supported, ignore it */
 	dwFlags &= ~WAVE_DIRECTSOUND;
 
     if (dwFlags & WAVE_DIRECTSOUND) {
-        if (wwo->ossdev->duplex_out_caps.dwSupport & WAVECAPS_SAMPLEACCURATE)
+        if (wwo->ossdev.duplex_out_caps.dwSupport & WAVECAPS_SAMPLEACCURATE)
 	    /* we have realtime DirectSound, fragments just waste our time,
 	     * but a large buffer is good, so choose 64KB (32 * 2^11) */
 	    audio_fragment = 0x0020000B;
@@ -1988,7 +2032,7 @@ DWORD wodOpen(WORD wDevID, LPWAVEOPENDESC lpDesc, DWORD dwFlags)
 
     /* we want to be able to mmap() the device, which means it must be opened readable,
      * otherwise mmap() will fail (at least under Linux) */
-    ret = OSS_OpenDevice(wwo->ossdev,
+    ret = OSS_OpenDevice(&wwo->ossdev,
                          (dwFlags & WAVE_DIRECTSOUND) ? O_RDWR : O_WRONLY,
                          &audio_fragment,
                          (dwFlags & WAVE_DIRECTSOUND) ? 0 : 1,
@@ -1997,9 +2041,9 @@ DWORD wodOpen(WORD wDevID, LPWAVEOPENDESC lpDesc, DWORD dwFlags)
                          (lpDesc->lpFormat->wBitsPerSample == 16)
                              ? AFMT_S16_LE : AFMT_U8);
     if ((ret==MMSYSERR_NOERROR) && (dwFlags & WAVE_DIRECTSOUND)) {
-        lpDesc->lpFormat->nSamplesPerSec=wwo->ossdev->sample_rate;
-        lpDesc->lpFormat->nChannels=wwo->ossdev->channels;
-        lpDesc->lpFormat->wBitsPerSample=(wwo->ossdev->format == AFMT_U8 ? 8 : 16);
+        lpDesc->lpFormat->nSamplesPerSec=wwo->ossdev.sample_rate;
+        lpDesc->lpFormat->nChannels=wwo->ossdev.channels;
+        lpDesc->lpFormat->wBitsPerSample=(wwo->ossdev.format == AFMT_U8 ? 8 : 16);
         lpDesc->lpFormat->nBlockAlign=lpDesc->lpFormat->nChannels*lpDesc->lpFormat->wBitsPerSample/8;
         lpDesc->lpFormat->nAvgBytesPerSec=lpDesc->lpFormat->nSamplesPerSec*lpDesc->lpFormat->nBlockAlign;
         TRACE("OSS_OpenDevice returned this format: %dx%dx%d\n",
@@ -2012,7 +2056,7 @@ DWORD wodOpen(WORD wDevID, LPWAVEOPENDESC lpDesc, DWORD dwFlags)
 
     wwo->wFlags = HIWORD(dwFlags & CALLBACK_TYPEMASK);
 
-    memcpy(&wwo->waveDesc, lpDesc, sizeof(WAVEOPENDESC));
+    wwo->waveDesc = *lpDesc;
     copy_format(lpDesc->lpFormat, &wwo->waveFormat);
 
     if (wwo->waveFormat.Format.wBitsPerSample == 0) {
@@ -2023,23 +2067,21 @@ DWORD wodOpen(WORD wDevID, LPWAVEOPENDESC lpDesc, DWORD dwFlags)
 	    wwo->waveFormat.Format.nChannels;
     }
     /* Read output space info for future reference */
-    if (ioctl(wwo->ossdev->fd, SNDCTL_DSP_GETOSPACE, &info) < 0) {
-	ERR("ioctl(%s, SNDCTL_DSP_GETOSPACE) failed (%s)\n", wwo->ossdev->dev_name, strerror(errno));
-        OSS_CloseDevice(wwo->ossdev);
+    if (ioctl(wwo->ossdev.fd, SNDCTL_DSP_GETOSPACE, &info) < 0) {
+	ERR("ioctl(%s, SNDCTL_DSP_GETOSPACE) failed (%s)\n", wwo->ossdev.dev_name, strerror(errno));
+        OSS_CloseDevice(&wwo->ossdev);
 	wwo->state = WINE_WS_CLOSED;
 	return MMSYSERR_NOTENABLED;
     }
 
     TRACE("got %d %d byte fragments (%d ms/fragment)\n", info.fragstotal,
-        info.fragsize, (info.fragsize * 1000) / (wwo->ossdev->sample_rate *
-        wwo->ossdev->channels * (wwo->ossdev->format == AFMT_U8 ? 1 : 2)));
+        info.fragsize, (info.fragsize * 1000) / (wwo->ossdev.sample_rate *
+        wwo->ossdev.channels * (wwo->ossdev.format == AFMT_U8 ? 1 : 2)));
 
     /* Check that fragsize is correct per our settings above */
     if ((info.fragsize > 1024) && (LOWORD(audio_fragment) <= 10)) {
-	/* we've tried to set 1K fragments or less, but it didn't work */
-	ERR("fragment size set failed, size is now %d\n", info.fragsize);
-	MESSAGE("Your Open Sound System driver did not let us configure small enough sound fragments.\n");
-	MESSAGE("This may cause delays and other problems in audio playback with certain applications.\n");
+        /* we've tried to set 1K fragments or less, but it didn't work */
+        WARN("fragment size set failed, size is now %d\n", info.fragsize);
     }
 
     /* Remember fragsize and total buffer size for future use */
@@ -2050,7 +2092,7 @@ DWORD wodOpen(WORD wDevID, LPWAVEOPENDESC lpDesc, DWORD dwFlags)
     wwo->bNeedPost = TRUE;
 
     TRACE("fd=%d fragstotal=%d fragsize=%d BufferSize=%d\n",
-          wwo->ossdev->fd, info.fragstotal, info.fragsize, wwo->dwBufferSize);
+          wwo->ossdev.fd, info.fragstotal, info.fragsize, wwo->dwBufferSize);
     if (wwo->dwFragmentSize % wwo->waveFormat.Format.nBlockAlign) {
         ERR("Fragment doesn't contain an integral number of data blocks fragsize=%d BlockAlign=%d\n",wwo->dwFragmentSize,wwo->waveFormat.Format.nBlockAlign);
         /* Some SoundBlaster 16 cards return an incorrect (odd) fragment
@@ -2105,7 +2147,7 @@ static DWORD wodClose(WORD wDevID)
 
         OSS_DestroyRingMessage(&wwo->msgRing);
 
-        OSS_CloseDevice(wwo->ossdev);
+        OSS_CloseDevice(&wwo->ossdev);
 	wwo->state = WINE_WS_CLOSED;
 	wwo->dwFragmentSize = 0;
 	ret = wodNotifyClient(wwo, WOM_CLOSE, 0L, 0L);
@@ -2225,11 +2267,11 @@ static DWORD wodGetPosition(WORD wDevID, LPMMTIME lpTime, DWORD uSize)
 
     wwo = &WOutDev[wDevID];
 #ifdef EXACT_WODPOSITION
-    if (wwo->ossdev->open_access == O_RDWR) {
-        if (wwo->ossdev->duplex_out_caps.dwSupport & WAVECAPS_SAMPLEACCURATE)
+    if (wwo->ossdev.open_access == O_RDWR) {
+        if (wwo->ossdev.duplex_out_caps.dwSupport & WAVECAPS_SAMPLEACCURATE)
 	    OSS_AddRingMessage(&wwo->msgRing, WINE_WM_UPDATE, 0, TRUE);
     } else {
-        if (wwo->ossdev->out_caps.dwSupport & WAVECAPS_SAMPLEACCURATE)
+        if (wwo->ossdev.out_caps.dwSupport & WAVECAPS_SAMPLEACCURATE)
 	    OSS_AddRingMessage(&wwo->msgRing, WINE_WM_UPDATE, 0, TRUE);
     }
 #endif
@@ -2272,26 +2314,26 @@ static DWORD wodGetVolume(WORD wDevID, LPDWORD lpdwVol)
         WARN("invalid parameter\n");
         return MMSYSERR_INVALPARAM;
     }
-    if (WOutDev[wDevID].ossdev->open_access == O_RDWR) {
-        if (!(WOutDev[wDevID].ossdev->duplex_out_caps.dwSupport & WAVECAPS_VOLUME)) { 
+    if (WOutDev[wDevID].ossdev.open_access == O_RDWR) {
+        if (!(WOutDev[wDevID].ossdev.duplex_out_caps.dwSupport & WAVECAPS_VOLUME)) {
             TRACE("Volume not supported\n");
             return MMSYSERR_NOTSUPPORTED;
         }
     } else {
-        if (!(WOutDev[wDevID].ossdev->out_caps.dwSupport & WAVECAPS_VOLUME)) { 
+        if (!(WOutDev[wDevID].ossdev.out_caps.dwSupport & WAVECAPS_VOLUME)) {
             TRACE("Volume not supported\n");
             return MMSYSERR_NOTSUPPORTED;
         }
     }
 
-    if ((mixer = open(WOutDev[wDevID].ossdev->mixer_name, O_RDONLY|O_NDELAY)) < 0) {
+    if ((mixer = open(WOutDev[wDevID].ossdev.mixer_name, O_RDONLY|O_NDELAY)) < 0) {
         WARN("mixer device not available !\n");
         return MMSYSERR_NOTENABLED;
     }
     if (ioctl(mixer, SOUND_MIXER_READ_PCM, &volume) == -1) {
         close(mixer);
         WARN("ioctl(%s, SOUND_MIXER_READ_PCM) failed (%s)\n",
-             WOutDev[wDevID].ossdev->mixer_name, strerror(errno));
+             WOutDev[wDevID].ossdev.mixer_name, strerror(errno));
         return MMSYSERR_NOTENABLED;
     }
     close(mixer);
@@ -2328,25 +2370,25 @@ DWORD wodSetVolume(WORD wDevID, DWORD dwParam)
         WARN("invalid parameter: wDevID > %d\n", numOutDev);
         return MMSYSERR_INVALPARAM;
     }
-    if (WOutDev[wDevID].ossdev->open_access == O_RDWR) {
-        if (!(WOutDev[wDevID].ossdev->duplex_out_caps.dwSupport & WAVECAPS_VOLUME)) { 
+    if (WOutDev[wDevID].ossdev.open_access == O_RDWR) {
+        if (!(WOutDev[wDevID].ossdev.duplex_out_caps.dwSupport & WAVECAPS_VOLUME)) {
             TRACE("Volume not supported\n");
             return MMSYSERR_NOTSUPPORTED;
         }
     } else {
-        if (!(WOutDev[wDevID].ossdev->out_caps.dwSupport & WAVECAPS_VOLUME)) { 
+        if (!(WOutDev[wDevID].ossdev.out_caps.dwSupport & WAVECAPS_VOLUME)) {
             TRACE("Volume not supported\n");
             return MMSYSERR_NOTSUPPORTED;
         }
     }
-    if ((mixer = open(WOutDev[wDevID].ossdev->mixer_name, O_WRONLY|O_NDELAY)) < 0) {
-        WARN("open(%s) failed (%s)\n", WOutDev[wDevID].ossdev->mixer_name, strerror(errno));
+    if ((mixer = open(WOutDev[wDevID].ossdev.mixer_name, O_WRONLY|O_NDELAY)) < 0) {
+        WARN("open(%s) failed (%s)\n", WOutDev[wDevID].ossdev.mixer_name, strerror(errno));
         return MMSYSERR_NOTENABLED;
     }
     if (ioctl(mixer, SOUND_MIXER_WRITE_PCM, &volume) == -1) {
         close(mixer);
         WARN("ioctl(%s, SOUND_MIXER_WRITE_PCM) failed (%s)\n",
-            WOutDev[wDevID].ossdev->mixer_name, strerror(errno));
+            WOutDev[wDevID].ossdev.mixer_name, strerror(errno));
         return MMSYSERR_NOTENABLED;
     }
     TRACE("volume=%04x\n", (unsigned)volume);
@@ -2449,7 +2491,7 @@ static DWORD widGetDevCaps(WORD wDevID, LPWAVEINCAPSW lpCaps, DWORD dwSize)
 	return MMSYSERR_BADDEVICEID;
     }
 
-    memcpy(lpCaps, &WInDev[wDevID].ossdev->in_caps, min(dwSize, sizeof(*lpCaps)));
+    memcpy(lpCaps, &WInDev[wDevID].ossdev.in_caps, min(dwSize, sizeof(*lpCaps)));
     return MMSYSERR_NOERROR;
 }
 
@@ -2487,7 +2529,7 @@ static void widRecorder_ReadHeaders(WINE_WAVEIN * wwi)
 static	DWORD	CALLBACK	widRecorder(LPVOID pmt)
 {
     WORD		uDevID = (DWORD)pmt;
-    WINE_WAVEIN*	wwi = (WINE_WAVEIN*)&WInDev[uDevID];
+    WINE_WAVEIN*	wwi = &WInDev[uDevID];
     WAVEHDR*		lpWaveHdr;
     DWORD		dwSleepTime;
     DWORD		bytesRead;
@@ -2508,15 +2550,15 @@ static	DWORD	CALLBACK	widRecorder(LPVOID pmt)
     SetEvent(wwi->hStartUpEvent);
 
     /* disable input so capture will begin when triggered */
-    wwi->ossdev->bInputEnabled = FALSE;
-    enable = getEnables(wwi->ossdev);
-    if (ioctl(wwi->ossdev->fd, SNDCTL_DSP_SETTRIGGER, &enable) < 0)
-	ERR("ioctl(%s, SNDCTL_DSP_SETTRIGGER) failed (%s)\n", wwi->ossdev->dev_name, strerror(errno));
+    wwi->ossdev.bInputEnabled = FALSE;
+    enable = getEnables(&wwi->ossdev);
+    if (ioctl(wwi->ossdev.fd, SNDCTL_DSP_SETTRIGGER, &enable) < 0)
+	ERR("ioctl(%s, SNDCTL_DSP_SETTRIGGER) failed (%s)\n", wwi->ossdev.dev_name, strerror(errno));
 
     /* the soundblaster live needs a micro wake to get its recording started
      * (or GETISPACE will have 0 frags all the time)
      */
-    read(wwi->ossdev->fd, &xs, 4);
+    read(wwi->ossdev.fd, &xs, 4);
 
     /* make sleep time to be # of ms to output a fragment */
     dwSleepTime = (wwi->dwFragmentSize * 1000) / wwi->waveFormat.Format.nAvgBytesPerSec;
@@ -2532,7 +2574,7 @@ static	DWORD	CALLBACK	widRecorder(LPVOID pmt)
         {
             lpWaveHdr = wwi->lpQueuePtr;
 
-	    ioctl(wwi->ossdev->fd, SNDCTL_DSP_GETISPACE, &info);
+	    ioctl(wwi->ossdev.fd, SNDCTL_DSP_GETISPACE, &info);
             TRACE("info={frag=%d fsize=%d ftotal=%d bytes=%d}\n", info.fragments, info.fragsize, info.fragstotal, info.bytes);
 
             /* read all the fragments accumulated so far */
@@ -2543,7 +2585,7 @@ static	DWORD	CALLBACK	widRecorder(LPVOID pmt)
                 if (lpWaveHdr->dwBufferLength - lpWaveHdr->dwBytesRecorded >= wwi->dwFragmentSize)
                 {
                     /* directly read fragment in wavehdr */
-                    bytesRead = read(wwi->ossdev->fd,
+                    bytesRead = read(wwi->ossdev.fd,
 		      		     lpWaveHdr->lpData + lpWaveHdr->dwBytesRecorded,
                                      wwi->dwFragmentSize);
 
@@ -2571,7 +2613,7 @@ static	DWORD	CALLBACK	widRecorder(LPVOID pmt)
 			    lpWaveHdr = lpNext;
 			}
                     } else {
-                        TRACE("read(%s, %p, %d) failed (%s)\n", wwi->ossdev->dev_name,
+                        TRACE("read(%s, %p, %d) failed (%s)\n", wwi->ossdev.dev_name,
                             lpWaveHdr->lpData + lpWaveHdr->dwBytesRecorded,
                             wwi->dwFragmentSize, strerror(errno));
                     }
@@ -2579,13 +2621,13 @@ static	DWORD	CALLBACK	widRecorder(LPVOID pmt)
                 else
 		{
                     /* read the fragment in a local buffer */
-                    bytesRead = read(wwi->ossdev->fd, buffer, wwi->dwFragmentSize);
+                    bytesRead = read(wwi->ossdev.fd, buffer, wwi->dwFragmentSize);
                     pOffset = buffer;
 
                     TRACE("bytesRead=%d (local)\n", bytesRead);
 
                     if (bytesRead == (DWORD) -1) {
-                        TRACE("read(%s, %p, %d) failed (%s)\n", wwi->ossdev->dev_name,
+                        TRACE("read(%s, %p, %d) failed (%s)\n", wwi->ossdev.dev_name,
                             buffer, wwi->dwFragmentSize, strerror(errno));
                         continue;
                     }
@@ -2674,21 +2716,21 @@ static	DWORD	CALLBACK	widRecorder(LPVOID pmt)
 	    case WINE_WM_STARTING:
 		wwi->state = WINE_WS_PLAYING;
 
-                if (wwi->ossdev->bTriggerSupport)
+                if (wwi->ossdev.bTriggerSupport)
                 {
                     /* start the recording */
-		    wwi->ossdev->bInputEnabled = TRUE;
-                    enable = getEnables(wwi->ossdev);
-                    if (ioctl(wwi->ossdev->fd, SNDCTL_DSP_SETTRIGGER, &enable) < 0) {
-		        wwi->ossdev->bInputEnabled = FALSE;
-                        ERR("ioctl(%s, SNDCTL_DSP_SETTRIGGER) failed (%s)\n", wwi->ossdev->dev_name, strerror(errno));
+		    wwi->ossdev.bInputEnabled = TRUE;
+                    enable = getEnables(&wwi->ossdev);
+                    if (ioctl(wwi->ossdev.fd, SNDCTL_DSP_SETTRIGGER, &enable) < 0) {
+		        wwi->ossdev.bInputEnabled = FALSE;
+                        ERR("ioctl(%s, SNDCTL_DSP_SETTRIGGER) failed (%s)\n", wwi->ossdev.dev_name, strerror(errno));
 		    }
                 }
                 else
                 {
                     unsigned char data[4];
                     /* read 4 bytes to start the recording */
-                    read(wwi->ossdev->fd, data, 4);
+                    read(wwi->ossdev.fd, data, 4);
                 }
 
 		SetEvent(ev);
@@ -2707,14 +2749,14 @@ static	DWORD	CALLBACK	widRecorder(LPVOID pmt)
 	    case WINE_WM_STOPPING:
 		if (wwi->state != WINE_WS_STOPPED)
 		{
-                    if (wwi->ossdev->bTriggerSupport)
+                    if (wwi->ossdev.bTriggerSupport)
                     {
                         /* stop the recording */
-		        wwi->ossdev->bInputEnabled = FALSE;
-                        enable = getEnables(wwi->ossdev);
-                        if (ioctl(wwi->ossdev->fd, SNDCTL_DSP_SETTRIGGER, &enable) < 0) {
-		            wwi->ossdev->bInputEnabled = FALSE;
-                            ERR("ioctl(%s, SNDCTL_DSP_SETTRIGGER) failed (%s)\n", wwi->ossdev->dev_name, strerror(errno));
+		        wwi->ossdev.bInputEnabled = FALSE;
+                        enable = getEnables(&wwi->ossdev);
+                        if (ioctl(wwi->ossdev.fd, SNDCTL_DSP_SETTRIGGER, &enable) < 0) {
+		            wwi->ossdev.bInputEnabled = FALSE;
+                            ERR("ioctl(%s, SNDCTL_DSP_SETTRIGGER) failed (%s)\n", wwi->ossdev.dev_name, strerror(errno));
 		        }
                     }
 
@@ -2739,14 +2781,14 @@ static	DWORD	CALLBACK	widRecorder(LPVOID pmt)
 	    case WINE_WM_RESETTING:
 		if (wwi->state != WINE_WS_STOPPED)
 		{
-                    if (wwi->ossdev->bTriggerSupport)
+                    if (wwi->ossdev.bTriggerSupport)
                     {
                         /* stop the recording */
-		        wwi->ossdev->bInputEnabled = FALSE;
-                        enable = getEnables(wwi->ossdev);
-                        if (ioctl(wwi->ossdev->fd, SNDCTL_DSP_SETTRIGGER, &enable) < 0) {
-		            wwi->ossdev->bInputEnabled = FALSE;
-                            ERR("ioctl(%s, SNDCTL_DSP_SETTRIGGER) failed (%s)\n", wwi->ossdev->dev_name, strerror(errno));
+		        wwi->ossdev.bInputEnabled = FALSE;
+                        enable = getEnables(&wwi->ossdev);
+                        if (ioctl(wwi->ossdev.fd, SNDCTL_DSP_SETTRIGGER, &enable) < 0) {
+		            wwi->ossdev.bInputEnabled = FALSE;
+                            ERR("ioctl(%s, SNDCTL_DSP_SETTRIGGER) failed (%s)\n", wwi->ossdev.dev_name, strerror(errno));
 		        }
                     }
 		}
@@ -2772,8 +2814,8 @@ static	DWORD	CALLBACK	widRecorder(LPVOID pmt)
 	    case WINE_WM_UPDATE:
 		if (wwi->state == WINE_WS_PLAYING) {
 		    audio_buf_info tmp_info;
-		    if (ioctl(wwi->ossdev->fd, SNDCTL_DSP_GETISPACE, &tmp_info) < 0)
-			ERR("ioctl(%s, SNDCTL_DSP_GETISPACE) failed (%s)\n", wwi->ossdev->dev_name, strerror(errno));
+		    if (ioctl(wwi->ossdev.fd, SNDCTL_DSP_GETISPACE, &tmp_info) < 0)
+			ERR("ioctl(%s, SNDCTL_DSP_GETISPACE) failed (%s)\n", wwi->ossdev.dev_name, strerror(errno));
 		    else
 			wwi->dwTotalRecorded = wwi->dwTotalRead + tmp_info.bytes;
 		}
@@ -2846,13 +2888,13 @@ DWORD widOpen(WORD wDevID, LPWAVEOPENDESC lpDesc, DWORD dwFlags)
     if (wwi->state != WINE_WS_CLOSED) return MMSYSERR_ALLOCATED;
 
     if ((dwFlags & WAVE_DIRECTSOUND) &&
-        !(wwi->ossdev->in_caps_support & WAVECAPS_DIRECTSOUND))
+        !(wwi->ossdev.in_caps_support & WAVECAPS_DIRECTSOUND))
 	/* not supported, ignore it */
 	dwFlags &= ~WAVE_DIRECTSOUND;
 
     if (dwFlags & WAVE_DIRECTSOUND) {
 	TRACE("has DirectSoundCapture driver\n");
-        if (wwi->ossdev->in_caps_support & WAVECAPS_SAMPLEACCURATE)
+        if (wwi->ossdev.in_caps_support & WAVECAPS_SAMPLEACCURATE)
 	    /* we have realtime DirectSound, fragments just waste our time,
 	     * but a large buffer is good, so choose 64KB (32 * 2^11) */
 	    audio_fragment = 0x0020000B;
@@ -2862,11 +2904,11 @@ DWORD widOpen(WORD wDevID, LPWAVEOPENDESC lpDesc, DWORD dwFlags)
 	    audio_fragment = 0x01000008;
     } else {
 	TRACE("doesn't have DirectSoundCapture driver\n");
-	if (wwi->ossdev->open_count > 0) {
+	if (wwi->ossdev.open_count > 0) {
 	    TRACE("Using output device audio_fragment\n");
 	    /* FIXME: This may not be optimal for capture but it allows us
 	     * to do hardware playback without hardware capture. */
-	    audio_fragment = wwi->ossdev->audio_fragment;
+	    audio_fragment = wwi->ossdev.audio_fragment;
 	} else {
 	    /* A wave device must have a worst case latency of 10 ms so calculate
 	     * the largest fragment size less than 10 ms long.
@@ -2884,7 +2926,7 @@ DWORD widOpen(WORD wDevID, LPWAVEOPENDESC lpDesc, DWORD dwFlags)
 	1 << (audio_fragment & 0xffff),
 	((1 << (audio_fragment & 0xffff)) * 1000) / lpDesc->lpFormat->nAvgBytesPerSec);
 
-    ret = OSS_OpenDevice(wwi->ossdev, O_RDONLY, &audio_fragment,
+    ret = OSS_OpenDevice(&wwi->ossdev, O_RDONLY, &audio_fragment,
                          1,
                          lpDesc->lpFormat->nSamplesPerSec,
                          lpDesc->lpFormat->nChannels,
@@ -2901,7 +2943,7 @@ DWORD widOpen(WORD wDevID, LPWAVEOPENDESC lpDesc, DWORD dwFlags)
     wwi->dwTotalRead = 0;
     wwi->wFlags = HIWORD(dwFlags & CALLBACK_TYPEMASK);
 
-    memcpy(&wwi->waveDesc, lpDesc, sizeof(WAVEOPENDESC));
+    wwi->waveDesc = *lpDesc;
     copy_format(lpDesc->lpFormat, &wwi->waveFormat);
 
     if (wwi->waveFormat.Format.wBitsPerSample == 0) {
@@ -2912,17 +2954,17 @@ DWORD widOpen(WORD wDevID, LPWAVEOPENDESC lpDesc, DWORD dwFlags)
 	    wwi->waveFormat.Format.nChannels;
     }
 
-    if (ioctl(wwi->ossdev->fd, SNDCTL_DSP_GETISPACE, &info) < 0) {
+    if (ioctl(wwi->ossdev.fd, SNDCTL_DSP_GETISPACE, &info) < 0) {
         ERR("ioctl(%s, SNDCTL_DSP_GETISPACE) failed (%s)\n",
-            wwi->ossdev->dev_name, strerror(errno));
-        OSS_CloseDevice(wwi->ossdev);
+            wwi->ossdev.dev_name, strerror(errno));
+        OSS_CloseDevice(&wwi->ossdev);
 	wwi->state = WINE_WS_CLOSED;
 	return MMSYSERR_NOTENABLED;
     }
 
     TRACE("got %d %d byte fragments (%d ms/fragment)\n", info.fragstotal,
-        info.fragsize, (info.fragsize * 1000) / (wwi->ossdev->sample_rate *
-        wwi->ossdev->channels * (wwi->ossdev->format == AFMT_U8 ? 1 : 2)));
+        info.fragsize, (info.fragsize * 1000) / (wwi->ossdev.sample_rate *
+        wwi->ossdev.channels * (wwi->ossdev.format == AFMT_U8 ? 1 : 2)));
 
     wwi->dwFragmentSize = info.fragsize;
 
@@ -2966,7 +3008,7 @@ static DWORD widClose(WORD wDevID)
     }
 
     OSS_AddRingMessage(&wwi->msgRing, WINE_WM_CLOSING, 0, TRUE);
-    OSS_CloseDevice(wwi->ossdev);
+    OSS_CloseDevice(&wwi->ossdev);
     wwi->state = WINE_WS_CLOSED;
     wwi->dwFragmentSize = 0;
     OSS_DestroyRingMessage(&wwi->msgRing);
@@ -3068,7 +3110,7 @@ static DWORD widGetPosition(WORD wDevID, LPMMTIME lpTime, DWORD uSize)
 
     wwi = &WInDev[wDevID];
 #ifdef EXACT_WIDPOSITION
-    if (wwi->ossdev->in_caps_support & WAVECAPS_SAMPLEACCURATE)
+    if (wwi->ossdev.in_caps_support & WAVECAPS_SAMPLEACCURATE)
         OSS_AddRingMessage(&(wwi->msgRing), WINE_WM_UPDATE, 0, TRUE);
 #endif
 

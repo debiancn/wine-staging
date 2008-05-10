@@ -96,11 +96,17 @@ cident	[a-zA-Z_][0-9a-zA-Z_]*
 
 /*#define LEX_DEBUG*/
 
+#include "config.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
 #include <assert.h>
+
+#ifndef HAVE_UNISTD_H
+#define YY_NO_UNISTD_H
+#endif
 
 #include "wine/unicode.h"
 #include "wrc.h"
@@ -344,7 +350,7 @@ static struct keyword *iskeyword(char *kw)
 	}
 
 <pp_pragma>code_page[^\n]*	yyless(9); yy_pop_state(); yy_push_state(pp_code_page);
-<pp_pragma>[^\n]*		yy_pop_state(); if (pedantic) parser_warning("Unrecognized #pragma directive '%s'",yytext);
+<pp_pragma>[^\n]*		yy_pop_state(); if (pedantic) parser_warning("Unrecognized #pragma directive '%s'\n",yytext);
 
 <pp_code_page>\({ws}*default{ws}*\)[^\n]*	current_codepage = -1; yy_pop_state();
 <pp_code_page>\({ws}*utf8{ws}*\)[^\n]*		current_codepage = CP_UTF8; yy_pop_state();
@@ -528,7 +534,7 @@ L\"			{
 				yy_push_state(comment);
 				save_wanted_id = wanted_id;
 				if(!no_preprocess)
-					parser_warning("Found comments after preprocessing, please report");
+					parser_warning("Found comments after preprocessing, please report\n");
 			}
 <comment>[^*\n]*	;
 <comment>"*"+[^*/\n]*	;
@@ -536,7 +542,7 @@ L\"			{
 <comment>"*"+"/"	yy_pop_state(); want_id = save_wanted_id;
 
 ;[^\n]*			want_id = wanted_id; /* not really comment, but left-over c-junk */
-"//"[^\n]*		want_id = wanted_id; if(!no_preprocess) parser_warning("Found comments after preprocessing, please report");
+"//"[^\n]*		want_id = wanted_id; if(!no_preprocess) parser_warning("Found comments after preprocessing, please report\n");
 
 \n			{
 				want_id = wanted_id;
@@ -559,7 +565,7 @@ L\"			{
 					line_number++;
 					char_number = 1;
 				}
-				parser_warning("Unmatched text '%c' (0x%02x) YY_START=%d",
+				parser_warning("Unmatched text '%c' (0x%02x) YY_START=%d\n",
 					isprint(*yytext & 0xff) ? *yytext : '.', *yytext, YY_START);
 			}
 
@@ -575,7 +581,7 @@ static void addcchar(char c)
 		cbufalloc += 1024;
 		cbuffer = xrealloc(cbuffer, cbufalloc * sizeof(cbuffer[0]));
 		if(cbufalloc > 65536)
-			parser_warning("Reallocating string buffer larger than 64kB");
+			parser_warning("Reallocating string buffer larger than 64kB\n");
 	}
 	cbuffer[cbufidx++] = c;
 }
@@ -587,7 +593,7 @@ static void addwchar(WCHAR s)
 		wbufalloc += 1024;
 		wbuffer = xrealloc(wbuffer, wbufalloc * sizeof(wbuffer[0]));
 		if(wbufalloc > 65536)
-			parser_warning("Reallocating wide string buffer larger than 64kB");
+			parser_warning("Reallocating wide string buffer larger than 64kB\n");
 	}
 	wbuffer[wbufidx++] = s;
 }
@@ -612,7 +618,7 @@ static string_t *get_buffered_cstring(void)
         string_t *str_w = convert_string( str, str_unicode, current_codepage );
         if (!check_unicode_conversion( str, str_w, current_codepage ))
             parser_error("String %s does not convert identically to Unicode and back in codepage %d. "
-                    "Try using a Unicode string instead.", str->str.cstr, current_codepage );
+                    "Try using a Unicode string instead", str->str.cstr, current_codepage );
         free_string( str );
         return str_w;
     }

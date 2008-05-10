@@ -87,7 +87,7 @@
  * for normal character strings and 1 for unicode strings.
  */
 
-static char str_header[] =
+static const char str_header[] =
 	"/* This file is generated with wmc version " PACKAGE_VERSION ". Do not edit! */\n"
 	"/* Source : %s */\n"
 	"/* Cmdline: %s */\n"
@@ -101,11 +101,11 @@ static char *dup_u2c(int cp, const WCHAR *uc)
 	char *cptr;
 	const union cptable *cpdef = find_codepage(cp);
 	if(!cpdef)
-		internal_error(__FILE__, __LINE__, "Codepage %d not found (vanished?)", cp);
+		internal_error(__FILE__, __LINE__, "Codepage %d not found (vanished?)\n", cp);
 	len = wine_cp_wcstombs(cpdef, 0, uc, unistrlen(uc)+1, NULL, 0, NULL, NULL);
 	cptr = xmalloc(len);
 	if((len = wine_cp_wcstombs(cpdef, 0, uc, unistrlen(uc)+1, cptr, len, NULL, NULL)) < 0)
-		internal_error(__FILE__, __LINE__, "Buffer overflow? code %d.", len);
+		internal_error(__FILE__, __LINE__, "Buffer overflow? code %d\n", len);
 	return cptr;
 }
 
@@ -243,7 +243,7 @@ void write_h_file(const char *fname)
 			cptr = dup_u2c(ndp->u.msg->msgs[idx_en]->cp, ndp->u.msg->msgs[idx_en]->msg);
 			killnl(cptr, 0);
 			killcomment(cptr);
-			fprintf(fp, "/* Approx. msg: %s */\n", cptr);
+			fprintf(fp, "/* Approximate msg: %s */\n", cptr);
 			free(cptr);
 			cptr = dup_u2c(WMC_DEFAULT_CODEPAGE, ndp->u.msg->sym);
 			if(ndp->u.msg->cast)
@@ -271,13 +271,13 @@ void write_h_file(const char *fname)
 					fprintf(fp, "#define %s\t0x%08xL\n\n", cptr, ndp->u.msg->realid);
 				break;
 			default:
-				internal_error(__FILE__, __LINE__, "Invalid base for number print");
+				internal_error(__FILE__, __LINE__, "Invalid base for number print\n");
 			}
 			free(cptr);
 			free(cast);
 			break;
 		default:
-			internal_error(__FILE__, __LINE__, "Invalid node type %d", ndp->type);
+			internal_error(__FILE__, __LINE__, "Invalid node type %d\n", ndp->type);
 		}
 	}
 	fprintf(fp, "\n#endif\n");
@@ -307,7 +307,7 @@ static void write_rcbin(FILE *fp)
 			}
 		}
 		if(!cptr)
-			internal_error(__FILE__, __LINE__, "Filename vanished for language 0x%0x", lbp->lan);
+			internal_error(__FILE__, __LINE__, "Filename vanished for language 0x%0x\n", lbp->lan);
 		fprintf(fp, "1 MESSAGETABLE \"%s.bin\"\n", cptr);
 		free(cptr);
 	}
@@ -389,7 +389,7 @@ static char *make_string(WCHAR *uc, int len, int codepage)
 		mlen = wine_cp_wcstombs(cpdef, 0, uc, unistrlen(uc)+1, NULL, 0, NULL, NULL);
 		cc = tmp = xmalloc(mlen);
 		if((i = wine_cp_wcstombs(cpdef, 0, uc, unistrlen(uc)+1, tmp, mlen, NULL, NULL)) < 0)
-			internal_error(__FILE__, __LINE__, "Buffer overflow? code %d.", i);
+			internal_error(__FILE__, __LINE__, "Buffer overflow? code %d\n", i);
 		*cptr++ = ' ';
 		*cptr++ = '"';
 		for(i = b = 0; i < len; i++, cc++)

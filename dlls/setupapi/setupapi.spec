@@ -71,8 +71,8 @@
 @ stub CM_Get_DevNode_Registry_Property_ExW
 @ stub CM_Get_DevNode_Status
 @ stub CM_Get_DevNode_Status_Ex
-@ stub CM_Get_Device_IDA
-@ stub CM_Get_Device_IDW
+@ stdcall CM_Get_Device_IDA(ptr ptr long long)
+@ stdcall CM_Get_Device_IDW(ptr ptr long long)
 @ stub CM_Get_Device_ID_ExA
 @ stub CM_Get_Device_ID_ExW
 @ stdcall CM_Get_Device_ID_ListA(ptr ptr long long)
@@ -83,7 +83,7 @@
 @ stub CM_Get_Device_ID_List_SizeW
 @ stub CM_Get_Device_ID_List_Size_ExA
 @ stub CM_Get_Device_ID_List_Size_ExW
-@ stub CM_Get_Device_ID_Size
+@ stdcall CM_Get_Device_ID_Size(ptr ptr long)
 @ stub CM_Get_Device_ID_Size_Ex
 @ stub CM_Get_Device_Interface_AliasA
 @ stub CM_Get_Device_Interface_AliasW
@@ -115,7 +115,7 @@
 @ stub CM_Get_Next_Log_Conf_Ex
 @ stub CM_Get_Next_Res_Des
 @ stub CM_Get_Next_Res_Des_Ex
-@ stub CM_Get_Parent
+@ stdcall CM_Get_Parent(ptr long long)
 @ stub CM_Get_Parent_Ex
 @ stub CM_Get_Res_Des_Data
 @ stub CM_Get_Res_Des_Data_Ex
@@ -281,16 +281,21 @@
 @ stdcall SetupDiClassNameFromGuidExA(ptr str long ptr wstr ptr)
 @ stdcall SetupDiClassNameFromGuidExW(ptr wstr long ptr wstr ptr)
 @ stdcall SetupDiClassNameFromGuidW(ptr wstr long ptr)
-@ stub SetupDiCreateDevRegKeyA
-@ stub SetupDiCreateDevRegKeyW
+@ stdcall SetupDiCreateDevRegKeyA(ptr ptr long long long ptr str)
+@ stdcall SetupDiCreateDevRegKeyW(ptr ptr long long long ptr wstr)
 @ stdcall SetupDiCreateDeviceInfoA(long str ptr str long long ptr)
 @ stdcall SetupDiCreateDeviceInfoList(ptr ptr)
 @ stdcall SetupDiCreateDeviceInfoListExA(ptr long str ptr)
 @ stdcall SetupDiCreateDeviceInfoListExW(ptr long str ptr)
 @ stdcall SetupDiCreateDeviceInfoW(long wstr ptr wstr long long ptr)
-@ stub SetupDiDeleteDevRegKey
+@ stdcall SetupDiCreateDeviceInterfaceA(ptr ptr ptr str long ptr)
+@ stdcall SetupDiCreateDeviceInterfaceW(ptr ptr ptr wstr long ptr)
+@ stdcall SetupDiCreateDeviceInterfaceRegKeyA(ptr ptr long long ptr ptr)
+@ stdcall SetupDiCreateDeviceInterfaceRegKeyW(ptr ptr long long ptr ptr)
+@ stdcall SetupDiDeleteDevRegKey(ptr ptr long long long)
 @ stub SetupDiDeleteDeviceInfo
 @ stub SetupDiDeleteDeviceInterfaceData
+@ stdcall SetupDiDeleteDeviceInterfaceRegKey(ptr ptr long)
 @ stub SetupDiDeleteDeviceRegKey
 @ stub SetupDiDestroyClassImageList
 @ stdcall SetupDiDestroyDeviceInfoList(long)
@@ -324,13 +329,13 @@
 @ stdcall SetupDiGetDeviceInfoListDetailW(ptr ptr)
 @ stdcall SetupDiGetDeviceInstallParamsA(ptr ptr ptr)
 @ stub SetupDiGetDeviceInstallParamsW
-@ stub SetupDiGetDeviceInstanceIdA
-@ stub SetupDiGetDeviceInstanceIdW
+@ stdcall SetupDiGetDeviceInstanceIdA(ptr ptr ptr long ptr)
+@ stdcall SetupDiGetDeviceInstanceIdW(ptr ptr ptr long ptr)
 @ stub SetupDiGetDeviceInterfaceAlias
 @ stdcall SetupDiGetDeviceInterfaceDetailA(long ptr ptr long ptr ptr)
 @ stdcall SetupDiGetDeviceInterfaceDetailW(long ptr ptr long ptr ptr)
 @ stdcall SetupDiGetDeviceRegistryPropertyA(long ptr long ptr ptr long ptr)
-@ stub SetupDiGetDeviceRegistryPropertyW
+@ stdcall SetupDiGetDeviceRegistryPropertyW(long ptr long ptr ptr long ptr)
 @ stub SetupDiGetDriverInfoDetailA
 @ stub SetupDiGetDriverInfoDetailW
 @ stub SetupDiGetDriverInstallParamsA
@@ -365,7 +370,7 @@
 @ stdcall SetupDiOpenDeviceInterfaceA(ptr str long ptr)
 @ stub SetupDiOpenDeviceInterfaceRegKey
 @ stdcall SetupDiOpenDeviceInterfaceW(ptr wstr long ptr)
-@ stub SetupDiRegisterDeviceInfo
+@ stdcall SetupDiRegisterDeviceInfo(ptr ptr long ptr ptr ptr)
 @ stub SetupDiRemoveDevice
 @ stub SetupDiRemoveDeviceInterface
 @ stub SetupDiSelectDevice
@@ -374,8 +379,8 @@
 @ stub SetupDiSetClassInstallParamsW
 @ stub SetupDiSetDeviceInstallParamsA
 @ stub SetupDiSetDeviceInstallParamsW
-@ stub SetupDiSetDeviceRegistryPropertyA
-@ stub SetupDiSetDeviceRegistryPropertyW
+@ stdcall SetupDiSetDeviceRegistryPropertyA(ptr ptr long ptr ptr)
+@ stdcall SetupDiSetDeviceRegistryPropertyW(ptr ptr long ptr ptr)
 @ stub SetupDiSetDriverInstallParamsA
 @ stub SetupDiSetDriverInstallParamsW
 @ stub SetupDiSetSelectedDevice
@@ -437,10 +442,10 @@
 @ stdcall SetupInstallFilesFromInfSectionW(long long long wstr wstr long)
 @ stdcall SetupInstallFromInfSectionA(long long str long long str long ptr ptr long ptr)
 @ stdcall SetupInstallFromInfSectionW(long long wstr long long wstr long ptr ptr long ptr)
-@ stub SetupInstallServicesFromInfSectionA
+@ stdcall SetupInstallServicesFromInfSectionA(long str long)
 @ stub SetupInstallServicesFromInfSectionExA
 @ stub SetupInstallServicesFromInfSectionExW
-@ stub SetupInstallServicesFromInfSectionW
+@ stdcall SetupInstallServicesFromInfSectionW(long wstr long)
 @ stdcall SetupIterateCabinetA(str long ptr ptr)
 @ stdcall SetupIterateCabinetW(wstr long ptr ptr)
 @ stub SetupLogErrorA

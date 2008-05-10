@@ -31,6 +31,13 @@ WINE_DEFAULT_DEBUG_CHANNEL(msvcrt);
 #define LOCK_HEAP   _mlock( _HEAP_LOCK )
 #define UNLOCK_HEAP _munlock( _HEAP_LOCK )
 
+/* _aligned */
+#define SAVED_PTR(x) ((void *)((DWORD_PTR)((char *)x - sizeof(void *)) & \
+                               ~(sizeof(void *) - 1)))
+#define ALIGN_PTR(ptr, alignment, offset) ((void *) \
+    ((((DWORD_PTR)((char *)ptr + alignment + sizeof(void *) + offset)) & \
+      ~(alignment - 1)) - offset))
+
 
 typedef void (*MSVCRT_new_handler_func)(unsigned long size);
 
@@ -40,7 +47,7 @@ static int MSVCRT_new_mode;
 /* FIXME - According to documentation it should be 8*1024, at runtime it returns 16 */ 
 static unsigned int MSVCRT_amblksiz = 16;
 /* FIXME - According to documentation it should be 480 bytes, at runtime default is 0 */
-static size_t MSVCRT_sbh_threshold = 0;
+static MSVCRT_size_t MSVCRT_sbh_threshold = 0;
 
 /*********************************************************************
  *		??2@YAPAXI@Z (MSVCRT.@)
@@ -272,7 +279,7 @@ void* CDECL MSVCRT_malloc(MSVCRT_size_t size)
 {
   void *ret = HeapAlloc(GetProcessHeap(),0,size);
   if (!ret)
-    msvcrt_set_errno(GetLastError());
+      *MSVCRT__errno() = MSVCRT_ENOMEM;
   return ret;
 }
 
@@ -298,7 +305,7 @@ unsigned int* CDECL __p__amblksiz(void)
 /*********************************************************************
  *		_get_sbh_threshold (MSVCRT.@)
  */
-size_t CDECL _get_sbh_threshold(void)
+MSVCRT_size_t CDECL _get_sbh_threshold(void)
 {
   return MSVCRT_sbh_threshold;
 }
@@ -306,11 +313,201 @@ size_t CDECL _get_sbh_threshold(void)
 /*********************************************************************
  *		_set_sbh_threshold (MSVCRT.@)
  */
-int CDECL _set_sbh_threshold(size_t threshold)
+int CDECL _set_sbh_threshold(MSVCRT_size_t threshold)
 {
   if(threshold > 1016)
      return 0;
   else
      MSVCRT_sbh_threshold = threshold;
   return 1;
+}
+
+/*********************************************************************
+ *		_aligned_free (MSVCRT.@)
+ */
+void CDECL _aligned_free(void *memblock)
+{
+    TRACE("(%p)\n", memblock);
+
+    if (memblock)
+    {
+        void **saved = SAVED_PTR(memblock);
+        MSVCRT_free(*saved);
+    }
+}
+
+/*********************************************************************
+ *		_aligned_offset_malloc (MSVCRT.@)
+ */
+void * CDECL _aligned_offset_malloc(MSVCRT_size_t size, MSVCRT_size_t alignment, MSVCRT_size_t offset)
+{
+    void *memblock, *temp, **saved;
+    TRACE("(%u, %u, %u)\n", size, alignment, offset);
+
+    /* alignment must be a power of 2 */
+    if ((alignment & (alignment - 1)) != 0)
+    {
+        *MSVCRT__errno() = MSVCRT_EINVAL;
+        return NULL;
+    }
+
+    /* offset must be less than size */
+    if (offset >= size)
+    {
+        *MSVCRT__errno() = MSVCRT_EINVAL;
+        return NULL;
+    }
+
+    /* don't align to less than void pointer size */
+    if (alignment < sizeof(void *))
+        alignment = sizeof(void *);
+
+    /* allocate enough space for void pointer and alignment */
+    temp = MSVCRT_malloc(size + alignment + sizeof(void *));
+
+    if (!temp)
+        return NULL;
+
+    /* adjust pointer for proper alignment and offset */
+    memblock = ALIGN_PTR(temp, alignment, offset);
+
+    /* Save the real allocation address below returned address */
+    /* so it can be found later to free. */
+    saved = SAVED_PTR(memblock);
+    *saved = temp;
+
+    return memblock;
+}
+
+/*********************************************************************
+ *		_aligned_malloc (MSVCRT.@)
+ */
+void * CDECL _aligned_malloc(MSVCRT_size_t size, MSVCRT_size_t alignment)
+{
+    TRACE("(%u, %u)\n", size, alignment);
+    return _aligned_offset_malloc(size, alignment, 0);
+}
+
+/*********************************************************************
+ *		_aligned_offset_realloc (MSVCRT.@)
+ */
+void * CDECL _aligned_offset_realloc(void *memblock, MSVCRT_size_t size,
+                                     MSVCRT_size_t alignment, MSVCRT_size_t offset)
+{
+    void * temp, **saved;
+    MSVCRT_size_t old_padding, new_padding, old_size;
+    TRACE("(%p, %u, %u, %u)\n", memblock, size, alignment, offset);
+
+    if (!memblock)
+        return _aligned_offset_malloc(size, alignment, offset);
+
+    /* alignment must be a power of 2 */
+    if ((alignment & (alignment - 1)) != 0)
+    {
+        *MSVCRT__errno() = MSVCRT_EINVAL;
+        return NULL;
+    }
+
+    /* offset must be less than size */
+    if (offset >= size)
+    {
+        *MSVCRT__errno() = MSVCRT_EINVAL;
+        return NULL;
+    }
+
+    if (size == 0)
+    {
+        _aligned_free(memblock);
+        return NULL;
+    }
+
+    /* don't align to less than void pointer size */
+    if (alignment < sizeof(void *))
+        alignment = sizeof(void *);
+
+    /* make sure alignment and offset didn't change */
+    saved = SAVED_PTR(memblock);
+    if (memblock != ALIGN_PTR(*saved, alignment, offset))
+    {
+        *MSVCRT__errno() = MSVCRT_EINVAL;
+        return NULL;
+    }
+
+    old_padding = (char *)memblock - (char *)*saved;
+
+    /* Get previous size of block */
+    old_size = _msize(*saved);
+    if (old_size == -1)
+    {
+        /* It seems this function was called with an invalid pointer. Bail out. */
+        return NULL;
+    }
+
+    /* Adjust old_size to get amount of actual data in old block. */
+    if (old_size < old_padding)
+    {
+        /* Shouldn't happen. Something's weird, so bail out. */
+        return NULL;
+    }
+    old_size -= old_padding;
+
+    temp = MSVCRT_realloc(*saved, size + alignment + sizeof(void *));
+
+    if (!temp)
+        return NULL;
+
+    /* adjust pointer for proper alignment and offset */
+    memblock = ALIGN_PTR(temp, alignment, offset);
+
+    /* Save the real allocation address below returned address */
+    /* so it can be found later to free. */
+    saved = SAVED_PTR(memblock);
+
+    new_padding = (char *)memblock - (char *)temp;
+
+/*
+   Memory layout of old block is as follows:
+   +-------+---------------------+-+--------------------------+-----------+
+   |  ...  | "old_padding" bytes | | ... "old_size" bytes ... |    ...    |
+   +-------+---------------------+-+--------------------------+-----------+
+           ^                     ^ ^
+           |                     | |
+        *saved               saved memblock
+
+   Memory layout of new block is as follows:
+   +-------+-----------------------------+-+----------------------+-------+
+   |  ...  |    "new_padding" bytes      | | ... "size" bytes ... |  ...  |
+   +-------+-----------------------------+-+----------------------+-------+
+           ^                             ^ ^
+           |                             | |
+          temp                       saved memblock
+
+   However, in the new block, actual data is still written as follows
+   (because it was copied by MSVCRT_realloc):
+   +-------+---------------------+--------------------------------+-------+
+   |  ...  | "old_padding" bytes |   ... "old_size" bytes ...     |  ...  |
+   +-------+---------------------+--------------------------------+-------+
+           ^                             ^ ^
+           |                             | |
+          temp                       saved memblock
+
+   Therefore, min(old_size,size) bytes of actual data have to be moved
+   from the offset they were at in the old block (temp + old_padding),
+   to the offset they have to be in the new block (temp + new_padding == memblock).
+*/
+    if (new_padding != old_padding)
+        memmove((char *)memblock, (char *)temp + old_padding, (old_size < size) ? old_size : size);
+
+    *saved = temp;
+
+    return memblock;
+}
+
+/*********************************************************************
+ *		_aligned_realloc (MSVCRT.@)
+ */
+void * CDECL _aligned_realloc(void *memblock, MSVCRT_size_t size, MSVCRT_size_t alignment)
+{
+    TRACE("(%p, %u, %u)\n", memblock, size, alignment);
+    return _aligned_offset_realloc(memblock, size, alignment, 0);
 }

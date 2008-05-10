@@ -109,7 +109,7 @@ ASPI_OpenDevice(SRB_ExecSCSICmd *prb)
     }
     LeaveCriticalSection(&ASPI_CritSection);
 
-    if (prb->SRB_HaId > ASPI_GetNumControllers())
+    if (prb->SRB_HaId >= ASPI_GetNumControllers())
 	return -1;
 
     hc = ASPI_GetHCforController( prb->SRB_HaId );
@@ -140,7 +140,6 @@ ASPI_OpenDevice(SRB_ExecSCSICmd *prb)
 static void
 ASPI_DebugPrintCmd(SRB_ExecSCSICmd *prb)
 {
-  BYTE	cmd;
   int	i;
   BYTE *cdb;
 
@@ -185,7 +184,6 @@ ASPI_DebugPrintCmd(SRB_ExecSCSICmd *prb)
   TRACE("CDB Length: %d\n", prb->SRB_CDBLen);
   TRACE("POST Proc: %p\n", prb->SRB_PostProc);
   cdb = &prb->CDBByte[0];
-  cmd = prb->CDBByte[0];
   if (TRACE_ON(aspi)) {
       TRACE("CDB buffer[");
       for (i = 0; i < prb->SRB_CDBLen; i++) {
@@ -308,10 +306,23 @@ ASPI_ExecScsiCmd(SRB_ExecSCSICmd *lpPRB)
   WORD ret;
   DWORD	status;
   int	in_len, out_len;
+  int   num_controllers = 0;
   int	error_code = 0;
   int	fd;
   DWORD SRB_Status;
 
+  num_controllers = ASPI_GetNumControllers();
+  if (lpPRB->SRB_HaId >= num_controllers) {
+      WARN("Failed: Wanted hostadapter with index %d, but we have only %d.\n",
+	  lpPRB->SRB_HaId, num_controllers
+      );
+      return WNASPI32_DoPosting( lpPRB, SS_INVALID_HA );
+  }
+  fd = ASPI_OpenDevice(lpPRB);
+  if (fd == -1) {
+      return WNASPI32_DoPosting( lpPRB, SS_NO_DEVICE );
+  }
+    
   /* FIXME: hackmode */
 #define MAKE_TARGET_TO_HOST(lpPRB) \
   	if (!TARGET_TO_HOST(lpPRB)) { \
@@ -343,16 +354,6 @@ ASPI_ExecScsiCmd(SRB_ExecSCSICmd *lpPRB)
 	break;
   }
   ASPI_DebugPrintCmd(lpPRB);
-  if (lpPRB->SRB_HaId > ASPI_GetNumControllers()) {
-      ERR("Failed: Wanted hostadapter %d, but we have only %d.\n",
-	  lpPRB->SRB_HaId,ASPI_GetNumControllers()
-      );
-      return WNASPI32_DoPosting( lpPRB, SS_INVALID_HA );
-  }
-  fd = ASPI_OpenDevice(lpPRB);
-  if (fd == -1) {
-      return WNASPI32_DoPosting( lpPRB, SS_NO_DEVICE );
-  }
 
   sg_hd = NULL;
   sg_reply_hdr = NULL;
@@ -538,7 +539,7 @@ DWORD __cdecl SendASPI32Command(LPSRB lpSRB)
     memset(&tmpsrb,0,sizeof(tmpsrb));
 
     /* Copy header */
-    memcpy(&tmpsrb.common,&(lpSRB->common),sizeof(tmpsrb.common));
+    tmpsrb.common = lpSRB->common;
 
     tmpsrb.cmd.SRB_Flags	|= 8; /* target to host */
     tmpsrb.cmd.SRB_Cmd 		= SC_EXEC_SCSI_CMD;

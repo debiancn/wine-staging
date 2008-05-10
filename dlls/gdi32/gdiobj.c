@@ -363,7 +363,7 @@ static const struct DefaultFontInfo default_fonts[] =
         { /* DefaultGuiFont */
            9, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, GB2312_CHARSET,
            0, 0, DEFAULT_QUALITY, VARIABLE_PITCH | FF_SWISS,
-           {'M','S',' ','S','o','n','g','\0'}   /* FIXME: Is this correct? */
+           {'S','i','m','S','u','n','\0'}
         },
     },
     {   HANGEUL_CHARSET,
@@ -405,9 +405,9 @@ static const struct DefaultFontInfo default_fonts[] =
            {'\0'}
         },
         { /* DefaultGuiFont */
-           8, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, CHINESEBIG5_CHARSET,
+           9, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, CHINESEBIG5_CHARSET,
            0, 0, DEFAULT_QUALITY, VARIABLE_PITCH | FF_SWISS,
-           {'\0'}       /* FIXME - what is the native font??? */
+           {'P','M','i','n','g','L','i','U','\0'}
         },
     },
     {   JOHAB_CHARSET,
@@ -524,11 +524,11 @@ static DWORD get_dpi( void )
 
 
 /***********************************************************************
- *           inc_ref_count
+ *           GDI_inc_ref_count
  *
  * Increment the reference count of a GDI object.
  */
-static inline void inc_ref_count( HGDIOBJ handle )
+BOOL GDI_inc_ref_count( HGDIOBJ handle )
 {
     GDIOBJHDR *header;
 
@@ -537,15 +537,16 @@ static inline void inc_ref_count( HGDIOBJ handle )
         header->dwCount++;
         GDI_ReleaseObj( handle );
     }
+    return header != NULL;
 }
 
 
 /***********************************************************************
- *           dec_ref_count
+ *           GDI_dec_ref_count
  *
  * Decrement the reference count of a GDI object.
  */
-static inline void dec_ref_count( HGDIOBJ handle )
+BOOL GDI_dec_ref_count( HGDIOBJ handle )
 {
     GDIOBJHDR *header;
 
@@ -562,6 +563,7 @@ static inline void dec_ref_count( HGDIOBJ handle )
             DeleteObject( handle );
         }
     }
+    return header != NULL;
 }
 
 
@@ -606,7 +608,7 @@ BOOL GDI_Init(void)
 
     /* For the default gui font, we use the lfHeight member in deffonts as a place-holder
        for the point size so we must convert this into a true height */
-    memcpy(&default_gui_font, &deffonts->DefaultGuiFont, sizeof(default_gui_font));
+    default_gui_font = deffonts->DefaultGuiFont;
     default_gui_font.lfHeight = -MulDiv(default_gui_font.lfHeight, get_dpi(), 72);
     stock_objects[DEFAULT_GUI_FONT]    = CreateFontIndirectW( &default_gui_font );
 
@@ -821,7 +823,7 @@ BOOL WINAPI DeleteObject( HGDIOBJ obj )
 
     while (header->hdcs)
     {
-        DC *dc = DC_GetDCPtr(header->hdcs->hdc);
+        DC *dc = get_dc_ptr(header->hdcs->hdc);
         struct hdc_list *tmp;
 
         TRACE("hdc %p has interest in %p\n", header->hdcs->hdc, obj);
@@ -829,7 +831,7 @@ BOOL WINAPI DeleteObject( HGDIOBJ obj )
         {
             if(dc->funcs->pDeleteObject)
                 dc->funcs->pDeleteObject( dc->physDev, obj );
-            GDI_ReleaseObj( header->hdcs->hdc );
+            release_dc_ptr( dc );
         }
         tmp = header->hdcs;
         header->hdcs = header->hdcs->next;
@@ -938,30 +940,6 @@ HGDIOBJ WINAPI GetStockObject( INT obj )
     ret = stock_objects[obj];
     TRACE("returning %p\n", ret );
     return ret;
-}
-
-
-/***********************************************************************
- *           GetObject    (GDI.82)
- */
-INT16 WINAPI GetObject16( HGDIOBJ16 handle16, INT16 count, LPVOID buffer )
-{
-    GDIOBJHDR * ptr;
-    HGDIOBJ handle = HGDIOBJ_32( handle16 );
-    INT16 result = 0;
-
-    TRACE("%p %d %p\n", handle, count, buffer );
-    if (!count) return 0;
-
-    if (!(ptr = GDI_GetObjPtr( handle, MAGIC_DONTCARE ))) return 0;
-
-    if (ptr->funcs && ptr->funcs->pGetObject16)
-        result = ptr->funcs->pGetObject16( handle, ptr, count, buffer );
-    else
-        SetLastError( ERROR_INVALID_HANDLE );
-
-    GDI_ReleaseObj( handle );
-    return result;
 }
 
 
@@ -1096,10 +1074,10 @@ DWORD WINAPI GetObjectType( HGDIOBJ handle )
 HGDIOBJ WINAPI GetCurrentObject(HDC hdc,UINT type)
 {
     HGDIOBJ ret = 0;
-    DC * dc = DC_GetDCPtr( hdc );
+    DC * dc = get_dc_ptr( hdc );
 
-    if (dc)
-    {
+    if (!dc) return 0;
+
     switch (type) {
 	case OBJ_EXTPEN: /* fall through */
 	case OBJ_PEN:	 ret = dc->hPen; break;
@@ -1110,13 +1088,12 @@ HGDIOBJ WINAPI GetCurrentObject(HDC hdc,UINT type)
 
 	/* tests show that OBJ_REGION is explicitly ignored */
 	case OBJ_REGION: break;
-    default:
-    	/* the SDK only mentions those above */
-    	FIXME("(%p,%d): unknown type.\n",hdc,type);
+        default:
+            /* the SDK only mentions those above */
+            FIXME("(%p,%d): unknown type.\n",hdc,type);
 	    break;
-        }
-        GDI_ReleaseObj( hdc );
     }
+    release_dc_ptr( dc );
     return ret;
 }
 
@@ -1141,30 +1118,15 @@ HGDIOBJ WINAPI SelectObject( HDC hdc, HGDIOBJ hObj )
 {
     HGDIOBJ ret = 0;
     GDIOBJHDR *header;
-    DC *dc;
 
     TRACE( "(%p,%p)\n", hdc, hObj );
 
-    if (!(dc = DC_GetDCPtr( hdc )))
-        SetLastError( ERROR_INVALID_HANDLE );
-    else
+    header = GDI_GetObjPtr( hObj, MAGIC_DONTCARE );
+    if (header)
     {
-        GDI_ReleaseObj( hdc );
-
-        header = GDI_GetObjPtr( hObj, MAGIC_DONTCARE );
-        if (header)
-        {
-            if (header->funcs && header->funcs->pSelectObject)
-            {
-                ret = header->funcs->pSelectObject( hObj, header, hdc );
-                if (ret && ret != hObj && HandleToULong(ret) > COMPLEXREGION)
-                {
-                    inc_ref_count( hObj );
-                    dec_ref_count( ret );
-                }
-            }
-	    GDI_ReleaseObj( hObj );
-        }
+        const struct gdi_obj_funcs *funcs = header->funcs;
+        GDI_ReleaseObj( hObj );
+        if (funcs && funcs->pSelectObject) ret = funcs->pSelectObject( hObj, hdc );
     }
     return ret;
 }
@@ -1271,26 +1233,6 @@ INT WINAPI EnumObjects( HDC hdc, INT nObjType,
 
 
 /***********************************************************************
- *           IsGDIObject    (GDI.462)
- *
- * returns type of object if valid (W95 system programming secrets p. 264-5)
- */
-BOOL16 WINAPI IsGDIObject16( HGDIOBJ16 handle16 )
-{
-    UINT16 magic = 0;
-    HGDIOBJ handle = HGDIOBJ_32( handle16 );
-
-    GDIOBJHDR *object = GDI_GetObjPtr( handle, MAGIC_DONTCARE );
-    if (object)
-    {
-        magic = GDIMAGIC(object->wMagic) - FIRST_MAGIC + 1;
-        GDI_ReleaseObj( handle );
-    }
-    return magic;
-}
-
-
-/***********************************************************************
  *           SetObjectOwner    (GDI32.@)
  */
 void WINAPI SetObjectOwner( HGDIOBJ handle, HANDLE owner )
@@ -1350,80 +1292,6 @@ DWORD WINAPI GdiSetBatchLimit( DWORD limit )
 }
 
 
-/***********************************************************************
- *           GdiSeeGdiDo   (GDI.452)
- */
-DWORD WINAPI GdiSeeGdiDo16( WORD wReqType, WORD wParam1, WORD wParam2,
-                          WORD wParam3 )
-{
-    DWORD ret = ~0U;
-
-    switch (wReqType)
-    {
-    case 0x0001:  /* LocalAlloc */
-        WARN("LocalAlloc16(%x, %x): ignoring\n", wParam1, wParam3);
-        ret = 0;
-        break;
-    case 0x0002:  /* LocalFree */
-        WARN("LocalFree16(%x): ignoring\n", wParam1);
-        ret = 0;
-        break;
-    case 0x0003:  /* LocalCompact */
-        WARN("LocalCompact16(%x): ignoring\n", wParam3);
-        ret = 65000; /* lie about the amount of free space */
-        break;
-    case 0x0103:  /* LocalHeap */
-        WARN("LocalHeap16(): ignoring\n");
-        break;
-    default:
-        WARN("(wReqType=%04x): Unknown\n", wReqType);
-        break;
-    }
-    return ret;
-}
-
-/***********************************************************************
- *           GdiSignalProc32     (GDI.610)
- */
-WORD WINAPI GdiSignalProc( UINT uCode, DWORD dwThreadOrProcessID,
-                           DWORD dwFlags, HMODULE16 hModule )
-{
-    return 0;
-}
-
-/***********************************************************************
- *           GdiInit2     (GDI.403)
- *
- * See "Undocumented Windows"
- *
- * PARAMS
- *   h1 [I] GDI object
- *   h2 [I] global data
- */
-HANDLE16 WINAPI GdiInit216( HANDLE16 h1, HANDLE16 h2 )
-{
-    FIXME("(%04x, %04x), stub.\n", h1, h2);
-    if (h2 == 0xffff)
-	return 0xffff; /* undefined return value */
-    return h1; /* FIXME: should be the memory handle of h1 */
-}
-
-/***********************************************************************
- *           FinalGdiInit     (GDI.405)
- */
-void WINAPI FinalGdiInit16( HBRUSH16 hPattern /* [in] fill pattern of desktop */ )
-{
-}
-
-/***********************************************************************
- *           GdiFreeResources   (GDI.609)
- */
-WORD WINAPI GdiFreeResources16( DWORD reserve )
-{
-    return 90; /* lie about it, it shouldn't matter */
-}
-
-
 /*******************************************************************
  *      GetColorAdjustment [GDI32.@]
  *
@@ -1442,14 +1310,14 @@ BOOL WINAPI GetColorAdjustment(HDC hdc, LPCOLORADJUSTMENT lpca)
  */
 BOOL WINAPI GdiComment(HDC hdc, UINT cbSize, const BYTE *lpData)
 {
-    DC *dc = DC_GetDCPtr(hdc);
+    DC *dc = get_dc_ptr(hdc);
     BOOL ret = FALSE;
     if(dc)
     {
         if (dc->funcs->pGdiComment)
             ret = dc->funcs->pGdiComment( dc->physDev, cbSize, lpData );
+        release_dc_ptr( dc );
     }
-    GDI_ReleaseObj( hdc );
     return ret;
 }
 

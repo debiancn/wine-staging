@@ -18,6 +18,9 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include "config.h"
+#include "wine/port.h"
+
 #include "editor.h"
 #include "rtf.h"
 
@@ -25,7 +28,7 @@ WINE_DEFAULT_DEBUG_CHANNEL(richedit);
 
 
 static BOOL
-ME_StreamOutRTFText(ME_OutStream *pStream, WCHAR *text, LONG nChars);
+ME_StreamOutRTFText(ME_OutStream *pStream, const WCHAR *text, LONG nChars);
 
 
 static ME_OutStream*
@@ -92,7 +95,7 @@ ME_StreamOutMove(ME_OutStream *pStream, const char *buffer, int len)
     int space = STREAMOUT_BUFFER_SIZE - pStream->pos;
     int fit = min(space, len);
 
-    TRACE("%u:%u:%.*s\n", pStream->pos, fit, fit, buffer);
+    TRACE("%u:%u:%s\n", pStream->pos, fit, debugstr_an(buffer,fit));
     memmove(pStream->buffer + pStream->pos, buffer, fit);
     len -= fit;
     buffer += fit;
@@ -192,7 +195,7 @@ ME_StreamOutRTFHeader(ME_OutStream *pStream, int dwFormat)
 
 
 static BOOL
-ME_StreamOutRTFFontAndColorTbl(ME_OutStream *pStream, ME_DisplayItem *pFirstRun, ME_DisplayItem *pLastRun)
+ME_StreamOutRTFFontAndColorTbl(ME_OutStream *pStream, ME_DisplayItem *pFirstRun, const ME_DisplayItem *pLastRun)
 {
   ME_DisplayItem *item = pFirstRun;
   ME_FontTableItem *table = pStream->fonttbl;
@@ -282,7 +285,7 @@ ME_StreamOutRTFFontAndColorTbl(ME_OutStream *pStream, ME_DisplayItem *pFirstRun,
 
 
 static BOOL
-ME_StreamOutRTFParaProps(ME_OutStream *pStream, ME_DisplayItem *para)
+ME_StreamOutRTFParaProps(ME_OutStream *pStream, const ME_DisplayItem *para)
 {
   PARAFORMAT2 *fmt = para->member.para.pFmt;
   char props[STREAMOUT_BUFFER_SIZE] = "";
@@ -579,7 +582,7 @@ ME_StreamOutRTFCharProps(ME_OutStream *pStream, CHARFORMAT2W *fmt)
 
 
 static BOOL
-ME_StreamOutRTFText(ME_OutStream *pStream, WCHAR *text, LONG nChars)
+ME_StreamOutRTFText(ME_OutStream *pStream, const WCHAR *text, LONG nChars)
 {
   char buffer[STREAMOUT_BUFFER_SIZE];
   int pos = 0;
@@ -708,9 +711,13 @@ ME_StreamOutRTF(ME_TextEditor *editor, ME_OutStream *pStream, int nStart, int nC
             if (!ME_StreamOutPrint(pStream, "\r\n\\par"))
               return FALSE;
           }
+          /* Skip as many characters as required by current line break */
+          nChars -= (p->member.run.nCR <= nChars) ? p->member.run.nCR : nChars;
+          nChars -= (p->member.run.nLF <= nChars) ? p->member.run.nLF : nChars;
+        } else if (p->member.run.nFlags & MERF_ENDROW) {
+          if (!ME_StreamOutPrint(pStream, "\\line \r\n"))
+            return FALSE;
           nChars--;
-          if (editor->bEmulateVersion10 && nChars)
-            nChars--;
         } else {
           int nEnd;
           
@@ -768,10 +775,39 @@ ME_StreamOutText(ME_TextEditor *editor, ME_OutStream *pStream, int nStart, int n
     if (item->member.run.nFlags & MERF_ENDPARA) {
       static const WCHAR szEOL[2] = { '\r', '\n' };
       
-      if (dwFormat & SF_UNICODE)
-        success = ME_StreamOutMove(pStream, (const char *)szEOL, sizeof(szEOL));
-      else
-        success = ME_StreamOutMove(pStream, "\r\n", 2);
+      if (!editor->bEmulateVersion10) {
+        /* richedit 2.0 - all line breaks are \r\n */
+        if (dwFormat & SF_UNICODE)
+          success = ME_StreamOutMove(pStream, (const char *)szEOL, sizeof(szEOL));
+        else
+          success = ME_StreamOutMove(pStream, "\r\n", 2);
+        assert(nLen == 1);
+      } else {
+        int i; int tnLen;
+
+        /* richedit 1.0 - need to honor actual \r and \n amounts */
+        nLen = item->member.run.nCR + item->member.run.nLF;
+        if (nLen > nChars)
+          nLen = nChars;
+        tnLen = nLen;
+
+        i = 0;
+        while (tnLen > 0 && i < item->member.run.nCR) {
+          if (dwFormat & SF_UNICODE)
+            success = ME_StreamOutMove(pStream, (const char *)(&szEOL[0]), sizeof(WCHAR));
+          else
+            success = ME_StreamOutMove(pStream, "\r", 1);
+          tnLen--; i++;
+        }
+        i = 0;
+        while (tnLen > 0 && i < item->member.run.nLF) {
+          if (dwFormat & SF_UNICODE)
+            success = ME_StreamOutMove(pStream, (const char *)(&szEOL[1]), sizeof(WCHAR));
+          else
+            success = ME_StreamOutMove(pStream, "\n", 1);
+          tnLen--; i++;
+        }
+      }
     } else {
       if (dwFormat & SF_UNICODE)
         success = ME_StreamOutMove(pStream, (const char *)(item->member.run.strText->szData + nStart),
@@ -793,8 +829,6 @@ ME_StreamOutText(ME_TextEditor *editor, ME_OutStream *pStream, int nStart, int n
     }
     
     nChars -= nLen;
-    if (editor->bEmulateVersion10 && nChars && item->member.run.nFlags & MERF_ENDPARA)
-      nChars--;
     nStart = 0;
     item = ME_FindItemFwd(item, diRun);
   }

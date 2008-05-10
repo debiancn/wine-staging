@@ -55,7 +55,7 @@ BOOL WINAPI DllMain( HINSTANCE hinst, DWORD reason, LPVOID reserved )
  *
  */
 DNS_STATUS WINAPI DnsAcquireContextHandle_A( DWORD flags, PVOID cred,
-                                             HANDLE *context )
+                                             PHANDLE context )
 {
     FIXME( "(0x%08x,%p,%p) stub\n", flags, cred, context );
 
@@ -68,7 +68,7 @@ DNS_STATUS WINAPI DnsAcquireContextHandle_A( DWORD flags, PVOID cred,
  *
  */
 DNS_STATUS WINAPI DnsAcquireContextHandle_UTF8( DWORD flags, PVOID cred,
-                                                HANDLE *context )
+                                                PHANDLE context )
 {
     FIXME( "(0x%08x,%p,%p) stub\n", flags, cred, context );
 
@@ -81,7 +81,7 @@ DNS_STATUS WINAPI DnsAcquireContextHandle_UTF8( DWORD flags, PVOID cred,
  *
  */
 DNS_STATUS WINAPI DnsAcquireContextHandle_W( DWORD flags, PVOID cred,
-                                             HANDLE *context )
+                                             PHANDLE context )
 {
     FIXME( "(0x%08x,%p,%p) stub\n", flags, cred, context );
 
@@ -93,7 +93,7 @@ DNS_STATUS WINAPI DnsAcquireContextHandle_W( DWORD flags, PVOID cred,
  * DnsReleaseContextHandle                [DNSAPI.@]
  *
  */
-void WINAPI DnsReleaseContextHandle( HANDLE context )
+VOID WINAPI DnsReleaseContextHandle( HANDLE context )
 {
     FIXME( "(%p) stub\n", context );
 }
@@ -130,7 +130,7 @@ DNS_STATUS WINAPI DnsExtractRecordsFromMessage_W( PDNS_MESSAGE_BUFFER buffer,
  */
 DNS_STATUS WINAPI DnsModifyRecordsInSet_A( PDNS_RECORDA add, PDNS_RECORDA delete,
                                            DWORD options, HANDLE context,
-                                           PIP4_ARRAY servers, PVOID reserved )
+                                           PVOID servers, PVOID reserved )
 {
     FIXME( "(%p,%p,0x%08x,%p,%p,%p) stub\n", add, delete, options,
            context, servers, reserved );
@@ -143,7 +143,7 @@ DNS_STATUS WINAPI DnsModifyRecordsInSet_A( PDNS_RECORDA add, PDNS_RECORDA delete
  */
 DNS_STATUS WINAPI DnsModifyRecordsInSet_UTF8( PDNS_RECORDA add, PDNS_RECORDA delete,
                                               DWORD options, HANDLE context,
-                                              PIP4_ARRAY servers, PVOID reserved )
+                                              PVOID servers, PVOID reserved )
 {
     FIXME( "(%p,%p,0x%08x,%p,%p,%p) stub\n", add, delete, options,
            context, servers, reserved );
@@ -156,7 +156,7 @@ DNS_STATUS WINAPI DnsModifyRecordsInSet_UTF8( PDNS_RECORDA add, PDNS_RECORDA del
  */
 DNS_STATUS WINAPI DnsModifyRecordsInSet_W( PDNS_RECORDW add, PDNS_RECORDW delete,
                                            DWORD options, HANDLE context,
-                                           PIP4_ARRAY servers, PVOID reserved )
+                                           PVOID servers, PVOID reserved )
 {
     FIXME( "(%p,%p,0x%08x,%p,%p,%p) stub\n", add, delete, options,
            context, servers, reserved );
@@ -167,8 +167,8 @@ DNS_STATUS WINAPI DnsModifyRecordsInSet_W( PDNS_RECORDW add, PDNS_RECORDW delete
  * DnsWriteQuestionToBuffer_UTF8          [DNSAPI.@]
  *
  */
-BOOL WINAPI DnsWriteQuestionToBuffer_UTF8( PDNS_MESSAGE_BUFFER buffer, LPDWORD size,
-                                           LPSTR name, WORD type, WORD xid,
+BOOL WINAPI DnsWriteQuestionToBuffer_UTF8( PDNS_MESSAGE_BUFFER buffer, PDWORD size,
+                                           PCSTR name, WORD type, WORD xid,
                                            BOOL recurse )
 {
     FIXME( "(%p,%p,%s,%d,%d,%d) stub\n", buffer, size, debugstr_a(name),
@@ -180,8 +180,8 @@ BOOL WINAPI DnsWriteQuestionToBuffer_UTF8( PDNS_MESSAGE_BUFFER buffer, LPDWORD s
  * DnsWriteQuestionToBuffer_W              [DNSAPI.@]
  *
  */
-BOOL WINAPI DnsWriteQuestionToBuffer_W( PDNS_MESSAGE_BUFFER buffer, LPDWORD size,
-                                        LPWSTR name, WORD type, WORD xid,
+BOOL WINAPI DnsWriteQuestionToBuffer_W( PDNS_MESSAGE_BUFFER buffer, PDWORD size,
+                                        PCWSTR name, WORD type, WORD xid,
                                         BOOL recurse )
 {
     FIXME( "(%p,%p,%s,%d,%d,%d) stub\n", buffer, size, debugstr_w(name),
@@ -194,7 +194,7 @@ BOOL WINAPI DnsWriteQuestionToBuffer_W( PDNS_MESSAGE_BUFFER buffer, LPDWORD size
  *
  */
 DNS_STATUS WINAPI DnsReplaceRecordSetA( PDNS_RECORDA set, DWORD options,
-                                        HANDLE context, PIP4_ARRAY servers,
+                                        HANDLE context, PVOID servers,
                                         PVOID reserved )
 {
     FIXME( "(%p,0x%08x,%p,%p,%p) stub\n", set, options, context,
@@ -207,7 +207,7 @@ DNS_STATUS WINAPI DnsReplaceRecordSetA( PDNS_RECORDA set, DWORD options,
  *
  */
 DNS_STATUS WINAPI DnsReplaceRecordSetUTF8( PDNS_RECORDA set, DWORD options,
-                                           HANDLE context, PIP4_ARRAY servers,
+                                           HANDLE context, PVOID servers,
                                            PVOID reserved )
 {
     FIXME( "(%p,0x%08x,%p,%p,%p) stub\n", set, options, context,
@@ -220,7 +220,7 @@ DNS_STATUS WINAPI DnsReplaceRecordSetUTF8( PDNS_RECORDA set, DWORD options,
  *
  */
 DNS_STATUS WINAPI DnsReplaceRecordSetW( PDNS_RECORDW set, DWORD options,
-                                        HANDLE context, PIP4_ARRAY servers,
+                                        HANDLE context, PVOID servers,
                                         PVOID reserved )
 {
     FIXME( "(%p,0x%08x,%p,%p,%p) stub\n", set, options, context,

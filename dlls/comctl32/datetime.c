@@ -72,6 +72,7 @@ typedef struct
     RECT checkbox;  /* checkbox allowing the control to be enabled/disabled */
     RECT calbutton; /* button that toggles the dropdown of the monthcal control */
     BOOL bCalDepressed; /* TRUE = cal button is depressed */
+    int  bDropdownEnabled;
     int  select;
     HFONT hFont;
     int nrFieldsAllocated;
@@ -132,8 +133,8 @@ extern int MONTHCAL_MonthLength(int month, int year);
 static BOOL DATETIME_SendSimpleNotify (const DATETIME_INFO *infoPtr, UINT code);
 static BOOL DATETIME_SendDateTimeChangeNotify (const DATETIME_INFO *infoPtr);
 extern void MONTHCAL_CopyTime(const SYSTEMTIME *from, SYSTEMTIME *to);
-static const WCHAR allowedformatchars[] = {'d', 'h', 'H', 'm', 'M', 's', 't', 'y', 'X', '\'', 0};
-static const int maxrepetition [] = {4,2,2,2,4,2,2,4,-1,-1};
+static const WCHAR allowedformatchars[] = {'d', 'h', 'H', 'm', 'M', 's', 't', 'y', 'X', 0};
+static const int maxrepetition [] = {4,2,2,2,4,2,2,4,-1};
 
 
 static DWORD
@@ -204,6 +205,7 @@ DATETIME_UseFormat (DATETIME_INFO *infoPtr, LPCWSTR formattxt)
 {
     unsigned int i;
     int j, k, len;
+    BOOL inside_literal = FALSE; /* inside '...' */
     int *nrFields = &infoPtr->nrFields;
 
     *nrFields = 0;
@@ -213,27 +215,37 @@ DATETIME_UseFormat (DATETIME_INFO *infoPtr, LPCWSTR formattxt)
 
     for (i = 0; formattxt[i]; i++)  {
 	TRACE ("\n%d %c:", i, formattxt[i]);
- 	for (j = 0; j < len; j++) {
- 	    if (allowedformatchars[j]==formattxt[i]) {
-		TRACE ("%c[%d,%x]", allowedformatchars[j], *nrFields, infoPtr->fieldspec[*nrFields]);
-		if ((*nrFields==0) && (infoPtr->fieldspec[*nrFields]==0)) {
-		    infoPtr->fieldspec[*nrFields] = (j<<4) + 1;
-		    break;
-		}
-		if (infoPtr->fieldspec[*nrFields] >> 4 != j) {
-		    (*nrFields)++;
-		    infoPtr->fieldspec[*nrFields] = (j<<4) + 1;
-		    break;
-		}
-		if ((infoPtr->fieldspec[*nrFields] & 0x0f) == maxrepetition[j]) {
-		    (*nrFields)++;
-		    infoPtr->fieldspec[*nrFields] = (j<<4) + 1;
-		    break;
-		}
-		infoPtr->fieldspec[*nrFields]++;
-		break;
-	    }   /* if allowedformatchar */
-	} /* for j */
+	if (!inside_literal) {
+	    for (j = 0; j < len; j++) {
+	        if (allowedformatchars[j]==formattxt[i]) {
+                    TRACE ("%c[%d,%x]", allowedformatchars[j], *nrFields, infoPtr->fieldspec[*nrFields]);
+                    if ((*nrFields==0) && (infoPtr->fieldspec[*nrFields]==0)) {
+                        infoPtr->fieldspec[*nrFields] = (j<<4) + 1;
+                        break;
+                    }
+                    if (infoPtr->fieldspec[*nrFields] >> 4 != j) {
+                        (*nrFields)++;
+                        infoPtr->fieldspec[*nrFields] = (j<<4) + 1;
+                        break;
+                    }
+                    if ((infoPtr->fieldspec[*nrFields] & 0x0f) == maxrepetition[j]) {
+                        (*nrFields)++;
+                        infoPtr->fieldspec[*nrFields] = (j<<4) + 1;
+                        break;
+		    }
+                    infoPtr->fieldspec[*nrFields]++;
+                    break;
+                }   /* if allowedformatchar */
+            } /* for j */
+        }
+        else
+            j = len;
+
+        if (formattxt[i] == '\'')
+        {
+            inside_literal = !inside_literal;
+            continue;
+        }
 
 	/* char is not a specifier: handle char like a string */
 	if (j == len) {
@@ -739,7 +751,10 @@ DATETIME_LButtonDown (DATETIME_INFO *infoPtr, WORD wKey, INT x, INT y)
             TRACE("update calendar %04d/%02d/%02d\n", 
             lprgSysTimeArray->wYear, lprgSysTimeArray->wMonth, lprgSysTimeArray->wDay);
             SendMessageW(infoPtr->hMonthCal, MCM_SETCURSEL, 0, (LPARAM)(&infoPtr->date));
-            ShowWindow(infoPtr->hMonthCal, SW_SHOW);
+
+            if (infoPtr->bDropdownEnabled)
+                ShowWindow(infoPtr->hMonthCal, SW_SHOW);
+            infoPtr->bDropdownEnabled = TRUE;
         }
 
         TRACE ("dt:%p mc:%p mc parent:%p, desktop:%p\n",
@@ -776,6 +791,10 @@ DATETIME_Paint (DATETIME_INFO *infoPtr, HDC hdc)
     } else {
         DATETIME_Refresh (infoPtr, hdc);
     }
+
+    /* Not a click on the dropdown box, enabled it */
+    infoPtr->bDropdownEnabled = TRUE;
+
     return 0;
 }
 
@@ -1063,6 +1082,19 @@ DATETIME_SetFocus (DATETIME_INFO *infoPtr, HWND lostFocus)
 {
     TRACE("got focus from %p\n", lostFocus);
 
+    /* if monthcal is open and it loses focus, close monthcal */
+    if (infoPtr->hMonthCal && (lostFocus == infoPtr->hMonthCal) &&
+        IsWindowVisible(infoPtr->hMonthCal))
+    {
+        ShowWindow(infoPtr->hMonthCal, SW_HIDE);
+        DATETIME_SendSimpleNotify(infoPtr, DTN_CLOSEUP);
+        /* note: this get triggered even if monthcal loses focus to a dropdown
+         * box click, which occurs without an intermediate WM_PAINT call
+         */
+        infoPtr->bDropdownEnabled = FALSE;
+        return 0;
+    }
+
     if (infoPtr->haveFocus == 0) {
 	DATETIME_SendSimpleNotify (infoPtr, NM_SETFOCUS);
 	infoPtr->haveFocus = DTHT_GOTFOCUS;
@@ -1087,7 +1119,7 @@ DATETIME_SendDateTimeChangeNotify (const DATETIME_INFO *infoPtr)
 
     MONTHCAL_CopyTime (&infoPtr->date, &dtdtc.st);
     return (BOOL) SendMessageW (infoPtr->hwndNotify, WM_NOTIFY,
-                                (WPARAM)dtdtc.nmhdr.idFrom, (LPARAM)&dtdtc);
+                                dtdtc.nmhdr.idFrom, (LPARAM)&dtdtc);
 }
 
 
@@ -1102,7 +1134,7 @@ DATETIME_SendSimpleNotify (const DATETIME_INFO *infoPtr, UINT code)
     nmhdr.code     = code;
 
     return (BOOL) SendMessageW (infoPtr->hwndNotify, WM_NOTIFY,
-                                (WPARAM)nmhdr.idFrom, (LPARAM)&nmhdr);
+                                nmhdr.idFrom, (LPARAM)&nmhdr);
 }
 
 static LRESULT
@@ -1207,6 +1239,7 @@ DATETIME_Create (HWND hwnd, const CREATESTRUCTW *lpcs)
     infoPtr->buflen = (int *) Alloc (infoPtr->nrFieldsAllocated * sizeof(int));
     infoPtr->hwndNotify = lpcs->hwndParent;
     infoPtr->select = -1; /* initially, nothing is selected */
+    infoPtr->bDropdownEnabled = TRUE;
 
     DATETIME_StyleChanged(infoPtr, GWL_STYLE, &ss);
     DATETIME_SetFormatW (infoPtr, 0);

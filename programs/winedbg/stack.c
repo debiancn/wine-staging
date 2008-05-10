@@ -161,7 +161,7 @@ static BOOL CALLBACK stack_read_mem(HANDLE hProc, DWORD64 addr,
 /******************************************************************
  *		stack_fetch_frames
  *
- * Do a backtrace on the the current thread
+ * Do a backtrace on the current thread
  */
 unsigned stack_fetch_frames(void)
 {
@@ -215,7 +215,7 @@ struct sym_enum
     BOOL        first;
 };
 
-static BOOL WINAPI sym_enum_cb(SYMBOL_INFO* sym_info, ULONG size, void* user)
+static BOOL WINAPI sym_enum_cb(PSYMBOL_INFO sym_info, ULONG size, PVOID user)
 {
     struct sym_enum*    se = (struct sym_enum*)user;
 
@@ -275,7 +275,7 @@ static void stack_print_addr_and_args(int nf)
 /******************************************************************
  *		backtrace
  *
- * Do a backtrace on the the current thread
+ * Do a backtrace on the current thread
  */
 static void backtrace(void)
 {
@@ -351,6 +351,9 @@ static void backtrace_tid(struct dbg_process* pcs, DWORD tid)
 static void backtrace_all(void)
 {
     struct dbg_process* process = dbg_curr_process;
+    struct dbg_thread*  thread = dbg_curr_thread;
+    CONTEXT             ctx = dbg_context;
+    DWORD               cpid = dbg_curr_pid;
     THREADENTRY32       entry;
     HANDLE              snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
 
@@ -366,10 +369,16 @@ static void backtrace_all(void)
         do
         {
             if (entry.th32OwnerProcessID == GetCurrentProcessId()) continue;
-            if (dbg_curr_process && dbg_curr_pid != entry.th32OwnerProcessID)
+            if (dbg_curr_process && dbg_curr_pid != entry.th32OwnerProcessID &&
+                cpid != dbg_curr_pid)
                 dbg_curr_process->process_io->close_process(dbg_curr_process, FALSE);
 
-            if (entry.th32OwnerProcessID != dbg_curr_pid)
+            if (entry.th32OwnerProcessID == cpid)
+            {
+                dbg_curr_process = process;
+                dbg_curr_pid = cpid;
+            }
+            else if (entry.th32OwnerProcessID != dbg_curr_pid)
             {
                 if (!dbg_attach_debuggee(entry.th32OwnerProcessID, FALSE))
                 {
@@ -387,12 +396,15 @@ static void backtrace_all(void)
         }
         while (Thread32Next(snapshot, &entry));
 
-        if (dbg_curr_process)
+        if (dbg_curr_process && cpid != dbg_curr_pid)
             dbg_curr_process->process_io->close_process(dbg_curr_process, FALSE);
     }
     CloseHandle(snapshot);
     dbg_curr_process = process;
-    dbg_curr_pid = process ? process->pid : 0;
+    dbg_curr_pid = cpid;
+    dbg_curr_thread = thread;
+    dbg_curr_tid = thread ? thread->tid : 0;
+    dbg_context = ctx;
 }
 
 void stack_backtrace(DWORD tid)

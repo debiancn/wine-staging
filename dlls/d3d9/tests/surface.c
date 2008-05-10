@@ -57,7 +57,7 @@ static IDirect3DDevice9 *init_d3d9(HMODULE d3d9_handle)
 
     if(FAILED(hr))
     {
-        trace("could not create device, IDirect3D9_CreateDevice returned %#x\n", hr);
+        skip("could not create device, IDirect3D9_CreateDevice returned %#x\n", hr);
         return NULL;
     }
 
@@ -150,8 +150,11 @@ static void test_surface_alignment(IDirect3DDevice9 *device_ptr)
 
         hr = IDirect3DDevice9_CreateTexture(device_ptr, 64, 64, 0, 0, MAKEFOURCC('D', 'X', 'T', '1'+i),
                                             D3DPOOL_MANAGED, &pTexture, NULL);
-        ok(SUCCEEDED(hr), "IDirect3DDevice9_CreateTexture: %s\n", DXGetErrorString9(hr));
-        if (FAILED(hr)) continue;
+        ok(SUCCEEDED(hr) || hr == D3DERR_INVALIDCALL, "IDirect3DDevice9_CreateTexture: %s\n", DXGetErrorString9(hr));
+        if (FAILED(hr)) {
+            skip("DXT%d surfaces are not supported\n", i + 1);
+            continue;
+        }
 
         for (j = IDirect3DBaseTexture9_GetLevelCount(pTexture) - 1; j >= 0; j--)
         {
@@ -235,6 +238,7 @@ static void test_lockrect_invalid(IDirect3DDevice9 *device)
     BYTE *base;
     HRESULT hr;
 
+    const RECT test_rect_2 = { 0, 0, 8, 8 };
     const RECT test_data[] = {
         {60, 60, 68, 68},       /* Valid */
         {60, 60, 60, 68},       /* 0 height */
@@ -282,6 +286,28 @@ static void test_lockrect_invalid(IDirect3DDevice9 *device)
         hr = IDirect3DSurface9_UnlockRect(surface);
         ok(SUCCEEDED(hr), "UnlockRect failed (0x%08x)\n", hr);
     }
+
+    hr = IDirect3DSurface9_LockRect(surface, &locked_rect, NULL, 0);
+    ok(SUCCEEDED(hr), "LockRect failed (0x%08x) for rect NULL\n", hr);
+    hr = IDirect3DSurface9_LockRect(surface, &locked_rect, NULL, 0);
+    ok(hr == D3DERR_INVALIDCALL, "Double LockRect for rect NULL returned 0x%08x\n", hr);
+    hr = IDirect3DSurface9_UnlockRect(surface);
+    ok(SUCCEEDED(hr), "UnlockRect failed (0x%08x)\n", hr);
+
+    hr = IDirect3DSurface9_LockRect(surface, &locked_rect, &test_data[0], 0);
+    ok(hr == D3D_OK, "LockRect failed (0x%08x) for rect [%d, %d]->[%d, %d]"
+            ", expected D3D_OK (0x%08x)\n", hr, test_data[0].left, test_data[0].top,
+            test_data[0].right, test_data[0].bottom, D3D_OK);
+    hr = IDirect3DSurface9_LockRect(surface, &locked_rect, &test_data[0], 0);
+    ok(hr == D3DERR_INVALIDCALL, "Double LockRect failed (0x%08x) for rect [%d, %d]->[%d, %d]"
+            ", expected D3DERR_INVALIDCALL (0x%08x)\n", hr, test_data[0].left, test_data[0].top,
+            test_data[0].right, test_data[0].bottom, D3DERR_INVALIDCALL);
+    hr = IDirect3DSurface9_LockRect(surface, &locked_rect, &test_rect_2, 0);
+    ok(hr == D3DERR_INVALIDCALL, "Double LockRect failed (0x%08x) for rect [%d, %d]->[%d, %d]"
+            ", expected D3DERR_INVALIDCALL (0x%08x)\n", hr, test_rect_2.left, test_rect_2.top,
+            test_rect_2.right, test_rect_2.bottom, D3DERR_INVALIDCALL);
+    hr = IDirect3DSurface9_UnlockRect(surface);
+    ok(SUCCEEDED(hr), "UnlockRect failed (0x%08x)\n", hr);
 
     IDirect3DSurface9_Release(surface);
 }
@@ -337,7 +363,7 @@ static void test_private_data(IDirect3DDevice9 *device)
     hr = IDirect3DSurface9_GetPrivateData(surface, &IID_IDirect3DSurface9, &ptr, &size);
     ok(hr == D3D_OK, "IDirect3DSurface9_GetPrivateData failed with %08x\n", hr);
     ref2 = getref((IUnknown *) device);
-    /* Object is NOT beein addrefed */
+    /* Object is NOT being addrefed */
     ok(ptr == (IUnknown *) device, "Returned interface pointer is %p, expected %p\n", ptr, device);
     ok(ref2 == ref + 2, "Object reference is %d, expected %d. ptr at %p, orig at %p\n", ref2, ref + 2, ptr, device);
     IUnknown_Release(ptr);

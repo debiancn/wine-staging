@@ -358,13 +358,21 @@ void BuildSpec32File( DLLSPEC *spec )
 
     /* Reserve some space for the PE header */
 
-    output( "\t.text\n" );
-    output( "\t.align %d\n", get_alignment(page_size) );
-    output( "__wine_spec_pe_header:\n" );
     if (target_platform == PLATFORM_APPLE)
+    {
+        output( "\t.text\n" );
+        output( "\t.align %d\n", get_alignment(page_size) );
+        output( "__wine_spec_pe_header:\n" );
         output( "\t.space 65536\n" );
+    }
     else
-        output( "\t.skip 65536\n" );
+    {
+        output( "\n\t.section \".init\",\"ax\"\n" );
+        output( "\tjmp 1f\n" );
+        output( "__wine_spec_pe_header:\n" );
+        output( "\t.skip %u\n", 65536 + page_size );
+        output( "1:\n" );
+    }
 
     /* Output the NT header */
 
@@ -552,7 +560,7 @@ void BuildDef32File( DLLSPEC *spec )
             assert(0);
         }
         output( " @%d", odp->ordinal );
-        if (!odp->name) output( " NONAME" );
+        if (!odp->name || (odp->flags & FLAG_ORDINAL)) output( " NONAME" );
         if (is_data) output( " DATA" );
         if (odp->flags & FLAG_PRIVATE) output( " PRIVATE" );
         output( "\n" );

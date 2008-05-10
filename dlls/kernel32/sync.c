@@ -249,9 +249,18 @@ BOOL WINAPI RegisterWaitForSingleObject(PHANDLE phNewWaitObject, HANDLE hObject,
                 WAITORTIMERCALLBACK Callback, PVOID Context,
                 ULONG dwMilliseconds, ULONG dwFlags)
 {
-    FIXME("%p %p %p %p %d %d\n",
+    NTSTATUS status;
+
+    TRACE("%p %p %p %p %d %d\n",
           phNewWaitObject,hObject,Callback,Context,dwMilliseconds,dwFlags);
-    return FALSE;
+
+    status = RtlRegisterWait( phNewWaitObject, hObject, Callback, Context, dwMilliseconds, dwFlags );
+    if (status != STATUS_SUCCESS)
+    {
+        SetLastError( RtlNtStatusToDosError(status) );
+        return FALSE;
+    }
+    return TRUE;
 }
 
 /***********************************************************************
@@ -261,9 +270,19 @@ HANDLE WINAPI RegisterWaitForSingleObjectEx( HANDLE hObject,
                 WAITORTIMERCALLBACK Callback, PVOID Context,
                 ULONG dwMilliseconds, ULONG dwFlags ) 
 {
-    FIXME("%p %p %p %d %d\n",
+    NTSTATUS status;
+    HANDLE hNewWaitObject;
+
+    TRACE("%p %p %p %d %d\n",
           hObject,Callback,Context,dwMilliseconds,dwFlags);
-    return 0;
+
+    status = RtlRegisterWait( &hNewWaitObject, hObject, Callback, Context, dwMilliseconds, dwFlags );
+    if (status != STATUS_SUCCESS)
+    {
+        SetLastError( RtlNtStatusToDosError(status) );
+        return NULL;
+    }
+    return hNewWaitObject;
 }
 
 /***********************************************************************
@@ -271,8 +290,17 @@ HANDLE WINAPI RegisterWaitForSingleObjectEx( HANDLE hObject,
  */
 BOOL WINAPI UnregisterWait( HANDLE WaitHandle ) 
 {
-    FIXME("%p\n",WaitHandle);
-    return FALSE;
+    NTSTATUS status;
+
+    TRACE("%p\n",WaitHandle);
+
+    status = RtlDeregisterWait( WaitHandle );
+    if (status != STATUS_SUCCESS)
+    {
+        SetLastError( RtlNtStatusToDosError(status) );
+        return FALSE;
+    }
+    return TRUE;
 }
 
 /***********************************************************************
@@ -1026,7 +1054,7 @@ BOOL WINAPI DeleteTimerQueueEx(HANDLE TimerQueue, HANDLE CompletionEvent)
  * expires, the callback function is called.
  *
  * RETURNS
- *   nonzero on success or zero on faillure
+ *   nonzero on success or zero on failure
  *
  * BUGS
  *   Unimplemented
@@ -1046,7 +1074,7 @@ BOOL WINAPI CreateTimerQueueTimer( PHANDLE phNewTimer, HANDLE TimerQueue,
  * Cancels a timer-queue timer.
  *
  * RETURNS
- *   nonzero on success or zero on faillure
+ *   nonzero on success or zero on failure
  *
  * BUGS
  *   Unimplemented
@@ -1328,13 +1356,18 @@ BOOL WINAPI ConnectNamedPipe(HANDLE hPipe, LPOVERLAPPED overlapped)
 {
     NTSTATUS status;
     IO_STATUS_BLOCK status_block;
+    LPVOID   cvalue = NULL;
 
     TRACE("(%p,%p)\n", hPipe, overlapped);
 
     if(overlapped)
+    {
         overlapped->Internal = STATUS_PENDING;
+        overlapped->InternalHigh = 0;
+        if (((ULONG_PTR)overlapped->hEvent & 1) == 0) cvalue = overlapped;
+    }
 
-    status = NtFsControlFile(hPipe, overlapped ? overlapped->hEvent : NULL, NULL, NULL,
+    status = NtFsControlFile(hPipe, overlapped ? overlapped->hEvent : NULL, NULL, cvalue,
                              overlapped ? (IO_STATUS_BLOCK *)overlapped : &status_block,
                              FSCTL_PIPE_LISTEN, NULL, 0, NULL, 0);
 
@@ -1627,7 +1660,7 @@ BOOL WINAPI CreatePipe( PHANDLE hReadPipe, PHANDLE hWritePipe,
 /******************************************************************************
  * CreateMailslotA [KERNEL32.@]
  *
- * See CreatMailslotW.
+ * See CreateMailslotW.
  */
 HANDLE WINAPI CreateMailslotA( LPCSTR lpName, DWORD nMaxMessageSize,
                                DWORD lReadTimeout, LPSECURITY_ATTRIBUTES sa )
@@ -1907,8 +1940,13 @@ BOOL WINAPI PostQueuedCompletionStatus( HANDLE CompletionPort, DWORD dwNumberOfB
  */
 BOOL WINAPI BindIoCompletionCallback( HANDLE FileHandle, LPOVERLAPPED_COMPLETION_ROUTINE Function, ULONG Flags)
 {
-    FIXME("%p, %p, %d, stub!\n", FileHandle, Function, Flags);
-    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+    NTSTATUS status;
+
+    TRACE("(%p, %p, %d)\n", FileHandle, Function, Flags);
+
+    status = RtlSetIoCompletionCallback( FileHandle, (PRTL_OVERLAPPED_COMPLETION_ROUTINE)Function, Flags );
+    if (status == STATUS_SUCCESS) return TRUE;
+    SetLastError( RtlNtStatusToDosError(status) );
     return FALSE;
 }
 

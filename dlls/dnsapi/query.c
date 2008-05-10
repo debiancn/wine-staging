@@ -180,7 +180,7 @@ static char *dns_dname_from_msg( ns_msg msg, const unsigned char *pos )
                                   pos, dname, sizeof(dname) );
 
     len = strlen( dname );
-    str = dns_alloc( len + 1 );
+    str = heap_alloc( len + 1 );
     if (str) strcpy( str, dname );
     return str;
 }
@@ -190,7 +190,7 @@ static char *dns_str_from_rdata( const unsigned char *rdata )
     char *str;
     unsigned int len = rdata[0];
 
-    str = dns_alloc( len + 1 );
+    str = heap_alloc( len + 1 );
     if (str)
     {
         memcpy( str, ++rdata, len );
@@ -279,13 +279,13 @@ static DNS_STATUS dns_copy_rdata( ns_msg msg, const ns_rr *rr, DNS_RECORDA *r, W
     {
         /* FIXME: byte order? */
         r->Data.KEY.wFlags      = *(const WORD *)pos;   pos += sizeof(WORD);
-        r->Data.KEY.chProtocol  = *(const BYTE *)pos++;
-        r->Data.KEY.chAlgorithm = *(const BYTE *)pos++;
+        r->Data.KEY.chProtocol  = *pos++;
+        r->Data.KEY.chAlgorithm = *pos++;
 
         size = rr->rdata + rr->rdlength - pos;
 
         for (i = 0; i < size; i++)
-            r->Data.KEY.Key[i] = *(const BYTE *)pos++;
+            r->Data.KEY.Key[i] = *pos++;
 
         *dlen = sizeof(DNS_KEY_DATA) + (size - 1) * sizeof(BYTE);
         break;
@@ -302,7 +302,7 @@ static DNS_STATUS dns_copy_rdata( ns_msg msg, const ns_rr *rr, DNS_RECORDA *r, W
         r->Data.MINFO.pNameErrorsMailbox = dns_dname_from_msg( msg, pos );
         if (!r->Data.MINFO.pNameErrorsMailbox)
         {
-            dns_free( r->Data.MINFO.pNameMailbox ); 
+            heap_free( r->Data.MINFO.pNameMailbox );
             return ERROR_NOT_ENOUGH_MEMORY;
         }
 
@@ -353,8 +353,8 @@ static DNS_STATUS dns_copy_rdata( ns_msg msg, const ns_rr *rr, DNS_RECORDA *r, W
 
         /* FIXME: byte order? */
         r->Data.SIG.wTypeCovered  = *(const WORD *)pos;   pos += sizeof(WORD);
-        r->Data.SIG.chAlgorithm   = *(const BYTE *)pos++;
-        r->Data.SIG.chLabelCount  = *(const BYTE *)pos++;
+        r->Data.SIG.chAlgorithm   = *pos++;
+        r->Data.SIG.chLabelCount  = *pos++;
         r->Data.SIG.dwOriginalTtl = *(const DWORD *)pos;  pos += sizeof(DWORD);
         r->Data.SIG.dwExpiration  = *(const DWORD *)pos;  pos += sizeof(DWORD);
         r->Data.SIG.dwTimeSigned  = *(const DWORD *)pos;  pos += sizeof(DWORD);
@@ -363,7 +363,7 @@ static DNS_STATUS dns_copy_rdata( ns_msg msg, const ns_rr *rr, DNS_RECORDA *r, W
         size = rr->rdata + rr->rdlength - pos;
 
         for (i = 0; i < size; i++)
-            r->Data.SIG.Signature[i] = *(const BYTE *)pos++;
+            r->Data.SIG.Signature[i] = *pos++;
 
         *dlen = sizeof(DNS_SIG_DATAA) + (size - 1) * sizeof(BYTE);
         break; 
@@ -379,7 +379,7 @@ static DNS_STATUS dns_copy_rdata( ns_msg msg, const ns_rr *rr, DNS_RECORDA *r, W
         r->Data.SOA.pNameAdministrator = dns_dname_from_msg( msg, pos );
         if (!r->Data.SOA.pNameAdministrator)
         {
-            dns_free( r->Data.SOA.pNamePrimaryServer ); 
+            heap_free( r->Data.SOA.pNamePrimaryServer );
             return ERROR_NOT_ENOUGH_MEMORY;
         }
 
@@ -418,7 +418,7 @@ static DNS_STATUS dns_copy_rdata( ns_msg msg, const ns_rr *rr, DNS_RECORDA *r, W
             r->Data.TXT.pStringArray[i] = dns_str_from_rdata( pos );
             if (!r->Data.TXT.pStringArray[i])
             {
-                while (i > 0) dns_free( r->Data.TXT.pStringArray[--i] );
+                while (i > 0) heap_free( r->Data.TXT.pStringArray[--i] );
                 return ERROR_NOT_ENOUGH_MEMORY;
             }
             i++;
@@ -455,13 +455,13 @@ static DNS_STATUS dns_copy_record( ns_msg msg, ns_sect section,
     if (dns_ns_parserr( &msg, section, num, &rr ) < 0)
         return DNS_ERROR_BAD_PACKET;
 
-    if (!(record = dns_zero_alloc( dns_get_record_size( &rr ) )))
+    if (!(record = heap_alloc_zero( dns_get_record_size( &rr ) )))
         return ERROR_NOT_ENOUGH_MEMORY;
 
     record->pName = dns_strdup_u( rr.name );
     if (!record->pName)
     {
-        dns_free( record );
+        heap_free( record );
         return ERROR_NOT_ENOUGH_MEMORY;
     }
 
@@ -472,8 +472,8 @@ static DNS_STATUS dns_copy_record( ns_msg msg, ns_sect section,
 
     if ((ret = dns_copy_rdata( msg, &rr, record, &dlen )))
     {
-        dns_free( record->pName );
-        dns_free( record );
+        heap_free( record->pName );
+        heap_free( record );
         return ret;
     }
     record->wDataLength = dlen;
@@ -517,7 +517,7 @@ static DNS_STATUS dns_do_query_netbios( PCSTR name, DNS_RECORDA **recp )
 
     for (i = 0; i < header->node_count; i++) 
     {
-        record = dns_zero_alloc( sizeof(DNS_RECORDA) );
+        record = heap_alloc_zero( sizeof(DNS_RECORDA) );
         if (!record)
         {
             status = ERROR_NOT_ENOUGH_MEMORY;
@@ -660,7 +660,7 @@ exit:
  * DnsQuery_A           [DNSAPI.@]
  *
  */
-DNS_STATUS WINAPI DnsQuery_A( PCSTR name, WORD type, DWORD options, PIP4_ARRAY servers,
+DNS_STATUS WINAPI DnsQuery_A( PCSTR name, WORD type, DWORD options, PVOID servers,
                               PDNS_RECORDA *result, PVOID *reserved )
 {
     WCHAR *nameW;
@@ -687,7 +687,7 @@ DNS_STATUS WINAPI DnsQuery_A( PCSTR name, WORD type, DWORD options, PIP4_ARRAY s
         DnsRecordListFree( (DNS_RECORD *)resultW, DnsFreeRecordList );
     }
 
-    dns_free( nameW );
+    heap_free( nameW );
     return status;
 }
 
@@ -695,7 +695,7 @@ DNS_STATUS WINAPI DnsQuery_A( PCSTR name, WORD type, DWORD options, PIP4_ARRAY s
  * DnsQuery_UTF8              [DNSAPI.@]
  *
  */
-DNS_STATUS WINAPI DnsQuery_UTF8( PCSTR name, WORD type, DWORD options, PIP4_ARRAY servers,
+DNS_STATUS WINAPI DnsQuery_UTF8( PCSTR name, WORD type, DWORD options, PVOID servers,
                                  PDNS_RECORDA *result, PVOID *reserved )
 {
     DNS_STATUS ret = DNS_ERROR_RCODE_NOT_IMPLEMENTED;
@@ -737,7 +737,7 @@ DNS_STATUS WINAPI DnsQuery_UTF8( PCSTR name, WORD type, DWORD options, PIP4_ARRA
  * DnsQuery_W              [DNSAPI.@]
  *
  */
-DNS_STATUS WINAPI DnsQuery_W( PCWSTR name, WORD type, DWORD options, PIP4_ARRAY servers,
+DNS_STATUS WINAPI DnsQuery_W( PCWSTR name, WORD type, DWORD options, PVOID servers,
                               PDNS_RECORDW *result, PVOID *reserved )
 {
     char *nameU;
@@ -764,12 +764,12 @@ DNS_STATUS WINAPI DnsQuery_W( PCWSTR name, WORD type, DWORD options, PIP4_ARRAY 
         DnsRecordListFree( (DNS_RECORD *)resultA, DnsFreeRecordList );
     }
 
-    dns_free( nameU );
+    heap_free( nameU );
     return status;
 }
 
 static DNS_STATUS dns_get_hostname_a( COMPUTER_NAME_FORMAT format,
-                                      LPSTR buffer, PDWORD len )
+                                      PSTR buffer, PDWORD len )
 {
     char name[256];
     DWORD size = sizeof(name);
@@ -788,7 +788,7 @@ static DNS_STATUS dns_get_hostname_a( COMPUTER_NAME_FORMAT format,
 }
 
 static DNS_STATUS dns_get_hostname_w( COMPUTER_NAME_FORMAT format,
-                                      LPWSTR buffer, PDWORD len )
+                                      PWSTR buffer, PDWORD len )
 {
     WCHAR name[256];
     DWORD size = sizeof(name);
@@ -810,7 +810,7 @@ static DNS_STATUS dns_get_hostname_w( COMPUTER_NAME_FORMAT format,
  * DnsQueryConfig          [DNSAPI.@]
  *
  */
-DNS_STATUS WINAPI DnsQueryConfig( DNS_CONFIG_TYPE config, DWORD flag, PWSTR adapter,
+DNS_STATUS WINAPI DnsQueryConfig( DNS_CONFIG_TYPE config, DWORD flag, PCWSTR adapter,
                                   PVOID reserved, PVOID buffer, PDWORD len )
 {
     DNS_STATUS ret = ERROR_INVALID_PARAMETER;

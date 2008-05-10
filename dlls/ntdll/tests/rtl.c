@@ -337,7 +337,7 @@ static void test_RtlUniform(void)
  */
 
     if (result == 0x7fffff9f) {
-        trace("Most likely running on Windows Vista, skipping rest of tests\n");
+        skip("Most likely running on Windows Vista which uses a different algorithm\n");
         return;
     }
 
@@ -635,7 +635,7 @@ static void test_RtlRandom(void)
  */
 
     if (seed == 0x3fc) {
-        trace("Most likely running on Windows Vista, skipping rest of tests\n");
+        skip("Most likely running on Windows Vista which uses a different algorithm\n");
         return;
     }
 
@@ -647,7 +647,7 @@ static void test_RtlRandom(void)
         seed, seed_expected);
 /*
  * Seed is not equal to result as with RtlUniform. To see more we
- * call RtlRandom aggain with seed set to 0:
+ * call RtlRandom again with seed set to 0:
  */
     seed = 0;
     result_expected = 0x7fffffc3;
@@ -661,7 +661,7 @@ static void test_RtlRandom(void)
         seed, seed_expected);
 /*
  * Seed is set to the same value as before but the result is different.
- * To see more we call RtlRandom aggain with seed set to 0:
+ * To see more we call RtlRandom again with seed set to 0:
  */
     seed = 0;
     result_expected = 0x7fffffc3;
@@ -674,7 +674,7 @@ static void test_RtlRandom(void)
         "RtlRandom(&seed (seed == 0)) sets seed to %x, expected %x\n",
         seed, seed_expected);
 /*
- * Seed is aggain set to the same value as before. This time we also
+ * Seed is again set to the same value as before. This time we also
  * have the same result as before. Interestingly the value of the
  * result is 0x7fffffc3 which is the same value used in RtlUniform
  * as const_2. If we do
@@ -701,7 +701,7 @@ static void test_RtlRandom(void)
  * RtlRandom(&seed);
  *
  * assigns to seed. Putting these two findings together leads to
- * the concluson that RtlRandom saves the value in some variable,
+ * the conclusion that RtlRandom saves the value in some variable,
  * like in the following algorithm:
  *
  * result = saved_value;

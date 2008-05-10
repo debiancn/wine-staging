@@ -73,12 +73,6 @@
 #endif /* STRING */
 #endif /* CONSOLE */
 
-/*********************************************************************
- * Implemented based on
- * http://msdn.microsoft.com/library/default.asp?url=/library/en-us/vccore98/html/_crt_format_specification_fields_.2d_.scanf_and_wscanf_functions.asp
- * Extended by C. Scott Ananian <cananian@alumni.princeton.edu> to handle
- * more types of format spec.
- */
 _FUNCTION_ {
     int rd = 0, consumed = 0;
     int nch;
@@ -314,8 +308,7 @@ _FUNCTION_ {
 		    }
                 }
                 break;
-		/* According to
-		 * http://msdn.microsoft.com/library/default.asp?url=/library/en-us/vclib/html/_crt_scanf_type_field_characters.asp
+		/* According to msdn,
 		 * 's' reads a character string in a call to fscanf
 		 * and 'S' a wide character string and vice versa in a
 		 * call to fwscanf. The 'h', 'w' and 'l' prefixes override
@@ -338,8 +331,7 @@ _FUNCTION_ {
 		    else goto widecharstring;
 #endif /* WIDE_SCANF */
 	    charstring: { /* read a word into a char */
-		    char*str = suppress ? NULL : va_arg(ap, char*);
-                    char*sptr = str;
+		    char *sptr = suppress ? NULL : va_arg(ap, char*);
                     /* skip initial whitespace */
                     while ((nch!=_EOF_) && _ISSPACE_(nch))
                         nch = _GETC_(file);
@@ -355,9 +347,7 @@ _FUNCTION_ {
                 }
                 break;
 	    widecharstring: { /* read a word into a wchar_t* */
-		    MSVCRT_wchar_t*str =
-			suppress ? NULL : va_arg(ap, MSVCRT_wchar_t*);
-                    MSVCRT_wchar_t*sptr = str;
+		    MSVCRT_wchar_t *sptr = suppress ? NULL : va_arg(ap, MSVCRT_wchar_t*);
                     /* skip initial whitespace */
                     while ((nch!=_EOF_) && _ISSPACE_(nch))
                         nch = _GETC_(file);
@@ -391,24 +381,26 @@ _FUNCTION_ {
 		    else goto widecharacter;
 #endif /* WIDE_SCANF */
 	  character: { /* read single character into char */
-                    if (nch!=_EOF_) {
-                        if (!suppress) {
-                            char*c = va_arg(ap, char*);
-                            *c = _CHAR2SUPPORTED_(nch);
-                        }
-                        st = 1;
+                    char *str = suppress ? NULL : va_arg(ap, char*);
+                    if (width == -1) width = 1;
+                    while ((width != 0) && (nch != _EOF_))
+                    {
+                        if (!suppress) *str++ = _CHAR2SUPPORTED_(nch);
+                        st++;
+                        width--;
                         nch = _GETC_(file);
                     }
                 }
 		break;
 	  widecharacter: { /* read single character into a wchar_t */
-                    if (nch!=_EOF_) {
-                        if (!suppress) {
-                            MSVCRT_wchar_t*c = va_arg(ap, MSVCRT_wchar_t*);
-                            *c = _WIDE2SUPPORTED_(nch);
-                        }
+                    MSVCRT_wchar_t *str = suppress ? NULL : va_arg(ap, MSVCRT_wchar_t*);
+                    if (width == -1) width = 1;
+                    while ((width != 0) && (nch != _EOF_))
+                    {
+                        if (!suppress) *str++ = _WIDE2SUPPORTED_(nch);
+                        st++;
+                        width--;
                         nch = _GETC_(file);
-                        st = 1;
                     }
 	        }
 		break;
@@ -454,8 +446,7 @@ _FUNCTION_ {
 			format++;
 		    }
                     while(*format && (*format != ']')) {
-			/* According to:
-			 * http://msdn.microsoft.com/library/default.asp?url=/library/en-us/vccore98/html/_crt_scanf_width_specification.asp
+			/* According to msdn:
 			 * "Note that %[a-z] and %[z-a] are interpreted as equivalent to %[abcde...z]." */
 			if((*format == '-') && (*(format + 1) != ']')) {
 			    if ((*(format - 1)) < *(format + 1))

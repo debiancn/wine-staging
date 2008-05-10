@@ -370,7 +370,7 @@ static BOOL UITOOLS95_DrawDiagEdge(HDC hdc, LPRECT rc,
  * Well, I started testing this and found out that there are a few things
  * that weren't quite as win95. The following rewrite should reproduce
  * win95 results completely.
- * The colorselection is table-driven to avoid awfull if-statements.
+ * The colorselection is table-driven to avoid awful if-statements.
  * The table below show the color settings.
  *
  * Pen selection table for uFlags = 0
@@ -576,8 +576,7 @@ static BOOL UITOOLS95_DrawRectEdge(HDC hdc, LPRECT rc,
  */
 BOOL WINAPI DrawEdge( HDC hdc, LPRECT rc, UINT edge, UINT flags )
 {
-    TRACE("%p %d,%d-%d,%d %04x %04x\n",
-          hdc, rc->left, rc->top, rc->right, rc->bottom, edge, flags );
+    TRACE("%p %s %04x %04x\n", hdc, wine_dbgstr_rect(rc), edge, flags );
 
     if(flags & BF_DIAGONAL)
       return UITOOLS95_DrawDiagEdge(hdc, rc, edge, flags);

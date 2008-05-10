@@ -175,7 +175,7 @@ BOOL WINAPI SymSetSearchPath(HANDLE hProcess, PCSTR searchPath)
 /***********************************************************************
  *		SymGetSearchPathW (DBGHELP.@)
  */
-BOOL WINAPI SymGetSearchPathW(HANDLE hProcess, LPWSTR szSearchPath, 
+BOOL WINAPI SymGetSearchPathW(HANDLE hProcess, PWSTR szSearchPath,
                               DWORD SearchPathLength)
 {
     struct process* pcs = process_find_by_handle(hProcess);
@@ -188,7 +188,7 @@ BOOL WINAPI SymGetSearchPathW(HANDLE hProcess, LPWSTR szSearchPath,
 /***********************************************************************
  *		SymGetSearchPath (DBGHELP.@)
  */
-BOOL WINAPI SymGetSearchPath(HANDLE hProcess, LPSTR szSearchPath, 
+BOOL WINAPI SymGetSearchPath(HANDLE hProcess, PSTR szSearchPath,
                              DWORD SearchPathLength)
 {
     WCHAR*      buffer = HeapAlloc(GetProcessHeap(), 0, SearchPathLength * sizeof(WCHAR));
@@ -211,10 +211,10 @@ BOOL WINAPI SymGetSearchPath(HANDLE hProcess, LPSTR szSearchPath,
  * SymInitialize helper: loads in dbghelp all known (and loaded modules)
  * this assumes that hProcess is a handle on a valid process
  */
-static BOOL WINAPI process_invade_cb(char* name, DWORD base, DWORD size, void* user)
+static BOOL WINAPI process_invade_cb(PCSTR name, ULONG base, ULONG size, PVOID user)
 {
     char        tmp[MAX_PATH];
-    HANDLE      hProcess = (HANDLE)user;
+    HANDLE      hProcess = user;
 
     if (!GetModuleFileNameExA(hProcess, (HMODULE)base, 
                               tmp, sizeof(tmp)))
@@ -268,8 +268,14 @@ BOOL WINAPI SymInitializeW(HANDLE hProcess, PCWSTR UserSearchPath, BOOL fInvadeP
 
     TRACE("(%p %s %u)\n", hProcess, debugstr_w(UserSearchPath), fInvadeProcess);
 
-    if (process_find_by_handle(hProcess))
-        FIXME("what to do ??\n");
+    if (process_find_by_handle(hProcess)){
+        WARN("the symbols for this process have already been initialized!\n");
+
+        /* MSDN says to only call this function once unless SymCleanup() has been called since the last call.
+           It also says to call SymRefreshModuleList() instead if you just want the module list refreshed.
+           Native still returns TRUE even if the process has already been initialized. */
+        return TRUE;
+    }
 
     pcs = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*pcs));
     if (!pcs) return FALSE;
@@ -320,7 +326,7 @@ BOOL WINAPI SymInitializeW(HANDLE hProcess, PCWSTR UserSearchPath, BOOL fInvadeP
     if (check_live_target(pcs))
     {
         if (fInvadeProcess)
-            EnumerateLoadedModules(hProcess, process_invade_cb, (void*)hProcess);
+            EnumerateLoadedModules(hProcess, process_invade_cb, hProcess);
         elf_synchronize_module_list(pcs);
     }
     else if (fInvadeProcess)
@@ -379,6 +385,8 @@ BOOL WINAPI SymCleanup(HANDLE hProcess)
             return TRUE;
         }
     }
+
+    ERR("this process has not had SymInitialize() called for it!\n");
     return FALSE;
 }
 
@@ -488,7 +496,7 @@ static BOOL CALLBACK reg_cb64to32(HANDLE hProcess, ULONG action, ULONG64 data, U
         FIXME("No mapping for action %u\n", action);
         return FALSE;
     }
-    return cb32(hProcess, action, (PVOID)data32, (PVOID)user32);
+    return cb32(hProcess, action, data32, (PVOID)user32);
 }
 
 /******************************************************************

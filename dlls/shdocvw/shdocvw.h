@@ -38,6 +38,8 @@
 #include "mshtmhst.h"
 #include "hlink.h"
 
+#include "wine/unicode.h"
+
 /**********************************************************************
  * Shell Instance Objects
  */
@@ -49,6 +51,7 @@ extern HRESULT SHDOCVW_GetShellInstanceObjectClassObject(REFCLSID rclsid,
  */
 
 typedef struct ConnectionPoint ConnectionPoint;
+typedef struct DocHost DocHost;
 
 typedef struct {
     const IConnectionPointContainerVtbl *lpConnectionPointContainerVtbl;
@@ -60,7 +63,15 @@ typedef struct {
     IUnknown *impl;
 } ConnectionPointContainer;
 
-typedef struct {
+struct _task_header_t;
+
+typedef void (*task_proc_t)(DocHost*, struct _task_header_t*);
+
+typedef struct _task_header_t {
+    task_proc_t proc;
+} task_header_t;
+
+struct DocHost {
     const IOleClientSiteVtbl      *lpOleClientSiteVtbl;
     const IOleInPlaceSiteVtbl     *lpOleInPlaceSiteVtbl;
     const IDocHostUIHandler2Vtbl  *lpDocHostUIHandlerVtbl;
@@ -88,9 +99,10 @@ typedef struct {
 
     VARIANT_BOOL silent;
     VARIANT_BOOL offline;
+    VARIANT_BOOL busy;
 
     ConnectionPointContainer cps;
-} DocHost;
+};
 
 struct WebBrowser {
     /* Interfaces available via WebBrowser object */
@@ -100,6 +112,7 @@ struct WebBrowser {
     const IOleInPlaceObjectVtbl         *lpOleInPlaceObjectVtbl;
     const IOleControlVtbl               *lpOleControlVtbl;
     const IPersistStorageVtbl           *lpPersistStorageVtbl;
+    const IPersistMemoryVtbl            *lpPersistMemoryVtbl;
     const IPersistStreamInitVtbl        *lpPersistStreamInitVtbl;
     const IProvideClassInfo2Vtbl        *lpProvideClassInfoVtbl;
     const IViewObject2Vtbl              *lpViewObjectVtbl;
@@ -131,6 +144,8 @@ struct WebBrowser {
     VARIANT_BOOL address_bar;
     VARIANT_BOOL status_bar;
     VARIANT_BOOL tool_bar;
+    VARIANT_BOOL full_screen;
+    VARIANT_BOOL theater_mode;
 
     DocHost doc_host;
 };
@@ -151,6 +166,7 @@ struct InternetExplorer {
 #define INPLACEOBJ(x)   ((IOleInPlaceObject*)           &(x)->lpOleInPlaceObjectVtbl)
 #define CONTROL(x)      ((IOleControl*)                 &(x)->lpOleControlVtbl)
 #define PERSTORAGE(x)   ((IPersistStorage*)             &(x)->lpPersistStorageVtbl)
+#define PERMEMORY(x)    ((IPersistMemory*)              &(x)->lpPersistMemoryVtbl)
 #define PERSTRINIT(x)   ((IPersistStreamInit*)          &(x)->lpPersistStreamInitVtbl)
 #define CLASSINFO(x)    ((IProvideClassInfo2*)          &(x)->lpProvideClassInfoVtbl)
 #define CONPTCONT(x)    ((IConnectionPointContainer*)   &(x)->lpConnectionPointContainerVtbl)
@@ -193,15 +209,19 @@ HRESULT WebBrowserV2_Create(IUnknown*,REFIID,void**);
 
 void create_doc_view_hwnd(DocHost*);
 void deactivate_document(DocHost*);
+void object_available(DocHost*);
 void call_sink(ConnectionPoint*,DISPID,DISPPARAMS*);
-HRESULT navigate_url(DocHost*,BSTR,VARIANT*,VARIANT*,VARIANT*,VARIANT*);
+HRESULT navigate_url(DocHost*,LPCWSTR,const VARIANT*,const VARIANT*,VARIANT*,VARIANT*);
+HRESULT go_home(DocHost*);
+
+#define WM_DOCHOSTTASK (WM_USER+0x300)
+void push_dochost_task(DocHost*,task_header_t*,task_proc_t,BOOL);
+LRESULT  process_dochost_task(DocHost*,LPARAM);
 
 HRESULT InternetExplorer_Create(IUnknown*,REFIID,void**);
 void InternetExplorer_WebBrowser_Init(InternetExplorer*);
 
 HRESULT CUrlHistory_Create(IUnknown*,REFIID,void**);
-
-#define WB_WM_NAVIGATE2 (WM_USER+100)
 
 #define DEFINE_THIS(cls,ifc,iface) ((cls*)((BYTE*)(iface)-offsetof(cls,lp ## ifc ## Vtbl)))
 
@@ -218,22 +238,38 @@ extern void unregister_iewindow_class(void);
 
 HRESULT register_class_object(BOOL);
 HRESULT get_typeinfo(ITypeInfo**);
+DWORD register_iexplore(BOOL);
 
 /* memory allocation functions */
 
-static inline void *shdocvw_alloc(size_t len)
+static inline void *heap_alloc(size_t len)
 {
     return HeapAlloc(GetProcessHeap(), 0, len);
 }
 
-static inline void *shdocvw_realloc(void *mem, size_t len)
+static inline void *heap_realloc(void *mem, size_t len)
 {
     return HeapReAlloc(GetProcessHeap(), 0, mem, len);
 }
 
-static inline BOOL shdocvw_free(void *mem)
+static inline BOOL heap_free(void *mem)
 {
     return HeapFree(GetProcessHeap(), 0, mem);
+}
+
+static inline LPWSTR heap_strdupW(LPCWSTR str)
+{
+    LPWSTR ret = NULL;
+
+    if(str) {
+        DWORD size;
+
+        size = (strlenW(str)+1)*sizeof(WCHAR);
+        ret = heap_alloc(size);
+        memcpy(ret, str, size);
+    }
+
+    return ret;
 }
 
 #endif /* __WINE_SHDOCVW_H */

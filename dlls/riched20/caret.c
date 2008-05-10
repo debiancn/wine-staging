@@ -27,7 +27,6 @@ WINE_DEFAULT_DEBUG_CHANNEL(richedit);
 static BOOL
 ME_MoveCursorChars(ME_TextEditor *editor, ME_Cursor *pCursor, int nRelOfs);
 
-
 void ME_GetSelection(ME_TextEditor *editor, int *from, int *to)
 {
   *from = ME_GetCursorOfs(editor, 0);
@@ -47,19 +46,21 @@ int ME_GetTextLength(ME_TextEditor *editor)
 }
 
 
-int ME_GetTextLengthEx(ME_TextEditor *editor, GETTEXTLENGTHEX *how)
+int ME_GetTextLengthEx(ME_TextEditor *editor, const GETTEXTLENGTHEX *how)
 {
   int length;
-  
+
   if (how->flags & GTL_PRECISE && how->flags & GTL_CLOSE)
     return E_INVALIDARG;
   if (how->flags & GTL_NUMCHARS && how->flags & GTL_NUMBYTES)
     return E_INVALIDARG;
   
   length = ME_GetTextLength(editor);
-  
-  if (how->flags & GTL_USECRLF)
-    length += editor->nParagraphs;
+
+  if ((GetWindowLongW(editor->hWnd, GWL_STYLE) & ES_MULTILINE)
+        && (how->flags & GTL_USECRLF)
+        && !editor->bEmulateVersion10) /* Ignore GTL_USECRLF flag in 1.0 emulation */
+    length += editor->nParagraphs - 1;
   
   if (how->flags & GTL_NUMBYTES)
   {
@@ -203,19 +204,21 @@ ME_GetCursorCoordinates(ME_TextEditor *editor, ME_Cursor *pCursor,
           pSizeRun = run = tmp;
           assert(run);
           assert(run->type == diRun);
-          sz = ME_GetRunSize(&c, &para->member.para, &run->member.run, ME_StrLen(run->member.run.strText));
+          sz = ME_GetRunSize(&c, &para->member.para,
+                             &run->member.run, ME_StrLen(run->member.run.strText),
+                             row->member.row.nLMargin);
         }
       }
       if (pCursor->nOffset && !(run->member.run.nFlags & MERF_SKIPPED)) {
-        sz = ME_GetRunSize(&c, &para->member.para, &run->member.run, pCursor->nOffset);
+        sz = ME_GetRunSize(&c, &para->member.para, &run->member.run, pCursor->nOffset,
+                           row->member.row.nLMargin);
       }
 
       *height = pSizeRun->member.run.nAscent + pSizeRun->member.run.nDescent;
       *x = run->member.run.pt.x + sz.cx;
       *y = para->member.para.nYPos + row->member.row.nBaseline + pSizeRun->member.run.pt.y - pSizeRun->member.run.nAscent - ME_GetYScrollPos(editor);
-      
-      ME_DestroyContext(&c);
-      ReleaseDC(editor->hWnd, hDC);
+
+      ME_DestroyContext(&c, editor->hWnd);
       return;
     }
   }
@@ -230,7 +233,8 @@ ME_MoveCaret(ME_TextEditor *editor)
 {
   int x, y, height;
 
-  ME_WrapMarkedParagraphs(editor);
+  if (ME_WrapMarkedParagraphs(editor))
+    ME_UpdateScrollBar(editor);
   ME_GetCursorCoordinates(editor, &editor->pCursors[0], &x, &y, &height);
   if(editor->bHaveFocus)
   {
@@ -268,6 +272,8 @@ void ME_InternalDeleteText(ME_TextEditor *editor, int nOfs,
     ME_CursorFromCharOfs(editor, nOfs, &c);
     run = &c.pRun->member.run;
     if (run->nFlags & MERF_ENDPARA) {
+      int eollen = run->nCR + run->nLF;
+
       if (!ME_FindItemFwd(c.pRun, diParagraph))
       {
         return;
@@ -275,9 +281,7 @@ void ME_InternalDeleteText(ME_TextEditor *editor, int nOfs,
       ME_JoinParagraphs(editor, ME_GetParagraph(c.pRun));
       /* ME_SkipAndPropagateCharOffset(p->pRun, shift); */
       ME_CheckCharOffsets(editor);
-      nChars--;
-      if (editor->bEmulateVersion10 && nChars)
-        nChars--;
+      nChars -= (eollen < nChars) ? eollen : nChars;
       continue;
     }
     else
@@ -393,21 +397,38 @@ ME_InternalInsertTextFromCursor(ME_TextEditor *editor, int nCursor,
 }
 
 
-/* FIXME this is temporary, just to have something to test how bad graphics handler is */
-void ME_InsertGraphicsFromCursor(ME_TextEditor *editor, int nCursor)
+void ME_InsertOLEFromCursor(ME_TextEditor *editor, const REOBJECT* reo, int nCursor)
 {
-  ME_Style *pStyle = ME_GetInsertStyle(editor, nCursor);
-  WCHAR space = ' ';
+  ME_Style              *pStyle = ME_GetInsertStyle(editor, nCursor);
+  ME_DisplayItem        *di;
+  WCHAR                 space = ' ';
   
   /* FIXME no no no */
   if (ME_IsSelection(editor))
     ME_DeleteSelection(editor);
 
-  ME_InternalInsertTextFromCursor(editor, nCursor, &space, 1, pStyle,
-                                  MERF_GRAPHICS);
+  di = ME_InternalInsertTextFromCursor(editor, nCursor, &space, 1, pStyle,
+                                       MERF_GRAPHICS);
+  di->member.run.ole_obj = ALLOC_OBJ(*reo);
+  ME_CopyReObject(di->member.run.ole_obj, reo);
   ME_SendSelChange(editor);
 }
 
+
+void ME_InsertEndRowFromCursor(ME_TextEditor *editor, int nCursor)
+{
+  ME_Style              *pStyle = ME_GetInsertStyle(editor, nCursor);
+  ME_DisplayItem        *di;
+  WCHAR                 space = ' ';
+
+  /* FIXME no no no */
+  if (ME_IsSelection(editor))
+    ME_DeleteSelection(editor);
+
+  di = ME_InternalInsertTextFromCursor(editor, nCursor, &space, 1, pStyle,
+                                       MERF_ENDROW);
+  ME_SendSelChange(editor);
+}
 
 void
 ME_InsertTableCellFromCursor(ME_TextEditor *editor, int nCursor)
@@ -440,7 +461,7 @@ void ME_InsertTextFromCursor(ME_TextEditor *editor, int nCursor,
 {
   const WCHAR *pos;
   ME_Cursor *p = NULL;
-  int freeSpace;
+  int oldLen;
 
   /* FIXME really HERE ? */
   if (ME_IsSelection(editor))
@@ -448,7 +469,7 @@ void ME_InsertTextFromCursor(ME_TextEditor *editor, int nCursor,
 
   /* FIXME: is this too slow? */
   /* Didn't affect performance for WM_SETTEXT (around 50sec/30K) */
-  freeSpace = editor->nTextLimit - ME_GetTextLength(editor);
+  oldLen = ME_GetTextLength(editor);
 
   /* text operations set modified state */
   editor->nModifyStep = 1;
@@ -458,7 +479,11 @@ void ME_InsertTextFromCursor(ME_TextEditor *editor, int nCursor,
   assert(nCursor>=0 && nCursor<editor->nCursors);
   if (len == -1)
     len = lstrlenW(str);
-  len = min(len, freeSpace);
+
+  /* grow the text limit to fit our text */
+  if(editor->nTextLimit < oldLen +len)
+    editor->nTextLimit = oldLen + len;
+
   while (len)
   {
     pos = str;
@@ -480,9 +505,27 @@ void ME_InsertTextFromCursor(ME_TextEditor *editor, int nCursor,
         continue;
       }
     }
+    /* handle special \r\r\n sequence (richedit 2.x and higher only) */
+    if (!editor->bEmulateVersion10 && pos-str < len-2 && pos[0] == '\r' && pos[1] == '\r' && pos[2] == '\n') {
+      WCHAR space = ' ';
+
+      if (pos!=str)
+        ME_InternalInsertTextFromCursor(editor, nCursor, str, pos-str, style, 0);
+
+      ME_InternalInsertTextFromCursor(editor, nCursor, &space, 1, style, 0);
+
+      pos+=3;
+      if(pos-str <= len) {
+        len -= pos - str;
+        str = pos;
+        continue;
+      }
+    }
     if (pos-str < len) {   /* handle EOLs */
       ME_DisplayItem *tp, *end_run;
       ME_Style *tmp_style;
+      int numCR, numLF;
+
       if (pos!=str)
         ME_InternalInsertTextFromCursor(editor, nCursor, str, pos-str, style, 0);
       p = &editor->pCursors[nCursor];
@@ -492,16 +535,48 @@ void ME_InsertTextFromCursor(ME_TextEditor *editor, int nCursor,
       }
       tmp_style = ME_GetInsertStyle(editor, nCursor);
       /* ME_SplitParagraph increases style refcount */
-      tp = ME_SplitParagraph(editor, p->pRun, p->pRun->member.run.style);
+
+      /* Encode and fill number of CR and LF according to emulation mode */
+      if (editor->bEmulateVersion10) {
+        const WCHAR * tpos;
+
+        /* We have to find out how many consecutive \r are there, and if there
+           is a \n terminating the run of \r's. */
+        numCR = 0; numLF = 0;
+        tpos = pos;
+        while (tpos-str < len && *tpos == '\r') {
+          tpos++;
+          numCR++;
+        }
+        if (tpos-str >= len) {
+          /* Reached end of text without finding anything but '\r' */
+          if (tpos != pos) {
+            pos++;
+          }
+          numCR = 1; numLF = 0;
+        } else if (*tpos == '\n') {
+          /* The entire run of \r's plus the one \n is one single line break */
+          pos = tpos + 1;
+          numLF = 1;
+        } else {
+          /* Found some other content past the run of \r's */
+          pos++;
+          numCR = 1; numLF = 0;
+        }
+      } else {
+        if(pos-str < len && *pos =='\r')
+          pos++;
+        if(pos-str < len && *pos =='\n')
+          pos++;
+        numCR = 1; numLF = 0;
+      }
+      tp = ME_SplitParagraph(editor, p->pRun, p->pRun->member.run.style, numCR, numLF);
       p->pRun = ME_FindItemFwd(tp, diRun);
       end_run = ME_FindItemBack(tp, diRun);
       ME_ReleaseStyle(end_run->member.run.style);
       end_run->member.run.style = tmp_style;
       p->nOffset = 0;
-      if(pos-str < len && *pos =='\r')
-        pos++;
-      if(pos-str < len && *pos =='\n')
-        pos++;
+
       if(pos-str <= len) {
         len -= pos - str;
         str = pos;
@@ -680,107 +755,87 @@ ME_SelectWord(ME_TextEditor *editor)
 int ME_GetCursorOfs(ME_TextEditor *editor, int nCursor)
 {
   ME_Cursor *pCursor = &editor->pCursors[nCursor];
-  
   return ME_GetParagraph(pCursor->pRun)->member.para.nCharOfs
     + pCursor->pRun->member.run.nCharOfs + pCursor->nOffset;
 }
 
-int ME_FindPixelPos(ME_TextEditor *editor, int x, int y, ME_Cursor *result, BOOL *is_eol)
+static void ME_FindPixelPos(ME_TextEditor *editor, int x, int y, ME_Cursor *result, BOOL *is_eol)
 {
   ME_DisplayItem *p = editor->pBuffer->pFirst->member.para.next_para;
+  ME_DisplayItem *last = NULL;
   int rx = 0;
-  
+
   if (is_eol)
     *is_eol = 0;
 
-  while(p != editor->pBuffer->pLast)
+  /* find paragraph */
+  for (; p != editor->pBuffer->pLast; p = p->member.para.next_para)
   {
-    if (p->type == diParagraph)
+    assert(p->type == diParagraph);
+    if (y < p->member.para.nYPos + p->member.para.nHeight)
     {
-      int ry = y - p->member.para.nYPos;
-      if (ry < 0)
-      {
-        result->pRun = ME_FindItemFwd(p, diRun);
-        result->nOffset = 0;
-        return 0;
-      }
-      if (ry >= p->member.para.nHeight)
-      {
-        p = p->member.para.next_para;
-        continue;
-      }
+      y -= p->member.para.nYPos;
       p = ME_FindItemFwd(p, diStartRow);
-      y = ry;
-      continue;
+      break;
     }
-    if (p->type == diStartRow)
+  }
+  /* find row */
+  for (; p != editor->pBuffer->pLast; )
+  {
+    ME_DisplayItem *pp;
+    assert(p->type == diStartRow);
+    if (y < p->member.row.nYPos + p->member.row.nHeight)
     {
-      int ry = y - p->member.row.nYPos;
-      if (ry < 0)
-        return 0;
-      if (ry >= p->member.row.nHeight)
-      {
-        p = ME_FindItemFwd(p, diStartRowOrParagraphOrEnd);
-        if (p->type != diStartRow)
-          return 0;
-        continue;
-      }
-      p = ME_FindItemFwd(p, diRun);
-      continue;
+        p = ME_FindItemFwd(p, diRun);
+        break;
     }
-    if (p->type == diRun)
+    pp = ME_FindItemFwd(p, diStartRowOrParagraphOrEnd);
+    if (pp->type != diStartRow)
     {
-      ME_DisplayItem *pp;
+        p = ME_FindItemFwd(p, diRun);
+        break;
+    }
+    p = pp;
+  }
+  for (; p != editor->pBuffer->pLast; p = p->next)
+  {
+    switch (p->type)
+    {
+    case diRun:
       rx = x - p->member.run.pt.x;
-      if (rx < 0)
-        rx = 0;
-      if (rx >= p->member.run.nWidth) /* not this run yet... find next item */
+      if (rx < p->member.run.nWidth)
       {
-        pp = p;
-        do {
-          p = p->next;
-          if (p->type == diRun)
-          {
-            rx = x - p->member.run.pt.x;
-            goto continue_search;
-          }
-          if (p->type == diStartRow)
-          {
-            p = ME_FindItemFwd(p, diRun);
-            if (is_eol)
-              *is_eol = 1;
-            rx = 0; /* FIXME not sure */
-            goto found_here;
-          }
-          if (p->type == diParagraph || p->type == diTextEnd)
-          {
-            rx = 0; /* FIXME not sure */
-            p = pp;
-            goto found_here;
-          }
-        } while(1);
-        continue;
+      found_here:
+        assert(p->type == diRun);
+        if ((p->member.run.nFlags & MERF_ENDPARA) || rx < 0)
+          rx = 0;
+        result->pRun = p;
+        result->nOffset = ME_CharFromPointCursor(editor, rx, &p->member.run);
+        if (editor->pCursors[0].nOffset == p->member.run.strText->nLen && rx)
+        {
+          result->pRun = ME_FindItemFwd(editor->pCursors[0].pRun, diRun);
+          result->nOffset = 0;
+        }
+        return;
       }
-    found_here:
-      if (p->member.run.nFlags & MERF_ENDPARA)
-        rx = 0;
-      result->pRun = p;
-      result->nOffset = ME_CharFromPointCursor(editor, rx, &p->member.run);
-      if (editor->pCursors[0].nOffset == p->member.run.strText->nLen && rx)
-      {
-        result->pRun = ME_FindItemFwd(editor->pCursors[0].pRun, diRun);
-        result->nOffset = 0;
-      }
-      return 1;
+      break;
+    case diStartRow:
+      p = ME_FindItemFwd(p, diRun);
+      if (is_eol) *is_eol = 1;
+      rx = 0; /* FIXME not sure */
+      goto found_here;
+    case diParagraph:
+    case diTextEnd:
+      rx = 0; /* FIXME not sure */
+      p = last;
+      goto found_here;
+    default: assert(0);
     }
-    assert(0);
-  continue_search:
-    ;
+    last = p;
   }
   result->pRun = ME_FindItemBack(p, diRun);
   result->nOffset = 0;
   assert(result->pRun->member.run.nFlags & MERF_ENDPARA);
-  return 0;
 }
 
 
@@ -812,25 +867,64 @@ void ME_LButtonDown(ME_TextEditor *editor, int x, int y)
   tmp_cursor = editor->pCursors[0];
   is_selection = ME_IsSelection(editor);
 
-  ME_FindPixelPos(editor, x, y, &editor->pCursors[0], &editor->bCaretAtEnd);
-  
-  if (GetKeyState(VK_SHIFT)>=0)
+  if (x >= editor->selofs)
   {
-    editor->pCursors[1] = editor->pCursors[0];
-  }
-  else
-  {
-    if (!is_selection) {
+    ME_FindPixelPos(editor, x, y, &editor->pCursors[0], &editor->bCaretAtEnd);
+    if (GetKeyState(VK_SHIFT)>=0)
+    {
+      editor->pCursors[1] = editor->pCursors[0];
+    }
+    else if (!is_selection) {
       editor->pCursors[1] = tmp_cursor;
       is_selection = 1;
     }
+
+    ME_InvalidateSelection(editor);
+    HideCaret(editor->hWnd);
+    ME_MoveCaret(editor);
+    ShowCaret(editor->hWnd);
+    ME_ClearTempStyle(editor);
+    ME_SendSelChange(editor);
   }
-  ME_InvalidateSelection(editor);
-  HideCaret(editor->hWnd);
-  ME_MoveCaret(editor);
-  ShowCaret(editor->hWnd);
-  ME_ClearTempStyle(editor);
-  ME_SendSelChange(editor);
+  else
+  {
+    ME_DisplayItem *pRow;
+
+    editor->linesel = 1;
+    editor->sely = y;
+    /* Set pCursors[0] to beginning of line */
+    ME_FindPixelPos(editor, x, y, &editor->pCursors[1], &editor->bCaretAtEnd);
+    /* Set pCursors[1] to end of line */
+    pRow = ME_FindItemFwd(editor->pCursors[1].pRun, diStartRowOrParagraphOrEnd);
+    assert(pRow);
+    /* pCursor[0] is the position where the cursor will be drawn,
+     * pCursor[1] is the other end of the selection range
+     * pCursor[2] and [3] are backups of [0] and [1] so I
+     * don't have to look them up again
+     */
+
+    if (pRow->type == diStartRow) {
+      /* FIXME WTF was I thinking about here ? */
+      ME_DisplayItem *pRun = ME_FindItemFwd(pRow, diRun);
+      assert(pRun);
+      editor->pCursors[0].pRun = pRun;
+      editor->pCursors[0].nOffset = 0;
+      editor->bCaretAtEnd = 1;
+    } else {
+      editor->pCursors[0].pRun = ME_FindItemBack(pRow, diRun);
+      assert(editor->pCursors[0].pRun && editor->pCursors[0].pRun->member.run.nFlags & MERF_ENDPARA);
+      editor->pCursors[0].nOffset = 0;
+      editor->bCaretAtEnd = 0;
+    }
+    editor->pCursors[2] = editor->pCursors[0];
+    editor->pCursors[3] = editor->pCursors[1];
+    ME_InvalidateSelection(editor);
+    HideCaret(editor->hWnd);
+    ME_MoveCaret(editor);
+    ShowCaret(editor->hWnd);
+    ME_ClearTempStyle(editor);
+    ME_SendSelChange(editor);
+  }
 }
 
 void ME_MouseMove(ME_TextEditor *editor, int x, int y)
@@ -841,14 +935,33 @@ void ME_MouseMove(ME_TextEditor *editor, int x, int y)
 
   tmp_cursor = editor->pCursors[0];
   /* FIXME: do something with the return value of ME_FindPixelPos */
-  ME_FindPixelPos(editor, x, y, &tmp_cursor, &editor->bCaretAtEnd);
-  
-  if (tmp_cursor.pRun == editor->pCursors[0].pRun && 
-      tmp_cursor.nOffset == editor->pCursors[0].nOffset)
+  if (!editor->linesel)
+    ME_FindPixelPos(editor, x, y, &tmp_cursor, &editor->bCaretAtEnd);
+  else ME_FindPixelPos(editor, (y > editor->sely) * editor->rcFormat.right, y, &tmp_cursor, &editor->bCaretAtEnd);
+
+  if (!memcmp(&tmp_cursor, editor->pCursors, sizeof(tmp_cursor)))
     return;
-  
+
   ME_InvalidateSelection(editor);
-  editor->pCursors[0] = tmp_cursor;
+  if (!editor->linesel)
+    editor->pCursors[0] = tmp_cursor;
+  else if (!memcmp(&tmp_cursor, editor->pCursors+2, sizeof(tmp_cursor)) ||
+           !memcmp(&tmp_cursor, editor->pCursors+3, sizeof(tmp_cursor)))
+  {
+    editor->pCursors[0] = editor->pCursors[2];
+    editor->pCursors[1] = editor->pCursors[3];
+  }
+  else if (y < editor->sely)
+  {
+    editor->pCursors[0] = tmp_cursor;
+    editor->pCursors[1] = editor->pCursors[2];
+  }
+  else
+  {
+    editor->pCursors[0] = tmp_cursor;
+    editor->pCursors[1] = editor->pCursors[3];
+  }
+
   HideCaret(editor->hWnd);
   ME_MoveCaret(editor);
   ME_InvalidateSelection(editor);
@@ -1148,8 +1261,8 @@ static int ME_GetSelCursor(ME_TextEditor *editor, int dir)
   else
     return 1;
 }
-      
-BOOL ME_UpdateSelection(ME_TextEditor *editor, ME_Cursor *pTempCursor)
+
+BOOL ME_UpdateSelection(ME_TextEditor *editor, const ME_Cursor *pTempCursor)
 {
   ME_Cursor old_anchor = editor->pCursors[1];
   
@@ -1186,11 +1299,11 @@ ME_Style *ME_GetSelectionInsertStyle(ME_TextEditor *editor)
 {
   ME_Style *style;
   int from, to;
-  ME_Cursor c;
-  
+
   ME_GetSelection(editor, &from, &to);
-  ME_CursorFromCharOfs(editor, from, &c);
   if (from != to) {
+    ME_Cursor c;
+    ME_CursorFromCharOfs(editor, from, &c);
     style = c.pRun->member.run.style;
     ME_AddRefStyle(style); /* ME_GetInsertStyle has already done that */
   }
@@ -1217,9 +1330,16 @@ void ME_SendSelChange(ME_TextEditor *editor)
     sc.seltyp |= SEL_TEXT;
   if (sc.chrg.cpMin < sc.chrg.cpMax+1) /* wth were RICHEDIT authors thinking ? */
     sc.seltyp |= SEL_MULTICHAR;
-  SendMessageW(GetParent(editor->hWnd), WM_NOTIFY, sc.nmhdr.idFrom, (LPARAM)&sc);
+  TRACE("cpMin=%d cpMax=%d seltyp=%d (%s %s)\n",
+    sc.chrg.cpMin, sc.chrg.cpMax, sc.seltyp,
+    (sc.seltyp & SEL_TEXT) ? "SEL_TEXT" : "",
+    (sc.seltyp & SEL_MULTICHAR) ? "SEL_MULTICHAR" : "");
+  if (sc.chrg.cpMin != editor->notified_cr.cpMin || sc.chrg.cpMax != editor->notified_cr.cpMax)
+  {
+    editor->notified_cr = sc.chrg;
+    SendMessageW(GetParent(editor->hWnd), WM_NOTIFY, sc.nmhdr.idFrom, (LPARAM)&sc);
+  }
 }
-
 
 BOOL
 ME_ArrowKey(ME_TextEditor *editor, int nVKey, BOOL extend, BOOL ctrl)

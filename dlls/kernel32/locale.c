@@ -62,12 +62,30 @@ static const union cptable *mac_cptable;
 static const union cptable *unix_cptable;  /* NULL if UTF8 */
 
 static HANDLE NLS_RegOpenKey(HANDLE hRootKey, LPCWSTR szKeyName);
-static HANDLE NLS_RegOpenSubKey(HANDLE hRootKey, LPCWSTR szKeyName);
 
 static const WCHAR szNlsKeyName[] = {
     'M','a','c','h','i','n','e','\\','S','y','s','t','e','m','\\',
     'C','u','r','r','e','n','t','C','o','n','t','r','o','l','S','e','t','\\',
     'C','o','n','t','r','o','l','\\','N','l','s','\0'
+};
+
+static const WCHAR szLocaleKeyName[] = {
+    'M','a','c','h','i','n','e','\\','S','y','s','t','e','m','\\',
+    'C','u','r','r','e','n','t','C','o','n','t','r','o','l','S','e','t','\\',
+    'C','o','n','t','r','o','l','\\','N','l','s','\\','L','o','c','a','l','e',0
+};
+
+static const WCHAR szCodepageKeyName[] = {
+    'M','a','c','h','i','n','e','\\','S','y','s','t','e','m','\\',
+    'C','u','r','r','e','n','t','C','o','n','t','r','o','l','S','e','t','\\',
+    'C','o','n','t','r','o','l','\\','N','l','s','\\','C','o','d','e','p','a','g','e',0
+};
+
+static const WCHAR szLangGroupsKeyName[] = {
+    'M','a','c','h','i','n','e','\\','S','y','s','t','e','m','\\',
+    'C','u','r','r','e','n','t','C','o','n','t','r','o','l','S','e','t','\\',
+    'C','o','n','t','r','o','l','\\','N','l','s','\\',
+    'L','a','n','g','u','a','g','e',' ','G','r','o','u','p','s',0
 };
 
 /* Charset to codepage map, sorted by name. */
@@ -333,6 +351,8 @@ static void parse_locale_name( const WCHAR *str, struct locale_name *name )
     static const WCHAR latnW[] = {'-','L','a','t','n',0};
     WCHAR *p;
 
+    TRACE("%s\n", debugstr_w(str));
+
     name->country = name->charset = name->script = name->modifier = NULL;
     name->lcid = MAKELCID( MAKELANGID(LANG_ENGLISH,SUBLANG_DEFAULT), SORT_DEFAULT );
     name->matches = 0;
@@ -377,7 +397,6 @@ static void parse_locale_name( const WCHAR *str, struct locale_name *name )
         {
             *p++ = 0;
             name->charset = p;
-            name->codepage = find_charset( name->charset );
             p = strchrW( p, '@' );
         }
         if (p)
@@ -385,6 +404,9 @@ static void parse_locale_name( const WCHAR *str, struct locale_name *name )
             *p++ = 0;
             name->modifier = p;
         }
+
+        if (name->charset)
+            name->codepage = find_charset( name->charset );
 
         /* rebuild a Windows name if possible */
 
@@ -630,7 +652,6 @@ static BOOL locale_update_registry( HKEY hkey, const WCHAR *name, LCID lcid,
  */
 void LOCALE_InitRegistry(void)
 {
-    static const WCHAR CodepageW[] = {'C','o','d','e','p','a','g','e',0};
     static const WCHAR acpW[] = {'A','C','P',0};
     static const WCHAR oemcpW[] = {'O','E','M','C','P',0};
     static const WCHAR maccpW[] = {'M','A','C','C','P',0};
@@ -641,6 +662,7 @@ void LOCALE_InitRegistry(void)
     static const WCHAR lc_timeW[] = { 'L','C','_','T','I','M','E',0 };
     static const WCHAR lc_measurementW[] = { 'L','C','_','M','E','A','S','U','R','E','M','E','N','T',0 };
     static const WCHAR lc_telephoneW[] = { 'L','C','_','T','E','L','E','P','H','O','N','E',0 };
+    static const WCHAR lc_paperW[] = { 'L','C','_','P','A','P','E','R',0};
     static const struct
     {
         LPCWSTR name;
@@ -659,13 +681,20 @@ void LOCALE_InitRegistry(void)
       LOCALE_ICURRENCY,
       LOCALE_INEGCURR,
       LOCALE_ICURRDIGITS,
-      LOCALE_ILZERO };
+      LOCALE_ILZERO,
+      LOCALE_SMONDECIMALSEP,
+      LOCALE_SMONGROUPING,
+      LOCALE_SMONTHOUSANDSEP };
     static const LCTYPE lc_numeric_values[] = {
       LOCALE_SDECIMAL,
       LOCALE_STHOUSAND,
       LOCALE_IDIGITS,
       LOCALE_IDIGITSUBSTITUTION,
-      LOCALE_SNATIVEDIGITS };
+      LOCALE_SNATIVEDIGITS,
+      LOCALE_INEGNUMBER,
+      LOCALE_SNEGATIVESIGN,
+      LOCALE_SPOSITIVESIGN,
+      LOCALE_SGROUPING };
     static const LCTYPE lc_time_values[] = {
       LOCALE_S1159,
       LOCALE_S2359,
@@ -676,9 +705,15 @@ void LOCALE_InitRegistry(void)
       LOCALE_SLONGDATE,
       LOCALE_SDATE,
       LOCALE_ITIMEMARKPOSN,
-      LOCALE_ICALENDARTYPE };
+      LOCALE_ICALENDARTYPE,
+      LOCALE_IFIRSTDAYOFWEEK,
+      LOCALE_IFIRSTWEEKOFYEAR,
+      LOCALE_STIMEFORMAT,
+      LOCALE_SYEARMONTH,
+      LOCALE_IDATE };
     static const LCTYPE lc_measurement_values[] = { LOCALE_IMEASURE };
     static const LCTYPE lc_telephone_values[] = { LOCALE_ICOUNTRY };
+    static const LCTYPE lc_paper_values[] = { LOCALE_IPAPERSIZE };
 
     UNICODE_STRING nameW;
     WCHAR bufferW[80];
@@ -701,10 +736,12 @@ void LOCALE_InitRegistry(void)
                             sizeof(lc_measurement_values)/sizeof(lc_measurement_values[0]) );
     locale_update_registry( hkey, lc_telephoneW, lcid_LC_TELEPHONE, lc_telephone_values,
                             sizeof(lc_telephone_values)/sizeof(lc_telephone_values[0]) );
+    locale_update_registry( hkey, lc_paperW, lcid_LC_PAPER, lc_paper_values,
+                            sizeof(lc_paper_values)/sizeof(lc_paper_values[0]) );
 
     if (locale_update_registry( hkey, lc_ctypeW, lcid_LC_CTYPE, NULL, 0 ))
     {
-        HKEY nls_key = NLS_RegOpenSubKey( NLS_RegOpenKey( 0, szNlsKeyName ), CodepageW );
+        HKEY nls_key = NLS_RegOpenKey( 0, szCodepageKeyName );
 
         for (i = 0; i < sizeof(update_cp_values)/sizeof(update_cp_values[0]); i++)
         {
@@ -1793,6 +1830,9 @@ INT WINAPI MultiByteToWideChar( UINT page, DWORD flags, LPCSTR src, INT srclen,
             ret = wine_cp_mbstowcs( unix_cptable, flags, src, srclen, dst, dstlen );
             break;
         }
+#ifdef __APPLE__
+        flags |= MB_COMPOSITE;  /* work around broken Mac OS X filesystem that enforces decomposed Unicode */
+#endif
         /* fall through */
     case CP_UTF8:
         ret = wine_utf8_mbstowcs( flags, src, srclen, dst, dstlen );
@@ -1923,7 +1963,7 @@ INT WINAPI WideCharToMultiByte( UINT page, DWORD flags, LPCWSTR src, INT srclen,
  *  None.
  *
  * RETURNS
- *  The LCID currently assocated with the calling thread.
+ *  The LCID currently associated with the calling thread.
  */
 LCID WINAPI GetThreadLocale(void)
 {
@@ -2124,7 +2164,7 @@ BOOL WINAPI EnumSystemLocalesW( LOCALE_ENUMPROCW lpfnLocaleEnum, DWORD dwFlags )
  *  Failure: 0. Use GetLastError() to determine the cause.
  *
  */
-DWORD WINAPI VerLanguageNameA( UINT wLang, LPSTR szLang, UINT nSize )
+DWORD WINAPI VerLanguageNameA( DWORD wLang, LPSTR szLang, DWORD nSize )
 {
     return GetLocaleInfoA( MAKELCID(wLang, SORT_DEFAULT), LOCALE_SENGLANGUAGE, szLang, nSize );
 }
@@ -2135,7 +2175,7 @@ DWORD WINAPI VerLanguageNameA( UINT wLang, LPSTR szLang, UINT nSize )
  *
  * See VerLanguageNameA.
  */
-DWORD WINAPI VerLanguageNameW( UINT wLang, LPWSTR szLang, UINT nSize )
+DWORD WINAPI VerLanguageNameW( DWORD wLang, LPWSTR szLang, DWORD nSize )
 {
     return GetLocaleInfoW( MAKELCID(wLang, SORT_DEFAULT), LOCALE_SENGLANGUAGE, szLang, nSize );
 }
@@ -2316,6 +2356,7 @@ INT WINAPI LCMapStringW(LCID lcid, DWORD flags, LPCWSTR src, INT srclen,
 
     if (flags & LCMAP_SORTKEY)
     {
+        INT ret;
         if (src == dst)
         {
             SetLastError(ERROR_INVALID_FLAGS);
@@ -2327,7 +2368,10 @@ INT WINAPI LCMapStringW(LCID lcid, DWORD flags, LPCWSTR src, INT srclen,
         TRACE("(0x%04x,0x%08x,%s,%d,%p,%d)\n",
               lcid, flags, debugstr_wn(src, srclen), srclen, dst, dstlen);
 
-        return wine_get_sortkey(flags, src, srclen, (char *)dst, dstlen);
+        ret = wine_get_sortkey(flags, src, srclen, (char *)dst, dstlen);
+        if (ret == 0)
+            SetLastError(ERROR_INSUFFICIENT_BUFFER);
+        return ret;
     }
 
     /* SORT_STRINGSORT must be used exclusively with LCMAP_SORTKEY */
@@ -2464,6 +2508,8 @@ INT WINAPI LCMapStringA(LCID lcid, DWORD flags, LPCSTR src, INT srclen,
             goto map_string_exit;
         }
         ret = wine_get_sortkey(flags, srcW, srclenW, dst, dstlen);
+        if (ret == 0)
+            SetLastError(ERROR_INSUFFICIENT_BUFFER);
         goto map_string_exit;
     }
 
@@ -2912,16 +2958,6 @@ static HANDLE NLS_RegOpenKey(HANDLE hRootKey, LPCWSTR szKeyName)
     return hkey;
 }
 
-static HANDLE NLS_RegOpenSubKey(HANDLE hRootKey, LPCWSTR szKeyName)
-{
-    HANDLE hKey = NLS_RegOpenKey(hRootKey, szKeyName);
-
-    if (hRootKey)
-        NtClose( hRootKey );
-
-    return hKey;
-}
-
 static BOOL NLS_RegEnumSubKey(HANDLE hKey, UINT ulIndex, LPWSTR szKeyName,
                               ULONG keyNameSize)
 {
@@ -3035,9 +3071,6 @@ static BOOL NLS_GetLanguageGroupName(LGRPID lgrpid, LPWSTR szName, ULONG nameSiz
 }
 
 /* Registry keys for NLS related information */
-static const WCHAR szLangGroupsKeyName[] = {
-    'L','a','n','g','u','a','g','e',' ','G','r','o','u','p','s','\0'
-};
 
 static const WCHAR szCountryListName[] = {
     'M','a','c','h','i','n','e','\\','S','o','f','t','w','a','r','e','\\',
@@ -3085,7 +3118,7 @@ static BOOL NLS_EnumSystemLanguageGroups(ENUMLANGUAGEGROUP_CALLBACKS *lpProcs)
         return FALSE;
     }
 
-    hKey = NLS_RegOpenSubKey( NLS_RegOpenKey( 0, szNlsKeyName ), szLangGroupsKeyName );
+    hKey = NLS_RegOpenKey( 0, szLangGroupsKeyName );
 
     if (!hKey)
         FIXME("NLS registry key not found. Please apply the default registry file 'wine.inf'\n");
@@ -3218,7 +3251,7 @@ BOOL WINAPI IsValidLanguageGroup(LGRPID lgrpid, DWORD dwFlags)
     case LGRPID_INSTALLED:
     case LGRPID_SUPPORTED:
 
-        hKey = NLS_RegOpenSubKey( NLS_RegOpenKey( 0, szNlsKeyName ), szLangGroupsKeyName );
+        hKey = NLS_RegOpenKey( 0, szLangGroupsKeyName );
 
         sprintfW( szValueName, szFormat, lgrpid );
 
@@ -3256,9 +3289,6 @@ typedef struct
 /* Internal implementation of EnumLanguageGrouplocalesA/W */
 static BOOL NLS_EnumLanguageGroupLocales(ENUMLANGUAGEGROUPLOCALE_CALLBACKS *lpProcs)
 {
-    static const WCHAR szLocaleKeyName[] = {
-      'L','o','c','a','l','e','\0'
-    };
     static const WCHAR szAlternateSortsKeyName[] = {
       'A','l','t','e','r','n','a','t','e',' ','S','o','r','t','s','\0'
     };
@@ -3280,7 +3310,7 @@ static BOOL NLS_EnumLanguageGroupLocales(ENUMLANGUAGEGROUPLOCALE_CALLBACKS *lpPr
         return FALSE;
     }
 
-    hKey = NLS_RegOpenSubKey( NLS_RegOpenKey( 0, szNlsKeyName ), szLocaleKeyName );
+    hKey = NLS_RegOpenKey( 0, szLocaleKeyName );
 
     if (!hKey)
         WARN("NLS registry key not found. Please apply the default registry file 'wine.inf'\n");
@@ -3483,8 +3513,36 @@ BOOL WINAPI InvalidateNLSCache(void)
  */
 GEOID WINAPI GetUserGeoID( GEOCLASS GeoClass )
 {
-    FIXME("%d\n",GeoClass);
-    return GEOID_NOT_AVAILABLE;
+    GEOID ret = GEOID_NOT_AVAILABLE;
+    static const WCHAR geoW[] = {'G','e','o',0};
+    static const WCHAR nationW[] = {'N','a','t','i','o','n',0};
+    WCHAR bufferW[40], *end;
+    DWORD count;
+    HANDLE hkey, hSubkey = 0;
+    UNICODE_STRING keyW;
+    const KEY_VALUE_PARTIAL_INFORMATION *info = (KEY_VALUE_PARTIAL_INFORMATION *)bufferW;
+    RtlInitUnicodeString( &keyW, nationW );
+    count = sizeof(bufferW);
+
+    if(!(hkey = create_registry_key())) return ret;
+
+    switch( GeoClass ){
+    case GEOCLASS_NATION:
+        if ((hSubkey = NLS_RegOpenKey(hkey, geoW)))
+        {
+            if((NtQueryValueKey(hSubkey, &keyW, KeyValuePartialInformation,
+                                (LPBYTE)bufferW, count, &count) == STATUS_SUCCESS ) && info->DataLength)
+                ret = strtolW((LPCWSTR)info->Data, &end, 10);
+        }
+        break;
+    case GEOCLASS_REGION:
+        FIXME("GEOCLASS_REGION not handled yet\n");
+        break;
+    }
+
+    NtClose(hkey);
+    if (hSubkey) NtClose(hSubkey);
+    return ret;
 }
 
 /******************************************************************************
@@ -3492,8 +3550,37 @@ GEOID WINAPI GetUserGeoID( GEOCLASS GeoClass )
  */
 BOOL WINAPI SetUserGeoID( GEOID GeoID )
 {
-    FIXME("%d\n",GeoID);
-    return FALSE;
+    static const WCHAR geoW[] = {'G','e','o',0};
+    static const WCHAR nationW[] = {'N','a','t','i','o','n',0};
+    static const WCHAR formatW[] = {'%','i',0};
+    UNICODE_STRING nameW,keyW;
+    WCHAR bufferW[10];
+    OBJECT_ATTRIBUTES attr;
+    HANDLE hkey;
+
+    if(!(hkey = create_registry_key())) return FALSE;
+
+    attr.Length = sizeof(attr);
+    attr.RootDirectory = hkey;
+    attr.ObjectName = &nameW;
+    attr.Attributes = 0;
+    attr.SecurityDescriptor = NULL;
+    attr.SecurityQualityOfService = NULL;
+    RtlInitUnicodeString( &nameW, geoW );
+    RtlInitUnicodeString( &keyW, nationW );
+
+    if (NtCreateKey( &hkey, KEY_ALL_ACCESS, &attr, 0, NULL, 0, NULL ) != STATUS_SUCCESS)
+
+    {
+        NtClose(attr.RootDirectory);
+        return FALSE;
+    }
+
+    sprintfW(bufferW, formatW, GeoID);
+    NtSetValueKey(hkey, &keyW, 0, REG_SZ, bufferW, (strlenW(bufferW) + 1) * sizeof(WCHAR));
+    NtClose(attr.RootDirectory);
+    NtClose(hkey);
+    return TRUE;
 }
 
 typedef struct

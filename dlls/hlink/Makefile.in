@@ -3,13 +3,13 @@ TOPOBJDIR = ../..
 SRCDIR    = @srcdir@
 VPATH     = @srcdir@
 MODULE    = hlink.dll
-IMPORTS   = shell32 ole32 advapi32 kernel32
-IMPORTLIB = libhlink.$(IMPLIBEXT)
+IMPORTLIB = hlink
+IMPORTS   = uuid shell32 ole32 advapi32 kernel32
 DELAYIMPORTS = urlmon
-EXTRALIBS = -luuid
 
 C_SRCS = \
 	browse_ctx.c \
+	extserv.c \
 	hlink_main.c \
 	link.c
 

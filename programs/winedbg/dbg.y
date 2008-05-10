@@ -132,7 +132,7 @@ command:
     | tFRAME tNUM              	{ stack_set_frame($2); }
     | tSHOW tDIR     	       	{ source_show_path(); }
     | tDIR pathname            	{ source_add_path($2); }
-    | tDIR     		       	{ source_nuke_path(); }
+    | tDIR     		       	{ source_nuke_path(dbg_curr_process); }
     | tCOND tNUM               	{ break_add_condition($2, NULL); }
     | tCOND tNUM expr     	{ break_add_condition($2, $3); }
     | tSOURCE pathname          { parser($2); }
@@ -401,9 +401,9 @@ lvalue:
 
 %%
 
-static WINE_EXCEPTION_FILTER(wine_dbg_cmd)
+static LONG WINAPI wine_dbg_cmd(EXCEPTION_POINTERS *eptr)
 {
-    switch (GetExceptionCode())
+    switch (eptr->ExceptionRecord->ExceptionCode)
     {
     case DEBUG_STATUS_INTERNAL_ERROR:
         dbg_printf("\nWineDbg internal error\n");
@@ -436,7 +436,7 @@ static WINE_EXCEPTION_FILTER(wine_dbg_cmd)
         dbg_interrupt_debuggee();
         return EXCEPTION_CONTINUE_EXECUTION;
     default:
-        dbg_printf("\nException %x\n", GetExceptionCode());
+        dbg_printf("\nException %x\n", eptr->ExceptionRecord->ExceptionCode);
         break;
     }
 

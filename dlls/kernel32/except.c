@@ -319,7 +319,16 @@ static BOOL	start_debugger(PEXCEPTION_POINTERS epointers, HANDLE hEvent)
     ret = CreateProcessA(NULL, cmdline, NULL, NULL, TRUE, 0, env, NULL, &startup, &info);
     FreeEnvironmentStringsA( env );
 
-    if (ret) WaitForSingleObject(hEvent, INFINITE);  /* wait for debugger to come up... */
+    if (ret)
+    {
+        /* wait for debugger to come up... */
+        HANDLE handles[2];
+        CloseHandle(info.hThread);
+        handles[0]=hEvent;
+        handles[1]=info.hProcess;
+        WaitForMultipleObjects(2, handles, FALSE, INFINITE);
+        CloseHandle(info.hProcess);
+    }
     else ERR("Couldn't start debugger (%s) (%d)\n"
              "Read the Wine Developers Guide on how to set up winedbg or another debugger\n",
              debugstr_a(cmdline), GetLastError());
@@ -410,33 +419,6 @@ static inline BOOL check_resource_write( void *addr )
 
 
 /*******************************************************************
- *         check_no_exec
- *
- * Check for executing a protected area.
- */
-static inline BOOL check_no_exec( void *addr )
-{
-    MEMORY_BASIC_INFORMATION info;
-
-    if (!VirtualQuery( addr, &info, sizeof(info) )) return FALSE;
-    if (info.State == MEM_FREE) return FALSE;
-
-    /* prot |= PAGE_EXECUTE would be a lot easier, but MS developers
-     * apparently don't grasp the notion of protection bits */
-    switch(info.Protect)
-    {
-    case PAGE_READONLY: info.Protect = PAGE_EXECUTE_READ; break;
-    case PAGE_READWRITE: info.Protect = PAGE_EXECUTE_READWRITE; break;
-    case PAGE_WRITECOPY: info.Protect = PAGE_EXECUTE_WRITECOPY; break;
-    default: return FALSE;
-    }
-    /* FIXME: we should probably have a per-app option, and maybe a message box */
-    FIXME( "No-exec fault triggered at %p, enabling work-around\n", addr );
-    return VirtualProtect( addr, 1, info.Protect, NULL );
-}
-
-
-/*******************************************************************
  *         UnhandledExceptionFilter   (KERNEL32.@)
  */
 LONG WINAPI UnhandledExceptionFilter(PEXCEPTION_POINTERS epointers)
@@ -449,10 +431,6 @@ LONG WINAPI UnhandledExceptionFilter(PEXCEPTION_POINTERS epointers)
         {
         case EXCEPTION_WRITE_FAULT:
             if (check_resource_write( (void *)rec->ExceptionInformation[1] ))
-                return EXCEPTION_CONTINUE_EXECUTION;
-            break;
-        case EXCEPTION_EXECUTE_FAULT:
-            if (check_no_exec( (void *)rec->ExceptionInformation[1] ))
                 return EXCEPTION_CONTINUE_EXECUTION;
             break;
         }

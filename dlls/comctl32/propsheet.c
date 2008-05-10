@@ -402,7 +402,7 @@ static void PROPSHEET_CollectSheetInfoW(LPCPROPSHEETHEADERW lppsh,
  */
 static BOOL PROPSHEET_CollectPageInfo(LPCPROPSHEETPAGEW lppsp,
                                PropSheetInfo * psInfo,
-                               int index)
+                               int index, BOOL resize)
 {
   const DLGTEMPLATE* pTemplate;
   const WORD*  p;
@@ -503,11 +503,14 @@ static BOOL PROPSHEET_CollectPageInfo(LPCPROPSHEETPAGEW lppsp,
   }
 
   /* remember the largest width and height */
-  if (width > psInfo->width)
-    psInfo->width = width;
+  if (resize)
+  {
+      if (width > psInfo->width)
+        psInfo->width = width;
 
-  if (height > psInfo->height)
-    psInfo->height = height;
+      if (height > psInfo->height)
+        psInfo->height = height;
+  }
 
   /* menu */
   switch ((WORD)*p)
@@ -519,7 +522,7 @@ static BOOL PROPSHEET_CollectPageInfo(LPCPROPSHEETPAGEW lppsp,
       p += 2;
       break;
     default:
-      p += lstrlenW( (LPCWSTR)p ) + 1;
+      p += lstrlenW( p ) + 1;
       break;
   }
 
@@ -533,14 +536,14 @@ static BOOL PROPSHEET_CollectPageInfo(LPCPROPSHEETPAGEW lppsp,
       p += 2;
       break;
     default:
-      p += lstrlenW( (LPCWSTR)p ) + 1;
+      p += lstrlenW( p ) + 1;
       break;
   }
 
   /* Extract the caption */
-  psInfo->proppage[index].pszText = (LPCWSTR)p;
-  TRACE("Tab %d %s\n",index,debugstr_w((LPCWSTR)p));
-  p += lstrlenW((LPCWSTR)p) + 1;
+  psInfo->proppage[index].pszText = p;
+  TRACE("Tab %d %s\n",index,debugstr_w( p ));
+  p += lstrlenW( p ) + 1;
 
   if (dwFlags & PSP_USETITLE)
   {
@@ -552,7 +555,7 @@ static BOOL PROPSHEET_CollectPageInfo(LPCPROPSHEETPAGEW lppsp,
 
     if ( !HIWORD( lppsp->pszTitle ) )
     {
-      if (!LoadStringW( lppsp->hInstance, (DWORD_PTR)lppsp->pszTitle,szTitle,sizeof(szTitle) ))
+      if (!LoadStringW( lppsp->hInstance, (DWORD_PTR)lppsp->pszTitle,szTitle,sizeof(szTitle)/sizeof(szTitle[0]) ))
       {
         pTitle = pszNull;
 	FIXME("Could not load resource #%04x?\n",LOWORD(lppsp->pszTitle));
@@ -629,7 +632,7 @@ static INT_PTR PROPSHEET_CreateDialog(PropSheetInfo* psInfo)
       return -1;
   }
 
-  if(!(template = (LPVOID)LoadResource(COMCTL32_hModule, hRes)))
+  if(!(template = LoadResource(COMCTL32_hModule, hRes)))
     return -1;
 
   /*
@@ -706,8 +709,7 @@ static BOOL PROPSHEET_SizeMismatch(HWND hwndDlg, const PropSheetInfo* psInfo)
    * Original tab size.
    */
   GetClientRect(hwndTabCtrl, &rcOrigTab);
-  TRACE("orig tab %d %d %d %d\n", rcOrigTab.left, rcOrigTab.top,
-        rcOrigTab.right, rcOrigTab.bottom);
+  TRACE("orig tab %s\n", wine_dbgstr_rect(&rcOrigTab));
 
   /*
    * Biggest page size.
@@ -718,8 +720,7 @@ static BOOL PROPSHEET_SizeMismatch(HWND hwndDlg, const PropSheetInfo* psInfo)
   rcPage.bottom = psInfo->height;
 
   MapDialogRect(hwndDlg, &rcPage);
-  TRACE("biggest page %d %d %d %d\n", rcPage.left, rcPage.top,
-        rcPage.right, rcPage.bottom);
+  TRACE("biggest page %s\n", wine_dbgstr_rect(&rcPage));
 
   if ( (rcPage.right - rcPage.left) != (rcOrigTab.right - rcOrigTab.left) )
     return TRUE;
@@ -795,8 +796,7 @@ static BOOL PROPSHEET_AdjustSize(HWND hwndDlg, PropSheetInfo* psInfo)
 
   GetClientRect(hwndTabCtrl, &rc);
 
-  TRACE("tab client rc %d %d %d %d\n",
-        rc.left, rc.top, rc.right, rc.bottom);
+  TRACE("tab client rc %s\n", wine_dbgstr_rect(&rc));
 
   rc.right += ((padding.x * 2) + tabOffsetX);
   rc.bottom += (buttonHeight + (3 * padding.y) + tabOffsetY);
@@ -828,7 +828,7 @@ static BOOL PROPSHEET_AdjustSizeWizard(HWND hwndDlg, const PropSheetInfo* psInfo
   rc.bottom = psInfo->height;
   MapDialogRect(hwndDlg, &rc);
 
-  TRACE("Biggest page %d %d %d %d\n", rc.left, rc.top, rc.right, rc.bottom);
+  TRACE("Biggest page %s\n", wine_dbgstr_rect(&rc));
 
   /* Add space for the buttons row */
   GetWindowRect(hwndLine, &lineRect);
@@ -1215,7 +1215,7 @@ static BOOL PROPSHEET_CreateTabControl(HWND hwndParent,
 /******************************************************************************
  *            PROPSHEET_WizardSubclassProc
  *
- * Subclassing window procedure for wizard extrior pages to prevent drawing
+ * Subclassing window procedure for wizard exterior pages to prevent drawing
  * background and so drawing above the watermark.
  */
 static LRESULT CALLBACK
@@ -1285,8 +1285,8 @@ static UINT GetTemplateSize(const DLGTEMPLATE* pTemplate)
       p += 2;
       break;
     default:
-      TRACE("menu %s\n",debugstr_w((LPCWSTR)p));
-      p += lstrlenW( (LPCWSTR)p ) + 1;
+      TRACE("menu %s\n",debugstr_w( p ));
+      p += lstrlenW( p ) + 1;
       break;
   }
 
@@ -1300,22 +1300,22 @@ static UINT GetTemplateSize(const DLGTEMPLATE* pTemplate)
       p += 2; /* 0xffff plus predefined window class ordinal value */
       break;
     default:
-      TRACE("class %s\n",debugstr_w((LPCWSTR)p));
-      p += lstrlenW( (LPCWSTR)p ) + 1;
+      TRACE("class %s\n",debugstr_w( p ));
+      p += lstrlenW( p ) + 1;
       break;
   }
 
   /* title */
-  TRACE("title %s\n",debugstr_w((LPCWSTR)p));
-  p += lstrlenW((LPCWSTR)p) + 1;
+  TRACE("title %s\n",debugstr_w( p ));
+  p += lstrlenW( p ) + 1;
 
   /* font, if DS_SETFONT set */
   if ((DS_SETFONT & ((istemplateex)?  ((const MyDLGTEMPLATEEX*)pTemplate)->style :
 		     pTemplate->style)))
     {
       p+=(istemplateex)?3:1;
-      TRACE("font %s\n",debugstr_w((LPCWSTR)p));
-      p += lstrlenW( (LPCWSTR)p ) + 1; /* the font name */
+      TRACE("font %s\n",debugstr_w( p ));
+      p += lstrlenW( p ) + 1; /* the font name */
     }
 
   /* now process the DLGITEMTEMPLATE(EX) structs (plus custom data)
@@ -1339,8 +1339,8 @@ static UINT GetTemplateSize(const DLGTEMPLATE* pTemplate)
 	  p += 2;
 	  break;
 	default:
-	  TRACE("class %s\n",debugstr_w((LPCWSTR)p));
-	  p += lstrlenW( (LPCWSTR)p ) + 1;
+	  TRACE("class %s\n",debugstr_w( p ));
+	  p += lstrlenW( p ) + 1;
 	  break;
 	}
 
@@ -1355,8 +1355,8 @@ static UINT GetTemplateSize(const DLGTEMPLATE* pTemplate)
 	  p += 2;
 	  break;
 	default:
-	  TRACE("text %s\n",debugstr_w((LPCWSTR)p));
-	  p += lstrlenW( (LPCWSTR)p ) + 1;
+	  TRACE("text %s\n",debugstr_w( p ));
+	  p += lstrlenW( p ) + 1;
 	  break;
 	}
       p += *p / sizeof(WORD) + 1;    /* Skip extra data */
@@ -1524,7 +1524,7 @@ static VOID PROPSHEET_LoadWizardBitmaps(PropSheetInfo *psInfo)
     if ((psInfo->ppshheader.dwFlags & PSH_WATERMARK) &&
         !(psInfo->ppshheader.dwFlags & PSH_USEHBMWATERMARK))
     {
-      ((PropSheetInfo *)psInfo)->ppshheader.u4.hbmWatermark = 
+      psInfo->ppshheader.u4.hbmWatermark =
         CreateMappedBitmap(psInfo->ppshheader.hInstance, (INT_PTR)psInfo->ppshheader.u4.pszbmWatermark, 0, NULL, 0);
     }
 
@@ -1532,7 +1532,7 @@ static VOID PROPSHEET_LoadWizardBitmaps(PropSheetInfo *psInfo)
     if ((psInfo->ppshheader.dwFlags & PSH_HEADER) &&
         !(psInfo->ppshheader.dwFlags & PSH_USEHBMHEADER))
     {
-      ((PropSheetInfo *)psInfo)->ppshheader.u5.hbmHeader = 
+      psInfo->ppshheader.u5.hbmHeader =
         CreateMappedBitmap(psInfo->ppshheader.hInstance, (INT_PTR)psInfo->ppshheader.u5.pszbmHeader, 0, NULL, 0);
     }
   }
@@ -2049,8 +2049,8 @@ static BOOL PROPSHEET_SetCurSel(HWND hwndDlg,
      * NOTE: The resizing happens every time the page is selected and
      * not only when it's created (some applications depend on it). */
     PROPSHEET_GetPageRect(psInfo, hwndDlg, &rc, ppshpage);
-    TRACE("setting page %p, rc (%d,%d)-(%d,%d) w=%d, h=%d\n",
-          psInfo->proppage[index].hwndPage, rc.left, rc.top, rc.right, rc.bottom,
+    TRACE("setting page %p, rc (%s) w=%d, h=%d\n",
+          psInfo->proppage[index].hwndPage, wine_dbgstr_rect(&rc),
           rc.right - rc.left, rc.bottom - rc.top);
     SetWindowPos(psInfo->proppage[index].hwndPage, HWND_TOP,
                  rc.left, rc.top,
@@ -2078,7 +2078,7 @@ static BOOL PROPSHEET_SetCurSel(HWND hwndDlg,
       index = PROPSHEET_FindPageByResId(psInfo, result);
       if(index >= psInfo->nPages) {
         index = old_index;
-        WARN("Tried to skip to nonexistant page by res id\n");
+        WARN("Tried to skip to nonexistent page by res id\n");
         break;
       }
       continue;
@@ -2160,7 +2160,7 @@ static void PROPSHEET_SetTitleW(HWND hwndDlg, DWORD dwStyle, LPCWSTR lpszText)
   TRACE("%s (style %08x)\n", debugstr_w(lpszText), dwStyle);
   if (HIWORD(lpszText) == 0) {
     if (!LoadStringW(psInfo->ppshheader.hInstance,
-                     LOWORD(lpszText), szTitle, sizeof(szTitle)-sizeof(WCHAR)))
+                     LOWORD(lpszText), szTitle, sizeof(szTitle)/sizeof(szTitle[0])))
       return;
     lpszText = szTitle;
   }
@@ -2284,7 +2284,7 @@ static BOOL PROPSHEET_AddPage(HWND hwndDlg,
       return FALSE;
 
   psInfo->proppage = ppi;
-  if (!PROPSHEET_CollectPageInfo(ppsp, psInfo, psInfo->nPages))
+  if (!PROPSHEET_CollectPageInfo(ppsp, psInfo, psInfo->nPages, FALSE))
       return FALSE;
 
   psInfo->proppage[psInfo->nPages].hpage = hpage;
@@ -2840,7 +2840,7 @@ INT_PTR WINAPI PropertySheetA(LPCPROPSHEETHEADERA lppsh)
     }
 
     if (!PROPSHEET_CollectPageInfo((LPCPROPSHEETPAGEW)psInfo->proppage[n].hpage,
-                               psInfo, n))
+                               psInfo, n, TRUE))
     {
 	if (psInfo->usePropPage)
 	    DestroyPropertySheetPage(psInfo->proppage[n].hpage);
@@ -2883,7 +2883,7 @@ INT_PTR WINAPI PropertySheetW(LPCPROPSHEETHEADERW lppsh)
     }
 
     if (!PROPSHEET_CollectPageInfo((LPCPROPSHEETPAGEW)psInfo->proppage[n].hpage,
-                               psInfo, n))
+                               psInfo, n, TRUE))
     {
 	if (psInfo->usePropPage)
 	    DestroyPropertySheetPage(psInfo->proppage[n].hpage);
@@ -2898,7 +2898,6 @@ INT_PTR WINAPI PropertySheetW(LPCPROPSHEETHEADERW lppsh)
 static LPWSTR load_string( HINSTANCE instance, LPCWSTR str )
 {
     LPWSTR ret;
-    UINT len;
 
     if (IS_INTRESOURCE(str))
     {
@@ -2906,6 +2905,7 @@ static LPWSTR load_string( HINSTANCE instance, LPCWSTR str )
         HGLOBAL hmem;
         WCHAR *ptr;
         WORD i, id = LOWORD(str);
+        UINT len;
 
         if (!(hrsrc = FindResourceW( instance, MAKEINTRESOURCEW((id >> 4) + 1), (LPWSTR)RT_STRING )))
             return NULL;
@@ -3412,7 +3412,6 @@ PROPSHEET_DialogProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
       PropSheetInfo* psInfo = (PropSheetInfo*) lParam;
       WCHAR* strCaption = (WCHAR*)Alloc(MAX_CAPTION_LENGTH*sizeof(WCHAR));
       HWND hwndTabCtrl = GetDlgItem(hwnd, IDC_TABCONTROL);
-      LPCPROPSHEETPAGEW ppshpage;
       int idx;
       LOGFONTW logFont;
 
@@ -3508,7 +3507,6 @@ PROPSHEET_DialogProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 					      PSCB_INITIALIZED, (LPARAM)0);
 
       idx = psInfo->active_page;
-      ppshpage = (LPCPROPSHEETPAGEW)psInfo->proppage[idx].hpage;
       psInfo->active_page = -1;
 
       PROPSHEET_SetCurSel(hwnd, idx, 1, psInfo->proppage[idx].hpage);
@@ -3517,6 +3515,8 @@ PROPSHEET_DialogProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
        * as some programs call TCM_GETCURSEL to get the current selection
        * from which to switch to the next page */
       SendMessageW(hwndTabCtrl, TCM_SETCURSEL, psInfo->active_page, 0);
+
+      PROPSHEET_UnChanged(hwnd, (HWND)wParam);
 
       return TRUE;
     }
@@ -3634,7 +3634,7 @@ PROPSHEET_DialogProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
       HWND hwndCancel = GetDlgItem(hwnd, IDCANCEL);
 
       EnableWindow(hwndCancel, FALSE);
-      if (LoadStringW(COMCTL32_hModule, IDS_CLOSE, buf, sizeof(buf)))
+      if (LoadStringW(COMCTL32_hModule, IDS_CLOSE, buf, sizeof(buf)/sizeof(buf[0])))
          SetWindowTextW(hwndOK, buf);
 
       return FALSE;

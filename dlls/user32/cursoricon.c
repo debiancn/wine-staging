@@ -24,8 +24,6 @@
 /*
  * Theory:
  *
- * http://msdn.microsoft.com/library/default.asp?url=/library/en-us/dnwui/html/msdn_icons.asp
- *
  * Cursors and icons are stored in a global heap block, with the
  * following layout:
  *
@@ -39,8 +37,6 @@
  * the X client instead of in the server like other bitmaps; however,
  * some programs (notably Paint Brush) expect to be able to manipulate
  * the bits directly :-(
- *
- * FIXME: what are we going to do with animation and color (bpp > 1) cursors ?!
  */
 
 #include "config.h"
@@ -227,7 +223,7 @@ static int get_dib_width_bytes( int width, int depth )
  */
 static int bitmap_info_size( const BITMAPINFO * info, WORD coloruse )
 {
-    int colors;
+    int colors, masks = 0;
 
     if (info->bmiHeader.biSize == sizeof(BITMAPCOREHEADER))
     {
@@ -243,7 +239,8 @@ static int bitmap_info_size( const BITMAPINFO * info, WORD coloruse )
                 colors = 256;
         if (!colors && (info->bmiHeader.biBitCount <= 8))
             colors = 1 << info->bmiHeader.biBitCount;
-        return sizeof(BITMAPINFOHEADER) + colors *
+        if (info->bmiHeader.biCompression == BI_BITFIELDS) masks = 3;
+        return sizeof(BITMAPINFOHEADER) + masks * sizeof(DWORD) + colors *
                ((coloruse == DIB_RGB_COLORS) ? sizeof(RGBQUAD) : sizeof(WORD));
     }
 }
@@ -388,11 +385,10 @@ static ICONCACHE* CURSORICON_FindCache(HICON hIcon)
     ICONCACHE *ptr;
     ICONCACHE *pRet=NULL;
     BOOL IsFound = FALSE;
-    int count;
 
     EnterCriticalSection( &IconCrst );
 
-    for (count = 0, ptr = IconAnchor; ptr != NULL && !IsFound; ptr = ptr->next, count++ )
+    for (ptr = IconAnchor; ptr != NULL && !IsFound; ptr = ptr->next)
     {
         if ( hIcon == ptr->hIcon )
         {
@@ -689,7 +685,7 @@ HICON WINAPI CreateIconFromResourceEx( LPBYTE bits, UINT cbSize,
     hotspot.y = ICON_HOTSPOT;
 
     TRACE_(cursor)("%p (%u bytes), ver %08x, %ix%i %s %s\n",
-                   bits, cbSize, (unsigned)dwVersion, width, height,
+                   bits, cbSize, dwVersion, width, height,
                                   bIcon ? "icon" : "cursor", (cFlag & LR_MONOCHROME) ? "mono" : "" );
     if (dwVersion == 0x00020000)
     {
@@ -705,12 +701,6 @@ HICON WINAPI CreateIconFromResourceEx( LPBYTE bits, UINT cbSize,
         hotspot = *pt;
         bmi = (BITMAPINFO *)(pt + 1);
     }
-    size = bitmap_info_size( bmi, DIB_RGB_COLORS );
-
-    if (!width) width = bmi->bmiHeader.biWidth;
-    if (!height) height = bmi->bmiHeader.biHeight/2;
-    DoStretch = (bmi->bmiHeader.biHeight/2 != height) ||
-      (bmi->bmiHeader.biWidth != width);
 
     /* Check bitmap header */
 
@@ -721,6 +711,13 @@ HICON WINAPI CreateIconFromResourceEx( LPBYTE bits, UINT cbSize,
           WARN_(cursor)("\tinvalid resource bitmap header.\n");
           return 0;
     }
+
+    size = bitmap_info_size( bmi, DIB_RGB_COLORS );
+
+    if (!width) width = bmi->bmiHeader.biWidth;
+    if (!height) height = bmi->bmiHeader.biHeight/2;
+    DoStretch = (bmi->bmiHeader.biHeight/2 != height) ||
+      (bmi->bmiHeader.biWidth != width);
 
     if (!screen_dc) screen_dc = CreateDCW( DISPLAYW, NULL, NULL, NULL );
     if (screen_dc)
@@ -871,7 +868,7 @@ HICON WINAPI CreateIconFromResourceEx( LPBYTE bits, UINT cbSize,
 
     DeleteObject( hAndBits );
     DeleteObject( hXorBits );
-    return HICON_32((HICON16)hObj);
+    return HICON_32(hObj);
 }
 
 
@@ -901,6 +898,13 @@ static HICON CURSORICON_LoadFromFile( LPCWSTR filename,
     if (!bits)
         return hIcon;
 
+    /* Check for .ani. */
+    if (memcmp( bits, "RIFF", 4 ) == 0)
+    {
+        FIXME("No support for .ani cursors.\n");
+        goto end;
+    }
+
     dir = (CURSORICONFILEDIR*) bits;
     if ( filesize < sizeof(*dir) )
         goto end;
@@ -909,7 +913,7 @@ static HICON CURSORICON_LoadFromFile( LPCWSTR filename,
         goto end;
 
     if ( fCursor )
-        entry = CURSORICON_FindBestCursorFile( dir, width, height, 1 );
+        entry = CURSORICON_FindBestCursorFile( dir, width, height, colors );
     else
         entry = CURSORICON_FindBestIconFile( dir, width, height, colors );
 
@@ -1127,7 +1131,7 @@ static HICON CURSORICON_ExtCopy(HICON hIcon, UINT nType,
             }
             else
             {
-                pDirEntry = (CURSORICONDIRENTRY *)CURSORICON_FindBestCursorRes(
+                pDirEntry = CURSORICON_FindBestCursorRes(
                                 pDir, iDesiredCX, iDesiredCY, 1);
             }
 
@@ -1347,7 +1351,7 @@ WORD WINAPI DestroyIcon32( HGLOBAL16 handle, UINT16 flags )
     if ( get_user_thread_info()->cursor == HICON_32(handle) )
     {
         WARN_(cursor)("Destroying active cursor!\n" );
-        SetCursor( 0 );
+        return FALSE;
     }
 
     /* Try shared cursor/icon first */
@@ -2144,8 +2148,19 @@ static HBITMAP BITMAP_Load( HINSTANCE instance, LPCWSTR name,
     }
     else
     {
+        BITMAPFILEHEADER * bmfh;
+
         if (!(ptr = map_fileW( name, NULL ))) return 0;
         info = (BITMAPINFO *)(ptr + sizeof(BITMAPFILEHEADER));
+        bmfh = (BITMAPFILEHEADER *)ptr;
+        if (!(  bmfh->bfType == 0x4d42 /* 'BM' */ &&
+                bmfh->bfReserved1 == 0 &&
+                bmfh->bfReserved2 == 0))
+        {
+            WARN("Invalid/unsupported bitmap format!\n");
+            UnmapViewOfFile( ptr );
+            return 0;
+        }
     }
 
     size = bitmap_info_size(info, DIB_RGB_COLORS);

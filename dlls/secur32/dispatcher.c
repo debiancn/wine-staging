@@ -111,15 +111,23 @@ SECURITY_STATUS fork_helper(PNegoHelper *new_helper, const char *prog,
     {
         *new_helper = helper;
         helper->major = helper->minor = helper->micro = -1;
-        helper->password = NULL;
         helper->com_buf = NULL;
         helper->com_buf_size = 0;
         helper->com_buf_offset = 0;
         helper->session_key = NULL;
         helper->neg_flags = 0;
+        helper->crypt.ntlm.a4i = NULL;
+        helper->crypt.ntlm2.send_a4i = NULL;
+        helper->crypt.ntlm2.recv_a4i = NULL;
+        helper->crypt.ntlm2.send_sign_key = NULL;
+        helper->crypt.ntlm2.send_seal_key = NULL;
+        helper->crypt.ntlm2.recv_sign_key = NULL;
+        helper->crypt.ntlm2.recv_seal_key = NULL;
         helper->pipe_in = pipe_in[0];
+        fcntl( pipe_in[0], F_SETFD, 1 );
         close(pipe_in[1]);
         helper->pipe_out = pipe_out[1];
+        fcntl( pipe_out[1], F_SETFD, 1 );
         close(pipe_out[0]);
     }
 
@@ -263,8 +271,6 @@ void cleanup_helper(PNegoHelper helper)
     /* closing stdin will terminate ntlm_auth */
     close(helper->pipe_out);
     close(helper->pipe_in);
-
-    waitpid(helper->helper_pid, NULL, 0);
 
     helper->helper_pid = 0;
     HeapFree(GetProcessHeap(), 0, helper);

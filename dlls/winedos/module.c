@@ -302,7 +302,7 @@ static BOOL MZ_DoLoadImage( HANDLE hFile, LPCSTR filename, OverlayBlock *oblk, W
  SetFilePointer(hFile,image_start,NULL,FILE_BEGIN);
  if (!ReadFile(hFile,load_start,image_size,&len,NULL) || len != image_size) {
   /* check if this is due to the workaround for the pre-1.10 MS linker and we
-     realy had only 4 bytes on the last page */
+     really had only 4 bytes on the last page */
   if (mz_header.e_cblp != 4 || image_size - len != 512 - 4) {
     SetLastError(ERROR_BAD_FORMAT);
     goto load_error;
@@ -614,7 +614,7 @@ void WINAPI MZ_RunInThread( PAPCFUNC proc, ULONG_PTR arg )
 static DWORD WINAPI MZ_DOSVM( LPVOID lpExtra )
 {
   CONTEXT context;
-  DWORD ret;
+  INT ret;
 
   dosvm_pid = getpid();
 
@@ -628,9 +628,23 @@ static DWORD WINAPI MZ_DOSVM( LPVOID lpExtra )
   context.EFlags = V86_FLAG | VIF_MASK;
   DOSVM_SetTimer(0x10000);
   ret = DOSVM_Enter( &context );
+  if (ret == -1)
+  {
+      /* fetch the app name from the environment */
+      PDB16 *psp = PTR_REAL_TO_LIN( DOSVM_psp, 0 );
+      char *env = PTR_REAL_TO_LIN( psp->environment, 0 );
+      while (*env) env += strlen(env) + 1;
+      env += 1 + sizeof(WORD);
 
+      if (GetLastError() == ERROR_NOT_SUPPORTED)
+          MESSAGE( "wine: Cannot start DOS application %s\n"
+                   "      because vm86 mode is not supported on this platform.\n",
+                   debugstr_a(env) );
+      else
+          FIXME( "vm86 mode failed error %u\n", GetLastError() );
+  }
   dosvm_pid = 0;
-  return ret;
+  return ret != 0;
 }
 
 static BOOL MZ_InitTask(void)
@@ -655,6 +669,7 @@ static void MZ_Launch( LPCSTR cmdtail, int length )
   BYTE *psp_start = PTR_REAL_TO_LIN( DOSVM_psp, 0 );
   DWORD rv;
   SYSLEVEL *lock;
+  MSG msg;
 
   MZ_FillPSP(psp_start, cmdtail, length);
   pTask->flags |= TDBF_WINOLDAP;
@@ -664,6 +679,9 @@ static void MZ_Launch( LPCSTR cmdtail, int length )
 
   GetpWin16Lock( &lock );
   _LeaveSysLevel( lock );
+
+  /* force the message queue to be created */
+  PeekMessageW(&msg, NULL, WM_USER, WM_USER, PM_NOREMOVE);
 
   ResumeThread(dosvm_thread);
   rv = DOSVM_Loop(dosvm_thread);

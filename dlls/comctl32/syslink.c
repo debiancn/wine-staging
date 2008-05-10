@@ -967,16 +967,14 @@ static HFONT SYSLINK_SetFont (SYSLINK_INFO *infoPtr, HFONT hFont, BOOL bRedraw)
  */
 static LRESULT SYSLINK_SetText (SYSLINK_INFO *infoPtr, LPCWSTR Text)
 {
-    int textlen;
-
     /* clear the document */
     SYSLINK_ClearDoc(infoPtr);
-    
-    if(Text == NULL || (textlen = lstrlenW(Text)) == 0)
+
+    if(Text == NULL || *Text == 0)
     {
         return TRUE;
     }
-    
+
     /* let's parse the string and create a document */
     if(SYSLINK_ParseText(infoPtr, Text) > 0)
     {
@@ -1314,7 +1312,7 @@ static LRESULT SYSLINK_SendParentNotify (const SYSLINK_INFO *infoPtr, UINT code,
         nml.item.szUrl[0] = 0;
     }
 
-    return SendMessageW(infoPtr->Notify, WM_NOTIFY, (WPARAM)nml.hdr.idFrom, (LPARAM)&nml);
+    return SendMessageW(infoPtr->Notify, WM_NOTIFY, nml.hdr.idFrom, (LPARAM)&nml);
 }
 
 /***********************************************************************

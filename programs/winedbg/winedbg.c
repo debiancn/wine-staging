@@ -216,7 +216,7 @@ static	unsigned dbg_save_internal_vars(void)
 
     for (i = 0; i < DBG_IV_LAST; i++) 
     {
-        /* FIXME: type should be infered from basic type -if any- of intvar */
+        /* FIXME: type should be inferred from basic type -if any- of intvar */
         if (dbg_internal_vars[i].pval == &dbg_internal_vars[i].val)
             RegSetValueEx(hkey, dbg_internal_vars[i].name, 0,
                           REG_DWORD, (const void*)dbg_internal_vars[i].pval, 
@@ -302,6 +302,11 @@ struct dbg_process*	dbg_add_process(const struct be_process_io* pio, DWORD pid, 
     memset(p->bp, 0, sizeof(p->bp));
     p->delayed_bp = NULL;
     p->num_delayed_bp = 0;
+    p->source_ofiles = NULL;
+    p->search_path = NULL;
+    p->source_current_file[0] = '\0';
+    p->source_start_line = -1;
+    p->source_end_line = -1;
 
     p->next = dbg_process_list;
     p->prev = NULL;
@@ -331,6 +336,8 @@ void dbg_del_process(struct dbg_process* p)
             HeapFree(GetProcessHeap(), 0, p->delayed_bp[i].u.symbol.name);
 
     HeapFree(GetProcessHeap(), 0, p->delayed_bp);
+    source_nuke_path(p);
+    source_free_files(p);
     if (p->prev) p->prev->next = p->next;
     if (p->next) p->next->prev = p->prev;
     if (p == dbg_process_list) dbg_process_list = p->next;
@@ -345,7 +352,7 @@ struct mod_loader_info
     IMAGEHLP_MODULE*    imh_mod;
 };
 
-static BOOL CALLBACK mod_loader_cb(PSTR mod_name, DWORD base, void* ctx)
+static BOOL CALLBACK mod_loader_cb(PCSTR mod_name, ULONG base, PVOID ctx)
 {
     struct mod_loader_info*     mli = (struct mod_loader_info*)ctx;
 
@@ -604,7 +611,7 @@ int main(int argc, char** argv)
     parser_handle(hFile);
 
     while (dbg_process_list)
-        dbg_process_list->process_io->close_process(dbg_process_list, TRUE);
+        dbg_process_list->process_io->close_process(dbg_process_list, FALSE);
 
     dbg_save_internal_vars();
 

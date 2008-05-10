@@ -56,7 +56,6 @@ static char *get_temp_buffer( int size )
     return ret;
 }
 
-/* default implementation of wine_dbgstr_an */
 static const char *wine_debugstr_an( const char *str, int n )
 {
     static const char hex[16] = "0123456789abcdef";
@@ -108,10 +107,10 @@ static const char *wine_debugstr_an( const char *str, int n )
     return res;
 }
 
-/* default implementation of wine_dbgstr_wn */
 static const char *wine_debugstr_wn( const WCHAR *str, int n )
 {
     char *dst, *res;
+    size_t size;
 
     if (!HIWORD(str))
     {
@@ -122,11 +121,11 @@ static const char *wine_debugstr_wn( const WCHAR *str, int n )
     }
     if (n == -1) n = lstrlenW(str);
     if (n < 0) n = 0;
-    else if (n > 200) n = 200;
+    size = 12 + min( 300, n * 5);
     dst = res = get_temp_buffer( n * 5 + 7 );
     *dst++ = 'L';
     *dst++ = '"';
-    while (n-- > 0)
+    while (n-- > 0 && dst <= res + size - 10)
     {
         WCHAR c = *str++;
         switch (c)
@@ -148,7 +147,7 @@ static const char *wine_debugstr_wn( const WCHAR *str, int n )
         }
     }
     *dst++ = '"';
-    if (*str)
+    if (n > 0)
     {
         *dst++ = '.';
         *dst++ = '.';
@@ -282,8 +281,8 @@ static void test_hkey_main_Value_W(LPCWSTR name, LPCWSTR string,
         string=nW;
     }
     ok(memcmp(value, string, cbData) == 0, "RegQueryValueExW failed: %s/%d != %s/%d\n",
-       wine_debugstr_wn(value, cbData), cbData,
-       wine_debugstr_wn(string, full_byte_len), full_byte_len);
+       wine_debugstr_wn(value, cbData / sizeof(WCHAR)), cbData,
+       wine_debugstr_wn(string, full_byte_len / sizeof(WCHAR)), full_byte_len);
     HeapFree(GetProcessHeap(), 0, value);
 }
 
@@ -296,18 +295,49 @@ static void test_set_value(void)
     static const WCHAR emptyW[] = {0};
     static const WCHAR string1W[] = {'T','h','i','s','N','e','v','e','r','B','r','e','a','k','s', 0};
     static const WCHAR string2W[] = {'T','h','i','s', 0 ,'B','r','e','a','k','s', 0 , 0 ,'A', 0 , 0 , 0 , 'L','o','t', 0 , 0 , 0 , 0, 0};
+    static const WCHAR substring2W[] = {'T','h','i','s',0};
 
     static const char name1A[] =   "CleanSingleString";
     static const char name2A[] =   "SomeIntraZeroedString";
     static const char emptyA[] = "";
     static const char string1A[] = "ThisNeverBreaks";
     static const char string2A[] = "This\0Breaks\0\0A\0\0\0Lot\0\0\0\0";
+    static const char substring2A[] = "This";
+
+    if (0)
+    {
+        /* Crashes on NT4, Windows 2000 and XP SP1 */
+        ret = RegSetValueA(hkey_main, NULL, REG_SZ, NULL, 0);
+        ok(ret == ERROR_INVALID_PARAMETER, "RegSetValueA should have failed with ERROR_INVALID_PARAMETER instead of %d\n", ret);
+    }
+
+    ret = RegSetValueA(hkey_main, NULL, REG_SZ, string1A, sizeof(string1A));
+    ok(ret == ERROR_SUCCESS, "RegSetValueA failed: %d, GLE=%d\n", ret, GetLastError());
+    test_hkey_main_Value_A(NULL, string1A, sizeof(string1A));
+    test_hkey_main_Value_W(NULL, string1W, sizeof(string1W));
+
+    /* RegSetValueA ignores the size passed in */
+    ret = RegSetValueA(hkey_main, NULL, REG_SZ, string1A, 4);
+    ok(ret == ERROR_SUCCESS, "RegSetValueA failed: %d, GLE=%d\n", ret, GetLastError());
+    test_hkey_main_Value_A(NULL, string1A, sizeof(string1A));
+    test_hkey_main_Value_W(NULL, string1W, sizeof(string1W));
+
+    /* stops at first null */
+    ret = RegSetValueA(hkey_main, NULL, REG_SZ, string2A, sizeof(string2A));
+    ok(ret == ERROR_SUCCESS, "RegSetValueA failed: %d, GLE=%d\n", ret, GetLastError());
+    test_hkey_main_Value_A(NULL, substring2A, sizeof(substring2A));
+    test_hkey_main_Value_W(NULL, substring2W, sizeof(substring2W));
+
+    /* only REG_SZ is supported */
+    ret = RegSetValueA(hkey_main, NULL, REG_BINARY, string2A, sizeof(string2A));
+    ok(ret == ERROR_INVALID_PARAMETER, "RegSetValueA should have returned ERROR_INVALID_PARAMETER instead of %d\n", ret);
+    ret = RegSetValueA(hkey_main, NULL, REG_EXPAND_SZ, string2A, sizeof(string2A));
+    ok(ret == ERROR_INVALID_PARAMETER, "RegSetValueA should have returned ERROR_INVALID_PARAMETER instead of %d\n", ret);
+    ret = RegSetValueA(hkey_main, NULL, REG_MULTI_SZ, string2A, sizeof(string2A));
+    ok(ret == ERROR_INVALID_PARAMETER, "RegSetValueA should have returned ERROR_INVALID_PARAMETER instead of %d\n", ret);
 
     /* Test RegSetValueExA with a 'zero-byte' string (as Office 2003 does).
      * Surprisingly enough we're supposed to get zero bytes out of it.
-     * FIXME: Wine's on-disk file format does not differentiate this with
-     *        regular empty strings but there's no way to test as it requires
-     *        stopping the wineserver.
      */
     ret = RegSetValueExA(hkey_main, name1A, 0, REG_SZ, (const BYTE *)emptyA, 0);
     ok(ret == ERROR_SUCCESS, "RegSetValueExA failed: %d, GLE=%d\n", ret, GetLastError());
@@ -319,6 +349,12 @@ static void test_set_value(void)
     ok(ret == ERROR_SUCCESS, "RegSetValueExA failed: %d, GLE=%d\n", ret, GetLastError());
     test_hkey_main_Value_A(name1A, emptyA, sizeof(emptyA));
     test_hkey_main_Value_W(name1W, emptyW, sizeof(emptyW));
+
+    /* test RegSetValueExA with off-by-one size */
+    ret = RegSetValueExA(hkey_main, name1A, 0, REG_SZ, (const BYTE *)string1A, sizeof(string1A)-sizeof(string1A[0]));
+    ok(ret == ERROR_SUCCESS, "RegSetValueExA failed: %d, GLE=%d\n", ret, GetLastError());
+    test_hkey_main_Value_A(name1A, string1A, sizeof(string1A));
+    test_hkey_main_Value_W(name1W, string1W, sizeof(string1W));
 
     /* test RegSetValueExA with normal string */
     ret = RegSetValueExA(hkey_main, name1A, 0, REG_SZ, (const BYTE *)string1A, sizeof(string1A));
@@ -334,6 +370,44 @@ static void test_set_value(void)
 
     /* 9x doesn't support W-calls, so don't test them then */
     if(GLE == ERROR_CALL_NOT_IMPLEMENTED) return; 
+
+    if (0)
+    {
+        /* Crashes on NT4, Windows 2000 and XP SP1 */
+        ret = RegSetValueW(hkey_main, NULL, REG_SZ, NULL, 0);
+        ok(ret == ERROR_INVALID_PARAMETER, "RegSetValueW should have failed with ERROR_INVALID_PARAMETER instead of %d\n", ret);
+    }
+
+    ret = RegSetValueW(hkey_main, NULL, REG_SZ, string1W, sizeof(string1W));
+    ok(ret == ERROR_SUCCESS, "RegSetValueW failed: %d, GLE=%d\n", ret, GetLastError());
+    test_hkey_main_Value_A(NULL, string1A, sizeof(string1A));
+    test_hkey_main_Value_W(NULL, string1W, sizeof(string1W));
+
+    /* RegSetValueA ignores the size passed in */
+    ret = RegSetValueW(hkey_main, NULL, REG_SZ, string1W, 4 * sizeof(string1W[0]));
+    ok(ret == ERROR_SUCCESS, "RegSetValueW failed: %d, GLE=%d\n", ret, GetLastError());
+    test_hkey_main_Value_A(NULL, string1A, sizeof(string1A));
+    test_hkey_main_Value_W(NULL, string1W, sizeof(string1W));
+
+    /* stops at first null */
+    ret = RegSetValueW(hkey_main, NULL, REG_SZ, string2W, sizeof(string2W));
+    ok(ret == ERROR_SUCCESS, "RegSetValueW failed: %d, GLE=%d\n", ret, GetLastError());
+    test_hkey_main_Value_A(NULL, substring2A, sizeof(substring2A));
+    test_hkey_main_Value_W(NULL, substring2W, sizeof(substring2W));
+
+    /* only REG_SZ is supported */
+    ret = RegSetValueW(hkey_main, NULL, REG_BINARY, string2W, sizeof(string2W));
+    ok(ret == ERROR_INVALID_PARAMETER, "RegSetValueW should have returned ERROR_INVALID_PARAMETER instead of %d\n", ret);
+    ret = RegSetValueW(hkey_main, NULL, REG_EXPAND_SZ, string2W, sizeof(string2W));
+    ok(ret == ERROR_INVALID_PARAMETER, "RegSetValueW should have returned ERROR_INVALID_PARAMETER instead of %d\n", ret);
+    ret = RegSetValueW(hkey_main, NULL, REG_MULTI_SZ, string2W, sizeof(string2W));
+    ok(ret == ERROR_INVALID_PARAMETER, "RegSetValueW should have returned ERROR_INVALID_PARAMETER instead of %d\n", ret);
+
+    /* test RegSetValueExW with off-by-one size */
+    ret = RegSetValueExW(hkey_main, name1W, 0, REG_SZ, (const BYTE *)string1W, sizeof(string1W)-sizeof(string1W[0]));
+    ok(ret == ERROR_SUCCESS, "RegSetValueExW failed: %d, GLE=%d\n", ret, GetLastError());
+    test_hkey_main_Value_A(name1A, string1A, sizeof(string1A));
+    test_hkey_main_Value_W(name1W, string1W, sizeof(string1W));
 
     /* test RegSetValueExW with normal string */
     ret = RegSetValueExW(hkey_main, name1W, 0, REG_SZ, (const BYTE *)string1W, sizeof(string1W));
@@ -359,6 +433,8 @@ static void create_test_entries(void)
         "RegSetValueExA failed\n");
     ok(!RegSetValueExA(hkey_main,"TP1_SZ",0,REG_SZ, (const BYTE *)sTestpath1, strlen(sTestpath1)+1), 
         "RegSetValueExA failed\n");
+    ok(!RegSetValueExA(hkey_main,"TP1_ZB_SZ",0,REG_SZ, NULL, 0),
+       "RegSetValueExA failed\n");
     ok(!RegSetValueExA(hkey_main,"TP2_EXP_SZ",0,REG_EXPAND_SZ, (const BYTE *)sTestpath2, strlen(sTestpath2)+1), 
         "RegSetValueExA failed\n");
     ok(!RegSetValueExA(hkey_main,"DWORD",0,REG_DWORD, (const BYTE *)qw, 4),
@@ -424,7 +500,7 @@ static void test_enum_value(void)
     ok( val_count == 2 || val_count == 3, "val_count set to %d\n", val_count );
     ok( data_count == 7, "data_count set to %d instead of 7\n", data_count );
     ok( type == REG_SZ, "type %d is not REG_SZ\n", type );
-    /* v5.1.2600.0 (XP Home and Proffesional) does not touch value or data in this case */
+    /* v5.1.2600.0 (XP Home and Professional) does not touch value or data in this case */
     ok( !strcmp( value, "Te" ) || !strcmp( value, "xxxxxxxxxx" ), 
         "value set to '%s' instead of 'Te' or 'xxxxxxxxxx'\n", value );
     ok( !strcmp( data, "foobar" ) || !strcmp( data, "xxxxxxx" ), 
@@ -581,6 +657,10 @@ static void test_query_value_ex(void)
     ret = RegQueryValueExA(HKEY_CLASSES_ROOT, "Nonexistent Value", NULL, &type, buffer, &size);
     ok(ret == ERROR_FILE_NOT_FOUND, "expected ERROR_FILE_NOT_FOUND, got %d\n", ret);
     ok(size == sizeof(buffer), "size shouldn't have been changed to %d\n", size);
+
+    size = 4;
+    ret = RegQueryValueExA(hkey_main, "BIN32", NULL, &size, buffer, &size);
+    ok(ret == ERROR_SUCCESS, "expected ERROR_SUCCESS, got %d\n", ret);
 }
 
 static void test_get_value(void)
@@ -591,6 +671,7 @@ static void test_get_value(void)
     DWORD dw, qw[2];
     CHAR buf[80];
     CHAR expanded[] = "bar\\subdir1";
+    CHAR expanded2[] = "ImARatherLongButIndeedNeededString\\subdir1";
    
     if(!pRegGetValueA)
     {
@@ -698,6 +779,21 @@ static void test_get_value(void)
        "strlen(sTestpath1)=%d size=%d\n", lstrlenA(sTestpath1), size);
     ok(type == REG_SZ, "type=%d\n", type);
 
+    /* Query REG_SZ using RRF_RT_REG_SZ on a zero-byte value (ok) */
+    strcpy(buf, sTestpath1);
+    type = 0xdeadbeef;
+    size = sizeof(buf);
+    ret = pRegGetValueA(hkey_main, NULL, "TP1_ZB_SZ", RRF_RT_REG_SZ, &type, buf, &size);
+    ok(ret == ERROR_SUCCESS, "ret=%d\n", ret);
+    /* v5.2.3790.1830 (2003 SP1) returns sTestpath1 length + 2 here. */
+    ok(size == 0 ||
+       size == 1, /* win2k3 */
+       "size=%d\n", size);
+    ok(type == REG_SZ, "type=%d\n", type);
+    ok(!strcmp(sTestpath1, buf) ||
+       !strcmp(buf, ""),
+       "Expected \"%s\" or \"\", got \"%s\"\n", sTestpath1, buf);
+
     /* Query REG_SZ using RRF_RT_REG_SZ|RRF_NOEXPAND (ok) */
     buf[0] = 0; type = 0xdeadbeef; size = sizeof(buf);
     ret = pRegGetValueA(hkey_main, NULL, "TP1_SZ", RRF_RT_REG_SZ|RRF_NOEXPAND, &type, buf, &size);
@@ -707,12 +803,13 @@ static void test_get_value(void)
     ok(!strcmp(sTestpath1, buf), "sTestpath=\"%s\" buf=\"%s\"\n", sTestpath1, buf);
 
     /* Query REG_EXPAND_SZ using RRF_RT_REG_SZ and no buffer (ok, expands) */
-    size = 0xbadbeef;
-    ret = pRegGetValueA(hkey_main, NULL, "TP1_EXP_SZ", RRF_RT_REG_SZ, NULL, NULL, &size);
+    size = 0;
+    ret = pRegGetValueA(hkey_main, NULL, "TP2_EXP_SZ", RRF_RT_REG_SZ, NULL, NULL, &size);
     ok(ret == ERROR_SUCCESS, "ret=%d\n", ret);
-    /* At least v5.2.3790.1830 (2003 SP1) returns the unexpanded sTestpath1 length + 1 here. */
-    ok((size == strlen(expanded)+1) || (size == strlen(sTestpath1)+1),
-        "strlen(expanded)=%d, strlen(sTestpath1)=%d, size=%d\n", lstrlenA(expanded), lstrlenA(sTestpath1), size);
+    ok((size == strlen(expanded2)+1) || /* win2k3 SP1 */
+       (size == strlen(expanded2)+2) || /* win2k3 SP2 */
+       (size == strlen(sTestpath2)+1),
+        "strlen(expanded2)=%d, strlen(sTestpath2)=%d, size=%d\n", lstrlenA(expanded2), lstrlenA(sTestpath2), size);
 
     /* Query REG_EXPAND_SZ using RRF_RT_REG_SZ (ok, expands) */
     buf[0] = 0; type = 0xdeadbeef; size = sizeof(buf);
@@ -723,7 +820,17 @@ static void test_get_value(void)
         "strlen(expanded)=%d, strlen(sTestpath1)=%d, size=%d\n", lstrlenA(expanded), lstrlenA(sTestpath1), size);
     ok(type == REG_SZ, "type=%d\n", type);
     ok(!strcmp(expanded, buf), "expanded=\"%s\" buf=\"%s\"\n", expanded, buf);
-    
+
+    /* Query REG_EXPAND_SZ using RRF_RT_REG_SZ (ok, expands a lot) */
+    buf[0] = 0; type = 0xdeadbeef; size = sizeof(buf);
+    ret = pRegGetValueA(hkey_main, NULL, "TP2_EXP_SZ", RRF_RT_REG_SZ, &type, buf, &size);
+    ok(ret == ERROR_SUCCESS, "ret=%d\n", ret);
+    /* At least v5.2.3790.1830 (2003 SP1) returns the unexpanded sTestpath2 length + 1 here. */
+    ok((size == strlen(expanded2)+1) || (size == strlen(sTestpath2)+1),
+        "strlen(expanded2)=%d, strlen(sTestpath1)=%d, size=%d\n", lstrlenA(expanded2), lstrlenA(sTestpath2), size);
+    ok(type == REG_SZ, "type=%d\n", type);
+    ok(!strcmp(expanded2, buf), "expanded2=\"%s\" buf=\"%s\"\n", expanded2, buf);
+
     /* Query REG_EXPAND_SZ using RRF_RT_REG_EXPAND_SZ|RRF_NOEXPAND (ok, doesn't expand) */
     buf[0] = 0; type = 0xdeadbeef; size = sizeof(buf);
     ret = pRegGetValueA(hkey_main, NULL, "TP1_EXP_SZ", RRF_RT_REG_EXPAND_SZ|RRF_NOEXPAND, &type, buf, &size);
@@ -1000,11 +1107,17 @@ static void test_regconnectregistry( void)
     lstrcpynA(netwName+2, compName, MAX_COMPUTERNAME_LENGTH + 1);
 
     retl = RegConnectRegistryA( compName, HKEY_LOCAL_MACHINE, &hkey);
-    ok( !retl || retl == ERROR_DLL_INIT_FAILED, "RegConnectRegistryA failed err = %d\n", retl);
+    ok( !retl ||
+        retl == ERROR_DLL_INIT_FAILED ||
+        retl == ERROR_BAD_NETPATH, /* some win2k */
+        "RegConnectRegistryA failed err = %d\n", retl);
     if( !retl) RegCloseKey( hkey);
 
     retl = RegConnectRegistryA( netwName, HKEY_LOCAL_MACHINE, &hkey);
-    ok( !retl || retl == ERROR_DLL_INIT_FAILED, "RegConnectRegistryA failed err = %d\n", retl);
+    ok( !retl ||
+        retl == ERROR_DLL_INIT_FAILED ||
+        retl == ERROR_BAD_NETPATH, /* some win2k */
+        "RegConnectRegistryA failed err = %d\n", retl);
     if( !retl) RegCloseKey( hkey);
 
     SetLastError(0xdeadbeef);

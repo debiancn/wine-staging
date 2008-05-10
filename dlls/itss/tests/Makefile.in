@@ -3,15 +3,12 @@ TOPOBJDIR = ../../..
 SRCDIR    = @srcdir@
 VPATH     = @srcdir@
 TESTDLL   = itss.dll
-IMPORTS   = ole32 kernel32
-EXTRALIBS = -luuid
+IMPORTS   = uuid ole32 kernel32
 
 CTESTS = \
 	protocol.c
 
 RC_SRCS = rsrc.rc
-RC_BINSRC = rsrc.rc
-RC_BINARIES = data.chm
 
 @MAKE_TEST_RULES@
 

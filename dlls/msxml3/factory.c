@@ -109,8 +109,6 @@ static HRESULT WINAPI xmlcf_CreateInstance(
         return r;
 
     r = IUnknown_QueryInterface( punk, riid, ppobj );
-    if (FAILED(r))
-        return r;
     IUnknown_Release( punk );
     return r;
 }
@@ -135,6 +133,7 @@ static const struct IClassFactoryVtbl xmlcf_vtbl =
 static xmlcf domdoccf = { &xmlcf_vtbl, DOMDocument_create };
 static xmlcf schemacf = { &xmlcf_vtbl, SchemaCache_create };
 static xmlcf xmldoccf = { &xmlcf_vtbl, XMLDocument_create };
+static xmlcf saxreadcf = { &xmlcf_vtbl, SAXXMLReader_create };
 
 /******************************************************************
  *		DllGetClassObject (MSXML3.@)
@@ -159,6 +158,15 @@ HRESULT WINAPI DllGetClassObject( REFCLSID rclsid, REFIID iid, LPVOID *ppv )
     else if( IsEqualCLSID( rclsid, &CLSID_XMLDocument ) )
     {
         cf = (IClassFactory*) &xmldoccf.lpVtbl;
+    }
+    else if( IsEqualCLSID( rclsid, &CLSID_FreeThreadedDOMDocument ) )
+    {
+        cf = (IClassFactory*) &domdoccf.lpVtbl;
+    }
+    else if( IsEqualCLSID( rclsid, &CLSID_SAXXMLReader) ||
+             IsEqualCLSID( rclsid, &CLSID_SAXXMLReader30 ))
+    {
+        cf = (IClassFactory*) &saxreadcf.lpVtbl;
     }
 
     if ( !cf )

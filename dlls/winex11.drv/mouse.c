@@ -41,7 +41,6 @@ MAKE_FUNCPTR(XcursorImageLoadCursor);
 #include "winbase.h"
 #include "wine/winuser16.h"
 
-#include "win.h"
 #include "x11drv.h"
 #include "wine/server.h"
 #include "wine/library.h"
@@ -119,14 +118,22 @@ void X11DRV_Xcursor_Init(void)
  *
  * get the coordinates of a mouse event
  */
-static inline void get_coords( HWND hwnd, int x, int y, POINT *pt )
+static inline void get_coords( HWND hwnd, Window window, int x, int y, POINT *pt )
 {
     struct x11drv_win_data *data = X11DRV_get_win_data( hwnd );
 
     if (!data) return;
 
-    pt->x = x + data->whole_rect.left;
-    pt->y = y + data->whole_rect.top;
+    if (window == data->client_window)
+    {
+        pt->x = x + data->client_rect.left;
+        pt->y = y + data->client_rect.top;
+    }
+    else
+    {
+        pt->x = x + data->whole_rect.left;
+        pt->y = y + data->whole_rect.top;
+    }
 }
 
 /***********************************************************************
@@ -165,12 +172,7 @@ static void update_mouse_state( HWND hwnd, Window window, int x, int y, unsigned
 {
     struct x11drv_thread_data *data = x11drv_thread_data();
 
-    if (window == root_window)
-    {
-        x += virtual_screen_rect.left;
-        y += virtual_screen_rect.top;
-    }
-    get_coords( hwnd, x, y, pt );
+    get_coords( hwnd, window, x, y, pt );
 
     /* update the cursor */
 
@@ -284,7 +286,9 @@ void X11DRV_send_mouse_input( HWND hwnd, DWORD flags, DWORD x, DWORD y,
             pt.x = x;
             pt.y = y;
             wine_tsx11_lock();
-            if (cursor_pos.x == x && cursor_pos.y == y) flags &= ~MOUSEEVENTF_MOVE;
+            if (cursor_pos.x == x && cursor_pos.y == y &&
+                (flags & ~(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE)))
+                flags &= ~MOUSEEVENTF_MOVE;
             wine_tsx11_unlock();
         }
     }
@@ -402,11 +406,12 @@ static XcursorImage *create_cursor_image( CURSORICONINFO *ptr )
 {
     int x, xmax;
     int y, ymax;
-    int and_size, xor_size;
+    int and_size;
     unsigned char *and_bits, *and_ptr, *xor_bits, *xor_ptr;
     int and_width_bytes, xor_width_bytes;
     XcursorPixel *pixel_ptr;
     XcursorImage *image;
+    BOOL alpha_zero = TRUE;
 
     ymax = (ptr->nHeight > 32) ? 32 : ptr->nHeight;
     xmax = (ptr->nWidth > 32) ? 32 : ptr->nWidth;
@@ -417,11 +422,41 @@ static XcursorImage *create_cursor_image( CURSORICONINFO *ptr )
     and_size = ptr->nWidth * ptr->nHeight / 8;
     and_ptr = and_bits = (unsigned char *)(ptr + 1);
 
-    xor_size = xor_width_bytes * ptr->nHeight;
     xor_ptr = xor_bits = and_ptr + and_size;
 
     image = pXcursorImageCreate( xmax, ymax );
     pixel_ptr = image->pixels;
+
+    /* Generally 32 bit bitmaps have an alpha channel which is used in favor
+     * of the AND mask. However, if all pixels have alpha = 0x00, the bitmap
+     * is treated like one without alpha and the masks are used. As soon as
+     * one pixel has alpha != 0x00, and the mask ignored as described in the
+     * docs.
+     *
+     * This is most likely for applications which create the bitmaps with
+     * CreateDIBitmap, which creates a device dependent bitmap, so the format
+     * that arrives when loading depends on the screen's bpp. Apps that were
+     * written at 8 / 16 bpp times do not know about the 32 bit alpha, so
+     * they would get a completely transparent cursor on 32 bit displays.
+     *
+     * Non-32 bit bitmaps always use the AND mask
+     */
+    if(ptr->bBitsPerPixel == 32)
+    {
+        for (y = 0; alpha_zero && y < ymax; ++y)
+        {
+            xor_ptr = xor_bits + (y * xor_width_bytes);
+            for (x = 0; x < xmax; ++x)
+            {
+                if (xor_ptr[3] != 0x00)
+                {
+                    alpha_zero = FALSE;
+                    break;
+                }
+                xor_ptr+=4;
+            }
+        }
+    }
 
     /* On windows, to calculate the color for a pixel, first an AND is done
      * with the background and the "and" bitmap, then an XOR with the "xor"
@@ -434,7 +469,7 @@ static XcursorImage *create_cursor_image( CURSORICONINFO *ptr )
      * background color.
      *
      * Since we can't support inverting colors, we map the grayscale value of
-     * the "xor" data to the alpha channel, and xor the the color with either
+     * the "xor" data to the alpha channel, and xor the color with either
      * black or white.
      */
     for (y = 0; y < ymax; ++y)
@@ -482,7 +517,7 @@ static XcursorImage *create_cursor_image( CURSORICONINFO *ptr )
                     return 0;
             }
 
-            if (ptr->bBitsPerPixel != 32)
+            if (alpha_zero)
             {
                 /* Alpha channel */
                 if (~*and_ptr & (1 << (7 - (x & 7)))) *pixel_ptr |= 0xff << 24;
@@ -532,8 +567,8 @@ static Cursor create_xcursor_cursor( Display *display, CURSORICONINFO *ptr )
     /* Make sure hotspot is valid */
     image->xhot = ptr->ptHotSpot.x;
     image->yhot = ptr->ptHotSpot.y;
-    if (image->xhot < 0 || image->xhot >= image->width ||
-        image->yhot < 0 || image->yhot >= image->height)
+    if (image->xhot >= image->width ||
+        image->yhot >= image->height)
     {
         image->xhot = image->width / 2;
         image->yhot = image->height / 2;
@@ -628,7 +663,7 @@ static Cursor create_cursor( Display *display, CURSORICONINFO *ptr )
             int     rbits, gbits, bbits, red, green, blue;
             int     rfg, gfg, bfg, rbg, gbg, bbg;
             int     rscale, gscale, bscale;
-            int     x, y, xmax, ymax, bitIndex, byteIndex, xorIndex;
+            int     x, y, xmax, ymax, byteIndex, xorIndex;
             unsigned char *theMask, *theImage, theChar;
             int     threshold, fgBits, bgBits, bitShifted;
             BYTE    pXorBits[128];   /* Up to 32x32 icons */
@@ -667,7 +702,6 @@ static Cursor create_cursor( Display *display, CURSORICONINFO *ptr )
              */
             theImage = &theMask[ptr->nWidth/8 * ptr->nHeight];
             rfg = gfg = bfg = rbg = gbg = bbg = 0;
-            bitIndex = 0;
             byteIndex = 0;
             xorIndex = 0;
             fgBits = 0;
@@ -763,6 +797,7 @@ static Cursor create_cursor( Display *display, CURSORICONINFO *ptr )
             pixmapBits = XCreateBitmapFromData( display, root_window, (char *)pXorBits, xmax, ymax );
             if (!pixmapBits)
             {
+                HeapFree( GetProcessHeap(), 0, bitMask32 );
                 XFreePixmap( display, pixmapAll );
                 XFreeGC( display, gc );
                 image->data = NULL;
@@ -879,6 +914,7 @@ static Cursor create_cursor( Display *display, CURSORICONINFO *ptr )
  */
 void X11DRV_SetCursor( CURSORICONINFO *lpCursor )
 {
+    struct x11drv_thread_data *data = x11drv_thread_data();
     Cursor cursor;
 
     if (lpCursor)
@@ -887,40 +923,22 @@ void X11DRV_SetCursor( CURSORICONINFO *lpCursor )
     else
         TRACE("NULL\n");
 
-    if (root_window != DefaultRootWindow(gdi_display))
-    {
-        /* If in desktop mode, set the cursor on the desktop window */
+    /* set the same cursor for all top-level windows of the current thread */
 
-        wine_tsx11_lock();
-        cursor = create_cursor( gdi_display, lpCursor );
-        if (cursor)
-        {
-            XDefineCursor( gdi_display, root_window, cursor );
-	    /* Make the change take effect immediately */
-	    XFlush(gdi_display);
-            XFreeCursor( gdi_display, cursor );
-        }
-        wine_tsx11_unlock();
-    }
-    else /* set the same cursor for all top-level windows of the current thread */
+    wine_tsx11_lock();
+    cursor = create_cursor( data->display, lpCursor );
+    if (cursor)
     {
-        struct x11drv_thread_data *data = x11drv_thread_data();
-
-        wine_tsx11_lock();
-        cursor = create_cursor( data->display, lpCursor );
-        if (cursor)
+        if (data->cursor) XFreeCursor( data->display, data->cursor );
+        data->cursor = cursor;
+        if (data->cursor_window)
         {
-            if (data->cursor) XFreeCursor( data->display, data->cursor );
-            data->cursor = cursor;
-            if (data->cursor_window)
-            {
-                XDefineCursor( data->display, data->cursor_window, cursor );
-                /* Make the change take effect immediately */
-                XFlush( data->display );
-            }
+            XDefineCursor( data->display, data->cursor_window, cursor );
+            /* Make the change take effect immediately */
+            XFlush( data->display );
         }
-        wine_tsx11_unlock();
     }
+    wine_tsx11_unlock();
 }
 
 /***********************************************************************
@@ -1090,6 +1108,7 @@ void X11DRV_EnterNotify( HWND hwnd, XEvent *xev )
 
     if (!hwnd) return;
     if (event->detail == NotifyVirtual || event->detail == NotifyNonlinearVirtual) return;
+    if (event->window == x11drv_thread_data()->grab_window) return;
 
     /* simulate a mouse motion event */
     update_mouse_state( hwnd, event->window, event->x, event->y, event->state, &pt );

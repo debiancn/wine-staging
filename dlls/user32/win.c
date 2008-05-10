@@ -33,7 +33,6 @@
 #include "wine/server.h"
 #include "wine/unicode.h"
 #include "win.h"
-#include "winproc.h"
 #include "user_private.h"
 #include "controls.h"
 #include "winerror.h"
@@ -96,7 +95,7 @@ static void *user_handles[NB_USER_HANDLES];
  *
  * Create a window handle with the server.
  */
-static WND *create_window_handle( HWND parent, HWND owner, ATOM atom,
+static WND *create_window_handle( HWND parent, HWND owner, LPCWSTR name,
                                   HINSTANCE instance, BOOL unicode )
 {
     WORD index;
@@ -114,8 +113,9 @@ static WND *create_window_handle( HWND parent, HWND owner, ATOM atom,
     {
         req->parent   = parent;
         req->owner    = owner;
-        req->atom     = atom;
         req->instance = instance;
+        if (!(req->atom = get_int_atom_value( name )) && name)
+            wine_server_add_data( req, name, strlenW(name)*sizeof(WCHAR) );
         if (!wine_server_call_err( req ))
         {
             handle = reply->handle;
@@ -133,7 +133,8 @@ static WND *create_window_handle( HWND parent, HWND owner, ATOM atom,
         return NULL;
     }
 
-    if (!(win = HeapAlloc( GetProcessHeap(), 0, sizeof(WND) + extra_bytes - sizeof(win->wExtra) )))
+    if (!(win = HeapAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY,
+                           sizeof(WND) + extra_bytes - sizeof(win->wExtra) )))
     {
         SERVER_START_REQ( destroy_window )
         {
@@ -149,8 +150,8 @@ static WND *create_window_handle( HWND parent, HWND owner, ATOM atom,
     {
         struct user_thread_info *thread_info = get_user_thread_info();
 
-        assert( !thread_info->desktop );
-        thread_info->desktop = full_parent ? full_parent : handle;
+        if (!thread_info->desktop) thread_info->desktop = full_parent ? full_parent : handle;
+        else assert( full_parent == thread_info->desktop );
         if (full_parent && !USER_Driver->pCreateDesktopWindow( thread_info->desktop ))
             ERR( "failed to create desktop window\n" );
     }
@@ -163,11 +164,11 @@ static WND *create_window_handle( HWND parent, HWND owner, ATOM atom,
     win->hwndSelf   = handle;
     win->parent     = full_parent;
     win->owner      = full_owner;
+    win->class      = class;
+    win->winproc    = get_class_winproc( class );
     win->dwMagic    = WND_MAGIC;
-    win->flags      = 0;
     win->cbWndExtra = extra_bytes;
-    memset( win->wExtra, 0, extra_bytes );
-    CLASS_AddWindow( class, win, unicode );
+    if (WINPROC_IsUnicode( win->winproc, unicode )) win->flags |= WIN_ISUNICODE;
     return win;
 }
 
@@ -211,10 +212,10 @@ static WND *free_window_handle( HWND hwnd )
  * Build an array of the children of a given window. The array must be
  * freed with HeapFree. Returns NULL when no windows are found.
  */
-static HWND *list_window_children( HWND hwnd, ATOM atom, DWORD tid )
+static HWND *list_window_children( HDESK desktop, HWND hwnd, LPCWSTR class, DWORD tid )
 {
     HWND *list;
-    int size = 32;
+    int size = 128;
 
     for (;;)
     {
@@ -224,9 +225,11 @@ static HWND *list_window_children( HWND hwnd, ATOM atom, DWORD tid )
 
         SERVER_START_REQ( get_window_children )
         {
+            req->desktop = desktop;
             req->parent = hwnd;
-            req->atom = atom;
             req->tid = tid;
+            if (!(req->atom = get_int_atom_value( class )) && class)
+                wine_server_add_data( req, class, strlenW(class)*sizeof(WCHAR) );
             wine_server_set_reply( req, list, (size-1) * sizeof(HWND) );
             if (!wine_server_call( req )) count = reply->count;
         }
@@ -271,6 +274,7 @@ static HWND *list_window_parents( HWND hwnd )
         }
         list[pos] = current = win->parent;
         WIN_ReleasePtr( win );
+        if (!current) return list;
         if (++pos == size - 1)
         {
             /* need to grow the list */
@@ -520,7 +524,11 @@ ULONG WIN_SetStyle( HWND hwnd, ULONG set_bits, ULONG clear_bits )
     }
     SERVER_END_REQ;
     WIN_ReleasePtr( win );
-    if (ok) USER_Driver->pSetWindowStyle( hwnd, old_style );
+    if (ok)
+    {
+        USER_Driver->pSetWindowStyle( hwnd, old_style );
+        if ((old_style ^ new_style) & WS_VISIBLE) invalidate_dce( hwnd, NULL );
+    }
     return old_style;
 }
 
@@ -590,6 +598,7 @@ LRESULT WIN_DestroyWindow( HWND hwnd )
     WND *wndPtr;
     HWND *list;
     HMENU menu = 0, sys_menu;
+    HWND icon_title;
 
     TRACE("%p\n", hwnd );
 
@@ -621,16 +630,18 @@ LRESULT WIN_DestroyWindow( HWND hwnd )
 
     /* FIXME: do we need to fake QS_MOUSEMOVE wakebit? */
 
-    WINPOS_CheckInternalPos( hwnd );
-
     /* free resources associated with the window */
 
     if (!(wndPtr = WIN_GetPtr( hwnd )) || wndPtr == WND_OTHER_PROCESS) return 0;
     if ((wndPtr->dwStyle & (WS_CHILD | WS_POPUP)) != WS_CHILD)
         menu = (HMENU)wndPtr->wIDmenu;
     sys_menu = wndPtr->hSysMenu;
+    free_dce( wndPtr->dce, hwnd );
+    wndPtr->dce = NULL;
+    icon_title = wndPtr->icon_title;
     WIN_ReleasePtr( wndPtr );
 
+    if (icon_title) DestroyWindow( icon_title );
     if (menu) DestroyMenu( menu );
     if (sys_menu) DestroyMenu( sys_menu );
 
@@ -858,17 +869,21 @@ static void dump_window_styles( DWORD style, DWORD exstyle )
  *
  * Implementation of CreateWindowEx().
  */
-static HWND WIN_CreateWindowEx( CREATESTRUCTA *cs, ATOM classAtom, UINT flags )
+static HWND WIN_CreateWindowEx( CREATESTRUCTA *cs, LPCWSTR className, UINT flags )
 {
-    INT sw = SW_SHOW;
+    INT cx, cy, style, sw = SW_SHOW;
+    LRESULT result;
+    RECT rect;
     WND *wndPtr;
     HWND hwnd, parent, owner, top_child = 0;
     BOOL unicode = (flags & WIN_ISUNICODE) != 0;
     MDICREATESTRUCTA mdi_cs;
+    CBT_CREATEWNDA cbtc;
+    CREATESTRUCTA cbcs;
 
     TRACE("%s %s ex=%08x style=%08x %d,%d %dx%d parent=%p menu=%p inst=%p params=%p\n",
           unicode ? debugstr_w((LPCWSTR)cs->lpszName) : debugstr_a(cs->lpszName),
-          unicode ? debugstr_w((LPCWSTR)cs->lpszClass) : debugstr_a(cs->lpszClass),
+          debugstr_w(className),
           cs->dwExStyle, cs->style, cs->x, cs->y, cs->cx, cs->cy,
           cs->hwndParent, cs->hMenu, cs->hInstance, cs->lpCreateParams );
     if(TRACE_ON(win)) dump_window_styles( cs->style, cs->dwExStyle );
@@ -969,7 +984,7 @@ static HWND WIN_CreateWindowEx( CREATESTRUCTA *cs, ATOM classAtom, UINT flags )
             SetLastError(ERROR_TLW_WITH_WSCHILD);
             return 0;  /* WS_CHILD needs a parent, but WS_POPUP doesn't */
         }
-        if (classAtom != LOWORD(DESKTOP_CLASS_ATOM))  /* are we creating the desktop itself? */
+        if (className != (LPCWSTR)DESKTOP_CLASS_ATOM)  /* are we creating the desktop itself? */
             parent = GetDesktopWindow();
     }
 
@@ -984,7 +999,7 @@ static HWND WIN_CreateWindowEx( CREATESTRUCTA *cs, ATOM classAtom, UINT flags )
 
     /* Create the window structure */
 
-    if (!(wndPtr = create_window_handle( parent, owner, classAtom, cs->hInstance, unicode )))
+    if (!(wndPtr = create_window_handle( parent, owner, className, cs->hInstance, unicode )))
         return 0;
     hwnd = wndPtr->hwndSelf;
 
@@ -1075,12 +1090,110 @@ static HWND WIN_CreateWindowEx( CREATESTRUCTA *cs, ATOM classAtom, UINT flags )
         }
     }
     else SetWindowLongPtrW( hwnd, GWLP_ID, (ULONG_PTR)cs->hMenu );
-    WIN_ReleasePtr( wndPtr );
 
-    if (!USER_Driver->pCreateWindow( hwnd, cs, unicode))
+    /* call the WH_CBT hook */
+
+    /* the window style passed to the hook must be the real window style,
+     * rather than just the window style that the caller to CreateWindowEx
+     * passed in, so we have to copy the original CREATESTRUCT and get the
+     * the real style. */
+    cbcs = *cs;
+    cbcs.style = wndPtr->dwStyle;
+    cbtc.lpcs = &cbcs;
+    cbtc.hwndInsertAfter = HWND_TOP;
+    WIN_ReleasePtr( wndPtr );
+    if (HOOK_CallHooks( WH_CBT, HCBT_CREATEWND, (WPARAM)hwnd, (LPARAM)&cbtc, unicode )) goto failed;
+
+    /* send the WM_GETMINMAXINFO message and fix the size if needed */
+
+    cx = cs->cx;
+    cy = cs->cy;
+    if ((cs->style & WS_THICKFRAME) || !(cs->style & (WS_POPUP | WS_CHILD)))
     {
-        WIN_DestroyWindow( hwnd );
-        return 0;
+        POINT maxSize, maxPos, minTrack, maxTrack;
+        WINPOS_GetMinMaxInfo( hwnd, &maxSize, &maxPos, &minTrack, &maxTrack);
+        if (maxTrack.x < cx) cx = maxTrack.x;
+        if (maxTrack.y < cy) cy = maxTrack.y;
+    }
+
+    if (cx < 0) cx = 0;
+    if (cy < 0) cy = 0;
+    SetRect( &rect, cs->x, cs->y, cs->x + cx, cs->y + cy );
+    if (!set_window_pos( hwnd, 0, SWP_NOZORDER | SWP_NOACTIVATE, &rect, &rect, NULL )) goto failed;
+
+    /* send WM_NCCREATE */
+
+    TRACE( "hwnd %p cs %d,%d %dx%d\n", hwnd, cs->x, cs->y, cx, cy );
+    if (unicode)
+        result = SendMessageW( hwnd, WM_NCCREATE, 0, (LPARAM)cs );
+    else
+        result = SendMessageA( hwnd, WM_NCCREATE, 0, (LPARAM)cs );
+    if (!result)
+    {
+        WARN( "%p: aborted by WM_NCCREATE\n", hwnd );
+        goto failed;
+    }
+
+    /* send WM_NCCALCSIZE */
+
+    if ((wndPtr = WIN_GetPtr(hwnd)))
+    {
+        /* yes, even if the CBT hook was called with HWND_TOP */
+        POINT pt;
+        HWND insert_after = (wndPtr->dwStyle & WS_CHILD) ? HWND_BOTTOM : HWND_TOP;
+        RECT window_rect = wndPtr->rectWindow;
+        RECT client_rect = window_rect;
+        WIN_ReleasePtr( wndPtr );
+
+        /* the rectangle is in screen coords for WM_NCCALCSIZE when wparam is FALSE */
+        pt.x = pt.y = 0;
+        MapWindowPoints( parent, 0, &pt, 1 );
+        OffsetRect( &client_rect, pt.x, pt.y );
+        SendMessageW( hwnd, WM_NCCALCSIZE, FALSE, (LPARAM)&client_rect );
+        OffsetRect( &client_rect, -pt.x, -pt.y );
+        set_window_pos( hwnd, insert_after, SWP_NOACTIVATE, &window_rect, &client_rect, NULL );
+    }
+    else return 0;
+
+    /* send WM_CREATE */
+
+    if (unicode)
+        result = SendMessageW( hwnd, WM_CREATE, 0, (LPARAM)cs );
+    else
+        result = SendMessageA( hwnd, WM_CREATE, 0, (LPARAM)cs );
+    if (result == -1) goto failed;
+
+    /* call the driver */
+
+    if (!USER_Driver->pCreateWindow( hwnd )) goto failed;
+
+    NotifyWinEvent(EVENT_OBJECT_CREATE, hwnd, OBJID_WINDOW, 0);
+
+    /* send the size messages */
+
+    if (!(wndPtr = WIN_GetPtr(hwnd))) return 0;
+    if (!(wndPtr->flags & WIN_NEED_SIZE))
+    {
+        rect = wndPtr->rectClient;
+        WIN_ReleasePtr( wndPtr );
+        SendMessageW( hwnd, WM_SIZE, SIZE_RESTORED,
+                      MAKELONG(rect.right-rect.left, rect.bottom-rect.top));
+        SendMessageW( hwnd, WM_MOVE, 0, MAKELONG( rect.left, rect.top ) );
+    }
+    else WIN_ReleasePtr( wndPtr );
+
+    /* Show the window, maximizing or minimizing if needed */
+
+    style = WIN_SetStyle( hwnd, 0, WS_MAXIMIZE | WS_MINIMIZE );
+    if (style & (WS_MINIMIZE | WS_MAXIMIZE))
+    {
+        RECT newPos;
+        UINT swFlag = (style & WS_MINIMIZE) ? SW_MINIMIZE : SW_MAXIMIZE;
+
+        swFlag = WINPOS_MinMaximize( hwnd, swFlag, &newPos );
+        swFlag |= SWP_FRAMECHANGED; /* Frame always gets changed */
+        if (!(style & WS_VISIBLE) || (style & WS_CHILD) || GetActiveWindow()) swFlag |= SWP_NOACTIVATE;
+        SetWindowPos( hwnd, 0, newPos.left, newPos.top, newPos.right, newPos.bottom, swFlag );
     }
 
     /* Notify the parent window only */
@@ -1111,6 +1224,10 @@ static HWND WIN_CreateWindowEx( CREATESTRUCTA *cs, ATOM classAtom, UINT flags )
 
     TRACE("created window %p\n", hwnd);
     return hwnd;
+
+failed:
+    WIN_DestroyWindow( hwnd );
+    return 0;
 }
 
 
@@ -1136,30 +1253,8 @@ HWND16 WINAPI CreateWindowEx16( DWORD exStyle, LPCSTR className,
                                 HWND16 parent, HMENU16 menu,
                                 HINSTANCE16 instance, LPVOID data )
 {
-    ATOM classAtom;
     CREATESTRUCTA cs;
     char buffer[256];
-
-    /* Find the class atom */
-
-    if (HIWORD(className))
-    {
-        if (!(classAtom = GlobalFindAtomA( className )))
-        {
-            ERR( "bad class name %s\n", debugstr_a(className) );
-            return 0;
-        }
-    }
-    else
-    {
-        classAtom = LOWORD(className);
-        if (!GlobalGetAtomNameA( classAtom, buffer, sizeof(buffer) ))
-        {
-            ERR( "bad atom %x\n", classAtom);
-            return 0;
-        }
-        className = buffer;
-    }
 
     /* Fix the coordinates */
 
@@ -1179,7 +1274,24 @@ HWND16 WINAPI CreateWindowEx16( DWORD exStyle, LPCSTR className,
     cs.lpszClass      = className;
     cs.dwExStyle      = exStyle;
 
-    return HWND_16( WIN_CreateWindowEx( &cs, classAtom, 0 ));
+    if (!IS_INTRESOURCE(className))
+    {
+        WCHAR bufferW[256];
+
+        if (!MultiByteToWideChar( CP_ACP, 0, className, -1, bufferW, sizeof(bufferW)/sizeof(WCHAR) ))
+            return 0;
+        return HWND_16( WIN_CreateWindowEx( &cs, bufferW, 0 ));
+    }
+    else
+    {
+        if (!GlobalGetAtomNameA( LOWORD(className), buffer, sizeof(buffer) ))
+        {
+            ERR( "bad atom %x\n", LOWORD(className));
+            return 0;
+        }
+        cs.lpszClass = buffer;
+        return HWND_16( WIN_CreateWindowEx( &cs, (LPCWSTR)className, 0 ));
+    }
 }
 
 
@@ -1192,32 +1304,7 @@ HWND WINAPI CreateWindowExA( DWORD exStyle, LPCSTR className,
                                  HWND parent, HMENU menu,
                                  HINSTANCE instance, LPVOID data )
 {
-    ATOM classAtom;
     CREATESTRUCTA cs;
-    char buffer[256];
-
-    /* Find the class atom */
-
-    if (HIWORD(className))
-    {
-        if (!(classAtom = GlobalFindAtomA( className )))
-        {
-            ERR( "bad class name %s\n", debugstr_a(className) );
-            return 0;
-        }
-    }
-    else
-    {
-        classAtom = LOWORD(className);
-        if (!GlobalGetAtomNameA( classAtom, buffer, sizeof(buffer) ))
-        {
-            ERR( "bad atom %x\n", classAtom);
-            return 0;
-        }
-        className = buffer;
-    }
-
-    /* Create the window */
 
     cs.lpCreateParams = data;
     cs.hInstance      = instance;
@@ -1232,7 +1319,14 @@ HWND WINAPI CreateWindowExA( DWORD exStyle, LPCSTR className,
     cs.lpszClass      = className;
     cs.dwExStyle      = exStyle;
 
-    return WIN_CreateWindowEx( &cs, classAtom, WIN_ISWIN32 );
+    if (!IS_INTRESOURCE(className))
+    {
+        WCHAR bufferW[256];
+        if (!MultiByteToWideChar( CP_ACP, 0, className, -1, bufferW, sizeof(bufferW)/sizeof(WCHAR) ))
+            return 0;
+        return WIN_CreateWindowEx( &cs, bufferW, WIN_ISWIN32 );
+    }
+    return WIN_CreateWindowEx( &cs, (LPCWSTR)className, WIN_ISWIN32 );
 }
 
 
@@ -1245,32 +1339,7 @@ HWND WINAPI CreateWindowExW( DWORD exStyle, LPCWSTR className,
                                  HWND parent, HMENU menu,
                                  HINSTANCE instance, LPVOID data )
 {
-    ATOM classAtom;
     CREATESTRUCTW cs;
-    WCHAR buffer[256];
-
-    /* Find the class atom */
-
-    if (HIWORD(className))
-    {
-        if (!(classAtom = GlobalFindAtomW( className )))
-        {
-            ERR( "bad class name %s\n", debugstr_w(className) );
-            return 0;
-        }
-    }
-    else
-    {
-        classAtom = LOWORD(className);
-        if (!GlobalGetAtomNameW( classAtom, buffer, sizeof(buffer)/sizeof(WCHAR) ))
-        {
-            ERR( "bad atom %x\n", classAtom);
-            return 0;
-        }
-        className = buffer;
-    }
-
-    /* Create the window */
 
     cs.lpCreateParams = data;
     cs.hInstance      = instance;
@@ -1287,7 +1356,7 @@ HWND WINAPI CreateWindowExW( DWORD exStyle, LPCWSTR className,
 
     /* Note: we rely on the fact that CREATESTRUCTA and */
     /* CREATESTRUCTW have the same layout. */
-    return WIN_CreateWindowEx( (CREATESTRUCTA *)&cs, classAtom, WIN_ISWIN32 | WIN_ISUNICODE );
+    return WIN_CreateWindowEx( (CREATESTRUCTA *)&cs, className, WIN_ISWIN32 | WIN_ISUNICODE );
 }
 
 
@@ -1446,11 +1515,9 @@ BOOL WINAPI OpenIcon( HWND hwnd )
 
 
 /***********************************************************************
- *           WIN_FindWindow
- *
- * Implementation of FindWindow() and FindWindowEx().
+ *		FindWindowExW (USER32.@)
  */
-static HWND WIN_FindWindow( HWND parent, HWND child, ATOM className, LPCWSTR title )
+HWND WINAPI FindWindowExW( HWND parent, HWND child, LPCWSTR className, LPCWSTR title )
 {
     HWND *list = NULL;
     HWND retvalue = 0;
@@ -1464,7 +1531,7 @@ static HWND WIN_FindWindow( HWND parent, HWND child, ATOM className, LPCWSTR tit
         if (!(buffer = HeapAlloc( GetProcessHeap(), 0, (len + 1) * sizeof(WCHAR) ))) return 0;
     }
 
-    if (!(list = list_window_children( parent, className, 0 ))) goto done;
+    if (!(list = list_window_children( 0, parent, className, 0 ))) goto done;
 
     if (child)
     {
@@ -1506,54 +1573,31 @@ HWND WINAPI FindWindowA( LPCSTR className, LPCSTR title )
 /***********************************************************************
  *		FindWindowExA (USER32.@)
  */
-HWND WINAPI FindWindowExA( HWND parent, HWND child,
-                               LPCSTR className, LPCSTR title )
+HWND WINAPI FindWindowExA( HWND parent, HWND child, LPCSTR className, LPCSTR title )
 {
-    ATOM atom = 0;
-    LPWSTR buffer;
-    HWND hwnd;
-    INT len;
+    LPWSTR titleW = NULL;
+    HWND hwnd = 0;
 
-    if (className)
+    if (title)
     {
-        /* If the atom doesn't exist, then no class */
-        /* with this name exists either. */
-        if (!(atom = GlobalFindAtomA( className )))
-        {
-            SetLastError (ERROR_CANNOT_FIND_WND_CLASS);
-            return 0;
-        }
+        DWORD len = MultiByteToWideChar( CP_ACP, 0, title, -1, NULL, 0 );
+        if (!(titleW = HeapAlloc( GetProcessHeap(), 0, len * sizeof(WCHAR) ))) return 0;
+        MultiByteToWideChar( CP_ACP, 0, title, -1, titleW, len );
     }
-    if (!title) return WIN_FindWindow( parent, child, atom, NULL );
 
-    len = MultiByteToWideChar( CP_ACP, 0, title, -1, NULL, 0 );
-    if (!(buffer = HeapAlloc( GetProcessHeap(), 0, len * sizeof(WCHAR) ))) return 0;
-    MultiByteToWideChar( CP_ACP, 0, title, -1, buffer, len );
-    hwnd = WIN_FindWindow( parent, child, atom, buffer );
-    HeapFree( GetProcessHeap(), 0, buffer );
+    if (!IS_INTRESOURCE(className))
+    {
+        WCHAR classW[256];
+        if (MultiByteToWideChar( CP_ACP, 0, className, -1, classW, sizeof(classW)/sizeof(WCHAR) ))
+            hwnd = FindWindowExW( parent, child, classW, titleW );
+    }
+    else
+    {
+        hwnd = FindWindowExW( parent, child, (LPCWSTR)className, titleW );
+    }
+
+    HeapFree( GetProcessHeap(), 0, titleW );
     return hwnd;
-}
-
-
-/***********************************************************************
- *		FindWindowExW (USER32.@)
- */
-HWND WINAPI FindWindowExW( HWND parent, HWND child,
-                               LPCWSTR className, LPCWSTR title )
-{
-    ATOM atom = 0;
-
-    if (className)
-    {
-        /* If the atom doesn't exist, then no class */
-        /* with this name exists either. */
-        if (!(atom = GlobalFindAtomW( className )))
-        {
-            SetLastError (ERROR_CANNOT_FIND_WND_CLASS);
-            return 0;
-        }
-    }
-    return WIN_FindWindow( parent, child, atom, title );
 }
 
 
@@ -1584,25 +1628,35 @@ HWND WINAPI GetDesktopWindow(void)
 
     if (!thread_info->desktop)
     {
-        static const WCHAR command_line[] = {'\\','e','x','p','l','o','r','e','r','.','e','x','e',' ','/','d','e','s','k','t','o','p',0};
-        STARTUPINFOW si;
-        PROCESS_INFORMATION pi;
-        WCHAR cmdline[MAX_PATH + sizeof(command_line)/sizeof(WCHAR)];
-
-        memset( &si, 0, sizeof(si) );
-        si.cb = sizeof(si);
-        GetSystemDirectoryW( cmdline, MAX_PATH );
-        lstrcatW( cmdline, command_line );
-        if (CreateProcessW( NULL, cmdline, NULL, NULL, FALSE, DETACHED_PROCESS,
-                            NULL, NULL, &si, &pi ))
+        USEROBJECTFLAGS flags;
+        if (!GetUserObjectInformationW( GetProcessWindowStation(), UOI_FLAGS, &flags,
+                                        sizeof(flags), NULL ) || (flags.dwFlags & WSF_VISIBLE))
         {
-            TRACE( "started explorer pid %04x tid %04x\n", pi.dwProcessId, pi.dwThreadId );
-            WaitForInputIdle( pi.hProcess, 10000 );
-            CloseHandle( pi.hThread );
-            CloseHandle( pi.hProcess );
+            static const WCHAR command_line[] = {'\\','e','x','p','l','o','r','e','r','.','e','x','e',' ','/','d','e','s','k','t','o','p',0};
+            STARTUPINFOW si;
+            PROCESS_INFORMATION pi;
+            WCHAR cmdline[MAX_PATH + sizeof(command_line)/sizeof(WCHAR)];
 
+            memset( &si, 0, sizeof(si) );
+            si.cb = sizeof(si);
+            si.dwFlags = STARTF_USESTDHANDLES;
+            si.hStdInput  = 0;
+            si.hStdOutput = 0;
+            si.hStdError  = GetStdHandle( STD_ERROR_HANDLE );
+
+            GetSystemDirectoryW( cmdline, MAX_PATH );
+            lstrcatW( cmdline, command_line );
+            if (CreateProcessW( NULL, cmdline, NULL, NULL, FALSE, DETACHED_PROCESS,
+                                NULL, NULL, &si, &pi ))
+            {
+                TRACE( "started explorer pid %04x tid %04x\n", pi.dwProcessId, pi.dwThreadId );
+                WaitForInputIdle( pi.hProcess, 10000 );
+                CloseHandle( pi.hThread );
+                CloseHandle( pi.hProcess );
+            }
+            else WARN( "failed to start explorer, err %d\n", GetLastError() );
         }
-        else WARN( "failed to start explorer, err %d\n", GetLastError() );
+        else TRACE( "not starting explorer since winstation is not visible\n" );
 
         SERVER_START_REQ( get_desktop_window )
         {
@@ -1788,9 +1842,18 @@ static LONG_PTR WIN_GetWindowLong( HWND hwnd, INT offset, UINT size, BOOL unicod
     case GWLP_USERDATA:  retvalue = wndPtr->userdata; break;
     case GWL_STYLE:      retvalue = wndPtr->dwStyle; break;
     case GWL_EXSTYLE:    retvalue = wndPtr->dwExStyle; break;
-    case GWLP_ID:        retvalue = (ULONG_PTR)wndPtr->wIDmenu; break;
-    case GWLP_WNDPROC:   retvalue = (ULONG_PTR)WINPROC_GetProc( wndPtr->winproc, unicode ); break;
+    case GWLP_ID:        retvalue = wndPtr->wIDmenu; break;
     case GWLP_HINSTANCE: retvalue = (ULONG_PTR)wndPtr->hInstance; break;
+    case GWLP_WNDPROC:
+        /* This looks like a hack only for the edit control (see tests). This makes these controls
+         * more tolerant to A/W mismatches. The lack of W->A->W conversion for such a mismatch suggests
+         * that the hack is in GetWindowLongPtr[AW], not in winprocs.
+         */
+        if (wndPtr->winproc == EDIT_winproc_handle && (!unicode != !(wndPtr->flags & WIN_ISUNICODE)))
+            retvalue = (ULONG_PTR)wndPtr->winproc;
+        else
+            retvalue = (ULONG_PTR)WINPROC_GetProc( wndPtr->winproc, unicode );
+        break;
     default:
         WARN("Unknown offset %d\n", offset );
         SetLastError( ERROR_INVALID_INDEX );
@@ -1878,7 +1941,7 @@ LONG_PTR WIN_SetWindowLong( HWND hwnd, INT offset, UINT size, LONG_PTR newval, B
     {
         WNDPROC proc;
         UINT old_flags = wndPtr->flags;
-        retval = (ULONG_PTR)WINPROC_GetProc( wndPtr->winproc, unicode );
+        retval = WIN_GetWindowLong( hwnd, offset, size, unicode );
         if (unicode) proc = WINPROC_AllocProc( NULL, (WNDPROC)newval );
         else proc = WINPROC_AllocProc( (WNDPROC)newval, NULL );
         if (proc) wndPtr->winproc = proc;
@@ -1937,6 +2000,8 @@ LONG_PTR WIN_SetWindowLong( HWND hwnd, INT offset, UINT size, LONG_PTR newval, B
             break;
         case GWL_EXSTYLE:
             req->flags = SET_WIN_EXSTYLE;
+            /* WS_EX_TOPMOST can only be changed through SetWindowPos */
+            newval = (newval & ~WS_EX_TOPMOST) | (wndPtr->dwExStyle & WS_EX_TOPMOST);
             req->ex_style = newval;
             break;
         case GWLP_ID:
@@ -2126,7 +2191,7 @@ LONG WINAPI SetWindowLong16( HWND16 hwnd, INT16 offset, LONG newval )
     {
         WNDPROC new_proc = WINPROC_AllocProc16( (WNDPROC16)newval );
         WNDPROC old_proc = (WNDPROC)SetWindowLongPtrA( WIN_Handle32(hwnd), offset, (LONG_PTR)new_proc );
-        return (LONG)WINPROC_GetProc16( (WNDPROC)old_proc, FALSE );
+        return (LONG)WINPROC_GetProc16( old_proc, FALSE );
     }
     else return SetWindowLongA( WIN_Handle32(hwnd), offset, newval );
 }
@@ -2589,7 +2654,7 @@ HWND WINAPI SetParent( HWND hwnd, HWND parent )
        in the x-order and send the expected WM_WINDOWPOSCHANGING and
        WM_WINDOWPOSCHANGED notification messages.
     */
-    SetWindowPos( hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+    SetWindowPos( hwnd, HWND_TOP, 0, 0, 0, 0,
                   SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | (was_visible ? SWP_SHOWWINDOW : 0) );
     /* FIXME: a WM_MOVE is also generated (in the DefWindowProc handler
      * for WM_WINDOWPOSCHANGED) in Windows, should probably remove SWP_NOMOVE */
@@ -2610,7 +2675,7 @@ BOOL WINAPI IsChild( HWND parent, HWND child )
     if (!list) return FALSE;
     parent = WIN_GetFullHandle( parent );
     for (i = 0; list[i]; i++) if (list[i] == parent) break;
-    ret = (list[i] != 0);
+    ret = list[i] && list[i+1];
     HeapFree( GetProcessHeap(), 0, list );
     return ret;
 }
@@ -2811,7 +2876,7 @@ HWND WINAPI GetLastActivePopup( HWND hwnd )
  */
 HWND *WIN_ListChildren( HWND hwnd )
 {
-    return list_window_children( hwnd, 0, 0 );
+    return list_window_children( 0, hwnd, NULL, 0 );
 }
 
 
@@ -2855,12 +2920,31 @@ BOOL WINAPI EnumThreadWindows( DWORD id, WNDENUMPROC func, LPARAM lParam )
 
     USER_CheckNotLock();
 
-    if (!(list = list_window_children( GetDesktopWindow(), 0, id ))) return TRUE;
+    if (!(list = list_window_children( 0, GetDesktopWindow(), NULL, id ))) return TRUE;
 
     /* Now call the callback function for every window */
 
     for (i = 0; list[i]; i++)
         if (!func( list[i], lParam )) break;
+    HeapFree( GetProcessHeap(), 0, list );
+    return TRUE;
+}
+
+
+/***********************************************************************
+ *              EnumDesktopWindows   (USER32.@)
+ */
+BOOL WINAPI EnumDesktopWindows( HDESK desktop, WNDENUMPROC func, LPARAM lparam )
+{
+    HWND *list;
+    int i;
+
+    USER_CheckNotLock();
+
+    if (!(list = list_window_children( desktop, 0, NULL, 0 ))) return TRUE;
+
+    for (i = 0; list[i]; i++)
+        if (!func( list[i], lparam )) break;
     HeapFree( GetProcessHeap(), 0, list );
     return TRUE;
 }
@@ -3142,6 +3226,16 @@ BOOL WINAPI SetLayeredWindowAttributes( HWND hWnd, COLORREF rgbKey,
 {
     FIXME("(%p,0x%.8x,%d,%d): stub!\n", hWnd, rgbKey, bAlpha, dwFlags);
     return TRUE;
+}
+
+/*****************************************************************************
+ *              GetLayeredWindowAttributes (USER32.@)
+ */
+BOOL WINAPI GetLayeredWindowAttributes( HWND hWnd, COLORREF *prgbKey,
+                                        BYTE *pbAlpha, DWORD *pdwFlags )
+{
+    FIXME("(%p,%p,%p,%p): stub!\n", hWnd, prgbKey, pbAlpha, pdwFlags);
+    return FALSE;
 }
 
 /*****************************************************************************

@@ -1,7 +1,7 @@
 /* -*- tab-width: 8; c-basic-offset: 4 -*- */
 
 /*
- * MMSYTEM low level drivers handling functions
+ * MMSYSTEM low level drivers handling functions
  *
  * Copyright 1999 Eric Pouech
  *
@@ -687,7 +687,7 @@ BOOL	MMDRV_Init(void)
         char *next = strchr(p, ',');
         if (next) *next++ = 0;
         sprintf( filename, "wine%s.drv", p );
-        ret |= MMDRV_Install( filename, filename, FALSE );
+        if ((ret = MMDRV_Install( filename, filename, FALSE ))) break;
         p = next;
     }
 

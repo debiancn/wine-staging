@@ -16,17 +16,13 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "config.h"
-
 #include <stdarg.h>
-#include <stdio.h>
 
 #define COBJMACROS
 
 #include "windef.h"
 #include "winbase.h"
 #include "winuser.h"
-#include "winnls.h"
 #include "ole2.h"
 #include "shlguid.h"
 #include "mshtmdid.h"
@@ -41,21 +37,27 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(mshtml);
 
-#define NSCMD_BOLD "cmd_bold"
-#define NSCMD_ITALIC "cmd_italic"
-#define NSCMD_UNDERLINE "cmd_underline"
-#define NSCMD_ALIGN "cmd_align"
-#define NSCMD_INDENT "cmd_indent"
-#define NSCMD_OUTDENT "cmd_outdent"
-#define NSCMD_INSERTHR "cmd_insertHR"
-#define NSCMD_UL "cmd_ul"
-#define NSCMD_OL "cmd_ol"
+#define NSCMD_COPY "cmd_copy"
 
-#define NSSTATE_ATTRIBUTE "state_attribute"
+void do_ns_command(NSContainer *This, const char *cmd, nsICommandParams *nsparam)
+{
+    nsICommandManager *cmdmgr;
+    nsresult nsres;
 
-#define NSALIGN_CENTER "center"
-#define NSALIGN_LEFT   "left"
-#define NSALIGN_RIGHT  "right"
+    TRACE("(%p)\n", This);
+
+    nsres = get_nsinterface((nsISupports*)This->webbrowser, &IID_nsICommandManager, (void**)&cmdmgr);
+    if(NS_FAILED(nsres)) {
+        ERR("Could not get nsICommandManager: %08x\n", nsres);
+        return;
+    }
+
+    nsres = nsICommandManager_DoCommand(cmdmgr, cmd, nsparam, NULL);
+    if(NS_FAILED(nsres))
+        ERR("DoCommand(%s) failed: %08x\n", debugstr_a(cmd), nsres);
+
+    nsICommandManager_Release(cmdmgr);
+}
 
 /**********************************************************
  * IOleCommandTarget implementation
@@ -210,7 +212,6 @@ static void set_default_templates(nsIPrintSettings *settings)
 
 static HRESULT exec_print(HTMLDocument *This, DWORD nCmdexecopt, VARIANT *pvaIn, VARIANT *pvaOut)
 {
-    nsIInterfaceRequestor *iface_req;
     nsIWebBrowserPrint *nsprint;
     nsIPrintSettings *settings;
     nsresult nsres;
@@ -223,16 +224,8 @@ static HRESULT exec_print(HTMLDocument *This, DWORD nCmdexecopt, VARIANT *pvaIn,
     if(!This->nscontainer)
         return S_OK;
 
-    nsres = nsIWebBrowser_QueryInterface(This->nscontainer->webbrowser,
-            &IID_nsIInterfaceRequestor, (void**)&iface_req);
-    if(NS_FAILED(nsres)) {
-        ERR("Could not get nsIInterfaceRequestor: %08x\n", nsres);
-        return S_OK;
-    }
-
-    nsres = nsIInterfaceRequestor_GetInterface(iface_req, &IID_nsIWebBrowserPrint,
+    nsres = get_nsinterface((nsISupports*)This->nscontainer->webbrowser, &IID_nsIWebBrowserPrint,
             (void**)&nsprint);
-    nsIInterfaceRequestor_Release(iface_req);
     if(NS_FAILED(nsres)) {
         ERR("Could not get nsIWebBrowserPrint: %08x\n", nsres);
         return S_OK;
@@ -404,6 +397,12 @@ static HRESULT exec_stop_download(HTMLDocument *This, DWORD nCmdexecopt, VARIANT
     return E_NOTIMPL;
 }
 
+static HRESULT exec_find(HTMLDocument *This, DWORD nCmdexecopt, VARIANT *pvaIn, VARIANT *pvaOut)
+{
+    FIXME("(%p)->(%d %p %p)\n", This, nCmdexecopt, pvaIn, pvaOut);
+    return E_NOTIMPL;
+}
+
 static HRESULT exec_delete(HTMLDocument *This, DWORD nCmdexecopt, VARIANT *pvaIn, VARIANT *pvaOut)
 {
     FIXME("(%p)->(%d %p %p)\n", This, nCmdexecopt, pvaIn, pvaOut);
@@ -474,8 +473,8 @@ static HRESULT exec_mshtml_copy(HTMLDocument *This, DWORD cmdexecopt, VARIANT *i
     if(This->usermode == EDITMODE)
         return editor_exec_copy(This, cmdexecopt, in, out);
 
-    FIXME("Unimplemented in browse mode\n");
-    return E_NOTIMPL;
+    do_ns_command(This->nscontainer, NSCMD_COPY, NULL);
+    return S_OK;
 }
 
 static HRESULT query_mshtml_cut(HTMLDocument *This, OLECMD *cmd)
@@ -531,8 +530,6 @@ static HRESULT exec_editmode(HTMLDocument *This, DWORD cmdexecopt, VARIANT *in, 
     IMoniker *mon;
     HRESULT hres;
 
-    static const WCHAR wszAboutBlank[] = {'a','b','o','u','t',':','b','l','a','n','k',0};
-
     TRACE("(%p)->(%08x %p %p)\n", This, cmdexecopt, in, out);
 
     if(in || out)
@@ -543,8 +540,19 @@ static HRESULT exec_editmode(HTMLDocument *This, DWORD cmdexecopt, VARIANT *in, 
 
     This->usermode = EDITMODE;
 
+    if(This->mon) {
+        CLSID clsid = IID_NULL;
+        hres = IMoniker_GetClassID(This->mon, &clsid);
+        if(SUCCEEDED(hres)) {
+            /* We should use IMoniker::Save here */
+            FIXME("Use CLSID %s\n", debugstr_guid(&clsid));
+        }
+    }
+
     if(This->frame)
         IOleInPlaceFrame_SetStatusText(This->frame, NULL);
+
+    This->readystate = READYSTATE_UNINITIALIZED;
 
     if(This->client) {
         IOleCommandTarget *cmdtrg;
@@ -578,27 +586,56 @@ static HRESULT exec_editmode(HTMLDocument *This, DWORD cmdexecopt, VARIANT *in, 
     if(This->nscontainer)
         set_ns_editmode(This->nscontainer);
 
-    hres = CreateURLMoniker(NULL, wszAboutBlank, &mon);
-    if(FAILED(hres)) {
-        FIXME("CreateURLMoniker failed: %08x\n", hres);
-        return hres;
-    }
-
     update_doc(This, UPDATE_UI);
 
-    return IPersistMoniker_Load(PERSISTMON(This), TRUE, mon, NULL, 0);
+    if(This->mon) {
+        /* FIXME: We should find nicer way to do this */
+        remove_doc_tasks(This);
+
+        mon = This->mon;
+        IMoniker_AddRef(mon);
+    }else {
+        static const WCHAR about_blankW[] = {'a','b','o','u','t',':','b','l','a','n','k',0};
+
+        hres = CreateURLMoniker(NULL, about_blankW, &mon);
+        if(FAILED(hres)) {
+            FIXME("CreateURLMoniker failed: %08x\n", hres);
+            return hres;
+        }
+    }
+
+    hres = IPersistMoniker_Load(PERSISTMON(This), TRUE, mon, NULL, 0);
+    IMoniker_Release(mon);
+    if(FAILED(hres))
+        return hres;
+
+    if(This->ui_active) {
+        RECT rcBorderWidths;
+
+        if(This->ip_window)
+            call_set_active_object(This->ip_window, NULL);
+        if(This->hostui)
+            IDocHostUIHandler_HideUI(This->hostui);
+
+        if(This->hostui)
+            IDocHostUIHandler_ShowUI(This->hostui, DOCHOSTUITYPE_AUTHOR, ACTOBJ(This), CMDTARGET(This),
+                This->frame, This->ip_window);
+
+        if(This->ip_window)
+            call_set_active_object(This->ip_window, ACTOBJ(This));
+
+        memset(&rcBorderWidths, 0, sizeof(rcBorderWidths));
+        if (This->frame)
+            IOleInPlaceFrame_SetBorderSpace(This->frame, &rcBorderWidths);
+    }
+
+    return S_OK;
 }
 
 static HRESULT exec_htmleditmode(HTMLDocument *This, DWORD cmdexecopt, VARIANT *in, VARIANT *out)
 {
     FIXME("(%p)->(%08x %p %p)\n", This, cmdexecopt, in, out);
     return S_OK;
-}
-
-static HRESULT exec_setdirty(HTMLDocument *This, DWORD cmdexecopt, VARIANT *in, VARIANT *out)
-{
-    FIXME("(%p)->(%08x %p %p)\n", This, cmdexecopt, in, out);
-    return E_NOTIMPL;
 }
 
 static HRESULT exec_baselinefont3(HTMLDocument *This, DWORD cmdexecopt, VARIANT *in, VARIANT *out)
@@ -664,7 +701,8 @@ static const struct {
     { OLECMDF_SUPPORTED|OLECMDF_ENABLED,  exec_stop                 }, /* OLECMDID_STOP */
     {0},{0},{0},{0},{0},{0},
     { OLECMDF_SUPPORTED,                  exec_stop_download        }, /* OLECMDID_STOPDOWNLOAD */
-    {0},{0},
+    {0},
+    { OLECMDF_SUPPORTED|OLECMDF_ENABLED,  exec_find                 }, /* OLECMDID_FIND */
     { OLECMDF_SUPPORTED,                  exec_delete               }, /* OLECMDID_DELETE */
     {0},{0},
     { OLECMDF_SUPPORTED,                  exec_enable_interaction   }, /* OLECMDID_ENABLE_INTERACTION */
@@ -686,7 +724,6 @@ static const cmdtable_t base_cmds[] = {
     {IDM_BROWSEMODE,       NULL,                  exec_browsemode},
     {IDM_EDITMODE,         NULL,                  exec_editmode},
     {IDM_PRINT,            query_enabled_stub,    exec_print},
-    {IDM_SETDIRTY,         NULL,                  exec_setdirty},
     {IDM_HTMLEDITMODE,     NULL,                  exec_htmleditmode},
     {IDM_BASELINEFONT3,    NULL,                  exec_baselinefont3},
     {IDM_BLOCKDIRLTR,      query_enabled_stub,    NULL},
@@ -855,14 +892,14 @@ static const IOleCommandTargetVtbl OleCommandTargetVtbl = {
     OleCommandTarget_Exec
 };
 
-void show_context_menu(HTMLDocument *This, DWORD dwID, POINT *ppt)
+void show_context_menu(HTMLDocument *This, DWORD dwID, POINT *ppt, IDispatch *elem)
 {
     HMENU menu_res, menu;
     DWORD cmdid;
     HRESULT hres;
 
     hres = IDocHostUIHandler_ShowContextMenu(This->hostui, dwID, ppt,
-            (IUnknown*)CMDTARGET(This), (IDispatch*)HTMLDOC(This));
+            (IUnknown*)CMDTARGET(This), elem);
     if(hres == S_OK)
         return;
 
@@ -873,7 +910,8 @@ void show_context_menu(HTMLDocument *This, DWORD dwID, POINT *ppt)
             ppt->x, ppt->y, 0, This->hwnd, NULL);
     DestroyMenu(menu_res);
 
-    IOleCommandTarget_Exec(CMDTARGET(This), &CGID_MSHTML, cmdid, 0, NULL, NULL);
+    if(cmdid)
+        IOleCommandTarget_Exec(CMDTARGET(This), &CGID_MSHTML, cmdid, 0, NULL, NULL);
 }
 
 void HTMLDocument_OleCmd_Init(HTMLDocument *This)

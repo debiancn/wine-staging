@@ -206,9 +206,9 @@ static HRESULT WINAPI RecycleBin_EnumObjects(IShellFolder2 *iface, HWND hwnd, SH
     HRESULT ret;
     int pidls_count;
     int i=0;
-    
-    TRACE("(%p, %p, %x, %p)\n", This, hwnd, (unsigned int)grfFlags, ppenumIDList);
-    
+
+    TRACE("(%p, %p, %x, %p)\n", This, hwnd, grfFlags, ppenumIDList);
+
     if (grfFlags & SHCONTF_NONFOLDERS)
     {
         *ppenumIDList = NULL;
@@ -293,7 +293,7 @@ static HRESULT WINAPI RecycleBin_CreateViewObject(IShellFolder2 *iface, HWND hwn
 static HRESULT WINAPI RecycleBin_GetAttributesOf(IShellFolder2 *This, UINT cidl, LPCITEMIDLIST *apidl,
                                    SFGAOF *rgfInOut)
 {
-    TRACE("(%p, %d, {%p, ...}, {%x})\n", This, cidl, apidl[0], (unsigned int)*rgfInOut);
+    TRACE("(%p, %d, {%p, ...}, {%x})\n", This, cidl, apidl[0], *rgfInOut);
     *rgfInOut &= SFGAO_CANMOVE|SFGAO_CANDELETE|SFGAO_HASPROPSHEET|SFGAO_FILESYSTEM;
     return S_OK;
 }
@@ -310,7 +310,7 @@ static HRESULT WINAPI RecycleBin_GetDisplayNameOf(IShellFolder2 *This, LPCITEMID
 {
     WIN32_FIND_DATAW data;
 
-    TRACE("(%p, %p, %x, %p)\n", This, pidl, (unsigned int)uFlags, pName);
+    TRACE("(%p, %p, %x, %p)\n", This, pidl, uFlags, pName);
     TRASH_UnpackItemID(&pidl->mkid, NULL, &data);
     pName->uType = STRRET_WSTR;
     pName->u.pOleStr = StrDupW(PathFindFileNameW(data.cFileName));
@@ -332,7 +332,7 @@ static HRESULT WINAPI RecycleBin_GetClassID(IPersistFolder2 *This, CLSID *pClass
     TRACE("(%p, %p)\n", This, pClassID);
     if (This == NULL || pClassID == NULL)
         return E_INVALIDARG;
-    memcpy(pClassID, &CLSID_RecycleBin, sizeof(CLSID));
+    *pClassID = CLSID_RecycleBin;
     return S_OK;
 }
 
@@ -371,7 +371,7 @@ static HRESULT WINAPI RecycleBin_EnumSearches(IShellFolder2 *iface, IEnumExtraSe
 static HRESULT WINAPI RecycleBin_GetDefaultColumn(IShellFolder2 *iface, DWORD dwReserved, ULONG *pSort, ULONG *pDisplay)
 {
     RecycleBin *This = (RecycleBin *)iface;
-    TRACE("(%p, %x, %p, %p)\n", This, (unsigned int)dwReserved, pSort, pDisplay);
+    TRACE("(%p, %x, %p, %p)\n", This, dwReserved, pSort, pDisplay);
     *pSort = 0;
     *pDisplay = 0;
     return S_OK;
@@ -381,7 +381,7 @@ static HRESULT WINAPI RecycleBin_GetDefaultColumnState(IShellFolder2 *iface, UIN
 {
     RecycleBin *This = (RecycleBin *)iface;
     TRACE("(%p, %d, %p)\n", This, iColumn, pcsFlags);
-    if (iColumn < 0 || iColumn >= COLUMNS_COUNT)
+    if (iColumn >= COLUMNS_COUNT)
         return E_INVALIDARG;
     *pcsFlags = RecycleBinColumns[iColumn].pcsFlags;
     return S_OK;
@@ -400,7 +400,7 @@ static HRESULT WINAPI RecycleBin_GetDetailsOf(IShellFolder2 *iface, LPCITEMIDLIS
     WCHAR buffer[MAX_PATH];
 
     TRACE("(%p, %p, %d, %p)\n", This, pidl, iColumn, pDetails);
-    if (iColumn < 0 || iColumn >= COLUMNS_COUNT)
+    if (iColumn >= COLUMNS_COUNT)
         return E_FAIL;
     pDetails->fmt = RecycleBinColumns[iColumn].fmt;
     pDetails->cxChar = RecycleBinColumns[iColumn].cxChars;
@@ -439,15 +439,14 @@ static HRESULT WINAPI RecycleBin_GetDetailsOf(IShellFolder2 *iface, LPCITEMIDLIS
     }
     
     pDetails->str.uType = STRRET_WSTR;
-    pDetails->str.u.pOleStr = StrDupW(buffer);
-    return (pDetails->str.u.pOleStr != NULL ? S_OK : E_OUTOFMEMORY);
+    return SHStrDupW(buffer, &pDetails->str.u.pOleStr);
 }
 
 static HRESULT WINAPI RecycleBin_MapColumnToSCID(IShellFolder2 *iface, UINT iColumn, SHCOLUMNID *pscid)
 {
     RecycleBin *This = (RecycleBin *)iface;
     TRACE("(%p, %d, %p)\n", This, iColumn, pscid);
-    if (iColumn<0 || iColumn>=COLUMNS_COUNT)
+    if (iColumn>=COLUMNS_COUNT)
         return E_INVALIDARG;
     pscid->fmtid = *RecycleBinColumns[iColumn].fmtId;
     pscid->pid = RecycleBinColumns[iColumn].pid;

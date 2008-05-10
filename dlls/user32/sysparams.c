@@ -25,6 +25,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#define NONAMELESSUNION
+#define NONAMELESSSTRUCT
+
 #include "windef.h"
 #include "winbase.h"
 #include "winnls.h"
@@ -83,37 +87,37 @@ enum spi_index
 
 static const char * const DefSysColors[] =
 {
-    "Scrollbar", "192 192 192",              /* COLOR_SCROLLBAR */
-    "Background", "0 128 128",               /* COLOR_BACKGROUND */
-    "ActiveTitle", "0 0 128",                /* COLOR_ACTIVECAPTION */
+    "Scrollbar", "212 208 200",              /* COLOR_SCROLLBAR */
+    "Background", "58 110 165",              /* COLOR_BACKGROUND */
+    "ActiveTitle", "10 36 106",              /* COLOR_ACTIVECAPTION */
     "InactiveTitle", "128 128 128",          /* COLOR_INACTIVECAPTION */
-    "Menu", "192 192 192",                   /* COLOR_MENU */
+    "Menu", "212 208 200",                   /* COLOR_MENU */
     "Window", "255 255 255",                 /* COLOR_WINDOW */
     "WindowFrame", "0 0 0",                  /* COLOR_WINDOWFRAME */
     "MenuText", "0 0 0",                     /* COLOR_MENUTEXT */
     "WindowText", "0 0 0",                   /* COLOR_WINDOWTEXT */
     "TitleText", "255 255 255",              /* COLOR_CAPTIONTEXT */
-    "ActiveBorder", "192 192 192",           /* COLOR_ACTIVEBORDER */
-    "InactiveBorder", "192 192 192",         /* COLOR_INACTIVEBORDER */
+    "ActiveBorder", "212 208 200",           /* COLOR_ACTIVEBORDER */
+    "InactiveBorder", "212 208 200",         /* COLOR_INACTIVEBORDER */
     "AppWorkSpace", "128 128 128",           /* COLOR_APPWORKSPACE */
-    "Hilight", "0 0 128",                    /* COLOR_HIGHLIGHT */
+    "Hilight", "10 36 106",                  /* COLOR_HIGHLIGHT */
     "HilightText", "255 255 255",            /* COLOR_HIGHLIGHTTEXT */
-    "ButtonFace", "192 192 192",             /* COLOR_BTNFACE */
+    "ButtonFace", "212 208 200",             /* COLOR_BTNFACE */
     "ButtonShadow", "128 128 128",           /* COLOR_BTNSHADOW */
     "GrayText", "128 128 128",               /* COLOR_GRAYTEXT */
     "ButtonText", "0 0 0",                   /* COLOR_BTNTEXT */
-    "InactiveTitleText", "192 192 192",      /* COLOR_INACTIVECAPTIONTEXT */
+    "InactiveTitleText", "212 208 200",      /* COLOR_INACTIVECAPTIONTEXT */
     "ButtonHilight", "255 255 255",          /* COLOR_BTNHIGHLIGHT */
-    "ButtonDkShadow", "0 0 0",               /* COLOR_3DDKSHADOW */
-    "ButtonLight", "224 224 224",            /* COLOR_3DLIGHT */
+    "ButtonDkShadow", "64 64 64",            /* COLOR_3DDKSHADOW */
+    "ButtonLight", "212 208 200",            /* COLOR_3DLIGHT */
     "InfoText", "0 0 0",                     /* COLOR_INFOTEXT */
     "InfoWindow", "255 255 225",             /* COLOR_INFOBK */
-    "ButtonAlternateFace", "180 180 180",    /* COLOR_ALTERNATEBTNFACE */
-    "HotTrackingColor", "0 0 255",           /* COLOR_HOTLIGHT */
-    "GradientActiveTitle", "16 132 208",     /* COLOR_GRADIENTACTIVECAPTION */
-    "GradientInactiveTitle", "181 181 181",  /* COLOR_GRADIENTINACTIVECAPTION */
-    "MenuHilight", "0 0 0",                  /* COLOR_MENUHILIGHT */
-    "MenuBar", "192 192 192"                 /* COLOR_MENUBAR */
+    "ButtonAlternateFace", "181 181 181",    /* COLOR_ALTERNATEBTNFACE */
+    "HotTrackingColor", "0 0 128",           /* COLOR_HOTLIGHT */
+    "GradientActiveTitle", "166 202 240",    /* COLOR_GRADIENTACTIVECAPTION */
+    "GradientInactiveTitle", "192 192 192",  /* COLOR_GRADIENTINACTIVECAPTION */
+    "MenuHilight", "10 36 106",              /* COLOR_MENUHILIGHT */
+    "MenuBar", "212 208 200"                 /* COLOR_MENUBAR */
 };
 
 /**
@@ -257,8 +261,7 @@ static const WCHAR MessageFontSize[]=                        {'M','e','s','s','a
 static const WCHAR System[]=                                 {'S','y','s','t','e','m',0};
 static const WCHAR IconTitleSize[]=                          {'I','c','o','n','T','i','t','l','e','S','i','z','e',0};
 static const WCHAR IconTitleFaceName[]=                      {'I','c','o','n','T','i','t','l','e','F','a','c','e','N','a','m','e',0};
-static const WCHAR defPattern[]=                             {'1','7','0',' ','8','5',' ','1','7','0',' ','8','5',' ','1','7','0',' ','8','5',
-                                                              ' ','1','7','0',' ','8','5',0};
+static const WCHAR defPattern[]=                             {'0',' ','0',' ','0',' ','0',' ','0',' ','0',' ','0',' ','0',0};
 static const WCHAR CSu[]=                                    {'%','u',0};
 static const WCHAR CSd[]=                                    {'%','d',0};
 
@@ -606,7 +609,7 @@ static BOOL SYSPARAMS_LoadRaw( LPCWSTR lpRegKey, LPCWSTR lpValName, LPBYTE lpBuf
     if ((RegOpenKeyW( get_volatile_regkey(), lpRegKey, &hKey ) == ERROR_SUCCESS) ||
         (RegOpenKeyW( HKEY_CURRENT_USER, lpRegKey, &hKey ) == ERROR_SUCCESS))
     {
-        ret = !RegQueryValueExW( hKey, lpValName, NULL, &type, (LPBYTE)lpBuf, &count);
+        ret = !RegQueryValueExW( hKey, lpValName, NULL, &type, lpBuf, &count);
         RegCloseKey( hKey );
     }
     return ret;
@@ -1124,7 +1127,7 @@ static void load_nonclient_metrics(void)
 
     if (hkey) RegCloseKey( hkey );
     normalize_nonclientmetrics( &ncm);
-    memcpy( &nonclient_metrics, &ncm, sizeof(nonclient_metrics) );
+    nonclient_metrics = ncm;
     spi_loaded[SPI_NONCLIENTMETRICS_IDX] = TRUE;
 }
 
@@ -1543,7 +1546,7 @@ BOOL WINAPI SystemParametersInfoW( UINT uiAction, UINT uiParam,
         if (!spi_loaded[SPI_NONCLIENTMETRICS_IDX]) load_nonclient_metrics();
 
         if (lpnm && lpnm->cbSize == sizeof(NONCLIENTMETRICSW))
-            memcpy( lpnm, &nonclient_metrics, sizeof(*lpnm) );
+            *lpnm = nonclient_metrics;
         else
             ret = FALSE;
         break;
@@ -1599,9 +1602,9 @@ BOOL WINAPI SystemParametersInfoW( UINT uiAction, UINT uiParam,
                     METRICS_REGKEY, METRICS_MESSAGELOGFONT_VALNAME,
                     &lpnm->lfMessageFont, fWinIni);
             if( ret) {
-                memcpy( &ncm, lpnm, sizeof(nonclient_metrics) );
+                ncm = *lpnm;
                 normalize_nonclientmetrics( &ncm);
-                memcpy( &nonclient_metrics, &ncm, sizeof(nonclient_metrics) );
+                nonclient_metrics = ncm;
                 spi_loaded[SPI_NONCLIENTMETRICS_IDX] = TRUE;
             }
         }
@@ -1613,7 +1616,7 @@ BOOL WINAPI SystemParametersInfoW( UINT uiAction, UINT uiParam,
         MINIMIZEDMETRICS * lpMm = pvParam;
         if (lpMm && lpMm->cbSize == sizeof(*lpMm)) {
             if( spi_loaded[SPI_MINIMIZEDMETRICS_IDX]) load_minimized_metrics();
-            memcpy( lpMm, &minimized_metrics, sizeof(*lpMm) );
+            *lpMm = minimized_metrics;
         } else
             ret = FALSE;
         break;
@@ -2095,8 +2098,22 @@ BOOL WINAPI SystemParametersInfoW( UINT uiAction, UINT uiParam,
 
     WINE_SPI_FIXME(SPI_GETSHOWIMEUI);		/*    110  _WIN32_WINNT >= 0x400 || _WIN32_WINDOW > 0x400 */
     WINE_SPI_FIXME(SPI_SETSHOWIMEUI);		/*    111  _WIN32_WINNT >= 0x400 || _WIN32_WINDOW > 0x400 */
-    WINE_SPI_FIXME(SPI_GETMOUSESPEED);          /*    112  _WIN32_WINNT >= 0x500 || _WIN32_WINDOW > 0x400 */
-    WINE_SPI_FIXME(SPI_SETMOUSESPEED);          /*    113  _WIN32_WINNT >= 0x500 || _WIN32_WINDOW > 0x400 */
+
+    case SPI_GETMOUSESPEED:             /*    112  _WIN32_WINNT >= 0x500 || _WIN32_WINDOW > 0x400 */
+    {
+        int buf[3];
+        ret = SystemParametersInfoW (SPI_GETMOUSE, 0, buf, fWinIni);
+        *(INT *)pvParam = buf[2];
+        break;
+    }
+
+    case SPI_SETMOUSESPEED:                     /*    113  _WIN32_WINNT >= 0x500 || _WIN32_WINDOW > 0x400 */
+    {
+        ret = save_int_param( SPI_SETMOUSE_REGKEY, SPI_SETMOUSE_VALNAME3,
+                              &mouse_speed, PtrToInt(pvParam), fWinIni);
+
+        break;
+    }
 
     case SPI_GETSCREENSAVERRUNNING:
         ret = get_bool_param( SPI_SETSCREENSAVERRUNNING_IDX,
@@ -2887,7 +2904,7 @@ BOOL WINAPI SetSysColors( INT nChanges, const INT *lpSysColor,
  */
 DWORD WINAPI SetSysColorsTemp( const COLORREF *pPens, const HBRUSH *pBrushes, DWORD n)
 {
-    int i;
+    DWORD i;
 
     if (pPens && pBrushes) /* "set" call */
     {
@@ -2977,7 +2994,6 @@ LONG WINAPI ChangeDisplaySettingsW( LPDEVMODEW devmode, DWORD flags )
 LONG WINAPI ChangeDisplaySettingsExA( LPCSTR devname, LPDEVMODEA devmode, HWND hwnd,
                                       DWORD flags, LPVOID lparam )
 {
-    DEVMODEW devmodeW;
     LONG ret;
     UNICODE_STRING nameW;
 
@@ -2986,13 +3002,16 @@ LONG WINAPI ChangeDisplaySettingsExA( LPCSTR devname, LPDEVMODEA devmode, HWND h
 
     if (devmode)
     {
-        devmodeW.dmBitsPerPel       = devmode->dmBitsPerPel;
-        devmodeW.dmPelsHeight       = devmode->dmPelsHeight;
-        devmodeW.dmPelsWidth        = devmode->dmPelsWidth;
-        devmodeW.dmDisplayFlags     = devmode->dmDisplayFlags;
-        devmodeW.dmDisplayFrequency = devmode->dmDisplayFrequency;
-        devmodeW.dmFields           = devmode->dmFields;
-        ret = ChangeDisplaySettingsExW(nameW.Buffer, &devmodeW, hwnd, flags, lparam);
+        DEVMODEW *devmodeW;
+
+        devmodeW = GdiConvertToDevmodeW(devmode);
+        if (devmodeW)
+        {
+            ret = ChangeDisplaySettingsExW(nameW.Buffer, devmodeW, hwnd, flags, lparam);
+            HeapFree(GetProcessHeap(), 0, devmodeW);
+        }
+        else
+            ret = DISP_CHANGE_SUCCESSFUL;
     }
     else
     {
@@ -3055,12 +3074,23 @@ BOOL WINAPI EnumDisplaySettingsExA(LPCSTR lpszDeviceName, DWORD iModeNum,
     ret = EnumDisplaySettingsExW(nameW.Buffer,iModeNum,&devmodeW,dwFlags);
     if (ret)
     {
+        lpDevMode->dmSize = FIELD_OFFSET(DEVMODEA, dmICMMethod);
+        lpDevMode->dmSpecVersion = devmodeW.dmSpecVersion;
+        lpDevMode->dmDriverVersion = devmodeW.dmDriverVersion;
+        WideCharToMultiByte(CP_ACP, 0, devmodeW.dmDeviceName, -1,
+                            (LPSTR)lpDevMode->dmDeviceName, CCHDEVICENAME, NULL, NULL);
+        lpDevMode->dmDriverExtra      = 0; /* FIXME */
         lpDevMode->dmBitsPerPel       = devmodeW.dmBitsPerPel;
         lpDevMode->dmPelsHeight       = devmodeW.dmPelsHeight;
         lpDevMode->dmPelsWidth        = devmodeW.dmPelsWidth;
-        lpDevMode->dmDisplayFlags     = devmodeW.dmDisplayFlags;
+        lpDevMode->u2.dmDisplayFlags  = devmodeW.u2.dmDisplayFlags;
         lpDevMode->dmDisplayFrequency = devmodeW.dmDisplayFrequency;
         lpDevMode->dmFields           = devmodeW.dmFields;
+
+        lpDevMode->u1.s2.dmPosition.x = devmodeW.u1.s2.dmPosition.x;
+        lpDevMode->u1.s2.dmPosition.y = devmodeW.u1.s2.dmPosition.y;
+        lpDevMode->u1.s2.dmDisplayOrientation = devmodeW.u1.s2.dmDisplayOrientation;
+        lpDevMode->u1.s2.dmDisplayFixedOutput = devmodeW.u1.s2.dmDisplayFixedOutput;
     }
     if (lpszDeviceName) RtlFreeUnicodeString(&nameW);
     return ret;
@@ -3073,5 +3103,18 @@ BOOL WINAPI EnumDisplaySettingsExA(LPCSTR lpszDeviceName, DWORD iModeNum,
 BOOL WINAPI EnumDisplaySettingsExW(LPCWSTR lpszDeviceName, DWORD iModeNum,
                                    LPDEVMODEW lpDevMode, DWORD dwFlags)
 {
+    /* make sure the desktop window is created before mode enumeration */
+    GetDesktopWindow();
+
     return USER_Driver->pEnumDisplaySettingsEx(lpszDeviceName, iModeNum, lpDevMode, dwFlags);
+}
+
+/***********************************************************************
+ *              SetProcessDPIAware   (USER32.@)
+ */
+BOOL WINAPI SetProcessDPIAware( VOID )
+{
+    FIXME( "stub!\n");
+
+    return TRUE;
 }

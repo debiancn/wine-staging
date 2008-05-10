@@ -9,7 +9,7 @@
  * 		98/7 	changes for making this MIDI driver work on OSS
  * 			current support is limited to MIDI ports of OSS systems
  * 		98/9	rewriting MCI code for MIDI
- * 		98/11 	splitted in midi.c and mcimidi.c
+ * 		98/11 	split in midi.c and mcimidi.c
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -42,6 +42,7 @@
 #include "config.h"
 #include "wine/port.h"
 
+#include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -78,8 +79,6 @@ WINE_DEFAULT_DEBUG_CHANNEL(midi);
 
 #ifdef HAVE_OSS_MIDI
 
-#define MIDI_SEQ "/dev/sequencer"
-
 typedef struct {
     int			state;                  /* -1 disabled, 0 is no recording started, 1 in recording, bit 2 set if in sys exclusive recording */
     DWORD		bufsize;
@@ -110,7 +109,7 @@ static WINE_MIDIOUT	MidiOutDev[MAX_MIDIOUTDRV];
 
 /* this is the total number of MIDI out devices found (synth and port) */
 static	int 		MODM_NumDevs = 0;
-/* this is the number of FM synthetizers (index from 0 to NUMFMSYNTHDEVS - 1) */
+/* this is the number of FM synthesizers (index from 0 to NUMFMSYNTHDEVS - 1) */
 static	int		MODM_NumFMSynthDevs = 0;
 /* the Midi ports have index from NUMFMSYNTHDEVS to NumDevs - 1 */
 
@@ -187,7 +186,7 @@ LRESULT OSS_MidiInit(void)
 	return 0;
 
     TRACE("Initializing the MIDI variables.\n");
-    bInitDone = 0;
+    bInitDone = TRUE;
 
     /* try to open device */
     if (midiOpenSeq() == -1) {
@@ -300,9 +299,9 @@ LRESULT OSS_MidiInit(void)
 
 	/* This whole part is somewhat obscure to me. I'll keep trying to dig
 	   info about it. If you happen to know, please tell us. The very
-	   descritive minfo.dev_type was not used here.
+	   descriptive minfo.dev_type was not used here.
 	*/
-	/* Manufac ID. We do not have access to this with soundcard.h
+	/* Manufacturer ID. We do not have access to this with soundcard.h
 	   Does not seem to be a problem, because in mmsystem.h only
 	   Microsoft's ID is listed */
 	MidiOutDev[numsynthdevs + i].caps.wMid = 0x00FF;
@@ -331,7 +330,7 @@ LRESULT OSS_MidiInit(void)
 
 	/* This whole part is somewhat obscure to me. I'll keep trying to dig
 	   info about it. If you happen to know, please tell us. The very
-	   descritive minfo.dev_type was not used here.
+	   descriptive minfo.dev_type was not used here.
 	*/
 	/* Manufac ID. We do not have access to this with soundcard.h
 	   Does not seem to be a problem, because in mmsystem.h only
@@ -455,13 +454,16 @@ static int midi_warn = 1;
 static int midiOpenSeq(void)
 {
     if (numOpenMidiSeq == 0) {
-	midiSeqFD = open(MIDI_SEQ, O_RDWR, 0);
+	const char* device;
+	device=getenv("MIDIDEV");
+	if (!device) device="/dev/sequencer";
+	midiSeqFD = open(device, O_RDWR, 0);
 	if (midiSeqFD == -1) {
 	    if (midi_warn)
 	    {
 		WARN("Can't open MIDI device '%s' ! (%s). If your "
                         "program needs this (probably not): %s\n",
-			MIDI_SEQ, strerror(errno),
+			device, strerror(errno),
 			errno == ENOENT ?
 			"create it ! (\"man MAKEDEV\" ?)" :
 			errno == ENODEV ?
@@ -566,7 +568,7 @@ static void midReceiveChar(WORD wDevID, unsigned char value, DWORD dwTime)
 	    lpMidiHdr = MidiInDev[wDevID].lpQueueHdr;
 	    lpMidiHdr->dwFlags &= ~MHDR_INQUEUE;
 	    lpMidiHdr->dwFlags |= MHDR_DONE;
-	    MidiInDev[wDevID].lpQueueHdr = (LPMIDIHDR)lpMidiHdr->lpNext;
+	    MidiInDev[wDevID].lpQueueHdr = lpMidiHdr->lpNext;
 	    if (MIDI_NotifyClient(wDevID, MIM_LONGDATA, (DWORD)lpMidiHdr, dwTime) != MMSYSERR_NOERROR) {
 		WARN("Couldn't notify client\n");
 	    }
@@ -661,7 +663,7 @@ static DWORD WINAPI midRecThread(LPVOID arg)
 	    continue;
 	
 	len = read(midiSeqFD, buffer, sizeof(buffer));
-	TRACE("Reveived %d bytes\n", len);
+	TRACE("Received %d bytes\n", len);
 
 	if (len < 0) continue;
 	if ((len % 4) != 0) {
@@ -854,8 +856,8 @@ static DWORD midAddBuffer(WORD wDevID, LPMIDIHDR lpMidiHdr, DWORD dwSize)
 
 	for (ptr = MidiInDev[wDevID].lpQueueHdr;
 	     ptr->lpNext != 0;
-	     ptr = (LPMIDIHDR)ptr->lpNext);
-	ptr->lpNext = (struct midihdr_tag*)lpMidiHdr;
+	     ptr = ptr->lpNext);
+	ptr->lpNext = lpMidiHdr;
     }
     LeaveCriticalSection(&crit_sect);
 
@@ -924,7 +926,7 @@ static DWORD midReset(WORD wDevID)
 			      (DWORD)MidiInDev[wDevID].lpQueueHdr, dwTime) != MMSYSERR_NOERROR) {
 	    WARN("Couldn't notify client\n");
 	}
-	MidiInDev[wDevID].lpQueueHdr = (LPMIDIHDR)MidiInDev[wDevID].lpQueueHdr->lpNext;
+	MidiInDev[wDevID].lpQueueHdr = MidiInDev[wDevID].lpQueueHdr->lpNext;
     }
     LeaveCriticalSection(&crit_sect);
 
@@ -978,7 +980,7 @@ typedef struct sChannel {
 
     int			bender;
     int			benderRange;
-    /* controlers */
+    /* controllers */
     int			bank;		/* CTL_BANK_SELECT */
     int			volume;		/* CTL_MAIN_VOLUME */
     int			balance;	/* CTL_BALANCE     */

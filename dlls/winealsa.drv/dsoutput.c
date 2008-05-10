@@ -30,6 +30,7 @@
 #include "wine/port.h"
 
 #include <stdlib.h>
+#include <assert.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -88,7 +89,7 @@ struct IDsDriverBufferImpl
     snd_pcm_t *pcm;
     snd_pcm_hw_params_t *hw_params;
     snd_pcm_sw_params_t *sw_params;
-    snd_pcm_uframes_t mmap_buflen_frames, mmap_pos, mmap_commitahead, mmap_writeahead;
+    snd_pcm_uframes_t mmap_buflen_frames, mmap_pos, mmap_commitahead;
 };
 
 /** Fill buffers, for starting and stopping
@@ -157,7 +158,7 @@ static void CheckXRUN(IDsDriverBufferImpl* This)
                 ERR("recovery from suspend failed, prepare failed: %s\n", snd_strerror(err));
         }
     } else if ( state != SND_PCM_STATE_RUNNING ) {
-        WARN("Unhandled state: %d\n", state);
+        FIXME("Unhandled state: %d\n", state);
     }
 }
 
@@ -209,7 +210,6 @@ static int DSDB_CreateMMAP(IDsDriverBufferImpl* pdbi)
     snd_pcm_sw_params_set_silence_threshold(pcm, sw_params, INT_MAX);
     snd_pcm_sw_params_set_silence_size(pcm, sw_params, 0);
     snd_pcm_sw_params_set_avail_min(pcm, sw_params, 0);
-    snd_pcm_sw_params_set_xrun_mode(pcm, sw_params, SND_PCM_XRUN_NONE);
     err = snd_pcm_sw_params(pcm, sw_params);
 
     avail = snd_pcm_avail_update(pcm);
@@ -225,7 +225,7 @@ static int DSDB_CreateMMAP(IDsDriverBufferImpl* pdbi)
         return DSERR_GENERIC;
     }
     snd_pcm_format_set_silence(format, areas->addr, pdbi->mmap_buflen_frames);
-    err = snd_pcm_mmap_commit(pcm, ofs, avail);
+    pdbi->mmap_pos = ofs + snd_pcm_mmap_commit(pcm, ofs, 0);
     pdbi->mmap_buffer = areas->addr;
 
     TRACE("created mmap buffer of %ld frames (%d bytes) at %p\n",
@@ -284,21 +284,94 @@ static HRESULT WINAPI IDsDriverBufferImpl_Lock(PIDSDRIVERBUFFER iface,
 					       DWORD dwWritePosition,DWORD dwWriteLen,
 					       DWORD dwFlags)
 {
-    FIXME("(%p) stub\n", iface);
-    return DSERR_UNSUPPORTED;
+    IDsDriverBufferImpl *This = (IDsDriverBufferImpl *)iface;
+    snd_pcm_uframes_t writepos;
+
+    TRACE("%d bytes from %d\n", dwWriteLen, dwWritePosition);
+
+    /* **** */
+    EnterCriticalSection(&This->pcm_crst);
+
+    if (dwFlags & DSBLOCK_ENTIREBUFFER)
+        dwWriteLen = This->mmap_buflen_bytes;
+
+    if (dwWriteLen > This->mmap_buflen_bytes || dwWritePosition >= This->mmap_buflen_bytes)
+    {
+        /* **** */
+        LeaveCriticalSection(&This->pcm_crst);
+        return DSERR_INVALIDPARAM;
+    }
+
+    if (ppvAudio2) *ppvAudio2 = NULL;
+    if (pdwLen2) *pdwLen2 = 0;
+
+    *ppvAudio1 = (LPBYTE)This->mmap_buffer + dwWritePosition;
+    *pdwLen1 = dwWriteLen;
+
+    if (dwWritePosition+dwWriteLen > This->mmap_buflen_bytes)
+    {
+        DWORD remainder = This->mmap_buflen_bytes - dwWritePosition;
+        *pdwLen1 = remainder;
+
+        if (ppvAudio2 && pdwLen2)
+        {
+            *ppvAudio2 = This->mmap_buffer;
+            *pdwLen2 = dwWriteLen - remainder;
+        }
+        else dwWriteLen = remainder;
+    }
+
+    writepos = snd_pcm_bytes_to_frames(This->pcm, dwWritePosition);
+    if (writepos == This->mmap_pos)
+    {
+        const snd_pcm_channel_area_t *areas;
+        snd_pcm_uframes_t writelen = snd_pcm_bytes_to_frames(This->pcm, dwWriteLen), putin = writelen;
+        TRACE("Hit mmap_pos, locking data!\n");
+        snd_pcm_mmap_begin(This->pcm, &areas, &This->mmap_pos, &putin);
+    }
+
+    LeaveCriticalSection(&This->pcm_crst);
+    /* **** */
+    return DS_OK;
 }
 
 static HRESULT WINAPI IDsDriverBufferImpl_Unlock(PIDSDRIVERBUFFER iface,
 						 LPVOID pvAudio1,DWORD dwLen1,
 						 LPVOID pvAudio2,DWORD dwLen2)
 {
-    FIXME("(%p) stub\n", iface);
-    return DSERR_UNSUPPORTED;
+    IDsDriverBufferImpl *This = (IDsDriverBufferImpl *)iface;
+    snd_pcm_uframes_t writepos;
+
+    if (!dwLen1)
+        return DS_OK;
+
+    /* **** */
+    EnterCriticalSection(&This->pcm_crst);
+
+    writepos = snd_pcm_bytes_to_frames(This->pcm, (DWORD_PTR)pvAudio1 - (DWORD_PTR)This->mmap_buffer);
+    if (writepos == This->mmap_pos)
+    {
+        const snd_pcm_channel_area_t *areas;
+        snd_pcm_uframes_t writelen = snd_pcm_bytes_to_frames(This->pcm, dwLen1);
+        TRACE("Committing data\n");
+        This->mmap_pos += snd_pcm_mmap_commit(This->pcm, This->mmap_pos, writelen);
+        if (This->mmap_pos == This->mmap_buflen_frames)
+            This->mmap_pos = 0;
+        if (!This->mmap_pos && dwLen2)
+        {
+            writelen = snd_pcm_bytes_to_frames(This->pcm, dwLen2);
+            snd_pcm_mmap_begin(This->pcm, &areas, &This->mmap_pos, &writelen);
+            This->mmap_pos += snd_pcm_mmap_commit(This->pcm, This->mmap_pos, writelen);
+            assert(This->mmap_pos < This->mmap_buflen_frames);
+        }
+    }
+    LeaveCriticalSection(&This->pcm_crst);
+    /* **** */
+
+    return DS_OK;
 }
 
-static int warnonce;
-
-static HRESULT SetFormat(IDsDriverBufferImpl *This, LPWAVEFORMATEX pwfx, BOOL forced)
+static HRESULT SetFormat(IDsDriverBufferImpl *This, LPWAVEFORMATEX pwfx)
 {
     snd_pcm_t *pcm = NULL;
     snd_pcm_hw_params_t *hw_params = This->hw_params;
@@ -312,22 +385,16 @@ static HRESULT SetFormat(IDsDriverBufferImpl *This, LPWAVEFORMATEX pwfx, BOOL fo
     {
         case  8: format = SND_PCM_FORMAT_U8; break;
         case 16: format = SND_PCM_FORMAT_S16_LE; break;
-        case 24: format = SND_PCM_FORMAT_S24_LE; break;
+        case 24: format = SND_PCM_FORMAT_S24_3LE; break;
         case 32: format = SND_PCM_FORMAT_S32_LE; break;
         default: FIXME("Unsupported bpp: %d\n", pwfx->wBitsPerSample); return DSERR_GENERIC;
     }
 
-    /* **** */
-    EnterCriticalSection(&This->pcm_crst);
-
     err = snd_pcm_open(&pcm, WOutDev[This->drv->wDevID].pcmname, SND_PCM_STREAM_PLAYBACK, SND_PCM_NONBLOCK);
-
     if (err < 0)
     {
         if (errno != EBUSY || !This->pcm)
         {
-            /* **** */
-            LeaveCriticalSection(&This->pcm_crst);
             WARN("Cannot open sound device: %s\n", snd_strerror(err));
             return DSERR_GENERIC;
         }
@@ -337,8 +404,6 @@ static HRESULT SetFormat(IDsDriverBufferImpl *This, LPWAVEFORMATEX pwfx, BOOL fo
         err = snd_pcm_open(&pcm, WOutDev[This->drv->wDevID].pcmname, SND_PCM_STREAM_PLAYBACK, SND_PCM_NONBLOCK);
         if (err < 0)
         {
-            /* **** */
-            LeaveCriticalSection(&This->pcm_crst);
             WARN("Cannot open sound device: %s\n", snd_strerror(err));
             return DSERR_BUFFERLOST;
         }
@@ -357,7 +422,7 @@ static HRESULT SetFormat(IDsDriverBufferImpl *This, LPWAVEFORMATEX pwfx, BOOL fo
      * side effects, which may include: Less granular pointer, changing buffer sizes, etc
      */
 #if SND_LIB_VERSION >= 0x010009
-    snd_pcm_hw_params_set_rate_resample(pcm, hw_params, 0 && forced);
+    snd_pcm_hw_params_set_rate_resample(pcm, hw_params, 0);
 #endif
 
     err = snd_pcm_hw_params_set_rate_near(pcm, hw_params, &rate, NULL);
@@ -382,26 +447,10 @@ static HRESULT SetFormat(IDsDriverBufferImpl *This, LPWAVEFORMATEX pwfx, BOOL fo
     err = snd_pcm_hw_params_get_period_size(hw_params, &psize, NULL);
     TRACE("Period size is: %lu\n", psize);
 
-    /* If period size is 'high', try to commit less
-     * dmix needs at least 2 buffers to work successfully but prefers 3
-     * however it seems to work ok if I just commit 2 1/2 buffers
-     */
-    if (psize >= 512)
-    {
-        if (psize == 1024 && ++warnonce == 1)
-            FIXME("Your alsa dmix period size is 1024, try decreasing it to 512 if possible\n");
-        else if (psize > 512)
-            WARN("Your alsa period size is excessively high (%lu)\n", psize);
-        This->mmap_commitahead = 2 * psize + psize/2;
-        This->mmap_writeahead = 2 * psize;
-    }
-    else
-    {
-        This->mmap_commitahead = 3 * psize;
-        while (This->mmap_commitahead <= 512)
-            This->mmap_commitahead += psize;
-        This->mmap_writeahead = This->mmap_commitahead;
-    }
+    /* ALSA needs at least 3 buffers to work successfully */
+    This->mmap_commitahead = 3 * psize;
+    while (This->mmap_commitahead <= 512)
+        This->mmap_commitahead += psize;
 
     if (This->pcm)
     {
@@ -409,12 +458,8 @@ static HRESULT SetFormat(IDsDriverBufferImpl *This, LPWAVEFORMATEX pwfx, BOOL fo
         snd_pcm_close(This->pcm);
     }
     This->pcm = pcm;
-
     snd_pcm_prepare(This->pcm);
     DSDB_CreateMMAP(This);
-
-    /* **** */
-    LeaveCriticalSection(&This->pcm_crst);
     return S_OK;
 
     err:
@@ -429,8 +474,6 @@ static HRESULT SetFormat(IDsDriverBufferImpl *This, LPWAVEFORMATEX pwfx, BOOL fo
     if (This->pcm)
         snd_pcm_hw_params_current(This->pcm, This->hw_params);
 
-    /* **** */
-    LeaveCriticalSection(&This->pcm_crst);
     return DSERR_BADFORMAT;
 }
 
@@ -441,11 +484,14 @@ static HRESULT WINAPI IDsDriverBufferImpl_SetFormat(PIDSDRIVERBUFFER iface, LPWA
 
     TRACE("(%p, %p)\n", iface, pwfx);
 
-    hr = SetFormat(This, pwfx, TRUE);
+    /* **** */
+    EnterCriticalSection(&This->pcm_crst);
+    hr = SetFormat(This, pwfx);
+    /* **** */
+    LeaveCriticalSection(&This->pcm_crst);
 
-    if (hr == S_OK)
-        /* Buffer size / Location changed, so tell dsound to recreate */
-        return DSERR_BUFFERLOST;
+    if (hr == DS_OK)
+        return S_FALSE;
     return hr;
 }
 
@@ -476,9 +522,10 @@ static HRESULT WINAPI IDsDriverBufferImpl_GetPosition(PIDSDRIVERBUFFER iface,
 						      LPDWORD lpdwPlay, LPDWORD lpdwWrite)
 {
     IDsDriverBufferImpl *This = (IDsDriverBufferImpl *)iface;
-    snd_pcm_uframes_t hw_pptr=0, hw_wptr=0;
+    snd_pcm_uframes_t hw_pptr, hw_wptr;
     snd_pcm_state_t state;
 
+    /* **** */
     EnterCriticalSection(&This->pcm_crst);
 
     if (!This->pcm)
@@ -488,27 +535,33 @@ static HRESULT WINAPI IDsDriverBufferImpl_GetPosition(PIDSDRIVERBUFFER iface,
         return DSERR_GENERIC;
     }
 
+    if (!lpdwPlay && !lpdwWrite)
+        CommitAll(This);
+
     state = snd_pcm_state(This->pcm);
 
-    if (state != SND_PCM_STATE_RUNNING)
-        CheckXRUN(This);
-    else
+    if (state != SND_PCM_STATE_PREPARED && state != SND_PCM_STATE_RUNNING)
     {
-        snd_pcm_uframes_t used = CommitAll(This);
+        CheckXRUN(This);
+        state = snd_pcm_state(This->pcm);
+    }
+    if (state == SND_PCM_STATE_RUNNING)
+    {
+        snd_pcm_uframes_t used = This->mmap_buflen_frames - snd_pcm_avail_update(This->pcm);
 
         if (This->mmap_pos > used)
             hw_pptr = This->mmap_pos - used;
         else
-            hw_pptr = This->mmap_buflen_frames - used + This->mmap_pos;
-
-        hw_wptr = hw_pptr + (This->mmap_writeahead > used ? used : This->mmap_writeahead);
-        hw_wptr %= This->mmap_buflen_frames;
+            hw_pptr = This->mmap_buflen_frames + This->mmap_pos - used;
         hw_pptr %= This->mmap_buflen_frames;
 
         TRACE("At position: %ld (%ld) - Used %ld\n", hw_pptr, This->mmap_pos, used);
     }
+    else hw_pptr = This->mmap_pos;
+    hw_wptr = This->mmap_pos;
 
     LeaveCriticalSection(&This->pcm_crst);
+    /* **** */
 
     if (lpdwPlay)
         *lpdwPlay = snd_pcm_frames_to_bytes(This->pcm, hw_pptr);
@@ -527,7 +580,6 @@ static HRESULT WINAPI IDsDriverBufferImpl_Play(PIDSDRIVERBUFFER iface, DWORD dwR
     /* **** */
     EnterCriticalSection(&This->pcm_crst);
     snd_pcm_start(This->pcm);
-    CommitAll(This);
     /* **** */
     LeaveCriticalSection(&This->pcm_crst);
     return DS_OK;
@@ -535,13 +587,23 @@ static HRESULT WINAPI IDsDriverBufferImpl_Play(PIDSDRIVERBUFFER iface, DWORD dwR
 
 static HRESULT WINAPI IDsDriverBufferImpl_Stop(PIDSDRIVERBUFFER iface)
 {
+    const snd_pcm_channel_area_t *areas;
+    snd_pcm_uframes_t avail;
+    snd_pcm_format_t format;
     IDsDriverBufferImpl *This = (IDsDriverBufferImpl *)iface;
     TRACE("(%p)\n",iface);
 
     /* **** */
     EnterCriticalSection(&This->pcm_crst);
+    avail = This->mmap_buflen_frames;
     snd_pcm_drop(This->pcm);
     snd_pcm_prepare(This->pcm);
+    avail = snd_pcm_avail_update(This->pcm);
+    snd_pcm_mmap_begin(This->pcm, &areas, &This->mmap_pos, &avail);
+    snd_pcm_hw_params_get_format(This->hw_params, &format);
+    snd_pcm_format_set_silence(format, areas->addr, This->mmap_buflen_frames);
+    snd_pcm_mmap_commit(This->pcm, This->mmap_pos, 0);
+
     /* **** */
     LeaveCriticalSection(&This->pcm_crst);
     return DS_OK;
@@ -598,8 +660,8 @@ static HRESULT WINAPI IDsDriverImpl_GetDriverDesc(PIDSDRIVER iface, PDSDRIVERDES
 {
     IDsDriverImpl *This = (IDsDriverImpl *)iface;
     TRACE("(%p,%p)\n",iface,pDesc);
-    memcpy(pDesc, &(WOutDev[This->wDevID].ds_desc), sizeof(DSDRIVERDESC));
-    pDesc->dwFlags		= DSDDESC_DONTNEEDPRIMARYLOCK | DSDDESC_DONTNEEDSECONDARYLOCK | DSDDESC_DONTNEEDWRITELEAD;
+    *pDesc			= WOutDev[This->wDevID].ds_desc;
+    pDesc->dwFlags		= DSDDESC_DONTNEEDSECONDARYLOCK | DSDDESC_DONTNEEDWRITELEAD;
     pDesc->dnDevNode		= WOutDev[This->wDevID].waveDesc.dnDevNode;
     pDesc->wVxdId		= 0;
     pDesc->wReserved		= 0;
@@ -667,7 +729,7 @@ static HRESULT WINAPI IDsDriverImpl_GetCaps(PIDSDRIVER iface, PDSDRIVERCAPS pCap
 {
     IDsDriverImpl *This = (IDsDriverImpl *)iface;
     TRACE("(%p,%p)\n",iface,pCaps);
-    memcpy(pCaps, &(WOutDev[This->wDevID].ds_caps), sizeof(DSDRIVERCAPS));
+    *pCaps = WOutDev[This->wDevID].ds_caps;
     return DS_OK;
 }
 
@@ -708,7 +770,7 @@ static HRESULT WINAPI IDsDriverImpl_CreateSoundBuffer(PIDSDRIVER iface,
     (*ippdsdb)->pcm_crst.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": ALSA_DSOUTPUT.pcm_crst");
 
     /* SetFormat has to re-initialize pcm here anyway */
-    err = SetFormat(*ippdsdb, pwfx, FALSE);
+    err = SetFormat(*ippdsdb, pwfx);
     if (FAILED(err))
     {
         WARN("Error occurred: %08x\n", err);
@@ -781,7 +843,7 @@ DWORD wodDsCreate(UINT wDevID, PIDSDRIVER* drv)
 
 DWORD wodDsDesc(UINT wDevID, PDSDRIVERDESC desc)
 {
-    memcpy(desc, &(WOutDev[wDevID].ds_desc), sizeof(DSDRIVERDESC));
+    *desc = WOutDev[wDevID].ds_desc;
     return MMSYSERR_NOERROR;
 }
 

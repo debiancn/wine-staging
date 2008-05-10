@@ -113,7 +113,7 @@ BOOL SHELL32_GetCustomFolderAttribute(
  *
  * PARAMETERS
  *  pszNext [IN] string to get the element from
- *  pszOut  [IN] pointer to buffer whitch receives string
+ *  pszOut  [IN] pointer to buffer which receives string
  *  dwOut   [IN] length of pszOut
  *
  *  RETURNS
@@ -135,7 +135,7 @@ LPCWSTR GetNextElementW (LPCWSTR pszNext, LPWSTR pszOut, DWORD dwOut)
     while (*pszTail && (*pszTail != (WCHAR) '\\'))
 	pszTail++;
 
-    dwCopy = (const WCHAR *) pszTail - (const WCHAR *) pszNext + 1;
+    dwCopy = pszTail - pszNext + 1;
     lstrcpynW (pszOut, pszNext, (dwOut < dwCopy) ? dwOut : dwCopy);
 
     if (*pszTail)
@@ -193,13 +193,15 @@ HRESULT SHELL32_ParseNextElement (IShellFolder2 * psf, HWND hwndOwner, LPBC pbc,
  *   In this case the absolute path is built from pidlChild (eg. C:)
  */
 static HRESULT SHELL32_CoCreateInitSF (LPCITEMIDLIST pidlRoot, LPCWSTR pathRoot,
-    LPCITEMIDLIST pidlChild, REFCLSID clsid, REFIID riid, LPVOID * ppvOut)
+                LPCITEMIDLIST pidlChild, REFCLSID clsid, LPVOID * ppvOut)
 {
     HRESULT hr;
 
     TRACE ("%p %s %p\n", pidlRoot, debugstr_w(pathRoot), pidlChild);
 
-    if (SUCCEEDED ((hr = SHCoCreateInstance (NULL, clsid, NULL, riid, ppvOut)))) {
+    hr = SHCoCreateInstance(NULL, clsid, NULL, &IID_IShellFolder, ppvOut);
+    if (SUCCEEDED (hr))
+    {
 	LPITEMIDLIST pidlAbsolute = ILCombine (pidlRoot, pidlChild);
 	IPersistFolder *pPF;
 	IPersistFolder3 *ppf;
@@ -275,7 +277,7 @@ HRESULT SHELL32_BindToChild (LPCITEMIDLIST pidlRoot,
 
     if ((clsid = _ILGetGUIDPointer (pidlChild))) {
         /* virtual folder */
-        hr = SHELL32_CoCreateInitSF (pidlRoot, pathRoot, pidlChild, clsid, &IID_IShellFolder, (LPVOID *) & pSF);
+        hr = SHELL32_CoCreateInitSF (pidlRoot, pathRoot, pidlChild, clsid, (LPVOID *)&pSF);
     } else {
         /* file system folder */
         CLSID clsidFolder = CLSID_ShellFSFolder;
@@ -294,8 +296,8 @@ HRESULT SHELL32_BindToChild (LPCITEMIDLIST pidlRoot,
             wszDotShellClassInfo, wszCLSID, wszCLSIDValue, CHARS_IN_GUID))
             CLSIDFromString (wszCLSIDValue, &clsidFolder);
 
-		hr = SHELL32_CoCreateInitSF (pidlRoot, pathRoot, pidlChild,
-            &clsidFolder, &IID_IShellFolder, (LPVOID *)&pSF);
+        hr = SHELL32_CoCreateInitSF (pidlRoot, pathRoot, pidlChild,
+                                     &clsidFolder, (LPVOID *)&pSF);
     }
     ILFree (pidlChild);
 

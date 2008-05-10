@@ -33,15 +33,13 @@
 WINE_DEFAULT_DEBUG_CHANNEL(bitmap);
 
 
-static HGDIOBJ BITMAP_SelectObject( HGDIOBJ handle, void *obj, HDC hdc );
-static INT BITMAP_GetObject16( HGDIOBJ handle, void *obj, INT count, LPVOID buffer );
+static HGDIOBJ BITMAP_SelectObject( HGDIOBJ handle, HDC hdc );
 static INT BITMAP_GetObject( HGDIOBJ handle, void *obj, INT count, LPVOID buffer );
 static BOOL BITMAP_DeleteObject( HGDIOBJ handle, void *obj );
 
 static const struct gdi_obj_funcs bitmap_funcs =
 {
     BITMAP_SelectObject,  /* pSelectObject */
-    BITMAP_GetObject16,   /* pGetObject16 */
     BITMAP_GetObject,     /* pGetObjectA */
     BITMAP_GetObject,     /* pGetObjectW */
     NULL,                 /* pUnrealizeObject */
@@ -132,82 +130,73 @@ HBITMAP WINAPI CreateBitmap( INT width, INT height, UINT planes,
 HBITMAP WINAPI CreateCompatibleBitmap( HDC hdc, INT width, INT height)
 {
     HBITMAP hbmpRet = 0;
-    DC *dc;
 
     TRACE("(%p,%d,%d) =\n", hdc, width, height);
 
-    if ((width >= 0x10000) || (height >= 0x10000))
+    if (GetObjectType( hdc ) != OBJ_MEMDC)
     {
-        FIXME("got bad width %d or height %d, please look for reason\n",
-              width, height);
+        hbmpRet = CreateBitmap(width, height,
+                               GetDeviceCaps(hdc, PLANES),
+                               GetDeviceCaps(hdc, BITSPIXEL),
+                               NULL);
     }
-    else
+    else  /* Memory DC */
     {
-        if (!(dc = DC_GetDCPtr(hdc))) return 0;
+        DIBSECTION dib;
+        HBITMAP bitmap = GetCurrentObject( hdc, OBJ_BITMAP );
+        INT size = GetObjectW( bitmap, sizeof(dib), &dib );
 
-        if (GDIMAGIC( dc->header.wMagic ) != MEMORY_DC_MAGIC)
+        if (!size) return 0;
+
+        if (size == sizeof(BITMAP))
         {
+            /* A device-dependent bitmap is selected in the DC */
             hbmpRet = CreateBitmap(width, height,
-                                   GetDeviceCaps(hdc, PLANES),
-                                   GetDeviceCaps(hdc, BITSPIXEL),
+                                   dib.dsBm.bmPlanes,
+                                   dib.dsBm.bmBitsPixel,
                                    NULL);
         }
-        else  /* Memory DC */
+        else
         {
-            BITMAPOBJ *bmp = GDI_GetObjPtr( dc->hBitmap, BITMAP_MAGIC );
+            /* A DIB section is selected in the DC */
+            BITMAPINFO *bi;
+            void *bits;
 
-            if (!bmp->dib)
+            /* Allocate memory for a BITMAPINFOHEADER structure and a
+               color table. The maximum number of colors in a color table
+               is 256 which corresponds to a bitmap with depth 8.
+               Bitmaps with higher depths don't have color tables. */
+            bi = HeapAlloc(GetProcessHeap(), 0, sizeof(BITMAPINFOHEADER) + 256 * sizeof(RGBQUAD));
+
+            if (bi)
             {
-                /* A device-dependent bitmap is selected in the DC */
-                hbmpRet = CreateBitmap(width, height,
-                                       bmp->bitmap.bmPlanes,
-                                       bmp->bitmap.bmBitsPixel,
-                                       NULL);
-            }
-            else
-            {
-                /* A DIB section is selected in the DC */
-                BITMAPINFO *bi;
-                void *bits;
+                bi->bmiHeader.biSize          = sizeof(bi->bmiHeader);
+                bi->bmiHeader.biWidth         = width;
+                bi->bmiHeader.biHeight        = height;
+                bi->bmiHeader.biPlanes        = dib.dsBmih.biPlanes;
+                bi->bmiHeader.biBitCount      = dib.dsBmih.biBitCount;
+                bi->bmiHeader.biCompression   = dib.dsBmih.biCompression;
+                bi->bmiHeader.biSizeImage     = 0;
+                bi->bmiHeader.biXPelsPerMeter = dib.dsBmih.biXPelsPerMeter;
+                bi->bmiHeader.biYPelsPerMeter = dib.dsBmih.biYPelsPerMeter;
+                bi->bmiHeader.biClrUsed       = dib.dsBmih.biClrUsed;
+                bi->bmiHeader.biClrImportant  = dib.dsBmih.biClrImportant;
 
-                /* Allocate memory for a BITMAPINFOHEADER structure and a
-                   color table. The maximum number of colors in a color table
-                   is 256 which corresponds to a bitmap with depth 8.
-                   Bitmaps with higher depths don't have color tables. */
-                bi = HeapAlloc(GetProcessHeap(), 0, sizeof(BITMAPINFOHEADER) + 256 * sizeof(RGBQUAD));
-
-                if (bi)
+                if (bi->bmiHeader.biCompression == BI_BITFIELDS)
                 {
-                    bi->bmiHeader.biSize          = sizeof(bi->bmiHeader);
-                    bi->bmiHeader.biWidth         = width;
-                    bi->bmiHeader.biHeight        = height;
-                    bi->bmiHeader.biPlanes        = bmp->dib->dsBmih.biPlanes;
-                    bi->bmiHeader.biBitCount      = bmp->dib->dsBmih.biBitCount;
-                    bi->bmiHeader.biCompression   = bmp->dib->dsBmih.biCompression;
-                    bi->bmiHeader.biSizeImage     = 0;
-                    bi->bmiHeader.biXPelsPerMeter = bmp->dib->dsBmih.biXPelsPerMeter;
-                    bi->bmiHeader.biYPelsPerMeter = bmp->dib->dsBmih.biYPelsPerMeter;
-                    bi->bmiHeader.biClrUsed       = bmp->dib->dsBmih.biClrUsed;
-                    bi->bmiHeader.biClrImportant  = bmp->dib->dsBmih.biClrImportant;
-
-                    if (bi->bmiHeader.biCompression == BI_BITFIELDS)
-                    {
-                        /* Copy the color masks */
-                        CopyMemory(bi->bmiColors, bmp->dib->dsBitfields, 3 * sizeof(DWORD));
-                    }
-                    else if (bi->bmiHeader.biBitCount <= 8)
-                    {
-                        /* Copy the color table */
-                        GetDIBColorTable(hdc, 0, 256, bi->bmiColors);
-                    }
-
-                    hbmpRet = CreateDIBSection(hdc, bi, DIB_RGB_COLORS, &bits, NULL, 0);
-                    HeapFree(GetProcessHeap(), 0, bi);
+                    /* Copy the color masks */
+                    CopyMemory(bi->bmiColors, dib.dsBitfields, 3 * sizeof(DWORD));
                 }
+                else if (bi->bmiHeader.biBitCount <= 8)
+                {
+                    /* Copy the color table */
+                    GetDIBColorTable(hdc, 0, 256, bi->bmiColors);
+                }
+
+                hbmpRet = CreateDIBSection(hdc, bi, DIB_RGB_COLORS, &bits, NULL, 0);
+                HeapFree(GetProcessHeap(), 0, bi);
             }
-            GDI_ReleaseObj(dc->hBitmap);
         }
-        GDI_ReleaseObj(hdc);
     }
 
     TRACE("\t\t%p\n", hbmpRet);
@@ -242,6 +231,12 @@ HBITMAP WINAPI CreateBitmapIndirect( const BITMAP *bmp )
         return NULL;
     }
 
+    if (bmp->bmWidth > 0x7ffffff || bmp->bmHeight > 0x7ffffff)
+    {
+        SetLastError( ERROR_INVALID_PARAMETER );
+        return 0;
+    }
+
     bm = *bmp;
 
     if (!bm.bmWidth || !bm.bmHeight)
@@ -263,8 +258,27 @@ HBITMAP WINAPI CreateBitmapIndirect( const BITMAP *bmp )
         return NULL;
     }
 
+    /* Windows only uses 1, 4, 8, 16, 24 and 32 bpp */
+    if(bm.bmBitsPixel == 1)         bm.bmBitsPixel = 1;
+    else if(bm.bmBitsPixel <= 4)    bm.bmBitsPixel = 4;
+    else if(bm.bmBitsPixel <= 8)    bm.bmBitsPixel = 8;
+    else if(bm.bmBitsPixel <= 16)   bm.bmBitsPixel = 16;
+    else if(bm.bmBitsPixel <= 24)   bm.bmBitsPixel = 24;
+    else if(bm.bmBitsPixel <= 32)   bm.bmBitsPixel = 32;
+    else {
+        WARN("Invalid bmBitsPixel %d, returning ERROR_INVALID_PARAMETER\n", bm.bmBitsPixel);
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return NULL;
+    }
+
     /* Windows ignores the provided bm.bmWidthBytes */
     bm.bmWidthBytes = BITMAP_GetWidthBytes( bm.bmWidth, bm.bmBitsPixel );
+    /* XP doesn't allow to create bitmaps larger than 128 Mb */
+    if (bm.bmHeight * bm.bmWidthBytes > 128 * 1024 * 1024)
+    {
+        SetLastError( ERROR_NOT_ENOUGH_MEMORY );
+        return 0;
+    }
 
       /* Create the BITMAPOBJ */
     bmpobj = GDI_AllocObject( sizeof(BITMAPOBJ), BITMAP_MAGIC,
@@ -494,14 +508,10 @@ LONG WINAPI SetBitmapBits(
  */
 HBITMAP BITMAP_CopyBitmap(HBITMAP hbitmap)
 {
-    BITMAPOBJ *bmp = (BITMAPOBJ *) GDI_GetObjPtr( hbitmap, BITMAP_MAGIC );
     HBITMAP res = 0;
     BITMAP bm;
 
-    if(!bmp) return 0;
-
-    bm = bmp->bitmap;
-    bm.bmBits = NULL;
+    if (!GetObjectW( hbitmap, sizeof(bm), &bm )) return 0;
     res = CreateBitmapIndirect(&bm);
 
     if(res) {
@@ -511,8 +521,6 @@ HBITMAP BITMAP_CopyBitmap(HBITMAP hbitmap)
 	SetBitmapBits (res, bm.bmWidthBytes * bm.bmHeight, buf);
 	HeapFree( GetProcessHeap(), 0, buf );
     }
-
-    GDI_ReleaseObj( hbitmap );
     return res;
 }
 
@@ -554,47 +562,61 @@ BOOL BITMAP_SetOwnerDC( HBITMAP hbitmap, DC *dc )
 /***********************************************************************
  *           BITMAP_SelectObject
  */
-static HGDIOBJ BITMAP_SelectObject( HGDIOBJ handle, void *obj, HDC hdc )
+static HGDIOBJ BITMAP_SelectObject( HGDIOBJ handle, HDC hdc )
 {
     HGDIOBJ ret;
-    BITMAPOBJ *bitmap = obj;
-    DC *dc = DC_GetDCPtr( hdc );
+    BITMAPOBJ *bitmap;
+    DC *dc;
 
-    if (!dc) return 0;
+    if (!(dc = get_dc_ptr( hdc ))) return 0;
+
     if (GetObjectType( hdc ) != OBJ_MEMDC)
     {
-        GDI_ReleaseObj( hdc );
-        return 0;
+        ret = 0;
+        goto done;
     }
     ret = dc->hBitmap;
     if (handle == dc->hBitmap) goto done;  /* nothing to do */
 
+    if (!(bitmap = GDI_GetObjPtr( handle, BITMAP_MAGIC )))
+    {
+        ret = 0;
+        goto done;
+    }
+
     if (bitmap->header.dwCount && (handle != GetStockObject(DEFAULT_BITMAP)))
     {
         WARN( "Bitmap already selected in another DC\n" );
-        GDI_ReleaseObj( hdc );
-        return 0;
+        GDI_ReleaseObj( handle );
+        ret = 0;
+        goto done;
     }
 
     if (!bitmap->funcs && !BITMAP_SetOwnerDC( handle, dc ))
     {
-        GDI_ReleaseObj( hdc );
-        return 0;
+        GDI_ReleaseObj( handle );
+        ret = 0;
+        goto done;
     }
 
-    if (dc->funcs->pSelectBitmap) handle = dc->funcs->pSelectBitmap( dc->physDev, handle );
-
-    if (handle)
+    if (dc->funcs->pSelectBitmap && !dc->funcs->pSelectBitmap( dc->physDev, handle ))
+    {
+        GDI_ReleaseObj( handle );
+        ret = 0;
+    }
+    else
     {
         dc->hBitmap = handle;
-        dc->flags &= ~DC_DIRTY;
+        GDI_inc_ref_count( handle );
+        dc->dirty = 0;
         SetRectRgn( dc->hVisRgn, 0, 0, bitmap->bitmap.bmWidth, bitmap->bitmap.bmHeight);
+        GDI_ReleaseObj( handle );
         DC_InitDC( dc );
+        GDI_dec_ref_count( ret );
     }
-    else ret = 0;
 
  done:
-    GDI_ReleaseObj( hdc );
+    release_dc_ptr( dc );
     return ret;
 }
 
@@ -640,52 +662,6 @@ static BOOL BITMAP_DeleteObject( HGDIOBJ handle, void *obj )
         HeapFree(GetProcessHeap(), 0, bmp->color_table);
     }
     return GDI_FreeObject( handle, obj );
-}
-
-
-/***********************************************************************
- *           BITMAP_GetObject16
- */
-static INT BITMAP_GetObject16( HGDIOBJ handle, void *obj, INT count, LPVOID buffer )
-{
-    BITMAPOBJ *bmp = obj;
-
-    if (bmp->dib)
-    {
-        if ( count <= sizeof(BITMAP16) )
-        {
-            BITMAP *bmp32 = &bmp->dib->dsBm;
-	    BITMAP16 bmp16;
-	    bmp16.bmType       = bmp32->bmType;
-	    bmp16.bmWidth      = bmp32->bmWidth;
-	    bmp16.bmHeight     = bmp32->bmHeight;
-	    bmp16.bmWidthBytes = bmp32->bmWidthBytes;
-	    bmp16.bmPlanes     = bmp32->bmPlanes;
-	    bmp16.bmBitsPixel  = bmp32->bmBitsPixel;
-	    bmp16.bmBits       = (SEGPTR)0;
-	    memcpy( buffer, &bmp16, count );
-	    return count;
-        }
-        else
-        {
-	    FIXME("not implemented for DIBs: count %d\n", count);
-	    return 0;
-        }
-    }
-    else
-    {
-	BITMAP16 bmp16;
-	bmp16.bmType       = bmp->bitmap.bmType;
-	bmp16.bmWidth      = bmp->bitmap.bmWidth;
-	bmp16.bmHeight     = bmp->bitmap.bmHeight;
-	bmp16.bmWidthBytes = bmp->bitmap.bmWidthBytes;
-	bmp16.bmPlanes     = bmp->bitmap.bmPlanes;
-	bmp16.bmBitsPixel  = bmp->bitmap.bmBitsPixel;
-	bmp16.bmBits       = (SEGPTR)0;
-	if (count < sizeof(bmp16)) return 0;
-	memcpy( buffer, &bmp16, sizeof(bmp16) );
-	return sizeof(bmp16);
-    }
 }
 
 

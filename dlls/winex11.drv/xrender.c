@@ -36,12 +36,13 @@
 #include "wine/unicode.h"
 #include "wine/debug.h"
 
-static BOOL X11DRV_XRender_Installed = FALSE;
 int using_client_side_fonts = FALSE;
 
 WINE_DEFAULT_DEBUG_CHANNEL(xrender);
 
 #ifdef SONAME_LIBXRENDER
+
+static BOOL X11DRV_XRender_Installed = FALSE;
 
 #include <X11/Xlib.h>
 #include <X11/extensions/Xrender.h>
@@ -805,7 +806,7 @@ static BOOL UploadGlyph(X11DRV_PDEVICE *physDev, int glyph, AA_Type format)
         formatEntry->bitmaps[glyph] = buf;
     }
 
-    memcpy(&formatEntry->gis[glyph], &gi, sizeof(gi));
+    formatEntry->gis[glyph] = gi;
 
     return TRUE;
 }
@@ -1049,7 +1050,7 @@ static void SmoothGlyphGray(XImage *image, int x, int y, void *bitmap, XGlyphInf
 /*************************************************************
  *                 get_tile_pict
  *
- * Returns an appropiate Picture for tiling the text colour.
+ * Returns an appropriate Picture for tiling the text colour.
  * Call and use result within the xrender_cs
  */
 static Picture get_tile_pict(enum drawable_depth_type type, int text_pixel)
@@ -1106,7 +1107,7 @@ static Picture get_tile_pict(enum drawable_depth_type type, int text_pixel)
         col.green |= col.green << 8;
         col.blue = GetField(text_pixel, b_shift, b_len);
         col.blue |= col.blue << 8;
-        col.alpha = 0x0;
+        col.alpha = 0xffff;
 
         wine_tsx11_lock();
         pXRenderFillRectangle(gdi_display, PictOpSrc, tile->pict, &col, 0, 0, 1, 1);
@@ -1130,7 +1131,6 @@ BOOL X11DRV_XRender_ExtTextOut( X11DRV_PDEVICE *physDev, INT x, INT y, UINT flag
 {
     RGNDATA *data;
     XGCValues xgcval;
-    int render_op = PictOpOver;
     gsCacheEntry *entry;
     gsCacheEntryFormat *formatEntry;
     BOOL retv = FALSE;
@@ -1162,7 +1162,7 @@ BOOL X11DRV_XRender_ExtTextOut( X11DRV_PDEVICE *physDev, INT x, INT y, UINT flag
     XChangeGC( gdi_display, physDev->gc, GCFunction | GCBackground | GCFillStyle, &xgcval );
     wine_tsx11_unlock();
 
-    X11DRV_LockDIBSection( physDev, DIB_Status_GdiMod, FALSE );
+    X11DRV_LockDIBSection( physDev, DIB_Status_GdiMod );
 
     if(physDev->depth == 1) {
         if((physDev->textPixel & 0xffffff) == 0) {
@@ -1215,8 +1215,6 @@ BOOL X11DRV_XRender_ExtTextOut( X11DRV_PDEVICE *physDev, INT x, INT y, UINT flag
         DeleteObject( clip_region );
     }
 
-    EnterCriticalSection(&xrender_cs);
-
     if(X11DRV_XRender_Installed) {
         if(!physDev->xrender->pict) {
 	    XRenderPictureAttributes pa;
@@ -1245,14 +1243,9 @@ BOOL X11DRV_XRender_ExtTextOut( X11DRV_PDEVICE *physDev, INT x, INT y, UINT flag
 	    wine_tsx11_unlock();
 	    HeapFree( GetProcessHeap(), 0, data );
 	}
-
-        tile_pict = get_tile_pict(depth_type, physDev->textPixel);
-
-	/* FIXME the mapping of Text/BkColor onto 1 or 0 needs investigation.
-	 */
-	if((depth_type == mono_drawable) && (textPixel == 0))
-	    render_op = PictOpOutReverse; /* This gives us 'black' text */
     }
+
+    EnterCriticalSection(&xrender_cs);
 
     entry = glyphsetCache + physDev->xrender->cache_index;
     if( disable_antialias == FALSE )
@@ -1285,6 +1278,7 @@ BOOL X11DRV_XRender_ExtTextOut( X11DRV_PDEVICE *physDev, INT x, INT y, UINT flag
         XGlyphElt16 *elts = HeapAlloc(GetProcessHeap(), 0, sizeof(XGlyphElt16) * count);
         INT offset = 0;
         POINT desired, current;
+        int render_op = PictOpOver;
 
         /* There's a bug in XRenderCompositeText that ignores the xDst and yDst parameters.
            So we pass zeros to the function and move to our starting position using the first
@@ -1293,6 +1287,13 @@ BOOL X11DRV_XRender_ExtTextOut( X11DRV_PDEVICE *physDev, INT x, INT y, UINT flag
         desired.x = physDev->dc_rect.left + x;
         desired.y = physDev->dc_rect.top + y;
         current.x = current.y = 0;
+
+        tile_pict = get_tile_pict(depth_type, physDev->textPixel);
+
+	/* FIXME the mapping of Text/BkColor onto 1 or 0 needs investigation.
+	 */
+	if((depth_type == mono_drawable) && (textPixel == 0))
+	    render_op = PictOpOutReverse; /* This gives us 'black' text */
 
         for(idx = 0; idx < count; idx++)
         {
@@ -1524,7 +1525,7 @@ BOOL X11DRV_AlphaBlend(X11DRV_PDEVICE *devDst, INT xDst, INT yDst, INT widthDst,
     XImage *image;
     GC gc;
     XGCValues gcv;
-    BYTE *dstbits, *data;
+    DWORD *dstbits, *data;
     int y, y2;
     POINT pts[2];
     BOOL top_down = FALSE;
@@ -1572,6 +1573,17 @@ BOOL X11DRV_AlphaBlend(X11DRV_PDEVICE *devDst, INT xDst, INT yDst, INT widthDst,
         return FALSE;
     }
 
+    if (xSrc < 0 || ySrc < 0 || widthSrc < 0 || heightSrc < 0 || xSrc + widthSrc > dib.dsBmih.biWidth
+        || ySrc + heightSrc > abs(dib.dsBmih.biHeight))
+    {
+        WARN("Invalid src coords: (%d,%d), size %dx%d\n", xSrc, ySrc, widthSrc, heightSrc);
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+
+    if ((blendfn.AlphaFormat & AC_SRC_ALPHA) && blendfn.SourceConstantAlpha != 0xff)
+        FIXME("Ignoring SourceConstantAlpha %d for AC_SRC_ALPHA\n", blendfn.SourceConstantAlpha);
+
     if(dib.dsBm.bmBitsPixel != 32) {
         FIXME("not a 32 bpp dibsection\n");
         return FALSE;
@@ -1580,7 +1592,7 @@ BOOL X11DRV_AlphaBlend(X11DRV_PDEVICE *devDst, INT xDst, INT yDst, INT widthDst,
 
     if(dib.dsBmih.biHeight < 0) { /* top-down dib */
         top_down = TRUE;
-        dstbits += widthSrc * (heightSrc - 1) * 4;
+        dstbits += widthSrc * (heightSrc - 1);
         y2 = ySrc;
         y = y2 + heightSrc - 1;
     }
@@ -1589,11 +1601,37 @@ BOOL X11DRV_AlphaBlend(X11DRV_PDEVICE *devDst, INT xDst, INT yDst, INT widthDst,
         y = dib.dsBmih.biHeight - ySrc - 1;
         y2 = y - heightSrc + 1;
     }
-    for(; y >= y2; y--) {
-        memcpy(dstbits, (char *)dib.dsBm.bmBits + y * dib.dsBm.bmWidthBytes + xSrc * 4,
-               widthSrc * 4);
-        dstbits += (top_down ? -1 : 1) * widthSrc * 4;
+
+    if (blendfn.AlphaFormat & AC_SRC_ALPHA)
+    {
+        for(; y >= y2; y--)
+        {
+            memcpy(dstbits, (char *)dib.dsBm.bmBits + y * dib.dsBm.bmWidthBytes + xSrc * 4,
+                   widthSrc * 4);
+            dstbits += (top_down ? -1 : 1) * widthSrc;
+        }
     }
+    else
+    {
+        DWORD source_alpha = (DWORD)blendfn.SourceConstantAlpha << 24;
+        int x;
+
+        for(; y >= y2; y--)
+        {
+            DWORD *srcbits = (DWORD *)((char *)dib.dsBm.bmBits + y * dib.dsBm.bmWidthBytes) + xSrc;
+            for (x = 0; x < widthSrc; x++)
+            {
+                DWORD argb = *srcbits++;
+                argb = (argb & 0xffffff) | source_alpha;
+                *dstbits++ = argb;
+            }
+            if (top_down)  /* we traversed the row forward so we should go back by two rows */
+                dstbits -= 2 * widthSrc;
+        }
+
+    }
+
+    rgndata = X11DRV_GetRegionData( devDst->region, 0 );
 
     wine_tsx11_lock();
     image = XCreateImage(gdi_display, visual, 32, ZPixmap, 0,
@@ -1629,7 +1667,7 @@ BOOL X11DRV_AlphaBlend(X11DRV_PDEVICE *devDst, INT xDst, INT yDst, INT widthDst,
                                      CPSubwindowMode, &pa);
     TRACE("src_pict %08lx\n", src_pict);
 
-    if ((rgndata = X11DRV_GetRegionData( devDst->region, 0 )))
+    if (rgndata)
     {
         pXRenderSetPictureClipRectangles( gdi_display, dst_pict,
                                           devDst->dc_rect.left, devDst->dc_rect.top,

@@ -64,7 +64,6 @@
 #define WIN32_NO_STATUS
 #include "windef.h"
 #include "winnt.h"
-#include "thread.h"
 #include "winternl.h"
 #include "ntdll_misc.h"
 #include "wine/unicode.h"
@@ -222,6 +221,60 @@ static char *get_default_lpt_device( int num )
 #else
     FIXME( "no known default for device lpt%d\n", num );
 #endif
+    return ret;
+}
+
+
+/***********************************************************************
+ *           DIR_get_drives_info
+ *
+ * Retrieve device/inode number for all the drives. Helper for find_drive_root.
+ */
+unsigned int DIR_get_drives_info( struct drive_info info[MAX_DOS_DRIVES] )
+{
+    static struct drive_info cache[MAX_DOS_DRIVES];
+    static time_t last_update;
+    static unsigned int nb_drives;
+    unsigned int ret;
+    time_t now = time(NULL);
+
+    RtlEnterCriticalSection( &dir_section );
+    if (now != last_update)
+    {
+        const char *config_dir = wine_get_config_dir();
+        char *buffer, *p;
+        struct stat st;
+        unsigned int i;
+
+        if ((buffer = RtlAllocateHeap( GetProcessHeap(), 0,
+                                       strlen(config_dir) + sizeof("/dosdevices/a:") )))
+        {
+            strcpy( buffer, config_dir );
+            strcat( buffer, "/dosdevices/a:" );
+            p = buffer + strlen(buffer) - 2;
+
+            for (i = nb_drives = 0; i < MAX_DOS_DRIVES; i++)
+            {
+                *p = 'a' + i;
+                if (!stat( buffer, &st ))
+                {
+                    cache[i].dev = st.st_dev;
+                    cache[i].ino = st.st_ino;
+                    nb_drives++;
+                }
+                else
+                {
+                    cache[i].dev = 0;
+                    cache[i].ino = 0;
+                }
+            }
+            RtlFreeHeap( GetProcessHeap(), 0, buffer );
+        }
+        last_update = now;
+    }
+    memcpy( info, cache, sizeof(cache) );
+    ret = nb_drives;
+    RtlLeaveCriticalSection( &dir_section );
     return ret;
 }
 
@@ -1174,6 +1227,26 @@ done:
 #elif defined HAVE_GETDIRENTRIES
 
 /***********************************************************************
+ *           wine_getdirentries
+ *
+ * Wrapper for the BSD getdirentries system call to fix a bug in the
+ * Mac OS X version.  For some file systems (at least Apple Filing
+ * Protocol a.k.a. AFP), getdirentries resets the file position to 0
+ * when it's about to return 0 (no more entries).  So, a subsequent
+ * getdirentries call starts over at the beginning again, causing an
+ * infinite loop.
+ */
+static inline int wine_getdirentries(int fd, char *buf, int nbytes, long *basep)
+{
+    int res = getdirentries(fd, buf, nbytes, basep);
+#ifdef __APPLE__
+    if (res == 0)
+        lseek(fd, *basep, SEEK_SET);
+#endif
+    return res;
+}
+
+/***********************************************************************
  *           read_directory_getdirentries
  *
  * Read a directory using the BSD getdirentries system call; helper for NtQueryDirectoryFile.
@@ -1203,7 +1276,7 @@ static int read_directory_getdirentries( int fd, IO_STATUS_BLOCK *io, void *buff
     io->u.Status = STATUS_SUCCESS;
 
     /* FIXME: should make sure size is larger than filesystem block size */
-    res = getdirentries( fd, data, size, &restart_pos );
+    res = wine_getdirentries( fd, data, size, &restart_pos );
     if (res == -1)
     {
         io->u.Status = FILE_GetNtStatus();
@@ -1306,7 +1379,7 @@ static int read_directory_getdirentries( int fd, IO_STATUS_BLOCK *io, void *buff
         restart_last_info = last_info;
         restart_info_pos = io->Information;
     restart:
-        res = getdirentries( fd, data, size, &restart_pos );
+        res = wine_getdirentries( fd, data, size, &restart_pos );
         de = (struct dirent *)data;
     }
 
@@ -1793,7 +1866,7 @@ static inline int get_dos_prefix_len( const UNICODE_STRING *name )
  *
  * Convert a file name from NT namespace to Unix namespace.
  *
- * If disposition is not FILE_OPEN or FILE_OVERWRITTE, the last path
+ * If disposition is not FILE_OPEN or FILE_OVERWRITE, the last path
  * element doesn't have to exist; in that case STATUS_NO_SUCH_FILE is
  * returned, but the unix name is still filled in properly.
  */
@@ -2180,7 +2253,7 @@ static void WINAPI read_changes_user_apc( void *arg, IO_STATUS_BLOCK *io, ULONG 
     RtlFreeHeap( GetProcessHeap(), 0, info );
 }
 
-static NTSTATUS read_changes_apc( void *user, PIO_STATUS_BLOCK iosb, NTSTATUS status )
+static NTSTATUS read_changes_apc( void *user, PIO_STATUS_BLOCK iosb, NTSTATUS status, ULONG_PTR *total )
 {
     struct read_changes_info *info = user;
     char path[PATH_MAX];
@@ -2225,7 +2298,7 @@ static NTSTATUS read_changes_apc( void *user, PIO_STATUS_BLOCK iosb, NTSTATUS st
     }
 
     iosb->u.Status = ret;
-    iosb->Information = len;
+    iosb->Information = *total = len;
     return ret;
 }
 
@@ -2250,6 +2323,7 @@ NtNotifyChangeDirectoryFile( HANDLE FileHandle, HANDLE Event,
 {
     struct read_changes_info *info;
     NTSTATUS status;
+    ULONG_PTR cvalue = ApcRoutine ? 0 : (ULONG_PTR)ApcContext;
 
     TRACE("%p %p %p %p %p %p %u %u %d\n",
           FileHandle, Event, ApcRoutine, ApcContext, IoStatusBlock,
@@ -2282,6 +2356,7 @@ NtNotifyChangeDirectoryFile( HANDLE FileHandle, HANDLE Event,
         req->async.arg      = info;
         req->async.apc      = read_changes_user_apc;
         req->async.event    = Event;
+        req->async.cvalue   = cvalue;
         status = wine_server_call( req );
     }
     SERVER_END_REQ;

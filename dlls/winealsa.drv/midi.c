@@ -9,7 +9,7 @@
  * 		98/7 	changes for making this MIDI driver work on OSS
  * 			current support is limited to MIDI ports of OSS systems
  * 		98/9	rewriting MCI code for MIDI
- * 		98/11 	splitted in midi.c and mcimidi.c
+ * 		98/11 	split in midi.c and mcimidi.c
  * Copyright 2003      Christian Costa :
  *                     ALSA port
  *
@@ -346,10 +346,10 @@ static DWORD WINAPI midRecThread(LPVOID arg)
 		    toSend = (((value >> 7) & 0x7f) << 16) | ((value & 0x7f) << 8) | MIDI_CMD_BENDER | ev->data.control.channel;
 		    break;
 		case SND_SEQ_EVENT_PGMCHANGE:
-		    toSend = (ev->data.control.value << 16) | (ev->data.control.param << 8) | MIDI_CMD_PGM_CHANGE | ev->data.control.channel;
+		    toSend = ((ev->data.control.value & 0x7f) << 8) | MIDI_CMD_PGM_CHANGE | ev->data.control.channel;
 		    break;
 		case SND_SEQ_EVENT_CHANPRESS:
-		    toSend = (ev->data.control.value << 16) | (ev->data.control.param << 8) | MIDI_CMD_CHANNEL_PRESSURE | ev->data.control.channel;
+		    toSend = ((ev->data.control.value & 0x7f) << 8) | MIDI_CMD_CHANNEL_PRESSURE | ev->data.control.channel;
 		    break;
                 case SND_SEQ_EVENT_CLOCK:
                     toSend = 0xF8;
@@ -1018,6 +1018,7 @@ static DWORD modLongData(WORD wDevID, LPMIDIHDR lpMidiHdr, DWORD dwSize)
     default:
 	WARN("Technology not supported (yet) %d !\n",
 	     MidiOutDev[wDevID].caps.wTechnology);
+	HeapFree(GetProcessHeap(), 0, lpNewData);
 	return MMSYSERR_NOTENABLED;
     }
 
@@ -1127,8 +1128,8 @@ static void ALSA_AddMidiPort(snd_seq_client_info_t* cinfo, snd_seq_port_info_t* 
 	if (!type)
             return;
 
-	memcpy(&MidiOutDev[MODM_NumDevs].addr, snd_seq_port_info_get_addr(pinfo), sizeof(snd_seq_addr_t));
-		
+	MidiOutDev[MODM_NumDevs].addr = *snd_seq_port_info_get_addr(pinfo);
+
 	/* Manufac ID. We do not have access to this with soundcard.h
 	 * Does not seem to be a problem, because in mmsystem.h only
 	 * Microsoft's ID is listed.
@@ -1183,8 +1184,8 @@ static void ALSA_AddMidiPort(snd_seq_client_info_t* cinfo, snd_seq_port_info_t* 
 	if (!type)
 	    return;
 
-	memcpy(&MidiInDev[MIDM_NumDevs].addr, snd_seq_port_info_get_addr(pinfo), sizeof(snd_seq_addr_t));
-		
+	MidiInDev[MIDM_NumDevs].addr = *snd_seq_port_info_get_addr(pinfo);
+
 	/* Manufac ID. We do not have access to this with soundcard.h
 	 * Does not seem to be a problem, because in mmsystem.h only
 	 * Microsoft's ID is listed.
@@ -1248,9 +1249,8 @@ LONG ALSA_MidiInit(void)
 #if 0 /* Debug purpose */
     snd_lib_error_set_handler(error_handler);
 #endif
-    
-    snd_seq_client_info_alloca(&cinfo);
-    snd_seq_port_info_alloca(&pinfo);
+    cinfo = HeapAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY, snd_seq_client_info_sizeof() );
+    pinfo = HeapAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY, snd_seq_port_info_sizeof() );
 
     /* First, search for all internal midi devices */
     snd_seq_client_info_set_client(cinfo, -1);
@@ -1280,6 +1280,8 @@ LONG ALSA_MidiInit(void)
 
     /* close file and exit */
     midiCloseSeq();
+    HeapFree( GetProcessHeap(), 0, cinfo );
+    HeapFree( GetProcessHeap(), 0, pinfo );
 
     TRACE("End\n");
 #endif

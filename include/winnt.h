@@ -35,15 +35,21 @@
 extern "C" {
 #endif
 
+#ifdef _NTSYSTEM_
+#define NTSYSAPI
+#else
+#define NTSYSAPI DECLSPEC_IMPORT
+#endif
+
 #define NTAPI __stdcall
 
-#if (defined(_M_IX86) || defined(_M_IA64) || defined(_M_AMD64) || defined(__MINGW32__)) && !defined(MIDL_PASS)
+#ifndef MIDL_PASS
 # if defined(_MSC_VER)
 #  define DECLSPEC_IMPORT __declspec(dllimport)
-# elif defined(__MINGW32__)
+# elif defined(__MINGW32__) || defined(__CYGWIN__)
 #  define DECLSPEC_IMPORT __attribute__((dllimport))
 # else
-#  define DECLSPEC_IMPORT
+#  define DECLSPEC_IMPORT DECLSPEC_HIDDEN
 # endif
 #else
 # define DECLSPEC_IMPORT
@@ -148,7 +154,9 @@ extern "C" {
 # define DECLSPEC_EXPORT
 #endif
 
-#if defined(__GNUC__) && ((__GNUC__ > 3) || ((__GNUC__ == 3) && (__GNUC_MINOR__ >= 3)))
+#if defined(__MSC_VER) || defined(__MINGW32__) || defined(__CYGWIN__)
+# define DECLSPEC_HIDDEN
+#elif defined(__GNUC__) && ((__GNUC__ > 3) || ((__GNUC__ == 3) && (__GNUC_MINOR__ >= 3)))
 # define DECLSPEC_HIDDEN __attribute__((visibility ("hidden")))
 #else
 # define DECLSPEC_HIDDEN
@@ -276,7 +284,9 @@ extern "C" {
 #if defined(_MSC_VER)
 # define C_ASSERT(e) typedef char __C_ASSERT__[(e)?1:-1]
 #elif defined(__GNUC__) 
-# define C_ASSERT(e) extern char __C_ASSERT__[(e)?1:-1]
+# define C_ASSERT(e) extern char __C_ASSERT__[(e)?1:-1] __attribute__((unused))
+#else
+# define C_ASSERT(e)
 #endif
 
 /* Eliminate Microsoft C/C++ compiler warning 4715 */
@@ -650,12 +660,12 @@ typedef union _SLIST_HEADER {
 
 #endif
 
-PSLIST_ENTRY WINAPI RtlFirstEntrySList(const SLIST_HEADER*);
-VOID         WINAPI RtlInitializeSListHead(PSLIST_HEADER);
-PSLIST_ENTRY WINAPI RtlInterlockedFlushSList(PSLIST_HEADER);
-PSLIST_ENTRY WINAPI RtlInterlockedPopEntrySList(PSLIST_HEADER);
-PSLIST_ENTRY WINAPI RtlInterlockedPushEntrySList(PSLIST_HEADER, PSLIST_ENTRY);
-WORD         WINAPI RtlQueryDepthSList(PSLIST_HEADER);
+NTSYSAPI PSLIST_ENTRY WINAPI RtlFirstEntrySList(const SLIST_HEADER*);
+NTSYSAPI VOID         WINAPI RtlInitializeSListHead(PSLIST_HEADER);
+NTSYSAPI PSLIST_ENTRY WINAPI RtlInterlockedFlushSList(PSLIST_HEADER);
+NTSYSAPI PSLIST_ENTRY WINAPI RtlInterlockedPopEntrySList(PSLIST_HEADER);
+NTSYSAPI PSLIST_ENTRY WINAPI RtlInterlockedPushEntrySList(PSLIST_HEADER, PSLIST_ENTRY);
+NTSYSAPI WORD         WINAPI RtlQueryDepthSList(PSLIST_HEADER);
 
 
 /* Heap flags */
@@ -692,7 +702,12 @@ typedef enum _HEAP_INFORMATION_CLASS {
 #define PF_RDTSC_INSTRUCTION_AVAILABLE		8
 #define PF_PAE_ENABLED				9
 #define PF_XMMI64_INSTRUCTIONS_AVAILABLE	10
+#define PF_SSE_DAZ_MODE_AVAILABLE		11
 #define PF_NX_ENABLED				12
+#define PF_SSE3_INSTRUCTIONS_AVAILABLE		13
+#define PF_COMPARE_EXCHANGE128			14
+#define PF_COMPARE64_EXCHANGE128		15
+#define PF_CHANNELS_ENABLED			16
 
 
 /* Execution state flags */
@@ -778,7 +793,10 @@ typedef struct _CONTEXT86
 #define CONTEXT86_SEGMENTS  (CONTEXT_i386 | 0x0004) /* DS, ES, FS, GS */
 #define CONTEXT86_FLOATING_POINT  (CONTEXT_i386 | 0x0008L) /* 387 state */
 #define CONTEXT86_DEBUG_REGISTERS (CONTEXT_i386 | 0x0010L) /* DB 0-3,6,7 */
+#define CONTEXT86_EXTENDED_REGISTERS (CONTEXT_i386 | 0x0020L)
 #define CONTEXT86_FULL (CONTEXT86_CONTROL | CONTEXT86_INTEGER | CONTEXT86_SEGMENTS)
+#define CONTEXT86_ALL (CONTEXT86_CONTROL | CONTEXT86_INTEGER | CONTEXT86_SEGMENTS | \
+        CONTEXT86_FLOATING_POINT | CONTEXT86_DEBUG_REGISTERS | CONTEXT86_EXTENDED_REGISTERS)
 
 /* i386 context definitions */
 #ifdef __i386__
@@ -788,7 +806,9 @@ typedef struct _CONTEXT86
 #define CONTEXT_SEGMENTS        CONTEXT86_SEGMENTS
 #define CONTEXT_FLOATING_POINT  CONTEXT86_FLOATING_POINT
 #define CONTEXT_DEBUG_REGISTERS CONTEXT86_DEBUG_REGISTERS
+#define CONTEXT_EXTENDED_REGISTERS CONTEXT86_EXTENDED_REGISTERS
 #define CONTEXT_FULL            CONTEXT86_FULL
+#define CONTEXT_ALL             CONTEXT86_ALL
 
 typedef CONTEXT86 CONTEXT;
 
@@ -1895,19 +1915,8 @@ typedef CONTEXT *PCONTEXT;
 #define WT_EXECUTEDELETEWAIT           0x08
 
 
-/*
- * From OS/2 2.0 exception handling
- * Win32 seems to use the same flags as ExceptionFlags in an EXCEPTION_RECORD
- */
-
-#define EH_NONCONTINUABLE   0x01
-#define EH_UNWINDING        0x02
-#define EH_EXIT_UNWIND      0x04
-#define EH_STACK_INVALID    0x08
-#define EH_NESTED_CALL      0x10
-
 #define EXCEPTION_CONTINUABLE        0
-#define EXCEPTION_NONCONTINUABLE     EH_NONCONTINUABLE
+#define EXCEPTION_NONCONTINUABLE     0x01
 
 /*
  * The exception record used by Win32 to give additional information
@@ -3395,6 +3404,8 @@ typedef struct _SID {
 #define MIN_ACL_REVISION ACL_REVISION2
 #define MAX_ACL_REVISION ACL_REVISION4
 
+#define ACL_REVISION 2
+
 typedef struct _ACL {
     BYTE AclRevision;
     BYTE Sbz1;
@@ -3524,7 +3535,7 @@ typedef struct {
 typedef struct _SID_AND_ATTRIBUTES {
   PSID  Sid;
   DWORD Attributes;
-} SID_AND_ATTRIBUTES;
+} SID_AND_ATTRIBUTES, *PSID_AND_ATTRIBUTES;
 
 /* security entities */
 #define SECURITY_NULL_RID			(0x00000000L)
@@ -3686,7 +3697,8 @@ typedef enum {
     WinBuiltinPerfMonitoringUsersSid            = 57,
     WinBuiltinPerfLoggingUsersSid               = 58,
     WinBuiltinAuthorizationAccessSid            = 59,
-    WinBuiltinTerminalServerLicenseServersSid   = 60
+    WinBuiltinTerminalServerLicenseServersSid   = 60,
+    WinBuiltinDCOMUsersSid                      = 61
 } WELL_KNOWN_SID_TYPE;
 
 /*
@@ -3888,11 +3900,6 @@ typedef struct _TOKEN_STATISTICS {
  *	ACLs of NT
  */
 
-#define	ACL_REVISION	2
-
-#define	ACL_REVISION1	1
-#define	ACL_REVISION2	2
-
 /* ACEs, directly starting after an ACL */
 typedef struct _ACE_HEADER {
 	BYTE	AceType;
@@ -3912,7 +3919,7 @@ typedef struct _ACE_HEADER {
 #define	NO_PROPAGATE_INHERIT_ACE	0x04
 #define	INHERIT_ONLY_ACE		0x08
 #define	INHERITED_ACE		        0x10
-#define	VALID_INHERIT_FLAGS		0x0F
+#define	VALID_INHERIT_FLAGS		0x1F
 
 /* AceFlags mask for what events we (should) audit */
 #define	SUCCESSFUL_ACCESS_ACE_FLAG	0x40
@@ -4694,6 +4701,7 @@ typedef struct _RTL_CRITICAL_SECTION {
 }  RTL_CRITICAL_SECTION, *PRTL_CRITICAL_SECTION;
 
 typedef VOID (NTAPI * WAITORTIMERCALLBACKFUNC) (PVOID, BOOLEAN );
+typedef VOID (NTAPI * PFLS_CALLBACK_FUNCTION) ( PVOID );
 
 #include <pshpack8.h>
 typedef struct _IO_COUNTERS {
@@ -4760,7 +4768,7 @@ DECL_WINELIB_TYPE_AW(OSVERSIONINFOEX)
 DECL_WINELIB_TYPE_AW(POSVERSIONINFOEX)
 DECL_WINELIB_TYPE_AW(LPOSVERSIONINFOEX)
 
-ULONGLONG WINAPI VerSetConditionMask(ULONGLONG,DWORD,BYTE);
+NTSYSAPI ULONGLONG WINAPI VerSetConditionMask(ULONGLONG,DWORD,BYTE);
 
 #define VER_SET_CONDITION(_m_,_t_,_c_) ((_m_)=VerSetConditionMask((_m_),(_t_),(_c_)))
 

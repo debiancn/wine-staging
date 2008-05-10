@@ -26,6 +26,7 @@
 #include "wincrypt.h"
 #include "winreg.h"
 #include "winuser.h"
+#include "i_cryptasn1tls.h"
 #include "crypt32_private.h"
 #include "wine/debug.h"
 
@@ -44,7 +45,12 @@ BOOL WINAPI DllMain(HINSTANCE hInstance, DWORD fdwReason, PVOID pvReserved)
         case DLL_PROCESS_DETACH:
             crypt_oid_free();
             crypt_sip_free();
-            if (hDefProv) CryptReleaseContext(hDefProv, 0);
+            root_store_free();
+            default_chain_engine_free();
+            /* Don't release the default provider on process shutdown, there's
+             * no guarantee the provider dll hasn't already been unloaded.
+             */
+            if (hDefProv && !pvReserved) CryptReleaseContext(hDefProv, 0);
             break;
     }
     return TRUE;
@@ -53,8 +59,16 @@ BOOL WINAPI DllMain(HINSTANCE hInstance, DWORD fdwReason, PVOID pvReserved)
 HCRYPTPROV CRYPT_GetDefaultProvider(void)
 {
     if (!hDefProv)
-        CryptAcquireContextW(&hDefProv, NULL, MS_ENHANCED_PROV_W,
-         PROV_RSA_FULL, CRYPT_VERIFYCONTEXT);
+    {
+        HCRYPTPROV prov;
+
+        CryptAcquireContextW(&prov, NULL, MS_ENHANCED_PROV_W, PROV_RSA_FULL,
+         CRYPT_VERIFYCONTEXT);
+        InterlockedCompareExchangePointer((PVOID *)&hDefProv, (PVOID)prov,
+         NULL);
+        if (hDefProv != prov)
+            CryptReleaseContext(prov, 0);
+    }
     return hDefProv;
 }
 
@@ -73,9 +87,21 @@ BOOL WINAPI I_CryptCreateLruCache(void *unknown, HLRUCACHE *out)
     return TRUE;
 }
 
+BOOL WINAPI I_CryptFindLruEntry(DWORD unk0, DWORD unk1)
+{
+    FIXME("(%08x, %08x): stub!\n", unk0, unk1);
+    return FALSE;
+}
+
 BOOL WINAPI I_CryptFindLruEntryData(DWORD unk0, DWORD unk1, DWORD unk2)
 {
     FIXME("(%08x, %08x, %08x): stub!\n", unk0, unk1, unk2);
+    return FALSE;
+}
+
+BOOL WINAPI I_CryptCreateLruEntry(HLRUCACHE h, DWORD unk0, DWORD unk1)
+{
+    FIXME("(%p, %08x, %08x): stub!\n", h, unk0, unk1);
     return FALSE;
 }
 
@@ -186,7 +212,7 @@ BOOL WINAPI I_CryptReadTrustedPublisherDWORDValueFromRegistry(LPCWSTR name,
     return ret;
 }
 
-int WINAPI I_CryptInstallOssGlobal(DWORD x, DWORD y, DWORD z)
+DWORD WINAPI I_CryptInstallOssGlobal(DWORD x, DWORD y, DWORD z)
 {
     static int ret = 8;
     ret++;
@@ -194,16 +220,28 @@ int WINAPI I_CryptInstallOssGlobal(DWORD x, DWORD y, DWORD z)
     return ret;
 }
 
-BOOL WINAPI I_CryptInstallAsn1Module(void *x, DWORD y, DWORD z)
+BOOL WINAPI I_CryptInstallAsn1Module(ASN1module_t x, DWORD y, void* z)
 {
-    FIXME("%p %08x %08x\n", x, y, z);
+    FIXME("(%p %08x %p): stub\n", x, y, z);
     return TRUE;
 }
 
-BOOL WINAPI I_CryptUninstallAsn1Module(void *x)
+BOOL WINAPI I_CryptUninstallAsn1Module(HCRYPTASN1MODULE x)
 {
-    FIXME("%p\n", x);
+    FIXME("(%08x): stub\n", x);
     return TRUE;
+}
+
+ASN1decoding_t WINAPI I_CryptGetAsn1Decoder(HCRYPTASN1MODULE x)
+{
+    FIXME("(%08x): stub\n", x);
+    return NULL;
+}
+
+ASN1encoding_t WINAPI I_CryptGetAsn1Encoder(HCRYPTASN1MODULE x)
+{
+    FIXME("(%08x): stub\n", x);
+    return NULL;
 }
 
 BOOL WINAPI CryptFormatObject(DWORD dwCertEncodingType, DWORD dwFormatType,
@@ -213,30 +251,5 @@ BOOL WINAPI CryptFormatObject(DWORD dwCertEncodingType, DWORD dwFormatType,
     FIXME("(%08x, %d, %d, %p, %s, %p, %d, %p, %p): stub\n",
      dwCertEncodingType, dwFormatType, dwFormatStrType, pFormatStruct,
      debugstr_a(lpszStructType), pbEncoded, cbEncoded, pbFormat, pcbFormat);
-    return FALSE;
-}
-
-BOOL WINAPI CryptQueryObject(DWORD dwObjectType, const void* pvObject,
-    DWORD dwExpectedContentTypeFlags, DWORD dwExpectedFormatTypeFlags,
-    DWORD dwFlags, DWORD* pdwMsgAndCertEncodingType, DWORD* pdwContentType,
-    DWORD* pdwFormatType, HCERTSTORE* phCertStore, HCRYPTMSG* phMsg,
-    const void** ppvContext)
-{
-    FIXME( "%08x %p %08x %08x %08x %p %p %p %p %p %p\n", dwObjectType,
-           pvObject, dwExpectedContentTypeFlags, dwExpectedFormatTypeFlags,
-           dwFlags, pdwMsgAndCertEncodingType, pdwContentType, pdwFormatType,
-           phCertStore, phMsg, ppvContext);
-    return FALSE;
-}
-
-BOOL WINAPI CryptVerifyMessageSignature(PCRYPT_VERIFY_MESSAGE_PARA pVerifyPara,
-          DWORD dwSignerIndex, const BYTE* pbSignedBlob, DWORD cbSignedBlob,
-          BYTE* pbDecoded, DWORD* pcbDecoded, PCCERT_CONTEXT* ppSignerCert)
-{
-    FIXME("stub: %p, %d, %p, %d, %p, %p, %p\n",
-        pVerifyPara, dwSignerIndex, pbSignedBlob, cbSignedBlob,
-        pbDecoded, pcbDecoded, ppSignerCert);
-    if (ppSignerCert)
-        *ppSignerCert = NULL;
     return FALSE;
 }

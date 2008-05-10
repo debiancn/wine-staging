@@ -34,6 +34,7 @@
 #include "handle.h"
 #include "thread.h"
 #include "request.h"
+#include "security.h"
 
 struct semaphore
 {
@@ -43,6 +44,7 @@ struct semaphore
 };
 
 static void semaphore_dump( struct object *obj, int verbose );
+static struct object_type *semaphore_get_type( struct object *obj );
 static int semaphore_signaled( struct object *obj, struct thread *thread );
 static int semaphore_satisfied( struct object *obj, struct thread *thread );
 static unsigned int semaphore_map_access( struct object *obj, unsigned int access );
@@ -52,6 +54,7 @@ static const struct object_ops semaphore_ops =
 {
     sizeof(struct semaphore),      /* size */
     semaphore_dump,                /* dump */
+    semaphore_get_type,            /* get_type */
     add_queue,                     /* add_queue */
     remove_queue,                  /* remove_queue */
     semaphore_signaled,            /* signaled */
@@ -59,6 +62,8 @@ static const struct object_ops semaphore_ops =
     semaphore_signal,              /* signal */
     no_get_fd,                     /* get_fd */
     semaphore_map_access,          /* map_access */
+    default_get_sd,                /* get_sd */
+    default_set_sd,                /* set_sd */
     no_lookup_name,                /* lookup_name */
     no_open_file,                  /* open_file */
     no_close_handle,               /* close_handle */
@@ -67,7 +72,8 @@ static const struct object_ops semaphore_ops =
 
 
 static struct semaphore *create_semaphore( struct directory *root, const struct unicode_str *name,
-                                           unsigned int attr, unsigned int initial, unsigned int max )
+                                           unsigned int attr, unsigned int initial, unsigned int max,
+                                           const struct security_descriptor *sd )
 {
     struct semaphore *sem;
 
@@ -83,6 +89,10 @@ static struct semaphore *create_semaphore( struct directory *root, const struct 
             /* initialize it if it didn't already exist */
             sem->count = initial;
             sem->max   = max;
+            if (sd) default_set_sd( &sem->obj, sd, OWNER_SECURITY_INFORMATION|
+                                                   GROUP_SECURITY_INFORMATION|
+                                                   DACL_SECURITY_INFORMATION|
+                                                   SACL_SECURITY_INFORMATION );
         }
     }
     return sem;
@@ -117,6 +127,13 @@ static void semaphore_dump( struct object *obj, int verbose )
     fprintf( stderr, "Semaphore count=%d max=%d ", sem->count, sem->max );
     dump_object_name( &sem->obj );
     fputc( '\n', stderr );
+}
+
+static struct object_type *semaphore_get_type( struct object *obj )
+{
+    static const WCHAR name[] = {'S','e','m','a','p','h','o','r','e'};
+    static const struct unicode_str str = { name, sizeof(name) };
+    return get_object_type( &str );
 }
 
 static int semaphore_signaled( struct object *obj, struct thread *thread )
@@ -163,15 +180,26 @@ DECL_HANDLER(create_semaphore)
     struct semaphore *sem;
     struct unicode_str name;
     struct directory *root = NULL;
+    const struct object_attributes *objattr = get_req_data();
+    const struct security_descriptor *sd;
 
     reply->handle = 0;
-    get_req_unicode_str( &name );
-    if (req->rootdir && !(root = get_directory_obj( current->process, req->rootdir, 0 )))
+
+    if (!objattr_is_valid( objattr, get_req_data_size() ))
         return;
 
-    if ((sem = create_semaphore( root, &name, req->attributes, req->initial, req->max )))
+    sd = objattr->sd_len ? (const struct security_descriptor *)(objattr + 1) : NULL;
+    objattr_get_name( objattr, &name );
+
+    if (objattr->rootdir && !(root = get_directory_obj( current->process, objattr->rootdir, 0 )))
+        return;
+
+    if ((sem = create_semaphore( root, &name, req->attributes, req->initial, req->max, sd )))
     {
-        reply->handle = alloc_handle( current->process, sem, req->access, req->attributes );
+        if (get_error() == STATUS_OBJECT_NAME_EXISTS)
+            reply->handle = alloc_handle( current->process, sem, req->access, req->attributes );
+        else
+            reply->handle = alloc_handle_no_access_check( current->process, sem, req->access, req->attributes );
         release_object( sem );
     }
 

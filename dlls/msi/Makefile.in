@@ -3,10 +3,9 @@ TOPOBJDIR = ../..
 SRCDIR    = @srcdir@
 VPATH     = @srcdir@
 MODULE    = msi.dll
-IMPORTLIB = libmsi.$(IMPLIBEXT)
-IMPORTS   = urlmon wininet comctl32 shell32 shlwapi cabinet oleaut32 ole32 version user32 gdi32 advapi32 kernel32 ntdll
+IMPORTLIB = msi
+IMPORTS   = uuid urlmon wininet comctl32 shell32 shlwapi cabinet oleaut32 ole32 version user32 gdi32 advapi32 kernel32 ntdll
 DELAYIMPORTS = odbccp32
-EXTRALIBS = -luuid
 
 C_SRCS = \
 	action.c \
@@ -32,7 +31,6 @@ C_SRCS = \
 	msi.c \
 	msi_main.c \
 	msiquery.c \
-	order.c \
 	package.c \
 	preview.c \
 	record.c \
@@ -59,11 +57,6 @@ BISON_SRCS = \
 	sql.y
 
 RC_SRCS = msi.rc
-RC_BINSRC = msi.rc
-RC_BINARIES = \
-	instabsent.bmp \
-	instadvert.bmp \
-	instlocal.bmp
 
 @MAKE_DLL_RULES@
 

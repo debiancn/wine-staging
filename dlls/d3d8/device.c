@@ -97,7 +97,7 @@ static ULONG WINAPI IDirect3DDevice8Impl_Release(LPDIRECT3DDEVICE8 iface) {
     TRACE("(%p) : ReleaseRef to %d\n", This, ref);
 
     if (ref == 0) {
-        int i;
+        unsigned i;
 
         TRACE("Releasing wined3d device %p\n", This->WineD3DDevice);
         EnterCriticalSection(&d3d8_cs);
@@ -106,6 +106,7 @@ static ULONG WINAPI IDirect3DDevice8Impl_Release(LPDIRECT3DDEVICE8 iface) {
         for(i = 0; i < This->numConvertedDecls; i++) {
             IWineD3DVertexDeclaration_Release(This->decls[i].decl);
         }
+        HeapFree(GetProcessHeap(), 0, This->decls);
 
         IWineD3DDevice_Uninit3D(This->WineD3DDevice, D3D8CB_DestroyDepthStencilSurface, D3D8CB_DestroySwapChain);
         IWineD3DDevice_Release(This->WineD3DDevice);
@@ -191,10 +192,10 @@ static HRESULT WINAPI IDirect3DDevice8Impl_GetDeviceCaps(LPDIRECT3DDEVICE8 iface
         return D3DERR_INVALIDCALL; /* well this is what MSDN says to return */
     }
 
-    D3D8CAPSTOWINECAPS(pCaps, pWineCaps)
     EnterCriticalSection(&d3d8_cs);
     hrc = IWineD3DDevice_GetDeviceCaps(This->WineD3DDevice, pWineCaps);
     LeaveCriticalSection(&d3d8_cs);
+    WINECAPSTOD3D8CAPS(pCaps, pWineCaps)
     HeapFree(GetProcessHeap(), 0, pWineCaps);
 
     /* D3D8 doesn't support SM 2.0 or higher, so clamp to 1.x */
@@ -242,7 +243,7 @@ static HRESULT WINAPI IDirect3DDevice8Impl_SetCursorProperties(LPDIRECT3DDEVICE8
     }
 
     EnterCriticalSection(&d3d8_cs);
-    hr = IWineD3DDevice_SetCursorProperties(This->WineD3DDevice,XHotSpot,YHotSpot,(IWineD3DSurface*)pSurface->wineD3DSurface);
+    hr = IWineD3DDevice_SetCursorProperties(This->WineD3DDevice,XHotSpot,YHotSpot,pSurface->wineD3DSurface);
     LeaveCriticalSection(&d3d8_cs);
     return hr;
 }
@@ -398,7 +399,7 @@ static HRESULT WINAPI IDirect3DDevice8Impl_GetBackBuffer(LPDIRECT3DDEVICE8 iface
     TRACE("(%p) Relay\n", This);
 
     EnterCriticalSection(&d3d8_cs);
-    rc = IWineD3DDevice_GetBackBuffer(This->WineD3DDevice, 0, BackBuffer, (WINED3DBACKBUFFER_TYPE) Type, (IWineD3DSurface **)&retSurface);
+    rc = IWineD3DDevice_GetBackBuffer(This->WineD3DDevice, 0, BackBuffer, (WINED3DBACKBUFFER_TYPE) Type, &retSurface);
     if (rc == D3D_OK && NULL != retSurface && NULL != ppBackBuffer) {
         IWineD3DSurface_GetParent(retSurface, (IUnknown **)ppBackBuffer);
         IWineD3DSurface_Release(retSurface);
@@ -471,9 +472,9 @@ static HRESULT WINAPI IDirect3DDevice8Impl_CreateTexture(LPDIRECT3DDEVICE8 iface
         IUnknown_AddRef(iface);
         object->parentDevice = iface;
         *ppTexture = (LPDIRECT3DTEXTURE8) object;
+        TRACE("(%p) Created Texture %p, %p\n",This,object,object->wineD3DTexture);
    }
 
-   TRACE("(%p) Created Texture %p, %p\n",This,object,object->wineD3DTexture);
    return hrc;
 }
 
@@ -634,11 +635,6 @@ static HRESULT WINAPI IDirect3DDevice8Impl_CreateSurface(LPDIRECT3DDEVICE8 iface
     IDirect3DSurface8Impl *object;
     IDirect3DDevice8Impl  *This = (IDirect3DDevice8Impl *)iface;
     TRACE("(%p) Relay\n", This);
-    if(MultisampleQuality < 0) { 
-        FIXME("MultisampleQuality out of range %d, substituting 0\n", MultisampleQuality);
-        /*FIXME: Find out what windows does with a MultisampleQuality < 0 */
-        MultisampleQuality=0;
-    }
 
     if(MultisampleQuality > 0){
         FIXME("MultisampleQuality set to %d, substituting 0\n" , MultisampleQuality);
@@ -810,10 +806,10 @@ static HRESULT WINAPI IDirect3DDevice8Impl_SetRenderTarget(LPDIRECT3DDEVICE8 ifa
     HRESULT hr;
     TRACE("(%p) Relay\n" , This);
 
-    IWineD3DDevice_SetDepthStencilSurface(This->WineD3DDevice, NULL == pZSurface ? NULL : (IWineD3DSurface *)pZSurface->wineD3DSurface);
+    IWineD3DDevice_SetDepthStencilSurface(This->WineD3DDevice, NULL == pZSurface ? NULL : pZSurface->wineD3DSurface);
 
     EnterCriticalSection(&d3d8_cs);
-    hr = IWineD3DDevice_SetRenderTarget(This->WineD3DDevice, 0, pSurface ? (IWineD3DSurface *)pSurface->wineD3DSurface : NULL);
+    hr = IWineD3DDevice_SetRenderTarget(This->WineD3DDevice, 0, pSurface ? pSurface->wineD3DSurface : NULL);
     LeaveCriticalSection(&d3d8_cs);
     return hr;
 }
@@ -1094,7 +1090,7 @@ static HRESULT WINAPI IDirect3DDevice8Impl_EndStateBlock(LPDIRECT3DDEVICE8 iface
 
     TRACE("(%p) Relay\n", This);
 
-    /* Tell wineD3D to endstatablock before anything else (in case we run out
+    /* Tell wineD3D to endstateblock before anything else (in case we run out
      * of memory later and cause locking problems)
      */
     EnterCriticalSection(&d3d8_cs);
@@ -1165,6 +1161,12 @@ static HRESULT WINAPI IDirect3DDevice8Impl_CreateStateBlock(LPDIRECT3DDEVICE8 if
 
    TRACE("(%p) Relay\n", This);
 
+   if(Type != D3DSBT_ALL         && Type != D3DSBT_PIXELSTATE &&
+      Type != D3DSBT_VERTEXSTATE                              ) {
+       WARN("Unexpected stateblock type, returning D3DERR_INVALIDCALL\n");
+       return D3DERR_INVALIDCALL;
+   }
+
    object  = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(IDirect3DStateBlock8Impl));
    if (NULL == object) {
       *pToken = 0;
@@ -1182,8 +1184,8 @@ static HRESULT WINAPI IDirect3DDevice8Impl_CreateStateBlock(LPDIRECT3DDEVICE8 if
        *pToken = 0;
    } else {
        *pToken = (DWORD)object;
+       TRACE("(%p) returning token (ptr to stateblock) of %p\n", This, object);
    }
-   TRACE("(%p) returning token (ptr to stateblock) of %p\n", This, object);
 
    return hrc;
 }
@@ -1222,7 +1224,7 @@ static HRESULT WINAPI IDirect3DDevice8Impl_GetTexture(LPDIRECT3DDEVICE8 iface, D
     }
 
     EnterCriticalSection(&d3d8_cs);
-    rc = IWineD3DDevice_GetTexture(This->WineD3DDevice, Stage, (IWineD3DBaseTexture **)&retTexture);
+    rc = IWineD3DDevice_GetTexture(This->WineD3DDevice, Stage, &retTexture);
     if (rc == D3D_OK && NULL != retTexture) {
         IWineD3DBaseTexture_GetParent(retTexture, (IUnknown **)ppTexture);
         IWineD3DBaseTexture_Release(retTexture);
@@ -1470,7 +1472,7 @@ static HRESULT WINAPI IDirect3DDevice8Impl_CreateVertexDeclaration(IDirect3DDevi
     IDirect3DDevice8Impl *This = (IDirect3DDevice8Impl *)iface;
     IDirect3DVertexDeclaration8Impl *object;
     WINED3DVERTEXELEMENT *wined3d_elements;
-    size_t wined3d_element_count;
+    UINT wined3d_element_count;
     HRESULT hr = D3D_OK;
 
     TRACE("(%p) : declaration %p\n", This, declaration);
@@ -1520,6 +1522,23 @@ static HRESULT WINAPI IDirect3DDevice8Impl_CreateVertexShader(LPDIRECT3DDEVICE8 
     HRESULT hrc = D3D_OK;
     IDirect3DVertexShader8Impl *object;
     IWineD3DVertexDeclaration *wined3d_vertex_declaration;
+    const DWORD *token = pDeclaration;
+
+    /* Test if the vertex declaration is valid */
+    while (D3DVSD_END() != *token) {
+        D3DVSD_TOKENTYPE token_type = ((*token & D3DVSD_TOKENTYPEMASK) >> D3DVSD_TOKENTYPESHIFT);
+
+        if (token_type == D3DVSD_TOKEN_STREAMDATA && !(token_type & 0x10000000)) {
+            DWORD type = ((*token & D3DVSD_DATATYPEMASK) >> D3DVSD_DATATYPESHIFT);
+            DWORD reg  = ((*token & D3DVSD_VERTEXREGMASK) >> D3DVSD_VERTEXREGSHIFT);
+
+            if(reg == D3DVSDE_NORMAL && type != D3DVSDT_FLOAT3 && !pFunction) {
+                WARN("Attempt to use a non-FLOAT3 normal with the fixed function function\n");
+                return D3DERR_INVALIDCALL;
+            }
+        }
+        token += parse_token(token);
+    }
 
     /* Setup a stub object for now */
     object = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*object));
@@ -1553,7 +1572,7 @@ static HRESULT WINAPI IDirect3DDevice8Impl_CreateVertexShader(LPDIRECT3DDEVICE8 
         HeapFree(GetProcessHeap(), 0, object);
         *ppShader = 0;
     } else {
-        /* TODO: Store the VS declarations locally so that they can be derefferenced with a value higher than VS_HIGHESTFIXEDFXF */
+        /* TODO: Store the VS declarations locally so that they can be dereferenced with a value higher than VS_HIGHESTFIXEDFXF */
         shader_handle *handle = alloc_shader_handle(This);
         if (!handle) {
             ERR("Failed to allocate shader handle\n");
@@ -1565,10 +1584,10 @@ static HRESULT WINAPI IDirect3DDevice8Impl_CreateVertexShader(LPDIRECT3DDEVICE8 
             *ppShader = (handle - This->shader_handles) + VS_HIGHESTFIXEDFXF + 1;
 
             load_local_constants(pDeclaration, object->wineD3DVertexShader);
+            TRACE("(%p) : returning %p (handle %#x)\n", This, object, *ppShader);
         }
     }
     LeaveCriticalSection(&d3d8_cs);
-    TRACE("(%p) : returning %p (handle %#x)\n", This, object, *ppShader);
 
     return hrc;
 }
@@ -1786,7 +1805,7 @@ static HRESULT WINAPI IDirect3DDevice8Impl_GetVertexShaderFunction(LPDIRECT3DDEV
     }
 
     shader = This->shader_handles[pVertexShader - (VS_HIGHESTFIXEDFXF + 1)];
-    hr = IWineD3DVertexShader_GetFunction(shader->wineD3DVertexShader, pData, (UINT *)pSizeOfData);
+    hr = IWineD3DVertexShader_GetFunction(shader->wineD3DVertexShader, pData, pSizeOfData);
     LeaveCriticalSection(&d3d8_cs);
     return hr;
 }
@@ -1797,6 +1816,12 @@ static HRESULT WINAPI IDirect3DDevice8Impl_SetIndices(LPDIRECT3DDEVICE8 iface, I
     TRACE("(%p) Relay\n", This);
 
     EnterCriticalSection(&d3d8_cs);
+    /* WineD3D takes an INT(due to d3d9), but d3d8 uses UINTs. Do I have to add a check here that
+     * the UINT doesn't cause an overflow in the INT? It seems rather unlikely because such large
+     * vertex buffers can't be created to address them with an index that requires the 32nd bit
+     * (4 Byte minimum vertex size * 2^31-1 -> 8 gb buffer. The index sign would be the least
+     * problem)
+     */
     IWineD3DDevice_SetBaseVertexIndex(This->WineD3DDevice, baseVertexIndex);
     hr = IWineD3DDevice_SetIndices(This->WineD3DDevice,
             pIndexData ? ((IDirect3DIndexBuffer8Impl *)pIndexData)->wineD3DIndexBuffer : NULL);
@@ -1816,7 +1841,8 @@ static HRESULT WINAPI IDirect3DDevice8Impl_GetIndices(LPDIRECT3DDEVICE8 iface, I
     }
 
     EnterCriticalSection(&d3d8_cs);
-    IWineD3DDevice_GetBaseVertexIndex(This->WineD3DDevice, pBaseVertexIndex);
+    /* The case from UINT to INT is safe because d3d8 will never set negative values */
+    IWineD3DDevice_GetBaseVertexIndex(This->WineD3DDevice, (INT *) pBaseVertexIndex);
     rc = IWineD3DDevice_GetIndices(This->WineD3DDevice, &retIndexData);
     if (SUCCEEDED(rc) && retIndexData) {
         IWineD3DIndexBuffer_GetParent(retIndexData, (IUnknown **)ppIndexData);
@@ -1864,12 +1890,12 @@ static HRESULT WINAPI IDirect3DDevice8Impl_CreatePixelShader(LPDIRECT3DDEVICE8 i
                 object->handle = handle;
                 *handle = object;
                 *ppShader = (handle - This->shader_handles) + VS_HIGHESTFIXEDFXF + 1;
+                TRACE("(%p) : returning %p (handle %#x)\n", This, object, *ppShader);
             }
         }
         LeaveCriticalSection(&d3d8_cs);
     }
 
-    TRACE("(%p) : returning %p (handle %#x)\n", This, object, *ppShader);
     return hrc;
 }
 
@@ -1986,7 +2012,7 @@ static HRESULT WINAPI IDirect3DDevice8Impl_GetPixelShaderFunction(LPDIRECT3DDEVI
     }
 
     shader = This->shader_handles[pPixelShader - (VS_HIGHESTFIXEDFXF + 1)];
-    hr = IWineD3DPixelShader_GetFunction(shader->wineD3DPixelShader, pData, (UINT *)pSizeOfData);
+    hr = IWineD3DPixelShader_GetFunction(shader->wineD3DPixelShader, pData, pSizeOfData);
     LeaveCriticalSection(&d3d8_cs);
     return hr;
 }
@@ -2049,7 +2075,7 @@ static HRESULT WINAPI IDirect3DDevice8Impl_GetStreamSource(LPDIRECT3DDEVICE8 ifa
     }
 
     EnterCriticalSection(&d3d8_cs);
-    rc = IWineD3DDevice_GetStreamSource(This->WineD3DDevice, StreamNumber, (IWineD3DVertexBuffer **)&retStream, 0 /* Offset in bytes */, pStride);
+    rc = IWineD3DDevice_GetStreamSource(This->WineD3DDevice, StreamNumber, &retStream, 0 /* Offset in bytes */, pStride);
     if (rc == D3D_OK  && NULL != retStream) {
         IWineD3DVertexBuffer_GetParent(retStream, (IUnknown **)pStream);
         IWineD3DVertexBuffer_Release(retStream);

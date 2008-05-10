@@ -822,7 +822,9 @@ typedef struct {
 #define AVIIF_LIST	0x00000001	/* chunk is a 'LIST' */
 #define AVIIF_TWOCC	0x00000002
 #define AVIIF_KEYFRAME	0x00000010	/* this frame is a key frame. */
-
+#define AVIIF_FIRSTPART 0x00000020
+#define AVIIF_LASTPART  0x00000040
+#define AVIIF_MIDPART   (AVIIF_LASTPART|AVIIF_FIRSTPART)
 #define AVIIF_NOTIME	0x00000100	/* this frame doesn't take any time */
 #define AVIIF_COMPUSE	0x0FFF0000
 
@@ -1041,7 +1043,7 @@ HRESULT WINAPI AVIStreamCreate(PAVISTREAM*,LONG,LONG,CLSID*);
 HRESULT WINAPI AVIStreamInfoA(PAVISTREAM iface,AVISTREAMINFOA *asi,LONG size);
 HRESULT WINAPI AVIStreamInfoW(PAVISTREAM iface,AVISTREAMINFOW *asi,LONG size);
 #define AVIStreamInfo WINELIB_NAME_AW(AVIStreamInfo)
-HRESULT WINAPI AVIStreamFindSample(PAVISTREAM pstream, LONG pos, DWORD flags);
+LONG WINAPI AVIStreamFindSample(PAVISTREAM pstream, LONG pos, LONG flags);
 HRESULT WINAPI AVIStreamReadFormat(PAVISTREAM iface,LONG pos,LPVOID format,LONG *formatsize);
 HRESULT WINAPI AVIStreamSetFormat(PAVISTREAM iface,LONG pos,LPVOID format,LONG formatsize);
 HRESULT WINAPI AVIStreamRead(PAVISTREAM iface,LONG start,LONG samples,LPVOID buffer,LONG buffersize,LONG *bytesread,LONG *samplesread);

@@ -334,7 +334,7 @@ static nsresult NSAPI nsTooltipTextProvider_GetNodeText(nsITooltipTextProvider *
             nsIDOMHTMLElement_GetTitle(nselem, &title_str);
             nsIDOMHTMLElement_Release(nselem);
 
-            nsAString_GetData(&title_str, &title, NULL);
+            nsAString_GetData(&title_str, &title);
             if(title && *title) {
                 if(node != aNode)
                     nsIDOMNode_Release(node);
@@ -394,7 +394,7 @@ static nsresult NSAPI nsServiceFactory_QueryInterface(nsIFactory *iface, nsIIDRe
     *result = NULL;
 
     if(IsEqualGUID(&IID_nsISupports, riid)) {
-        TRACE("(%p)->(IID_nsISupoprts %p)\n", This, result);
+        TRACE("(%p)->(IID_nsISupports %p)\n", This, result);
         *result = NSFACTORY(This);
     }else if(IsEqualGUID(&IID_nsIFactory, riid)) {
         TRACE("(%p)->(IID_nsIFactory %p)\n", This, result);
@@ -465,7 +465,7 @@ void register_nsservice(nsIComponentRegistrar *registrar, nsIServiceManager *ser
     if(NS_FAILED(nsres))
         ERR("RegisterFactory failed: %08x\n", nsres);
 
-    nsres = nsIServiceManager_GetServiceByContactID(service_manager, NS_WINDOWWATCHER_CONTRACTID,
+    nsres = nsIServiceManager_GetServiceByContractID(service_manager, NS_WINDOWWATCHER_CONTRACTID,
             &IID_nsIWindowWatcher, (void**)&window_watcher);
     if(NS_SUCCEEDED(nsres)) {
         nsres = nsIWindowWatcher_SetWindowCreator(window_watcher,

@@ -2,6 +2,7 @@
  * CMD - Wine-compatible command line interface - batch interface.
  *
  * Copyright (C) 1999 D A Pickles
+ * Copyright (C) 2007 J Edmeades
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -19,6 +20,9 @@
  */
 
 #include "wcmd.h"
+#include "wine/debug.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(cmd);
 
 extern int echo_mode;
 extern WCHAR quals[MAX_PATH], param1[MAX_PATH], param2[MAX_PATH];
@@ -54,7 +58,7 @@ void WCMD_batch (WCHAR *file, WCHAR *command, int called, WCHAR *startLabel, HAN
   BATCH_CONTEXT *prev_context;
 
   if (startLabel == NULL) {
-    for(i=0; (i<((sizeof(extension_batch) * sizeof(WCHAR))/WCMD_BATCH_EXT_SIZE)) &&
+    for(i=0; (i<sizeof(extension_batch)/(WCMD_BATCH_EXT_SIZE * sizeof(WCHAR))) &&
              (h == INVALID_HANDLE_VALUE); i++) {
       strcpyW (string, file);
       CharLower (string);
@@ -66,9 +70,7 @@ void WCMD_batch (WCHAR *file, WCHAR *command, int called, WCHAR *startLabel, HAN
       strcpyW (string, file);
       CharLower (string);
       if (strstrW (string, extension_exe) == NULL) strcatW (string, extension_exe);
-      h = CreateFile (string, GENERIC_READ, FILE_SHARE_READ,
-                      NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-      if (h != INVALID_HANDLE_VALUE) {
+      if (GetFileAttributes (string) != INVALID_FILE_ATTRIBUTES) {
         WCMD_run_program (command, 0);
       } else {
         SetLastError (ERROR_FILE_NOT_FOUND);
@@ -122,19 +124,16 @@ void WCMD_batch (WCHAR *file, WCHAR *command, int called, WCHAR *startLabel, HAN
 
   LocalFree ((HANDLE)context);
   if ((prev_context != NULL) && (!called)) {
-    CloseHandle (prev_context -> h);
-    context = prev_context -> prev_context;
-    LocalFree ((HANDLE)prev_context);
-  }
-  else {
+    prev_context -> skip_rest = TRUE;
     context = prev_context;
   }
+  context = prev_context;
 }
 
 /*******************************************************************
  * WCMD_parameter - extract a parameter from a command line.
  *
- *	Returns the 'n'th space-delimited parameter on the command line (zero-based).
+ *	Returns the 'n'th delimited parameter on the command line (zero-based).
  *	Parameter is in static storage overwritten on the next call.
  *	Parameters in quotes (and brackets) are handled.
  *	Also returns a pointer to the location of the parameter in the command line.
@@ -150,7 +149,7 @@ WCHAR *WCMD_parameter (WCHAR *s, int n, WCHAR **where) {
   p = param;
   while (TRUE) {
     switch (*s) {
-      case ' ':
+      case ' ': /* Skip leading spaces */
 	s++;
 	break;
       case '"':
@@ -176,15 +175,20 @@ WCHAR *WCMD_parameter (WCHAR *s, int n, WCHAR **where) {
       default:
         /* Only return where if it is for the right parameter */
         if (where != NULL && i==n) *where = s;
-	while ((*s != '\0') && (*s != ' ')) {
+	while ((*s != '\0') && (*s != ' ') && (*s != ',') && (*s != '=')) {
 	  *p++ = *s++;
 	}
-        if (i == n) {
+        if (i == n && (p!=param)) {
           *p = '\0';
           return param;
         }
+        /* Skip double delimiters, eg. dir a.a,,,,,b.b */
+        if (p != param) {
           param[0] = '\0';
           i++;
+        } else {
+          s++; /* Skip delimiter */
+        }
         p = param;
     }
   }
@@ -304,7 +308,7 @@ void WCMD_splitpath(const WCHAR* path, WCHAR* drv, WCHAR* dir, WCHAR* name, WCHA
  *  Hence search forwards until find an invalid modifier, and then
  *  backwards until find for variable or 0-9
  */
-void WCMD_HandleTildaModifiers(WCHAR **start, WCHAR *forVariable) {
+void WCMD_HandleTildaModifiers(WCHAR **start, WCHAR *forVariable, WCHAR *forValue, BOOL justFors) {
 
 #define NUMMODIFIERS 11
   static const WCHAR validmodifiers[NUMMODIFIERS] = {
@@ -327,10 +331,10 @@ void WCMD_HandleTildaModifiers(WCHAR **start, WCHAR *forVariable) {
   BOOL  skipFileParsing = FALSE;
   BOOL  doneModifier    = FALSE;
 
-  /* Search forwards until find invalid WCHARacter modifier */
+  /* Search forwards until find invalid character modifier */
   while (!finished) {
 
-    /* Work on the previous WCHARacter */
+    /* Work on the previous character */
     if (lastModifier != NULL) {
 
       for (i=0; i<NUMMODIFIERS; i++) {
@@ -358,27 +362,30 @@ void WCMD_HandleTildaModifiers(WCHAR **start, WCHAR *forVariable) {
     }
   }
 
-  /* Now make sure the position we stopped at is a valid parameter */
-  if (!(*lastModifier >= '0' || *lastModifier <= '9') &&
-      (forVariable != NULL) &&
-      (toupperW(*lastModifier) != toupperW(*forVariable)))  {
+  while (lastModifier > firstModifier) {
+    WINE_TRACE("Looking backwards for parameter id: %s / %s\n",
+               wine_dbgstr_w(lastModifier), wine_dbgstr_w(forVariable));
 
-    /* Its not... Step backwards until it matches or we get to the start */
-    while (toupperW(*lastModifier) != toupperW(*forVariable) &&
-          lastModifier > firstModifier) {
+    if (!justFors && context && (*lastModifier >= '0' || *lastModifier <= '9')) {
+      /* Its a valid parameter identifier - OK */
+      break;
+
+    } else if (forVariable && *lastModifier == *(forVariable+1)) {
+      /* Its a valid parameter identifier - OK */
+      break;
+
+    } else {
       lastModifier--;
     }
-    if (lastModifier == firstModifier) return; /* Invalid syntax */
   }
+  if (lastModifier == firstModifier) return; /* Invalid syntax */
 
   /* Extract the parameter to play with */
   if ((*lastModifier >= '0' && *lastModifier <= '9')) {
     strcpyW(outputparam, WCMD_parameter (context -> command,
                  *lastModifier-'0' + context -> shift_count[*lastModifier-'0'], NULL));
   } else {
-    /* FIXME: Retrieve 'for' variable %c\n", *lastModifier); */
-    /* Need to get 'for' loop variable into outputparam      */
-    return;
+    strcpyW(outputparam, forValue);
   }
 
   /* So now, firstModifier points to beginning of modifiers, lastModifier
@@ -416,7 +423,7 @@ void WCMD_HandleTildaModifiers(WCHAR **start, WCHAR *forVariable) {
     memcpy(env, start, (end-start) * sizeof(WCHAR));
     env[(end-start)] = 0x00;
 
-    /* If env var not found, return emptry string */
+    /* If env var not found, return empty string */
     if ((GetEnvironmentVariable(env, fullpath, MAX_PATH) == 0) ||
         (SearchPath(fullpath, outputparam, NULL,
                     MAX_PATH, outputparam, NULL) == 0)) {
@@ -499,7 +506,8 @@ void WCMD_HandleTildaModifiers(WCHAR **start, WCHAR *forVariable) {
     if (memchrW(firstModifier, 's', modifierLen) != NULL) {
       if (finaloutput[0] != 0x00) strcatW(finaloutput, space);
       /* Don't flag as doneModifier - %~s on its own is processed later */
-      GetShortPathName(outputparam, outputparam, sizeof(outputparam));
+      GetShortPathName(outputparam, outputparam,
+                       sizeof(outputparam)/sizeof(outputparam[0]));
     }
 
     /* 5. Handle 'f' : Fully qualified path (File doesn't have to exist) */

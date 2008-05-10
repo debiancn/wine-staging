@@ -42,15 +42,13 @@ typedef struct
 
 #define NB_HATCH_STYLES  6
 
-static HGDIOBJ BRUSH_SelectObject( HGDIOBJ handle, void *obj, HDC hdc );
-static INT BRUSH_GetObject16( HGDIOBJ handle, void *obj, INT count, LPVOID buffer );
+static HGDIOBJ BRUSH_SelectObject( HGDIOBJ handle, HDC hdc );
 static INT BRUSH_GetObject( HGDIOBJ handle, void *obj, INT count, LPVOID buffer );
 static BOOL BRUSH_DeleteObject( HGDIOBJ handle, void *obj );
 
 static const struct gdi_obj_funcs brush_funcs =
 {
     BRUSH_SelectObject,  /* pSelectObject */
-    BRUSH_GetObject16,   /* pGetObject16 */
     BRUSH_GetObject,     /* pGetObjectA */
     BRUSH_GetObject,     /* pGetObjectW */
     NULL,                /* pUnrealizeObject */
@@ -69,7 +67,7 @@ static HGLOBAL16 dib_copy(const BITMAPINFO *info, UINT coloruse)
         size = DIB_GetDIBImageBytes(info->bmiHeader.biWidth,
                                     info->bmiHeader.biHeight,
                                     info->bmiHeader.biBitCount);
-    size += DIB_BitmapInfoSize( info, coloruse );
+    size += bitmap_info_size( info, coloruse );
 
     if (!(hmem = GlobalAlloc16( GMEM_MOVEABLE, size )))
     {
@@ -336,7 +334,7 @@ HBRUSH WINAPI CreateSolidBrush( COLORREF color )
  */
 BOOL WINAPI SetBrushOrgEx( HDC hdc, INT x, INT y, LPPOINT oldorg )
 {
-    DC *dc = DC_GetDCPtr( hdc );
+    DC *dc = get_dc_ptr( hdc );
 
     if (!dc) return FALSE;
     if (oldorg)
@@ -346,7 +344,7 @@ BOOL WINAPI SetBrushOrgEx( HDC hdc, INT x, INT y, LPPOINT oldorg )
     }
     dc->brushOrgX = x;
     dc->brushOrgY = y;
-    GDI_ReleaseObj( hdc );
+    release_dc_ptr( dc );
     return TRUE;
 }
 
@@ -368,22 +366,38 @@ BOOL WINAPI FixBrushOrgEx( HDC hdc, INT x, INT y, LPPOINT oldorg )
 /***********************************************************************
  *           BRUSH_SelectObject
  */
-static HGDIOBJ BRUSH_SelectObject( HGDIOBJ handle, void *obj, HDC hdc )
+static HGDIOBJ BRUSH_SelectObject( HGDIOBJ handle, HDC hdc )
 {
-    BRUSHOBJ *brush = obj;
-    HGDIOBJ ret;
-    DC *dc = DC_GetDCPtr( hdc );
+    BRUSHOBJ *brush;
+    HGDIOBJ ret = 0;
+    DC *dc = get_dc_ptr( hdc );
 
-    if (!dc) return 0;
+    if (!dc)
+    {
+        SetLastError( ERROR_INVALID_HANDLE );
+        return 0;
+    }
 
-    if (brush->logbrush.lbStyle == BS_PATTERN)
-        BITMAP_SetOwnerDC( (HBITMAP)brush->logbrush.lbHatch, dc );
+    if ((brush = GDI_GetObjPtr( handle, BRUSH_MAGIC )))
+    {
+        if (brush->logbrush.lbStyle == BS_PATTERN)
+            BITMAP_SetOwnerDC( (HBITMAP)brush->logbrush.lbHatch, dc );
 
-    ret = dc->hBrush;
-    if (dc->funcs->pSelectBrush) handle = dc->funcs->pSelectBrush( dc->physDev, handle );
-    if (handle) dc->hBrush = handle;
-    else ret = 0;
-    GDI_ReleaseObj( hdc );
+        GDI_inc_ref_count( handle );
+        GDI_ReleaseObj( handle );
+
+        if (dc->funcs->pSelectBrush && !dc->funcs->pSelectBrush( dc->physDev, handle ))
+        {
+            GDI_dec_ref_count( handle );
+        }
+        else
+        {
+            ret = dc->hBrush;
+            dc->hBrush = handle;
+            GDI_dec_ref_count( ret );
+        }
+    }
+    release_dc_ptr( dc );
     return ret;
 }
 
@@ -405,23 +419,6 @@ static BOOL BRUSH_DeleteObject( HGDIOBJ handle, void *obj )
 	  break;
     }
     return GDI_FreeObject( handle, obj );
-}
-
-
-/***********************************************************************
- *           BRUSH_GetObject16
- */
-static INT BRUSH_GetObject16( HGDIOBJ handle, void *obj, INT count, LPVOID buffer )
-{
-    BRUSHOBJ *brush = obj;
-    LOGBRUSH16 logbrush;
-
-    logbrush.lbStyle = brush->logbrush.lbStyle;
-    logbrush.lbColor = brush->logbrush.lbColor;
-    logbrush.lbHatch = brush->logbrush.lbHatch;
-    if (count > sizeof(logbrush)) count = sizeof(logbrush);
-    memcpy( buffer, &logbrush, count );
-    return count;
 }
 
 
@@ -463,7 +460,7 @@ BOOL16 WINAPI SetSolidBrush16(HBRUSH16 hBrush, COLORREF newColor )
     BRUSHOBJ * brushPtr;
     BOOL16 res = FALSE;
 
-    TRACE("(hBrush %04x, newColor %08x)\n", hBrush, (DWORD)newColor);
+    TRACE("(hBrush %04x, newColor %08x)\n", hBrush, newColor);
     if (!(brushPtr = (BRUSHOBJ *) GDI_GetObjPtr( HBRUSH_32(hBrush), BRUSH_MAGIC )))
 	return FALSE;
 

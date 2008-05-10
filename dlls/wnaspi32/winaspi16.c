@@ -126,7 +126,6 @@ ASPI_OpenDevice16(SRB_ExecSCSICmd16 *prb)
 static void
 ASPI_DebugPrintCmd(SRB_ExecSCSICmd16 *prb, UINT16 mode)
 {
-  BYTE	cmd;
   int	i;
   BYTE *cdb;
   BYTE *lpBuf = PTR_TO_LIN( prb->SRB_BufPointer, mode );
@@ -173,7 +172,6 @@ ASPI_DebugPrintCmd(SRB_ExecSCSICmd16 *prb, UINT16 mode)
   TRACE("CDB Length: %d\n", prb->SRB_CDBLen);
   TRACE("POST Proc: %x\n", (DWORD) prb->SRB_PostProc);
   cdb = &prb->CDBByte[0];
-  cmd = prb->CDBByte[0];
   if (TRACE_ON(aspi))
   {
       TRACE("CDB buffer[");
@@ -425,7 +423,7 @@ adapter name */
     FIXME("Not implemented SC_GET_DEV_TYPE\n");
     break;
   case SC_EXEC_SCSI_CMD:
-    return ASPI_ExecScsiCmd((DWORD)ptrSRB, mode);
+    return ASPI_ExecScsiCmd(ptrSRB, mode);
   case SC_RESET_DEV:
     FIXME("Not implemented SC_RESET_DEV\n");
     break;

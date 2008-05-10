@@ -209,10 +209,8 @@ static void init_paths(void)
             fatal_error( "invalid directory %s in WINEPREFIX: not an absolute path\n", prefix );
         if (stat( config_dir, &st ) == -1)
         {
-            if (errno != ENOENT)
-                fatal_perror( "cannot open %s as specified in WINEPREFIX", config_dir );
-            fatal_error( "the '%s' directory specified in WINEPREFIX doesn't exist.\n"
-                         "You may want to create it by running 'wineprefixcreate'.\n", config_dir );
+            if (errno == ENOENT) return;  /* will be created later on */
+            fatal_perror( "cannot open %s as specified in WINEPREFIX", config_dir );
         }
     }
     else
@@ -230,6 +228,9 @@ static void init_paths(void)
         }
     }
     if (!S_ISDIR(st.st_mode)) fatal_error( "%s is not a directory\n", config_dir );
+#ifdef HAVE_GETUID
+    if (st.st_uid != getuid()) fatal_error( "%s is not owned by you\n", config_dir );
+#endif
 
     init_server_dir( st.st_dev, st.st_ino );
 }
@@ -402,6 +403,19 @@ const char *wine_get_user_name(void)
 {
     if (!user_name) init_paths();
     return user_name;
+}
+
+/* return the standard version string */
+const char *wine_get_version(void)
+{
+    return PACKAGE_VERSION;
+}
+
+/* return the build id string */
+const char *wine_get_build_id(void)
+{
+    extern const char wine_build[];
+    return wine_build;
 }
 
 /* exec a binary using the preloader if requested; helper for wine_exec_wine_binary */

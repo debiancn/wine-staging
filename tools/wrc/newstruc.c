@@ -336,12 +336,12 @@ static int convert_bitmap(char *data, int size)
 	case FL_SIZEBE:
 	case FL_SIZEBE | FL_V4:
 	case FL_SIZEBE | FL_OS2:
-		parser_warning("Bitmap v%c signature little-endian, but size big-endian", type & FL_V4 ? '4' : '3');
+		parser_warning("Bitmap v%c signature little-endian, but size big-endian\n", type & FL_V4 ? '4' : '3');
 		break;
 	case FL_SIGBE:
 	case FL_SIGBE | FL_V4:
 	case FL_SIGBE | FL_OS2:
-		parser_warning("Bitmap v%c signature big-endian, but size little-endian", type & FL_V4 ? '4' : '3');
+		parser_warning("Bitmap v%c signature big-endian, but size little-endian\n", type & FL_V4 ? '4' : '3');
 		break;
 	}
 
@@ -598,7 +598,7 @@ static void split_cursors(raw_data_t *rd, cursor_group_t *curg, int *ncur)
 			cur->bits = info.biBitCount;
 		}
 		if(!win32 && (cur->planes != 1 || cur->bits != 1))
-			parser_warning("Win16 cursor contains colors");
+			parser_warning("Win16 cursor contains colors\n");
 		cur->xhot = swap ? BYTESWAP_WORD(cde.xhot) : cde.xhot;
 		cur->yhot = swap ? BYTESWAP_WORD(cde.yhot) : cde.yhot;
 		cur->data = new_raw_data();
@@ -794,7 +794,7 @@ static void handle_ani_list(riff_tag_t *lst, enum res_e type, int isswapped)
 		}
 		else if(!memcmp(rtp->tag, iart, sizeof(iart)))
 		{
-			/* Ignore the author's name; its a string */
+			/* Ignore the author's name; it's a string */
 			rtp = NEXT_TAG(rtp);
 		}
 		else if(!memcmp(rtp->tag, fram, sizeof(fram)))
@@ -1017,7 +1017,7 @@ messagetable_t *new_messagetable(raw_data_t *rd, int *memopt)
 	 * the ID, offset and length (and flag) fields to be very sure.
 	 */
 	if(hi && lo)
-		internal_error(__FILE__, __LINE__, "Messagetable contains more than 65535 blocks; cannot determine endian");
+		internal_error(__FILE__, __LINE__, "Messagetable contains more than 65535 blocks; cannot determine endian\n");
 	if(!hi && !lo)
 		parser_error("Invalid messagetable block count 0");
 

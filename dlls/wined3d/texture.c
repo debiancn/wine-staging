@@ -4,6 +4,7 @@
  * Copyright 2002-2005 Jason Edmeades
  * Copyright 2002-2005 Raphael Junqueira
  * Copyright 2005 Oliver Stieber
+ * Copyright 2007-2008 Stefan Dösinger for CodeWeavers
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -95,7 +96,6 @@ static void WINAPI IWineD3DTextureImpl_PreLoad(IWineD3DTexture *iface) {
 
     /* Override the IWineD3DResource PreLoad method */
     unsigned int i;
-    BOOL setGlTextureDesc = FALSE;
     IWineD3DTextureImpl *This = (IWineD3DTextureImpl *)iface;
     IWineD3DDeviceImpl *device = This->resource.wineD3DDevice;
     BOOL srgb_mode = This->baseTexture.is_srgb;
@@ -103,15 +103,11 @@ static void WINAPI IWineD3DTextureImpl_PreLoad(IWineD3DTexture *iface) {
 
     TRACE("(%p) : About to load texture\n", This);
 
-    if (This->baseTexture.textureName == 0)  setGlTextureDesc = TRUE;
-
     if(!device->isInDraw) {
         /* ActivateContext sets isInDraw to TRUE when loading a pbuffer into a texture, thus no danger of
          * recursive calls
          */
-        ENTER_GL();
         ActivateContext(device, device->lastActiveRenderTarget, CTXUSAGE_RESOURCELOAD);
-        LEAVE_GL();
     } else if (GL_SUPPORT(EXT_TEXTURE_SRGB) && This->baseTexture.bindCount > 0) {
         srgb_mode = device->stateBlock->samplerState[This->baseTexture.sampler][WINED3DSAMP_SRGBTEXTURE];
         srgb_was_toggled = This->baseTexture.is_srgb != srgb_mode;
@@ -119,12 +115,21 @@ static void WINAPI IWineD3DTextureImpl_PreLoad(IWineD3DTexture *iface) {
     }
 
     IWineD3DTexture_BindTexture(iface);
-    ENTER_GL();
+
+    if (This->resource.format == WINED3DFMT_P8 || This->resource.format == WINED3DFMT_A8P8) {
+        for (i = 0; i < This->baseTexture.levels; i++) {
+            if(palette9_changed((IWineD3DSurfaceImpl *)This->surfaces[i])) {
+                TRACE("Reloading surface because the d3d8/9 palette was changed\n");
+                /* TODO: This is not necessarily needed with hw palettized texture support */
+                IWineD3DSurface_LoadLocation(This->surfaces[i], SFLAG_INSYSMEM, NULL);
+                /* Make sure the texture is reloaded because of the palette change, this kills performance though :( */
+                IWineD3DSurface_ModifyLocation(This->surfaces[i], SFLAG_INTEXTURE, FALSE);
+            }
+        }
+    }
     /* If the texture is marked dirty or the srgb sampler setting has changed since the last load then reload the surfaces */
     if (This->baseTexture.dirty) {
         for (i = 0; i < This->baseTexture.levels; i++) {
-            if(setGlTextureDesc)
-                IWineD3DSurface_SetGlTextureDesc(This->surfaces[i], This->baseTexture.textureName, IWineD3DTexture_GetTextureDimensions(iface));
             IWineD3DSurface_LoadTexture(This->surfaces[i], srgb_mode);
         }
     } else if (srgb_was_toggled) {
@@ -134,19 +139,35 @@ static void WINAPI IWineD3DTextureImpl_PreLoad(IWineD3DTexture *iface) {
             FIXME("Texture (%p) has been reloaded at least 20 times due to WINED3DSAMP_SRGBTEXTURE changes on it\'s sampler\n", This);
 
         for (i = 0; i < This->baseTexture.levels; i++) {
-            IWineD3DSurfaceImpl_AddDirtyRect(This->surfaces[i], NULL);
+            IWineD3DSurface_AddDirtyRect(This->surfaces[i], NULL);
             IWineD3DSurface_SetGlTextureDesc(This->surfaces[i], This->baseTexture.textureName, IWineD3DTexture_GetTextureDimensions(iface));
             IWineD3DSurface_LoadTexture(This->surfaces[i], srgb_mode);
         }
     } else {
         TRACE("(%p) Texture not dirty, nothing to do\n" , iface);
     }
-    LEAVE_GL();
 
     /* No longer dirty */
     This->baseTexture.dirty = FALSE;
 
     return ;
+}
+
+static void WINAPI IWineD3DTextureImpl_UnLoad(IWineD3DTexture *iface) {
+    unsigned int i;
+    IWineD3DTextureImpl *This = (IWineD3DTextureImpl *)iface;
+    TRACE("(%p)\n", This);
+
+    /* Unload all the surfaces and reset the texture name. If UnLoad was called on the
+     * surface before, this one will be a NOP and vice versa. Unloading an unloaded
+     * surface is fine
+     */
+    for (i = 0; i < This->baseTexture.levels; i++) {
+        IWineD3DSurface_UnLoad(This->surfaces[i]);
+        IWineD3DSurface_SetGlTextureDesc(This->surfaces[i], 0, IWineD3DTexture_GetTextureDimensions(iface));
+    }
+
+    IWineD3DBaseTextureImpl_UnLoad((IWineD3DBaseTexture *) iface);
 }
 
 static WINED3DRESOURCETYPE WINAPI IWineD3DTextureImpl_GetType(IWineD3DTexture *iface) {
@@ -195,8 +216,20 @@ static BOOL WINAPI IWineD3DTextureImpl_GetDirty(IWineD3DTexture *iface) {
 
 static HRESULT WINAPI IWineD3DTextureImpl_BindTexture(IWineD3DTexture *iface) {
     IWineD3DTextureImpl *This = (IWineD3DTextureImpl *)iface;
+    BOOL set_gl_texture_desc = This->baseTexture.textureName == 0;
+    HRESULT hr;
+
     TRACE("(%p) : relay to BaseTexture\n", This);
-    return IWineD3DBaseTextureImpl_BindTexture((IWineD3DBaseTexture *)iface);
+
+    hr = IWineD3DBaseTextureImpl_BindTexture((IWineD3DBaseTexture *)iface);
+    if (set_gl_texture_desc && SUCCEEDED(hr)) {
+        UINT i;
+        for (i = 0; i < This->baseTexture.levels; ++i) {
+            IWineD3DSurface_SetGlTextureDesc(This->surfaces[i], This->baseTexture.textureName, IWineD3DTexture_GetTextureDimensions(iface));
+        }
+    }
+
+    return hr;
 }
 
 static HRESULT WINAPI IWineD3DTextureImpl_UnBindTexture(IWineD3DTexture *iface) {
@@ -209,45 +242,14 @@ static UINT WINAPI IWineD3DTextureImpl_GetTextureDimensions(IWineD3DTexture *ifa
     IWineD3DTextureImpl *This = (IWineD3DTextureImpl *)iface;
     TRACE("(%p)\n", This);
 
-    return GL_TEXTURE_2D;
+    return This->target;
 }
 
 static void WINAPI IWineD3DTextureImpl_ApplyStateChanges(IWineD3DTexture *iface,
                                                    const DWORD textureStates[WINED3D_HIGHEST_TEXTURE_STATE + 1],
                                                    const DWORD samplerStates[WINED3D_HIGHEST_SAMPLER_STATE + 1]) {
-    IWineD3DTextureImpl *This = (IWineD3DTextureImpl *)iface;
-    float matrix[16];
+    TRACE("(%p) : relay to BaseTexture\n", iface);
     IWineD3DBaseTextureImpl_ApplyStateChanges((IWineD3DBaseTexture *)iface, textureStates, samplerStates);
-
-    /** non-power2 fixups using texture matrix **/
-    if(This->pow2scalingFactorX != 1.0f || This->pow2scalingFactorY != 1.0f) {
-        /* Apply non-power2 mappings and texture offsets so long as the texture coords aren't projected or generated */
-        if(((textureStates[WINED3DTSS_TEXCOORDINDEX] & 0xFFFF0000) == WINED3DTSS_TCI_PASSTHRU) &&
-                      (~textureStates[WINED3DTSS_TEXTURETRANSFORMFLAGS] & WINED3DTTFF_PROJECTED)) {
-            glMatrixMode(GL_TEXTURE);
-            memset(matrix, 0 , sizeof(matrix));
-            matrix[0] = This->pow2scalingFactorX;
-            matrix[5] = This->pow2scalingFactorY;
-#if 0   /* this isn't needed any more, I changed the translation in drawprim.c to 0.9/width instead of 1/width and everything lines up ok. left here as a reminder */
-            matrix[12] = -0.25f / (float)This->width;
-            matrix[13] = -0.75f / (float)This->height;
-#endif
-            matrix[10] = 1;
-            matrix[15] = 1;
-            TRACE("(%p) Setup Matrix:\n", This);
-            TRACE(" %f %f %f %f\n", matrix[0], matrix[1], matrix[2], matrix[3]);
-            TRACE(" %f %f %f %f\n", matrix[4], matrix[5], matrix[6], matrix[7]);
-            TRACE(" %f %f %f %f\n", matrix[8], matrix[9], matrix[10], matrix[11]);
-            TRACE(" %f %f %f %f\n", matrix[12], matrix[13], matrix[14], matrix[15]);
-            TRACE("\n");
-
-            glMultMatrixf(matrix);
-        } else {
-            /* I don't expect nonpower 2 textures to be used with generated texture coordinates, but if they are present a fixme. */
-            FIXME("Non-power2 texture being used with generated texture coords\n");
-        }
-    }
-
 }
 
 /* *******************************************
@@ -289,7 +291,7 @@ static HRESULT WINAPI IWineD3DTextureImpl_GetSurfaceLevel(IWineD3DTexture *iface
 
     if (Level < This->baseTexture.levels) {
         *ppSurfaceLevel = This->surfaces[Level];
-        IWineD3DSurface_AddRef((IWineD3DSurface*) This->surfaces[Level]);
+        IWineD3DSurface_AddRef(This->surfaces[Level]);
         hr = WINED3D_OK;
         TRACE("(%p) : returning %p for level %d\n", This, *ppSurfaceLevel, Level);
     }
@@ -354,6 +356,7 @@ const IWineD3DTextureVtbl IWineD3DTexture_Vtbl =
     IWineD3DTextureImpl_SetPriority,
     IWineD3DTextureImpl_GetPriority,
     IWineD3DTextureImpl_PreLoad,
+    IWineD3DTextureImpl_UnLoad,
     IWineD3DTextureImpl_GetType,
     /* IWineD3DBaseTexture */
     IWineD3DTextureImpl_SetLOD,

@@ -32,7 +32,7 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(quartz);
 
-void dump_AM_SAMPLE2_PROPERTIES(AM_SAMPLE2_PROPERTIES * pProps)
+void dump_AM_SAMPLE2_PROPERTIES(const AM_SAMPLE2_PROPERTIES * pProps)
 {
     if (!pProps)
     {
@@ -188,9 +188,9 @@ static HRESULT WINAPI BaseMemAllocator_SetProperties(IMemAllocator * iface, ALLO
                 hr = E_OUTOFMEMORY;
             else
             {
-                memcpy(This->pProps, pRequest, sizeof(*This->pProps));
-                    
-                memcpy(pActual, pRequest, sizeof(*pActual));
+                *This->pProps = *pRequest;
+
+                *pActual = *pRequest;
 
                 hr = S_OK;
             }
@@ -237,13 +237,13 @@ static HRESULT WINAPI BaseMemAllocator_Commit(IMemAllocator * iface)
     {
         if (!This->pProps)
             hr = VFW_E_SIZENOTSET;
-        else if (This->bCommitted)
-            hr = S_OK;
-        else if (This->bDecommitQueued)
+        else if (This->bDecommitQueued && This->bCommitted)
         {
             This->bDecommitQueued = FALSE;
             hr = S_OK;
         }
+        else if (This->bCommitted)
+            hr = S_OK;
         else
         {
             if (!(This->hSemWaiting = CreateSemaphoreW(NULL, This->pProps->cBuffers, This->pProps->cBuffers, NULL)))
@@ -586,7 +586,10 @@ static HRESULT WINAPI StdMediaSample2_SetSyncPoint(IMediaSample2 * iface, BOOL b
 
     TRACE("(%s)\n", bIsSyncPoint ? "TRUE" : "FALSE");
 
-    This->props.dwSampleFlags = (This->props.dwSampleFlags & ~AM_SAMPLE_SPLICEPOINT) | bIsSyncPoint ? AM_SAMPLE_SPLICEPOINT : 0;
+    if (bIsSyncPoint)
+        This->props.dwSampleFlags |= AM_SAMPLE_SPLICEPOINT;
+    else
+        This->props.dwSampleFlags &= ~AM_SAMPLE_SPLICEPOINT;
 
     return S_OK;
 }
@@ -606,7 +609,10 @@ static HRESULT WINAPI StdMediaSample2_SetPreroll(IMediaSample2 * iface, BOOL bIs
 
     TRACE("(%s)\n", bIsPreroll ? "TRUE" : "FALSE");
 
-    This->props.dwSampleFlags = (This->props.dwSampleFlags & ~AM_SAMPLE_PREROLL) | bIsPreroll ? AM_SAMPLE_PREROLL : 0;
+    if (bIsPreroll)
+        This->props.dwSampleFlags |= AM_SAMPLE_PREROLL;
+    else
+        This->props.dwSampleFlags &= ~AM_SAMPLE_PREROLL;
 
     return S_OK;
 }

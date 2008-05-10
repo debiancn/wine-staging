@@ -122,12 +122,7 @@ BOOL X11DRV_CreateBitmap( X11DRV_PDEVICE *physDev, HBITMAP hbitmap, LPVOID bmBit
     if (bitmap.bmPlanes != 1) return FALSE;
 
     /* check if bpp is compatible with screen depth */
-    if (!((bitmap.bmBitsPixel == 1) ||
-          (bitmap.bmBitsPixel == screen_depth) ||
-          (bitmap.bmBitsPixel == 24 && screen_depth == 32) ||
-          (bitmap.bmBitsPixel == 32 && screen_depth == 24) ||
-          (bitmap.bmBitsPixel == 15 && screen_depth == 16) ||
-          (bitmap.bmBitsPixel == 16 && screen_depth == 15)))
+    if (!((bitmap.bmBitsPixel == 1) || (bitmap.bmBitsPixel == screen_bpp)))
     {
         ERR("Trying to make bitmap with planes=%d, bpp=%d\n",
             bitmap.bmPlanes, bitmap.bmBitsPixel);
@@ -431,7 +426,8 @@ BOOL X11DRV_DeleteBitmap( HBITMAP hbitmap )
         if (GetObjectW( hbitmap, sizeof(dib), &dib ) == sizeof(dib))
             X11DRV_DIB_DeleteDIBSection( physBitmap, &dib );
 
-        if (physBitmap->glxpixmap) destroy_glxpixmap(physBitmap->glxpixmap); 
+        if (physBitmap->glxpixmap)
+            destroy_glxpixmap( gdi_display, physBitmap->glxpixmap );
         wine_tsx11_lock();
         if (physBitmap->pixmap) XFreePixmap( gdi_display, physBitmap->pixmap );
         XDeleteContext( gdi_display, (XID)hbitmap, bitmap_context );

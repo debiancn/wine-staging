@@ -29,9 +29,12 @@ void ME_InitContext(ME_Context *c, ME_TextEditor *editor, HDC hDC)
   c->pt.y = 0;
   c->hbrMargin = CreateSolidBrush(RGB(224,224,224));
   c->rcView = editor->rcFormat;
+  c->dpi.cx = GetDeviceCaps(hDC, LOGPIXELSX);
+  c->dpi.cy = GetDeviceCaps(hDC, LOGPIXELSY);
 }
 
-void ME_DestroyContext(ME_Context *c)
+void ME_DestroyContext(ME_Context *c, HWND hWnd)
 {
+  if (hWnd) ReleaseDC(hWnd, c->hDC);
   DeleteObject(c->hbrMargin);
 }

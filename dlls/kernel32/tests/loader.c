@@ -40,10 +40,11 @@ static const struct
 static IMAGE_NT_HEADERS nt_header =
 {
     IMAGE_NT_SIGNATURE, /* Signature */
+    {
 #if defined __i386__
-    { IMAGE_FILE_MACHINE_I386, /* Machine */
+      IMAGE_FILE_MACHINE_I386, /* Machine */
 #elif defined __x86_64__
-    { IMAGE_FILE_MACHINE_AMD64, /* Machine */
+      IMAGE_FILE_MACHINE_AMD64, /* Machine */
 #else
 # error You must specify the machine type
 #endif
@@ -138,7 +139,7 @@ START_TEST(loader)
         },
         { &dos_header, sizeof(dos_header),
           1, sizeof(IMAGE_OPTIONAL_HEADER), 0x200, 0x200,
-          sizeof(dos_header) + sizeof(nt_header) + sizeof(IMAGE_SECTION_HEADER) + 0x1000,
+          sizeof(dos_header) + sizeof(nt_header) + sizeof(IMAGE_SECTION_HEADER) + 0x200,
           sizeof(dos_header) + sizeof(nt_header) + sizeof(IMAGE_SECTION_HEADER),
           ERROR_SUCCESS
         },
@@ -146,7 +147,7 @@ START_TEST(loader)
           1, sizeof(IMAGE_OPTIONAL_HEADER), 0x200, 0x1000,
           sizeof(dos_header) + sizeof(nt_header) + sizeof(IMAGE_SECTION_HEADER) + 0x1000,
           sizeof(dos_header) + sizeof(nt_header) + sizeof(IMAGE_SECTION_HEADER),
-          ERROR_BAD_EXE_FORMAT /* XP doesn't like aligments */
+          ERROR_BAD_EXE_FORMAT /* XP doesn't like alignments */
         },
         { &dos_header, sizeof(dos_header),
           1, sizeof(IMAGE_OPTIONAL_HEADER), 0x1000, 0x200,

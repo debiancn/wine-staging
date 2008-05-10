@@ -737,7 +737,7 @@ DWORD WINAPI lineGetTranslateCapsA(HLINEAPP hLineApp, DWORD dwAPIVersion,
             RegSetValueExA( hkCards, "NextID", 0, REG_DWORD, (LPBYTE)&dwval,
                     sizeof(DWORD));
         }
-    } else hkCards = 0;  /* should realy fail */
+    } else hkCards = 0;  /* should really fail */
     /* check if sufficient room is available */
     lpTranslateCaps->dwNeededSize =  sizeof(LINETRANSLATECAPS) + length;
     if ( lpTranslateCaps->dwNeededSize > lpTranslateCaps->dwTotalSize ) {
@@ -960,6 +960,16 @@ DWORD WINAPI lineInitialize(
 {
     FIXME("(%p, %p, %p, %s, %p): stub.\n", lphLineApp, hInstance,
 	  lpfnCallback, debugstr_a(lpszAppName), lpdwNumDevs);
+    return 0;
+}
+
+/***********************************************************************
+ *              lineInitializeExA (TAPI32.@)
+ */
+LONG WINAPI lineInitializeExA(LPHLINEAPP lphLineApp, HINSTANCE hInstance, LINECALLBACK lpfnCallback, LPCSTR lpszFriendlyAppName, LPDWORD lpdwNumDevs, LPDWORD lpdwAPIVersion, LPLINEINITIALIZEEXPARAMS lpLineInitializeExParams)
+{
+    FIXME("(%p, %p, %p, %s, %p, %p, %p): stub.\n", lphLineApp, hInstance,
+          lpfnCallback, debugstr_a(lpszFriendlyAppName), lpdwNumDevs, lpdwAPIVersion, lpLineInitializeExParams);
     return 0;
 }
 

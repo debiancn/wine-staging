@@ -140,7 +140,7 @@ static struct DosDeviceStruct *GetDeviceStruct(int index)
 	return NULL;
 }
 
-static int    GetCommPort_ov(LPOVERLAPPED ov, int write)
+static int    GetCommPort_ov(const OVERLAPPED *ov, int write)
 {
 	int x;
 
@@ -161,13 +161,13 @@ static int WinError(void)
 		}
 }
 
-static unsigned comm_inbuf(struct DosDeviceStruct *ptr)
+static unsigned comm_inbuf(const struct DosDeviceStruct *ptr)
 {
   return ((ptr->ibuf_tail > ptr->ibuf_head) ? ptr->ibuf_size : 0)
     + ptr->ibuf_head - ptr->ibuf_tail;
 }
 
-static unsigned comm_outbuf(struct DosDeviceStruct *ptr)
+static unsigned comm_outbuf(const struct DosDeviceStruct *ptr)
 {
   return ((ptr->obuf_tail > ptr->obuf_head) ? ptr->obuf_size : 0)
     + ptr->obuf_head - ptr->obuf_tail;
@@ -360,7 +360,7 @@ static void comm_waitwrite(struct DosDeviceStruct *ptr)
 /*****************************************************************************
  *	COMM16_DCBtoDCB16	(Internal)
  */
-static INT16 COMM16_DCBtoDCB16(LPDCB lpdcb, LPDCB16 lpdcb16)
+static INT16 COMM16_DCBtoDCB16(const DCB *lpdcb, LPDCB16 lpdcb16)
 {
 	if(lpdcb->BaudRate<0x10000)
 		lpdcb16->BaudRate = lpdcb->BaudRate;
@@ -816,8 +816,7 @@ INT16 WINAPI SetCommState16(LPDCB16 lpdcb)
 	 * 1. if the baud rate is a CBR constant, interpret it.
 	 * 2. if it is greater than 57600, the baud rate is 115200
 	 * 3. use the actual baudrate
-	 * steps 2 and 3 are equivilent to 16550 baudrate divisor = 115200/BaudRate
-	 * see http://support.microsoft.com/support/kb/articles/q108/9/28.asp
+	 * steps 2 and 3 are equivalent to 16550 baudrate divisor = 115200/BaudRate
 	 */
 	switch(lpdcb->BaudRate)
 	{

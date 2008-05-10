@@ -42,10 +42,13 @@ WINE_DEFAULT_DEBUG_CHANNEL(coreaudio);
 static LRESULT CoreAudio_drvLoad(void)
 {
     TRACE("()\n");
-    CoreAudio_WaveInit();
-    CoreAudio_MIDIInit();
-    CoreAudio_MixerInit();
-    return 1;
+
+    if (CoreAudio_WaveInit() != DRV_SUCCESS ||
+        CoreAudio_MIDIInit() != DRV_SUCCESS ||
+        CoreAudio_MixerInit() != DRV_SUCCESS)
+        return DRV_FAILURE;
+
+    return DRV_SUCCESS;
 }
 
 /**************************************************************************
@@ -57,7 +60,7 @@ static LRESULT CoreAudio_drvFree(void)
     CoreAudio_WaveRelease();
     CoreAudio_MIDIRelease();
     CoreAudio_MixerRelease();
-    return 1;
+    return DRV_SUCCESS;
 }
 
 /**************************************************************************

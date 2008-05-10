@@ -16,10 +16,7 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "config.h"
-
 #include <stdarg.h>
-#include <stdio.h>
 
 #define COBJMACROS
 
@@ -35,6 +32,23 @@
 WINE_DEFAULT_DEBUG_CHANNEL(mshtml);
 
 #define CONPOINT(x) ((IConnectionPoint*) &(x)->lpConnectionPointVtbl);
+
+static const char *debugstr_cp_guid(REFIID riid)
+{
+#define X(x) \
+    if(IsEqualGUID(riid, &x)) \
+        return #x
+
+    X(IID_IPropertyNotifySink);
+    X(DIID_HTMLDocumentEvents);
+    X(DIID_HTMLDocumentEvents2);
+    X(DIID_HTMLTableEvents);
+    X(DIID_HTMLTextContainerEvents);
+
+#undef X
+
+    return debugstr_guid(riid);
+}
 
 void call_property_onchanged(ConnectionPoint *This, DISPID dispid)
 {
@@ -93,7 +107,7 @@ static HRESULT WINAPI ConnectionPoint_GetConnectionInterface(IConnectionPoint *i
     if(!pIID)
         return E_POINTER;
 
-    memcpy(pIID, &This->iid, sizeof(IID));
+    *pIID = *This->iid;
     return S_OK;
 }
 
@@ -122,8 +136,8 @@ static HRESULT WINAPI ConnectionPoint_Advise(IConnectionPoint *iface, IUnknown *
 
     TRACE("(%p)->(%p %p)\n", This, pUnkSink, pdwCookie);
 
-    hres = IUnknown_QueryInterface(pUnkSink, &This->iid, (void**)&sink);
-    if(FAILED(hres) && !IsEqualGUID(&IID_IPropertyNotifySink, &This->iid))
+    hres = IUnknown_QueryInterface(pUnkSink, This->iid, (void**)&sink);
+    if(FAILED(hres) && !IsEqualGUID(&IID_IPropertyNotifySink, This->iid))
         hres = IUnknown_QueryInterface(pUnkSink, &IID_IDispatch, (void**)&sink);
     if(FAILED(hres))
         return CONNECT_E_CANNOTCONNECT;
@@ -135,9 +149,9 @@ static HRESULT WINAPI ConnectionPoint_Advise(IConnectionPoint *iface, IUnknown *
         }
 
         if(i == This->sinks_size)
-            This->sinks = mshtml_realloc(This->sinks,(++This->sinks_size)*sizeof(*This->sinks));
+            This->sinks = heap_realloc(This->sinks,(++This->sinks_size)*sizeof(*This->sinks));
     }else {
-        This->sinks = mshtml_alloc(sizeof(*This->sinks));
+        This->sinks = heap_alloc(sizeof(*This->sinks));
         This->sinks_size = 1;
         i = 0;
     }
@@ -184,18 +198,17 @@ static const IConnectionPointVtbl ConnectionPointVtbl =
     ConnectionPoint_EnumConnections
 };
 
-void ConnectionPoint_Init(ConnectionPoint *cp, IConnectionPointContainer *container,
-        REFIID riid, ConnectionPoint *prev)
+void ConnectionPoint_Init(ConnectionPoint *cp, ConnectionPointContainer *container, REFIID riid)
 {
     cp->lpConnectionPointVtbl = &ConnectionPointVtbl;
-    cp->container = container;
+    cp->container = CONPTCONT(container);
     cp->sinks = NULL;
     cp->sinks_size = 0;
-    cp->iid = *riid;
+    cp->iid = riid;
     cp->next = NULL;
 
-    if(prev)
-        prev->next = cp;
+    cp->next = container->cp_list;
+    container->cp_list = cp;
 }
 
 static void ConnectionPoint_Destroy(ConnectionPoint *This)
@@ -207,7 +220,7 @@ static void ConnectionPoint_Destroy(ConnectionPoint *This)
             IUnknown_Release(This->sinks[i].unk);
     }
 
-    mshtml_free(This->sinks);
+    heap_free(This->sinks);
 }
 
 #define CONPTCONT_THIS(iface) DEFINE_THIS(ConnectionPointContainer, ConnectionPointContainer, iface)
@@ -245,12 +258,12 @@ static HRESULT WINAPI ConnectionPointContainer_FindConnectionPoint(IConnectionPo
     ConnectionPointContainer *This = CONPTCONT_THIS(iface);
     ConnectionPoint *iter;
 
-    TRACE("(%p)->(%s %p)\n", This, debugstr_guid(riid), ppCP);
+    TRACE("(%p)->(%s %p)\n", This, debugstr_cp_guid(riid), ppCP);
 
     *ppCP = NULL;
 
     for(iter = This->cp_list; iter; iter = iter->next) {
-        if(IsEqualGUID(&iter->iid, riid))
+        if(IsEqualGUID(iter->iid, riid))
             *ppCP = CONPOINT(iter);
     }
 
@@ -259,7 +272,7 @@ static HRESULT WINAPI ConnectionPointContainer_FindConnectionPoint(IConnectionPo
         return S_OK;
     }
 
-    FIXME("unsupported riid %s\n", debugstr_guid(riid));
+    FIXME("unsupported riid %s\n", debugstr_cp_guid(riid));
     return CONNECT_E_NOCONNECTION;
 }
 
@@ -273,11 +286,10 @@ static const IConnectionPointContainerVtbl ConnectionPointContainerVtbl = {
 
 #undef CONPTCONT_THIS
 
-void ConnectionPointContainer_Init(ConnectionPointContainer *This, ConnectionPoint *cp_list,
-        IUnknown *outer)
+void ConnectionPointContainer_Init(ConnectionPointContainer *This, IUnknown *outer)
 {
     This->lpConnectionPointContainerVtbl = &ConnectionPointContainerVtbl;
-    This->cp_list = cp_list;
+    This->cp_list = NULL;
     This->outer = outer;
 }
 

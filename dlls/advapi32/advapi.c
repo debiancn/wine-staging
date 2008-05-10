@@ -29,6 +29,7 @@
 #include "winreg.h"
 #include "winternl.h"
 #include "winerror.h"
+#include "wincred.h"
 
 #include "wine/library.h"
 #include "wine/debug.h"
@@ -286,7 +287,8 @@ DWORD WINAPI CommandLineFromMsiDescriptor( WCHAR *szDescriptor,
     hmsi = LoadLibraryW( szMsi );
     if (!hmsi)
         return r;
-    mpcfd = (void*) GetProcAddress( hmsi, "MsiProvideComponentFromDescriptorW" );
+    mpcfd = (fnMsiProvideComponentFromDescriptor)GetProcAddress( hmsi,
+                                                                 "MsiProvideComponentFromDescriptorW" );
     if (mpcfd)
         r = mpcfd( szDescriptor, szCommandLine, pcchCommandLine, NULL );
     FreeLibrary( hmsi );

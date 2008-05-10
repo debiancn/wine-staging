@@ -37,6 +37,7 @@
 #define MAX_WINDOW_WIDTH 30000
 #define MIN_FUNC_ID 0x60000000
 #define MIN_VAR_ID 0x40000000
+#define TAB_SIZE 4
 
 #define STATUS_WINDOW 2000
 #define TREE_WINDOW 2001
@@ -120,6 +121,7 @@ typedef struct
     WCHAR wszInsertAfter[MAX_LOAD_STRING];
     INT idlLen;
     BOOL bPredefine;
+    BOOL bHide;
 }TYPELIB_DATA;
 
 extern GLOBALS globals;

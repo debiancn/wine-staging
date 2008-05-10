@@ -116,6 +116,7 @@ static struct graphics_driver *create_driver( HMODULE module )
         GET_FUNC(GetDIBits);
         GET_FUNC(GetDeviceCaps);
         GET_FUNC(GetDeviceGammaRamp);
+        GET_FUNC(GetICMProfile);
         GET_FUNC(GetNearestColor);
         GET_FUNC(GetPixel);
         GET_FUNC(GetPixelFormat);
@@ -202,6 +203,7 @@ static struct graphics_driver *create_driver( HMODULE module )
         GET_FUNC(wglGetPbufferDCARB);
         GET_FUNC(wglMakeContextCurrentARB);
         GET_FUNC(wglMakeCurrent);
+        GET_FUNC(wglSetPixelFormatWINE);
         GET_FUNC(wglShareLists);
         GET_FUNC(wglUseFontBitmapsA);
         GET_FUNC(wglUseFontBitmapsW);
@@ -411,10 +413,19 @@ BOOL DRIVER_GetDriverName( LPCWSTR device, LPWSTR driver, DWORD size )
 DEVMODEW * WINAPI GdiConvertToDevmodeW(const DEVMODEA *dmA)
 {
     DEVMODEW *dmW;
-    WORD dmW_size;
+    WORD dmW_size, dmA_size;
 
-    dmW_size = dmA->dmSize + CCHDEVICENAME;
-    if (dmA->dmSize >= (const char *)dmA->dmFormName - (const char *)dmA + CCHFORMNAME)
+    dmA_size = dmA->dmSize;
+
+    /* this is the minimal dmSize that XP accepts */
+    if (dmA_size < FIELD_OFFSET(DEVMODEA, dmFields))
+        return NULL;
+
+    if (dmA_size > sizeof(DEVMODEA))
+        dmA_size = sizeof(DEVMODEA);
+
+    dmW_size = dmA_size + CCHDEVICENAME;
+    if (dmA_size >= FIELD_OFFSET(DEVMODEA, dmFormName) + CCHFORMNAME)
         dmW_size += CCHFORMNAME;
 
     dmW = HeapAlloc(GetProcessHeap(), 0, dmW_size + dmA->dmDriverExtra);
@@ -423,18 +434,18 @@ DEVMODEW * WINAPI GdiConvertToDevmodeW(const DEVMODEA *dmA)
     MultiByteToWideChar(CP_ACP, 0, (const char*) dmA->dmDeviceName, CCHDEVICENAME,
                                    dmW->dmDeviceName, CCHDEVICENAME);
     /* copy slightly more, to avoid long computations */
-    memcpy(&dmW->dmSpecVersion, &dmA->dmSpecVersion, dmA->dmSize - CCHDEVICENAME);
+    memcpy(&dmW->dmSpecVersion, &dmA->dmSpecVersion, dmA_size - CCHDEVICENAME);
 
-    if (dmA->dmSize >= (const char *)dmA->dmFormName - (const char *)dmA + CCHFORMNAME)
+    if (dmA_size >= FIELD_OFFSET(DEVMODEA, dmFormName) + CCHFORMNAME)
     {
         MultiByteToWideChar(CP_ACP, 0, (const char*) dmA->dmFormName, CCHFORMNAME,
                                        dmW->dmFormName, CCHFORMNAME);
-        if (dmA->dmSize > (const char *)&dmA->dmLogPixels - (const char *)dmA)
-            memcpy(&dmW->dmLogPixels, &dmA->dmLogPixels, dmA->dmSize - ((const char *)&dmA->dmLogPixels - (const char *)dmA));
+        if (dmA_size > FIELD_OFFSET(DEVMODEA, dmLogPixels))
+            memcpy(&dmW->dmLogPixels, &dmA->dmLogPixels, dmA_size - FIELD_OFFSET(DEVMODEA, dmLogPixels));
     }
 
     if (dmA->dmDriverExtra)
-        memcpy((char *)dmW + dmW_size, (const char *)dmA + dmA->dmSize, dmA->dmDriverExtra);
+        memcpy((char *)dmW + dmW_size, (const char *)dmA + dmA_size, dmA->dmDriverExtra);
 
     dmW->dmSize = dmW_size;
 
@@ -497,7 +508,6 @@ INT WINAPI GDI_CallExtDeviceMode16( HWND hwnd,
     HDC hdc;
     DC *dc;
     INT ret = -1;
-    INT (*pExtDeviceMode)(LPSTR,HWND,LPDEVMODEA,LPSTR,LPSTR,LPDEVMODEA,LPSTR,DWORD);
 
     TRACE("(%p, %p, %s, %s, %p, %s, %d)\n",
           hwnd, lpdmOutput, lpszDevice, lpszPort, lpdmInput, lpszProfile, fwMode );
@@ -511,13 +521,12 @@ INT WINAPI GDI_CallExtDeviceMode16( HWND hwnd,
 
     if (!(hdc = CreateICA( buf, lpszDevice, lpszPort, NULL ))) return -1;
 
-    if ((dc = DC_GetDCPtr( hdc )))
+    if ((dc = get_dc_ptr( hdc )))
     {
-	pExtDeviceMode = dc->funcs->pExtDeviceMode;
-	GDI_ReleaseObj( hdc );
-	if (pExtDeviceMode)
-	    ret = pExtDeviceMode(buf, hwnd, lpdmOutput, lpszDevice, lpszPort,
-                                            lpdmInput, lpszProfile, fwMode);
+        if (dc->funcs->pExtDeviceMode)
+	    ret = dc->funcs->pExtDeviceMode( buf, hwnd, lpdmOutput, lpszDevice, lpszPort,
+                                             lpdmInput, lpszProfile, fwMode );
+	release_dc_ptr( dc );
     }
     DeleteDC( hdc );
     return ret;
@@ -566,12 +575,12 @@ DWORD WINAPI GDI_CallDeviceCapabilities16( LPCSTR lpszDevice, LPCSTR lpszPort,
 
     if (!(hdc = CreateICA( buf, lpszDevice, lpszPort, NULL ))) return -1;
 
-    if ((dc = DC_GetDCPtr( hdc )))
+    if ((dc = get_dc_ptr( hdc )))
     {
         if (dc->funcs->pDeviceCapabilities)
             ret = dc->funcs->pDeviceCapabilities( buf, lpszDevice, lpszPort,
                                                   fwCapability, lpszOutput, lpdm );
-        GDI_ReleaseObj( hdc );
+        release_dc_ptr( dc );
     }
     DeleteDC( hdc );
     return ret;
@@ -695,12 +704,12 @@ INT WINAPI ExtEscape( HDC hdc, INT nEscape, INT cbInput, LPCSTR lpszInData,
                       INT cbOutput, LPSTR lpszOutData )
 {
     INT ret = 0;
-    DC * dc = DC_GetDCPtr( hdc );
+    DC * dc = get_dc_ptr( hdc );
     if (dc)
     {
         if (dc->funcs->pExtEscape)
             ret = dc->funcs->pExtEscape( dc->physDev, nEscape, cbInput, lpszInData, cbOutput, lpszOutData );
-        GDI_ReleaseObj( hdc );
+        release_dc_ptr( dc );
     }
     return ret;
 }

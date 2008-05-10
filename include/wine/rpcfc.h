@@ -60,8 +60,10 @@
 #define RPC_FC_BOGUS_ARRAY		0x21 /* complex array */
 
 #define RPC_FC_C_CSTRING		0x22
+#define RPC_FC_C_SSTRING		0x24
 #define RPC_FC_C_WSTRING		0x25
 #define RPC_FC_CSTRING                  0x26
+#define RPC_FC_SSTRING			0x28
 #define RPC_FC_WSTRING                  0x29
 
 #define RPC_FC_ENCAPSULATED_UNION	0x2a
@@ -191,5 +193,11 @@
 #define USER_MARSHAL_REF	0x40
 #define USER_MARSHAL_POINTER	0xc0
 #define USER_MARSHAL_IID	0x20
+
+/* context handle flags */
+#define NDR_CONTEXT_HANDLE_CANNOT_BE_NULL   0x01
+#define NDR_CONTEXT_HANDLE_SERIALIZE        0x02
+#define NDR_CONTEXT_HANDLE_NO_SERIALIZE     0x04
+#define NDR_STRICT_CONTEXT_HANDLE           0x08
 
 #endif /* __WINE_RPCFC_H */

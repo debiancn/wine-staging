@@ -150,8 +150,7 @@ static void test_Heap(void)
 
    dwSize = HeapSize(heap, 0, mem1);
    /* should work with 0-length buffer */
-   ok((dwSize >= 0) && (dwSize < 0xFFFFFFFF),
-      "The size of the 0-length buffer\n");
+   ok(dwSize < 0xFFFFFFFF, "The size of the 0-length buffer\n");
    ok(HeapFree(heap, 0, mem1), "Freed the 0-length buffer\n");
 
 /* Check that HeapDestry works */
@@ -167,7 +166,7 @@ static void test_Heap(void)
        GlobalMemoryStatusEx
 */
 /* In addition, these features aren't being tested
-       GMEM_DISCADABLE
+       GMEM_DISCARDABLE
        GMEM_NOCOMPACT
 */
 static void test_Global(void)
@@ -259,7 +258,7 @@ static void test_Global(void)
        LocalFlags
 */
 /* In addition, these features aren't being tested
-       LMEM_DISCADABLE
+       LMEM_DISCARDABLE
        LMEM_NOCOMPACT
 */
 static void test_Local(void)

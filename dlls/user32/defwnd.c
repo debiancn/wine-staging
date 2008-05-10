@@ -325,6 +325,8 @@ static LRESULT DEFWND_DefWinProc( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         return NC_HandleNCLButtonDown( hwnd, wParam, lParam );
 
     case WM_LBUTTONDBLCLK:
+        return NC_HandleNCLButtonDblClk( hwnd, HTCLIENT, lParam );
+
     case WM_NCLBUTTONDBLCLK:
         return NC_HandleNCLButtonDblClk( hwnd, wParam, lParam );
 
@@ -384,7 +386,7 @@ static LRESULT DEFWND_DefWinProc( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         break;
 
     case WM_NCACTIVATE:
-        return NC_HandleNCActivate( hwnd, wParam );
+        return NC_HandleNCActivate( hwnd, wParam, lParam );
 
     case WM_NCDESTROY:
         {
@@ -419,8 +421,8 @@ static LRESULT DEFWND_DefWinProc( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
                   GetClientRect( hwnd, &rc );
                   x = (rc.right - rc.left - GetSystemMetrics(SM_CXICON))/2;
                   y = (rc.bottom - rc.top - GetSystemMetrics(SM_CYICON))/2;
-                  TRACE("Painting class icon: vis rect=(%d,%d - %d,%d)\n",
-                        ps.rcPaint.left, ps.rcPaint.top, ps.rcPaint.right, ps.rcPaint.bottom );
+                  TRACE("Painting class icon: vis rect=(%s)\n",
+                        wine_dbgstr_rect(&ps.rcPaint));
                   DrawIcon( hdc, x, y, hIcon );
               }
               EndPaint( hwnd, &ps );
@@ -721,6 +723,29 @@ static LRESULT DEFWND_DefWinProc( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
                 SendMessageW( parent, msg, wParam, lParam );
             break;
         }
+    case WM_KEYF1:
+        {
+            HELPINFO hi;
+
+            hi.cbSize = sizeof(HELPINFO);
+            GetCursorPos( &hi.MousePos );
+            if (MENU_IsMenuActive())
+            {
+                hi.iContextType = HELPINFO_MENUITEM;
+                hi.hItemHandle = MENU_IsMenuActive();
+                hi.iCtrlId = MenuItemFromPoint( hwnd, hi.hItemHandle, hi.MousePos );
+                hi.dwContextId = GetMenuContextHelpId( hi.hItemHandle );
+            }
+            else
+            {
+                hi.iContextType = HELPINFO_WINDOW;
+                hi.hItemHandle = hwnd;
+                hi.iCtrlId = GetWindowLongPtrA( hwnd, GWLP_ID );
+                hi.dwContextId = GetWindowContextHelpId( hwnd );
+            }
+            SendMessageW( hwnd, WM_HELP, 0, (LPARAM)&hi );
+            break;
+        }
     }
 
     return 0;
@@ -812,28 +837,24 @@ LRESULT WINAPI DefWindowProcA( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam
         result = 1; /* success. FIXME: check text length */
         break;
 
-    /* for far east users (IMM32) - <hidenori@a2.ctktv.ne.jp> */
     case WM_IME_CHAR:
-        {
-            CHAR    chChar1 = (CHAR)( (wParam>>8) & 0xff );
-            CHAR    chChar2 = (CHAR)( wParam & 0xff );
+        if (HIBYTE(wParam)) PostMessageA( hwnd, WM_CHAR, HIBYTE(wParam), lParam );
+        PostMessageA( hwnd, WM_CHAR, LOBYTE(wParam), lParam );
+        break;
 
-            if (chChar1)
-                SendMessageA( hwnd, WM_CHAR, (WPARAM)chChar1, lParam );
-            SendMessageA( hwnd, WM_CHAR, (WPARAM)chChar2, lParam );
-        }
-        break;
     case WM_IME_KEYDOWN:
-        result = SendMessageA( hwnd, WM_KEYDOWN, wParam, lParam );
+        result = PostMessageA( hwnd, WM_KEYDOWN, wParam, lParam );
         break;
+
     case WM_IME_KEYUP:
-        result = SendMessageA( hwnd, WM_KEYUP, wParam, lParam );
+        result = PostMessageA( hwnd, WM_KEYUP, wParam, lParam );
         break;
 
     case WM_IME_STARTCOMPOSITION:
     case WM_IME_COMPOSITION:
     case WM_IME_ENDCOMPOSITION:
     case WM_IME_SELECT:
+    case WM_IME_NOTIFY:
         {
             HWND hwndIME;
 
@@ -968,10 +989,18 @@ LRESULT WINAPI DefWindowProcW(
         result = 1; /* success. FIXME: check text length */
         break;
 
-    /* for far east users (IMM32) - <hidenori@a2.ctktv.ne.jp> */
     case WM_IME_CHAR:
-        SendMessageW( hwnd, WM_CHAR, wParam, lParam );
+        PostMessageW( hwnd, WM_CHAR, wParam, lParam );
         break;
+
+    case WM_IME_KEYDOWN:
+        result = PostMessageW( hwnd, WM_KEYDOWN, wParam, lParam );
+        break;
+
+    case WM_IME_KEYUP:
+        result = PostMessageW( hwnd, WM_KEYUP, wParam, lParam );
+        break;
+
     case WM_IME_SETCONTEXT:
         {
             HWND hwndIME;
@@ -986,6 +1015,7 @@ LRESULT WINAPI DefWindowProcW(
     case WM_IME_COMPOSITION:
     case WM_IME_ENDCOMPOSITION:
     case WM_IME_SELECT:
+    case WM_IME_NOTIFY:
         {
             HWND hwndIME;
 

@@ -32,6 +32,7 @@
 #include "wine/unicode.h"
 #include "windef.h"
 #include "winbase.h"
+#include "winreg.h"
 #include "winuser.h"
 #include "winerror.h"
 #include "dinput.h"
@@ -58,10 +59,11 @@ void _dump_cooperativelevel_DI(DWORD dwFlags) {
 	    FE(DISCL_NOWINKEY)
 #undef FE
 	};
+	TRACE(" cooperative level : ");
 	for (i = 0; i < (sizeof(flags) / sizeof(flags[0])); i++)
 	    if (flags[i].mask & dwFlags)
-		DPRINTF("%s ",flags[i].name);
-	DPRINTF("\n");
+		TRACE("%s ",flags[i].name);
+	TRACE("\n");
     }
 }
 
@@ -91,51 +93,47 @@ void _dump_EnumObjects_flags(DWORD dwFlags) {
 	};
 	type = (dwFlags & 0xFF0000FF);
 	instance = ((dwFlags >> 8) & 0xFFFF);
-	DPRINTF("Type:");
+	TRACE("Type:");
 	if (type == DIDFT_ALL) {
-	    DPRINTF(" DIDFT_ALL");
+	    TRACE(" DIDFT_ALL");
 	} else {
 	    for (i = 0; i < (sizeof(flags) / sizeof(flags[0])); i++) {
 		if (flags[i].mask & type) {
 		    type &= ~flags[i].mask;
-		    DPRINTF(" %s",flags[i].name);
+		    TRACE(" %s",flags[i].name);
 		}
 	    }
 	    if (type) {
-                DPRINTF(" (unhandled: %08x)", type);
+                TRACE(" (unhandled: %08x)", type);
 	    }
 	}
-	DPRINTF(" / Instance: ");
+	TRACE(" / Instance: ");
 	if (instance == ((DIDFT_ANYINSTANCE >> 8) & 0xFFFF)) {
-	    DPRINTF("DIDFT_ANYINSTANCE");
+	    TRACE("DIDFT_ANYINSTANCE");
 	} else {
-            DPRINTF("%3d", instance);
+            TRACE("%3d", instance);
 	}
     }
 }
 
 void _dump_DIPROPHEADER(LPCDIPROPHEADER diph) {
     if (TRACE_ON(dinput)) {
-        DPRINTF("  - dwObj = 0x%08x\n", diph->dwObj);
-	DPRINTF("  - dwHow = %s\n",
-		((diph->dwHow == DIPH_DEVICE) ? "DIPH_DEVICE" :
-		 ((diph->dwHow == DIPH_BYOFFSET) ? "DIPH_BYOFFSET" :
-		  ((diph->dwHow == DIPH_BYID)) ? "DIPH_BYID" : "unknown")));
+        TRACE("  - dwObj = 0x%08x\n", diph->dwObj);
+        TRACE("  - dwHow = %s\n",
+            ((diph->dwHow == DIPH_DEVICE) ? "DIPH_DEVICE" :
+            ((diph->dwHow == DIPH_BYOFFSET) ? "DIPH_BYOFFSET" :
+            ((diph->dwHow == DIPH_BYID)) ? "DIPH_BYID" : "unknown")));
     }
 }
 
 void _dump_OBJECTINSTANCEA(const DIDEVICEOBJECTINSTANCEA *ddoi) {
-    if (TRACE_ON(dinput)) {
-        DPRINTF("    - enumerating : %s ('%s') - %2d - 0x%08x - %s\n",
-		debugstr_guid(&ddoi->guidType), _dump_dinput_GUID(&ddoi->guidType), ddoi->dwOfs, ddoi->dwType, ddoi->tszName);
-    }
+    TRACE("    - enumerating : %s ('%s') - %2d - 0x%08x - %s\n",
+        debugstr_guid(&ddoi->guidType), _dump_dinput_GUID(&ddoi->guidType), ddoi->dwOfs, ddoi->dwType, ddoi->tszName);
 }
 
 void _dump_OBJECTINSTANCEW(const DIDEVICEOBJECTINSTANCEW *ddoi) {
-    if (TRACE_ON(dinput)) {
-        DPRINTF("    - enumerating : %s ('%s'), - %2d - 0x%08x - %s\n",
-		debugstr_guid(&ddoi->guidType), _dump_dinput_GUID(&ddoi->guidType), ddoi->dwOfs, ddoi->dwType, debugstr_w(ddoi->tszName));
-    }
+    TRACE("    - enumerating : %s ('%s'), - %2d - 0x%08x - %s\n",
+        debugstr_guid(&ddoi->guidType), _dump_dinput_GUID(&ddoi->guidType), ddoi->dwOfs, ddoi->dwType, debugstr_w(ddoi->tszName));
 }
 
 /* This function is a helper to convert a GUID into any possible DInput GUID out there */
@@ -216,6 +214,56 @@ void _dump_DIDATAFORMAT(const DIDATAFORMAT *df) {
     }
 }
 
+/******************************************************************************
+ * Get the default and the app-specific config keys.
+ */
+BOOL get_app_key(HKEY *defkey, HKEY *appkey)
+{
+    char buffer[MAX_PATH+16];
+    DWORD len;
+
+    *appkey = 0;
+
+    /* @@ Wine registry key: HKCU\Software\Wine\DirectInput */
+    if (RegOpenKeyA(HKEY_CURRENT_USER, "Software\\Wine\\DirectInput", defkey))
+        *defkey = 0;
+
+    len = GetModuleFileNameA(0, buffer, MAX_PATH);
+    if (len && len < MAX_PATH)
+    {
+        HKEY tmpkey;
+
+        /* @@ Wine registry key: HKCU\Software\Wine\AppDefaults\app.exe\DirectInput */
+        if (!RegOpenKeyA(HKEY_CURRENT_USER, "Software\\Wine\\AppDefaults", &tmpkey))
+        {
+            char *p, *appname = buffer;
+            if ((p = strrchr(appname, '/'))) appname = p + 1;
+            if ((p = strrchr(appname, '\\'))) appname = p + 1;
+            strcat(appname, "\\DirectInput");
+
+            if (RegOpenKeyA(tmpkey, appname, appkey)) *appkey = 0;
+            RegCloseKey(tmpkey);
+        }
+    }
+
+    return *defkey || *appkey;
+}
+
+/******************************************************************************
+ * Get a config key from either the app-specific or the default config
+ */
+DWORD get_config_key( HKEY defkey, HKEY appkey, const char *name,
+                             char *buffer, DWORD size )
+{
+    if (appkey && !RegQueryValueExA( appkey, name, 0, NULL, (LPBYTE)buffer, &size ))
+        return 0;
+
+    if (defkey && !RegQueryValueExA( defkey, name, 0, NULL, (LPBYTE)buffer, &size ))
+        return 0;
+
+    return ERROR_FILE_NOT_FOUND;
+}
+
 /* Conversion between internal data buffer and external data buffer */
 void fill_DataFormat(void *out, const void *in, const DataFormat *df) {
     int i;
@@ -268,7 +316,7 @@ void fill_DataFormat(void *out, const void *in, const DataFormat *df) {
 		    case 4:
 			TRACE("Copying (i) to %d default value %d\n",
 			      df->dt[i].offset_out, df->dt[i].value);
-			*((int *) (out_c + df->dt[i].offset_out)) = (int) df->dt[i].value;
+			*((int *) (out_c + df->dt[i].offset_out)) = df->dt[i].value;
 			break;
 			
 		    default:
@@ -404,9 +452,12 @@ HRESULT create_DataFormat(LPCDIDATAFORMAT asked_format, DataFormat *format)
 		dt[index].size = sizeof(DWORD);
 	    dt[index].offset_in  = -1;
 	    dt[index].offset_out = asked_format->rgodf[j].dwOfs;
-	    dt[index].value = 0;
+            if (asked_format->rgodf[j].dwType & DIDFT_POV)
+                dt[index].value = -1;
+            else
+                dt[index].value = 0;
 	    index++;
-	    
+
 	    same = 0;
 	}
     }
@@ -448,7 +499,7 @@ static int offset_to_object(const DataFormat *df, int offset)
     return -1;
 }
 
-static int id_to_object(LPCDIDATAFORMAT df, int id)
+int id_to_object(LPCDIDATAFORMAT df, int id)
 {
     int i;
 
@@ -498,7 +549,7 @@ BOOL DIEnumDevicesCallbackAtoW(LPCDIDEVICEOBJECTINSTANCEA lpddi, LPVOID lpvRef) 
     if (lpddi->dwSize == sizeof(DIDEVICEINSTANCEA)) {
 	/**
 	 * if dwSize < sizeof(DIDEVICEINSTANCEA of DInput version >= 5)
-	 *  force feedback and other newer datas aren't available
+	 *  force feedback and other newer data aren't available
 	 */
 	ddtmp.dwFFMaxForce        = lpddi->dwFFMaxForce;
 	ddtmp.dwFFForceResolution = lpddi->dwFFForceResolution;
@@ -628,7 +679,6 @@ HRESULT WINAPI IDirectInputDevice2AImpl_SetCooperativeLevel(
     IDirectInputDevice2AImpl *This = (IDirectInputDevice2AImpl *)iface;
 
     TRACE("(%p) %p,0x%08x\n", This, hwnd, dwflags);
-    TRACE(" cooperative level : ");
     _dump_cooperativelevel_DI(dwflags);
 
     if ((dwflags & (DISCL_EXCLUSIVE | DISCL_NONEXCLUSIVE)) == 0 ||
@@ -1292,7 +1342,13 @@ HRESULT WINAPI IDirectInputDevice8AImpl_BuildActionMap(LPDIRECTINPUTDEVICE8A ifa
 						       DWORD dwFlags)
 {
     FIXME("(%p)->(%p,%s,%08x): stub !\n", iface, lpdiaf, lpszUserName, dwFlags);
-    
+#define X(x) if (dwFlags & x) FIXME("\tdwFlags =|"#x"\n");
+	X(DIDBAM_DEFAULT)
+	X(DIDBAM_PRESERVE)
+	X(DIDBAM_INITIALIZE)
+	X(DIDBAM_HWDEFAULTS)
+#undef X
+    _dump_diactionformatA(lpdiaf);
     return DI_OK;
 }
 
@@ -1302,6 +1358,12 @@ HRESULT WINAPI IDirectInputDevice8WImpl_BuildActionMap(LPDIRECTINPUTDEVICE8W ifa
 						       DWORD dwFlags)
 {
     FIXME("(%p)->(%p,%s,%08x): stub !\n", iface, lpdiaf, debugstr_w(lpszUserName), dwFlags);
+#define X(x) if (dwFlags & x) FIXME("\tdwFlags =|"#x"\n");
+	X(DIDBAM_DEFAULT)
+	X(DIDBAM_PRESERVE)
+	X(DIDBAM_INITIALIZE)
+	X(DIDBAM_HWDEFAULTS)
+#undef X
   
     return DI_OK;
 }

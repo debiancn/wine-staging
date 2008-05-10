@@ -454,7 +454,7 @@ void WINAPI __regs_QT_Thunk( CONTEXT86 *context )
     CONTEXT86 context16;
     DWORD argsize;
 
-    memcpy(&context16,context,sizeof(context16));
+    context16 = *context;
 
     context16.SegFs = wine_get_fs();
     context16.SegGs = wine_get_gs();
@@ -462,7 +462,7 @@ void WINAPI __regs_QT_Thunk( CONTEXT86 *context )
     context16.Eip   = LOWORD(context->Edx);
     /* point EBP to the STACK16FRAME on the stack
      * for the call_to_16 to set up the register content on calling */
-    context16.Ebp   = OFFSETOF(NtCurrentTeb()->WOW32Reserved) + (WORD)&((STACK16FRAME*)0)->bp;
+    context16.Ebp   = OFFSETOF(NtCurrentTeb()->WOW32Reserved) + FIELD_OFFSET(STACK16FRAME,bp);
 
     /*
      * used to be (problematic):
@@ -588,13 +588,13 @@ void WINAPI __regs_FT_Thunk( CONTEXT86 *context )
     DWORD newstack[32];
     LPBYTE oldstack;
 
-    memcpy(&context16,context,sizeof(context16));
+    context16 = *context;
 
     context16.SegFs = wine_get_fs();
     context16.SegGs = wine_get_gs();
     context16.SegCs = HIWORD(callTarget);
     context16.Eip   = LOWORD(callTarget);
-    context16.Ebp   = OFFSETOF(NtCurrentTeb()->WOW32Reserved) + (WORD)&((STACK16FRAME*)0)->bp;
+    context16.Ebp   = OFFSETOF(NtCurrentTeb()->WOW32Reserved) + FIELD_OFFSET(STACK16FRAME,bp);
 
     argsize  = context->Ebp-context->Esp-0x40;
     if (argsize > sizeof(newstack)) argsize = sizeof(newstack);
@@ -709,7 +709,7 @@ DWORD WINAPI ThunkInitLS(
 
 	if (!addr[1])
 		return 0;
-	*(DWORD*)thunk = addr[1];
+	*thunk = addr[1];
 
 	return addr[1];
 }
@@ -753,14 +753,14 @@ void WINAPI __regs_Common32ThkLS( CONTEXT86 *context )
     CONTEXT86 context16;
     DWORD argsize;
 
-    memcpy(&context16,context,sizeof(context16));
+    context16 = *context;
 
     context16.SegFs = wine_get_fs();
     context16.SegGs = wine_get_gs();
     context16.Edi   = LOWORD(context->Ecx);
     context16.SegCs = HIWORD(context->Eax);
     context16.Eip   = LOWORD(context->Eax);
-    context16.Ebp   = OFFSETOF(NtCurrentTeb()->WOW32Reserved) + (WORD)&((STACK16FRAME*)0)->bp;
+    context16.Ebp   = OFFSETOF(NtCurrentTeb()->WOW32Reserved) + FIELD_OFFSET(STACK16FRAME,bp);
 
     argsize = HIWORD(context->Edx) * 4;
 
@@ -814,13 +814,13 @@ void WINAPI __regs_OT_32ThkLSF( CONTEXT86 *context )
     CONTEXT86 context16;
     DWORD argsize;
 
-    memcpy(&context16,context,sizeof(context16));
+    context16 = *context;
 
     context16.SegFs = wine_get_fs();
     context16.SegGs = wine_get_gs();
     context16.SegCs = HIWORD(context->Edx);
     context16.Eip   = LOWORD(context->Edx);
-    context16.Ebp   = OFFSETOF(NtCurrentTeb()->WOW32Reserved) + (WORD)&((STACK16FRAME*)0)->bp;
+    context16.Ebp   = OFFSETOF(NtCurrentTeb()->WOW32Reserved) + FIELD_OFFSET(STACK16FRAME,bp);
 
     argsize = 2 * *(WORD *)context->Esp + 2;
 
@@ -1645,7 +1645,7 @@ static BOOL THUNK_Init(void)
     ThunkletHeap = HeapCreate( 0, 0x10000, 0x10000 );
     if (!ThunkletHeap) return FALSE;
 
-    ThunkletCodeSel = SELECTOR_AllocBlock( (void *)ThunkletHeap, 0x10000, WINE_LDT_FLAGS_CODE );
+    ThunkletCodeSel = SELECTOR_AllocBlock( ThunkletHeap, 0x10000, WINE_LDT_FLAGS_CODE );
 
     thunk = HeapAlloc( ThunkletHeap, 0, 5 );
     if (!thunk) return FALSE;
@@ -1712,7 +1712,7 @@ static FARPROC THUNK_AllocLSThunklet( SEGPTR target, DWORD relay,
         thunk->jmp_glue = 0xE9;
 
         thunk->target  = (DWORD)target;
-        thunk->relay   = (DWORD)relay;
+        thunk->relay   = relay;
         thunk->glue    = (DWORD)glue - (DWORD)&thunk->type;
 
         thunk->type    = THUNKLET_TYPE_LS;
@@ -1746,7 +1746,7 @@ static SEGPTR THUNK_AllocSLThunklet( FARPROC target, DWORD relay,
         thunk->jmp_glue = 0xEA;
 
         thunk->target  = (DWORD)target;
-        thunk->relay   = (DWORD)relay;
+        thunk->relay   = relay;
         thunk->glue    = (DWORD)glue;
 
         thunk->type    = THUNKLET_TYPE_SL;
@@ -2076,7 +2076,7 @@ SEGPTR WINAPI Get16DLLAddress(HMODULE16 handle, LPSTR func_name)
     if (!code_sel32)
     {
         if (!ThunkletHeap) THUNK_Init();
-        code_sel32 = SELECTOR_AllocBlock( (void *)ThunkletHeap, 0x10000,
+        code_sel32 = SELECTOR_AllocBlock( ThunkletHeap, 0x10000,
                                           WINE_LDT_FLAGS_CODE | WINE_LDT_FLAGS_32BIT );
         if (!code_sel32) return 0;
     }

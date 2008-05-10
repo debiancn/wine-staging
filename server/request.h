@@ -57,10 +57,11 @@ extern void read_request( struct thread *thread );
 extern void write_reply( struct thread *thread );
 extern unsigned int get_tick_count(void);
 extern void open_master_socket(void);
-extern void close_master_socket(void);
+extern void close_master_socket( timeout_t timeout );
 extern void shutdown_master_socket(void);
 extern int wait_for_lock(void);
 extern int kill_lock_owner( int sig );
+extern int server_dir_fd, config_dir_fd;
 
 extern void trace_request(void);
 extern void trace_reply( enum request req, const union generic_reply *reply );
@@ -128,7 +129,6 @@ DECL_HANDLER(resume_thread);
 DECL_HANDLER(load_dll);
 DECL_HANDLER(unload_dll);
 DECL_HANDLER(queue_apc);
-DECL_HANDLER(get_apc);
 DECL_HANDLER(get_apc_result);
 DECL_HANDLER(close_handle);
 DECL_HANDLER(set_handle_info);
@@ -240,6 +240,7 @@ DECL_HANDLER(accept_hardware_message);
 DECL_HANDLER(get_message_reply);
 DECL_HANDLER(set_win_timer);
 DECL_HANDLER(kill_win_timer);
+DECL_HANDLER(is_window_hung);
 DECL_HANDLER(get_serial_info);
 DECL_HANDLER(set_serial_info);
 DECL_HANDLER(register_async);
@@ -260,6 +261,7 @@ DECL_HANDLER(get_window_children);
 DECL_HANDLER(get_window_children_from_point);
 DECL_HANDLER(get_window_tree);
 DECL_HANDLER(set_window_pos);
+DECL_HANDLER(set_window_visible_rect);
 DECL_HANDLER(get_window_rectangles);
 DECL_HANDLER(get_window_text);
 DECL_HANDLER(set_window_text);
@@ -279,11 +281,13 @@ DECL_HANDLER(open_winstation);
 DECL_HANDLER(close_winstation);
 DECL_HANDLER(get_process_winstation);
 DECL_HANDLER(set_process_winstation);
+DECL_HANDLER(enum_winstation);
 DECL_HANDLER(create_desktop);
 DECL_HANDLER(open_desktop);
 DECL_HANDLER(close_desktop);
 DECL_HANDLER(get_thread_desktop);
 DECL_HANDLER(set_thread_desktop);
+DECL_HANDLER(enum_desktop);
 DECL_HANDLER(set_user_object_info);
 DECL_HANDLER(attach_thread_input);
 DECL_HANDLER(get_thread_input);
@@ -315,10 +319,12 @@ DECL_HANDLER(access_check);
 DECL_HANDLER(get_token_user);
 DECL_HANDLER(get_token_groups);
 DECL_HANDLER(set_security_object);
+DECL_HANDLER(get_security_object);
 DECL_HANDLER(create_mailslot);
 DECL_HANDLER(set_mailslot_info);
 DECL_HANDLER(create_directory);
 DECL_HANDLER(open_directory);
+DECL_HANDLER(get_directory_entry);
 DECL_HANDLER(create_symlink);
 DECL_HANDLER(open_symlink);
 DECL_HANDLER(query_symlink);
@@ -330,6 +336,14 @@ DECL_HANDLER(create_device);
 DECL_HANDLER(delete_device);
 DECL_HANDLER(get_next_device_request);
 DECL_HANDLER(make_process_system);
+DECL_HANDLER(get_token_statistics);
+DECL_HANDLER(create_completion);
+DECL_HANDLER(open_completion);
+DECL_HANDLER(add_completion);
+DECL_HANDLER(remove_completion);
+DECL_HANDLER(query_completion);
+DECL_HANDLER(set_completion_info);
+DECL_HANDLER(add_fd_completion);
 
 #ifdef WANT_REQUEST_HANDLERS
 
@@ -354,7 +368,6 @@ static const req_handler req_handlers[REQ_NB_REQUESTS] =
     (req_handler)req_load_dll,
     (req_handler)req_unload_dll,
     (req_handler)req_queue_apc,
-    (req_handler)req_get_apc,
     (req_handler)req_get_apc_result,
     (req_handler)req_close_handle,
     (req_handler)req_set_handle_info,
@@ -466,6 +479,7 @@ static const req_handler req_handlers[REQ_NB_REQUESTS] =
     (req_handler)req_get_message_reply,
     (req_handler)req_set_win_timer,
     (req_handler)req_kill_win_timer,
+    (req_handler)req_is_window_hung,
     (req_handler)req_get_serial_info,
     (req_handler)req_set_serial_info,
     (req_handler)req_register_async,
@@ -486,6 +500,7 @@ static const req_handler req_handlers[REQ_NB_REQUESTS] =
     (req_handler)req_get_window_children_from_point,
     (req_handler)req_get_window_tree,
     (req_handler)req_set_window_pos,
+    (req_handler)req_set_window_visible_rect,
     (req_handler)req_get_window_rectangles,
     (req_handler)req_get_window_text,
     (req_handler)req_set_window_text,
@@ -505,11 +520,13 @@ static const req_handler req_handlers[REQ_NB_REQUESTS] =
     (req_handler)req_close_winstation,
     (req_handler)req_get_process_winstation,
     (req_handler)req_set_process_winstation,
+    (req_handler)req_enum_winstation,
     (req_handler)req_create_desktop,
     (req_handler)req_open_desktop,
     (req_handler)req_close_desktop,
     (req_handler)req_get_thread_desktop,
     (req_handler)req_set_thread_desktop,
+    (req_handler)req_enum_desktop,
     (req_handler)req_set_user_object_info,
     (req_handler)req_attach_thread_input,
     (req_handler)req_get_thread_input,
@@ -541,10 +558,12 @@ static const req_handler req_handlers[REQ_NB_REQUESTS] =
     (req_handler)req_get_token_user,
     (req_handler)req_get_token_groups,
     (req_handler)req_set_security_object,
+    (req_handler)req_get_security_object,
     (req_handler)req_create_mailslot,
     (req_handler)req_set_mailslot_info,
     (req_handler)req_create_directory,
     (req_handler)req_open_directory,
+    (req_handler)req_get_directory_entry,
     (req_handler)req_create_symlink,
     (req_handler)req_open_symlink,
     (req_handler)req_query_symlink,
@@ -556,6 +575,14 @@ static const req_handler req_handlers[REQ_NB_REQUESTS] =
     (req_handler)req_delete_device,
     (req_handler)req_get_next_device_request,
     (req_handler)req_make_process_system,
+    (req_handler)req_get_token_statistics,
+    (req_handler)req_create_completion,
+    (req_handler)req_open_completion,
+    (req_handler)req_add_completion,
+    (req_handler)req_remove_completion,
+    (req_handler)req_query_completion,
+    (req_handler)req_set_completion_info,
+    (req_handler)req_add_fd_completion,
 };
 #endif  /* WANT_REQUEST_HANDLERS */
 

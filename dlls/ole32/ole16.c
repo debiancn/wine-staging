@@ -154,7 +154,7 @@ DWORD CDECL IMalloc16_fnGetSize(IMalloc16* iface,SEGPTR pv)
  * IMalloc16_DidAlloc [COMPOBJ.507]
  */
 INT16 CDECL IMalloc16_fnDidAlloc(IMalloc16* iface,LPVOID pv) {
-        IMalloc16 *This = (IMalloc16 *)iface;
+        IMalloc16 *This = iface;
 	TRACE("(%p)->DidAlloc(%p)\n",This,pv);
 	return (INT16)-1;
 }
@@ -409,7 +409,7 @@ HRESULT WINAPI StringFromCLSID16(
  */
 HRESULT WINAPI ProgIDFromCLSID16(
   REFCLSID clsid, /* [in] class id as found in registry */
-  LPOLESTR16 *lplpszProgID/* [out] associated Prog ID */
+  LPOLESTR16 *lplpszProgID/* [out] associated Program ID */
 ) {
   static const WCHAR wszProgID[] = {'P','r','o','g','I','D',0};
   HKEY     hkey;

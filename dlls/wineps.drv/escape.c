@@ -23,7 +23,6 @@
 #include "winbase.h"
 #include "wingdi.h"
 #include "wine/wingdi16.h"
-#include "wine/winuser16.h"
 #include "wownt32.h"
 #include "psdrv.h"
 #include "wine/debug.h"
@@ -108,7 +107,7 @@ INT PSDRV_ExtEscape( PSDRV_PDEVICE *physDev, INT nEscape, INT cbInput, LPCVOID i
 		ibi->GraphicsRect.left,
 		ibi->GraphicsRect.right
 	);
-	memcpy (obi, ibi, sizeof(*ibi));
+	*obi = *ibi;
 	return 1;
     }
     case NEXTBAND:

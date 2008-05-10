@@ -3,7 +3,7 @@
  *
  *	Copyright 1998,1999	<juergen.schmied@debitel.net>
  *
- * This is the view visualizing the data provied by the shellfolder.
+ * This is the view visualizing the data provided by the shellfolder.
  * No direct access to data from pidls should be done from here.
  *
  * This library is free software; you can redistribute it and/or
@@ -21,9 +21,9 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  *
  * FIXME: The order by part of the background context menu should be
- * buily according to the columns shown.
+ * built according to the columns shown.
  *
- * FIXME: Load/Save the view state from/into the stream provied by
+ * FIXME: Load/Save the view state from/into the stream provided by
  * the ShellBrowser
  *
  * FIXME: CheckToolbar: handle the "new folder" and "folder up" button
@@ -67,6 +67,8 @@
 #include "shellfolder.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(shell);
+
+static const WCHAR SV_CLASS_NAME[] = {'S','H','E','L','L','D','L','L','_','D','e','f','V','i','e','w',0};
 
 typedef struct
 {   BOOL    bIsAscending;
@@ -290,8 +292,8 @@ static void SetStyle(IShellViewImpl * This, DWORD dwAdd, DWORD dwRemove)
 
 	TRACE("(%p)\n", This);
 
-	tmpstyle = GetWindowLongA(This->hWndList, GWL_STYLE);
-	SetWindowLongA(This->hWndList, GWL_STYLE, dwAdd | (tmpstyle & ~dwRemove));
+	tmpstyle = GetWindowLongW(This->hWndList, GWL_STYLE);
+	SetWindowLongW(This->hWndList, GWL_STYLE, dwAdd | (tmpstyle & ~dwRemove));
 }
 
 /**********************************************************
@@ -324,8 +326,8 @@ static BOOL ShellView_CreateList (IShellViewImpl * This)
 	if (This->FolderSettings.fFlags & FWF_NOCLIENTEDGE)
 	  dwExStyle &= ~WS_EX_CLIENTEDGE;
 
-	This->hWndList=CreateWindowExA( dwExStyle,
-					WC_LISTVIEWA,
+	This->hWndList=CreateWindowExW( dwExStyle,
+					WC_LISTVIEWW,
 					NULL,
 					dwStyle,
 					0,0,0,0,
@@ -526,11 +528,11 @@ static int LV_FindItemByPidl(
 	IShellViewImpl * This,
 	LPCITEMIDLIST pidl)
 {
-	LVITEMA lvItem;
+	LVITEMW lvItem;
 	lvItem.iSubItem = 0;
 	lvItem.mask = LVIF_PARAM;
 	for(lvItem.iItem = 0;
-		SendMessageA(This->hWndList, LVM_GETITEMA, 0, (LPARAM) &lvItem);
+		SendMessageW(This->hWndList, LVM_GETITEMW, 0, (LPARAM) &lvItem);
 		lvItem.iItem++)
 	{
 	  LPITEMIDLIST currentpidl = (LPITEMIDLIST) lvItem.lParam;
@@ -548,7 +550,7 @@ static int LV_FindItemByPidl(
 */
 static BOOLEAN LV_AddItem(IShellViewImpl * This, LPCITEMIDLIST pidl)
 {
-	LVITEMA	lvItem;
+	LVITEMW	lvItem;
 
 	TRACE("(%p)(pidl=%p)\n", This, pidl);
 
@@ -556,9 +558,9 @@ static BOOLEAN LV_AddItem(IShellViewImpl * This, LPCITEMIDLIST pidl)
 	lvItem.iItem = ListView_GetItemCount(This->hWndList);	/*add the item to the end of the list*/
 	lvItem.iSubItem = 0;
 	lvItem.lParam = (LPARAM) ILClone(ILFindLastID(pidl));				/*set the item's data*/
-	lvItem.pszText = LPSTR_TEXTCALLBACKA;			/*get text on a callback basis*/
+	lvItem.pszText = LPSTR_TEXTCALLBACKW;			/*get text on a callback basis*/
 	lvItem.iImage = I_IMAGECALLBACK;			/*get the image on a callback basis*/
-	return (-1==ListView_InsertItemA(This->hWndList, &lvItem))? FALSE: TRUE;
+	return (-1==ListView_InsertItemW(This->hWndList, &lvItem))? FALSE: TRUE;
 }
 
 /**********************************************************
@@ -580,7 +582,7 @@ static BOOLEAN LV_DeleteItem(IShellViewImpl * This, LPCITEMIDLIST pidl)
 static BOOLEAN LV_RenameItem(IShellViewImpl * This, LPCITEMIDLIST pidlOld, LPCITEMIDLIST pidlNew )
 {
 	int nItem;
-	LVITEMA lvItem;
+	LVITEMW lvItem;
 
 	TRACE("(%p)(pidlold=%p pidlnew=%p)\n", This, pidlOld, pidlNew);
 
@@ -589,14 +591,14 @@ static BOOLEAN LV_RenameItem(IShellViewImpl * This, LPCITEMIDLIST pidlOld, LPCIT
 	{
 	  lvItem.mask = LVIF_PARAM;		/* only the pidl */
 	  lvItem.iItem = nItem;
-	  SendMessageA(This->hWndList, LVM_GETITEMA, 0, (LPARAM) &lvItem);
+	  SendMessageW(This->hWndList, LVM_GETITEMW, 0, (LPARAM) &lvItem);
 
 	  SHFree((LPITEMIDLIST)lvItem.lParam);
 	  lvItem.mask = LVIF_PARAM;
 	  lvItem.iItem = nItem;
 	  lvItem.lParam = (LPARAM) ILClone(ILFindLastID(pidlNew));	/* set the item's data */
-	  SendMessageA(This->hWndList, LVM_SETITEMA, 0, (LPARAM) &lvItem);
-	  SendMessageA(This->hWndList, LVM_UPDATE, nItem, 0);
+	  SendMessageW(This->hWndList, LVM_SETITEMW, 0, (LPARAM) &lvItem);
+	  SendMessageW(This->hWndList, LVM_UPDATE, nItem, 0);
 	  return TRUE;					/* FIXME: better handling */
 	}
 	return FALSE;
@@ -719,8 +721,8 @@ static LRESULT ShellView_OnCreate(IShellViewImpl * This)
 * ShellView_BuildFileMenu()
 */
 static HMENU ShellView_BuildFileMenu(IShellViewImpl * This)
-{	CHAR	szText[MAX_PATH];
-	MENUITEMINFOA	mii;
+{	WCHAR	szText[MAX_PATH];
+	MENUITEMINFOW	mii;
 	int	nTools,i;
 	HMENU	hSubMenu;
 
@@ -734,7 +736,7 @@ static HMENU ShellView_BuildFileMenu(IShellViewImpl * This)
 	  /*add the menu items*/
 	  for(i = 0; i < nTools; i++)
 	  {
-	    LoadStringA(shell32_hInstance, Tools[i].idMenuString, szText, MAX_PATH);
+	    LoadStringW(shell32_hInstance, Tools[i].idMenuString, szText, MAX_PATH);
 
 	    ZeroMemory(&mii, sizeof(mii));
 	    mii.cbSize = sizeof(mii);
@@ -752,7 +754,7 @@ static HMENU ShellView_BuildFileMenu(IShellViewImpl * This)
 	      mii.fType = MFT_SEPARATOR;
 	    }
 	    /* tack This item onto the end of the menu */
-	    InsertMenuItemA(hSubMenu, (UINT)-1, TRUE, &mii);
+	    InsertMenuItemW(hSubMenu, (UINT)-1, TRUE, &mii);
 	  }
 	}
 	TRACE("-- return (menu=%p)\n",hSubMenu);
@@ -766,9 +768,21 @@ static void ShellView_MergeFileMenu(IShellViewImpl * This, HMENU hSubMenu)
 
 	if(hSubMenu)
 	{ /*insert This item at the beginning of the menu */
-	  _InsertMenuItem(hSubMenu, 0, TRUE, 0, MFT_SEPARATOR, NULL, MFS_ENABLED);
-	  _InsertMenuItem(hSubMenu, 0, TRUE, IDM_MYFILEITEM, MFT_STRING, "dummy45", MFS_ENABLED);
+            MENUITEMINFOA mii;
 
+            mii.cbSize = sizeof(mii);
+            mii.fMask = MIIM_ID | MIIM_TYPE;
+            mii.wID = 0;
+            mii.fType = MFT_SEPARATOR;
+            InsertMenuItemA(hSubMenu, 0, TRUE, &mii);
+
+            mii.cbSize = sizeof(mii);
+            mii.fMask = MIIM_ID | MIIM_TYPE | MIIM_STATE;
+            mii.dwTypeData = (LPSTR)"dummy45";
+            mii.fState = MFS_ENABLED;
+            mii.wID = IDM_MYFILEITEM;
+            mii.fType = MFT_STRING;
+            InsertMenuItemA(hSubMenu, 0, TRUE, &mii);
 	}
 	TRACE("--\n");
 }
@@ -786,9 +800,13 @@ static void ShellView_MergeViewMenu(IShellViewImpl * This, HMENU hSubMenu)
 	  MENUITEMINFOA mii;
 	  static char view[] = "View";
 
-	  _InsertMenuItem(hSubMenu, FCIDM_MENU_VIEW_SEP_OPTIONS, FALSE, 0, MFT_SEPARATOR, NULL, MFS_ENABLED);
+          ZeroMemory(&mii, sizeof(mii));
+          mii.cbSize = sizeof(mii);
+          mii.fMask = MIIM_ID | MIIM_TYPE;
+          mii.wID = 0;
+          mii.fType = MFT_SEPARATOR;
+          InsertMenuItemA(hSubMenu, FCIDM_MENU_VIEW_SEP_OPTIONS, FALSE, &mii);
 
-	  ZeroMemory(&mii, sizeof(mii));
 	  mii.cbSize = sizeof(mii);
 	  mii.fMask = MIIM_SUBMENU | MIIM_TYPE | MIIM_DATA;
 	  mii.fType = MFT_STRING;
@@ -808,7 +826,7 @@ static void ShellView_MergeViewMenu(IShellViewImpl * This, HMENU hSubMenu)
 */
 static UINT ShellView_GetSelections(IShellViewImpl * This)
 {
-	LVITEMA	lvItem;
+	LVITEMW	lvItem;
 	UINT	i = 0;
 
 	SHFree(This->apidl);
@@ -827,7 +845,7 @@ static UINT ShellView_GetSelections(IShellViewImpl * This)
 	  lvItem.iItem = 0;
 	  lvItem.iSubItem = 0;
 
-	  while(ListView_GetItemA(This->hWndList, &lvItem) && (i < This->cidl))
+	  while(ListView_GetItemW(This->hWndList, &lvItem) && (i < This->cidl))
 	  {
 	    if(lvItem.state & LVIS_SELECTED)
 	    {
@@ -1257,7 +1275,7 @@ static LRESULT ShellView_OnCommand(IShellViewImpl * This,DWORD dwCmdID, DWORD dw
 
 static LRESULT ShellView_OnNotify(IShellViewImpl * This, UINT CtlID, LPNMHDR lpnmh)
 {	LPNMLISTVIEW lpnmlv = (LPNMLISTVIEW)lpnmh;
-	NMLVDISPINFOA *lpdi = (NMLVDISPINFOA *)lpnmh;
+	NMLVDISPINFOW *lpdi = (NMLVDISPINFOW *)lpnmh;
 	LPITEMIDLIST pidl;
 
 	TRACE("%p CtlID=%u lpnmh->code=%x\n",This,CtlID,lpnmh->code);
@@ -1302,8 +1320,8 @@ static LRESULT ShellView_OnNotify(IShellViewImpl * This, UINT CtlID, LPNMHDR lpn
             if (OnDefaultCommand(This) != S_OK) ShellView_OpenSelectedItems(This);
             break;
 
-	  case HDN_ENDTRACKA:
-	    TRACE("-- HDN_ENDTRACKA %p\n",This);
+	  case HDN_ENDTRACKW:
+	    TRACE("-- HDN_ENDTRACKW %p\n",This);
 	    /*nColumn1 = ListView_GetColumnWidth(This->hWndList, 0);
 	    nColumn2 = ListView_GetColumnWidth(This->hWndList, 1);*/
 	    break;
@@ -1338,7 +1356,7 @@ static LRESULT ShellView_OnNotify(IShellViewImpl * This, UINT CtlID, LPNMHDR lpn
 	    }
 	    This->ListViewSortInfo.nLastHeaderID = This->ListViewSortInfo.nHeaderID;
 
-	    SendMessageA(lpnmlv->hdr.hwndFrom, LVM_SORTITEMS, (WPARAM) &This->ListViewSortInfo, (LPARAM)ShellView_ListViewCompareItems);
+	    SendMessageW(lpnmlv->hdr.hwndFrom, LVM_SORTITEMS, (WPARAM) &This->ListViewSortInfo, (LPARAM)ShellView_ListViewCompareItems);
 	    break;
 
 	  case LVN_GETDISPINFOA:
@@ -1354,13 +1372,15 @@ static LRESULT ShellView_OnNotify(IShellViewImpl * This, UINT CtlID, LPNMHDR lpn
 	        IShellFolder2_GetDetailsOf(This->pSF2Parent, pidl, lpdi->item.iSubItem, &sd);
                 if (lpnmh->code == LVN_GETDISPINFOA)
                 {
-                    StrRetToStrNA( lpdi->item.pszText, lpdi->item.cchTextMax, &sd.str, NULL);
-                    TRACE("-- text=%s\n",lpdi->item.pszText);
+                    /* shouldn't happen */
+                    NMLVDISPINFOA *lpdiA = (NMLVDISPINFOA *)lpnmh;
+                    StrRetToStrNA( lpdiA->item.pszText, lpdiA->item.cchTextMax, &sd.str, NULL);
+                    TRACE("-- text=%s\n",lpdiA->item.pszText);
                 }
                 else /* LVN_GETDISPINFOW */
                 {
-                    StrRetToStrNW( ((NMLVDISPINFOW *)lpdi)->item.pszText, lpdi->item.cchTextMax, &sd.str, NULL);
-                    TRACE("-- text=%s\n",debugstr_w((WCHAR*)(lpdi->item.pszText)));
+                    StrRetToStrNW( lpdi->item.pszText, lpdi->item.cchTextMax, &sd.str, NULL);
+                    TRACE("-- text=%s\n",debugstr_w(lpdi->item.pszText));
                 }
 	      }
 	      else
@@ -1411,7 +1431,7 @@ static LRESULT ShellView_OnNotify(IShellViewImpl * This, UINT CtlID, LPNMHDR lpn
 	    }
 	    break;
 
-	  case LVN_BEGINLABELEDITA:
+	  case LVN_BEGINLABELEDITW:
 	    {
 	      DWORD dwAttr = SFGAO_CANRENAME;
 	      pidl = (LPITEMIDLIST)lpdi->item.lParam;
@@ -1426,30 +1446,27 @@ static LRESULT ShellView_OnNotify(IShellViewImpl * This, UINT CtlID, LPNMHDR lpn
 	      return TRUE;
 	    }
 
-	  case LVN_ENDLABELEDITA:
+	  case LVN_ENDLABELEDITW:
 	    {
 	      TRACE("-- LVN_ENDLABELEDITA %p\n",This);
 	      if (lpdi->item.pszText)
 	      {
 	        HRESULT hr;
-		WCHAR wszNewName[MAX_PATH];
-		LVITEMA lvItem;
+		LVITEMW lvItem;
 
 		lvItem.iItem = lpdi->item.iItem;
 		lvItem.iSubItem = 0;
 		lvItem.mask = LVIF_PARAM;
-		SendMessageA(This->hWndList, LVM_GETITEMA, 0, (LPARAM) &lvItem);
+		SendMessageW(This->hWndList, LVM_GETITEMW, 0, (LPARAM) &lvItem);
 
 		pidl = (LPITEMIDLIST)lpdi->item.lParam;
-                if (!MultiByteToWideChar( CP_ACP, 0, lpdi->item.pszText, -1, wszNewName, MAX_PATH ))
-                    wszNewName[MAX_PATH-1] = 0;
-	        hr = IShellFolder_SetNameOf(This->pSFParent, 0, pidl, wszNewName, SHGDN_INFOLDER, &pidl);
+	        hr = IShellFolder_SetNameOf(This->pSFParent, 0, pidl, lpdi->item.pszText, SHGDN_INFOLDER, &pidl);
 
 		if(SUCCEEDED(hr) && pidl)
 		{
 	          lvItem.mask = LVIF_PARAM;
 		  lvItem.lParam = (LPARAM)pidl;
-		  SendMessageA(This->hWndList, LVM_SETITEMA, 0, (LPARAM) &lvItem);
+		  SendMessageW(This->hWndList, LVM_SETITEMW, 0, (LPARAM) &lvItem);
 		  return TRUE;
 		}
 	      }
@@ -1540,6 +1557,15 @@ static LRESULT ShellView_OnNotify(IShellViewImpl * This, UINT CtlID, LPNMHDR lpn
 		IShellView_Refresh((IShellView*)This);
               }
 
+	      else if(plvKeyDown->wVKey == VK_BACK)
+	      {
+		LPSHELLBROWSER lpSb;
+		if((lpSb = (LPSHELLBROWSER)SendMessageW(This->hWndParent, CWM_GETISHELLBROWSER, 0, 0)))
+		{
+		  IShellBrowser_BrowseObject(lpSb, NULL, SBSP_PARENT);
+		}
+	      }
+
               else
 		FIXME("LVN_KEYDOWN key=0x%08x\n",plvKeyDown->wVKey);
 	    }
@@ -1556,7 +1582,7 @@ static LRESULT ShellView_OnNotify(IShellViewImpl * This, UINT CtlID, LPNMHDR lpn
 * ShellView_OnChange()
 */
 
-static LRESULT ShellView_OnChange(IShellViewImpl * This, LPITEMIDLIST * Pidls, LONG wEventId)
+static LRESULT ShellView_OnChange(IShellViewImpl * This, const LPCITEMIDLIST * Pidls, LONG wEventId)
 {
 
 	TRACE("(%p)(%p,%p,0x%08x)\n", This, Pidls[0], Pidls[1], wEventId);
@@ -1586,14 +1612,14 @@ static LRESULT ShellView_OnChange(IShellViewImpl * This, LPITEMIDLIST * Pidls, L
 static LRESULT CALLBACK ShellView_WndProc(HWND hWnd, UINT uMessage, WPARAM wParam, LPARAM lParam)
 {
 	IShellViewImpl * pThis = (IShellViewImpl*)GetWindowLongPtrW(hWnd, GWLP_USERDATA);
-	LPCREATESTRUCTA lpcs;
+	LPCREATESTRUCTW lpcs;
 
 	TRACE("(hwnd=%p msg=%x wparm=%lx lparm=%lx)\n",hWnd, uMessage, wParam, lParam);
 
 	switch (uMessage)
 	{
 	  case WM_NCCREATE:
-	    lpcs = (LPCREATESTRUCTA)lParam;
+	    lpcs = (LPCREATESTRUCTW)lParam;
 	    pThis = (IShellViewImpl*)(lpcs->lpCreateParams);
 	    SetWindowLongPtrW(hWnd, GWLP_USERDATA, (ULONG_PTR)pThis);
 	    pThis->hWnd = hWnd;        /*set the window handle*/
@@ -1609,7 +1635,7 @@ static LRESULT CALLBACK ShellView_WndProc(HWND hWnd, UINT uMessage, WPARAM wPara
 					GET_WM_COMMAND_ID(wParam, lParam),
 					GET_WM_COMMAND_CMD(wParam, lParam),
 					GET_WM_COMMAND_HWND(wParam, lParam));
-	  case SHV_CHANGE_NOTIFY: return ShellView_OnChange(pThis, (LPITEMIDLIST*)wParam, (LONG)lParam);
+	  case SHV_CHANGE_NOTIFY: return ShellView_OnChange(pThis, (const LPCITEMIDLIST*)wParam, (LONG)lParam);
 
 	  case WM_CONTEXTMENU:  ShellView_DoContextMenu(pThis, LOWORD(lParam), HIWORD(lParam), FALSE);
 	                        return 0;
@@ -1631,7 +1657,7 @@ static LRESULT CALLBACK ShellView_WndProc(HWND hWnd, UINT uMessage, WPARAM wPara
 	    break;
 	}
 
-	return DefWindowProcA (hWnd, uMessage, wParam, lParam);
+	return DefWindowProcW(hWnd, uMessage, wParam, lParam);
 }
 /**********************************************************
 *
@@ -1847,7 +1873,7 @@ static HRESULT WINAPI IShellView_fnCreateViewWindow(
 {
 	IShellViewImpl *This = (IShellViewImpl *)iface;
 
-	WNDCLASSA wc;
+	WNDCLASSW wc;
 	*phWnd = 0;
 
 
@@ -1871,7 +1897,7 @@ static HRESULT WINAPI IShellView_fnCreateViewWindow(
 	}
 
 	/*if our window class has not been registered, then do so*/
-	if(!GetClassInfoA(shell32_hInstance, SV_CLASS_NAME, &wc))
+	if(!GetClassInfoW(shell32_hInstance, SV_CLASS_NAME, &wc))
 	{
 	  ZeroMemory(&wc, sizeof(wc));
 	  wc.style		= CS_HREDRAW | CS_VREDRAW;
@@ -1880,16 +1906,16 @@ static HRESULT WINAPI IShellView_fnCreateViewWindow(
 	  wc.cbWndExtra		= 0;
 	  wc.hInstance		= shell32_hInstance;
 	  wc.hIcon		= 0;
-	  wc.hCursor		= LoadCursorA (0, (LPSTR)IDC_ARROW);
+	  wc.hCursor		= LoadCursorW(0, (LPWSTR)IDC_ARROW);
 	  wc.hbrBackground	= (HBRUSH) (COLOR_WINDOW + 1);
 	  wc.lpszMenuName	= NULL;
 	  wc.lpszClassName	= SV_CLASS_NAME;
 
-	  if(!RegisterClassA(&wc))
+	  if(!RegisterClassW(&wc))
 	    return E_FAIL;
 	}
 
-	*phWnd = CreateWindowExA(0,
+	*phWnd = CreateWindowExW(0,
 				SV_CLASS_NAME,
 				NULL,
 				WS_CHILD | WS_TABSTOP,
@@ -1979,7 +2005,7 @@ static HRESULT WINAPI IShellView_fnSelectItem(
 
 	if (i != -1)
 	{
-	  LVITEMA lvItem;
+	  LVITEMW lvItem;
 
 	  if(uFlags & SVSI_ENSUREVISIBLE)
 	    SendMessageW(This->hWndList, LVM_ENSUREVISIBLE, i, 0);
@@ -1989,7 +2015,7 @@ static HRESULT WINAPI IShellView_fnSelectItem(
 	  lvItem.iItem = 0;
 	  lvItem.iSubItem = 0;
 
-          while(SendMessageA(This->hWndList, LVM_GETITEMA, 0, (LPARAM) &lvItem))
+          while(SendMessageW(This->hWndList, LVM_GETITEMW, 0, (LPARAM) &lvItem))
 	  {
 	    if (lvItem.iItem == i)
 	    {
@@ -2006,7 +2032,7 @@ static HRESULT WINAPI IShellView_fnSelectItem(
 	      if (uFlags & SVSI_DESELECTOTHERS)
 	        lvItem.state &= ~LVIS_SELECTED;
 	    }
-	    SendMessageA(This->hWndList, LVM_SETITEMA, 0, (LPARAM) &lvItem);
+	    SendMessageW(This->hWndList, LVM_SETITEMW, 0, (LPARAM) &lvItem);
 	    lvItem.iItem++;
 	  }
 
@@ -2212,7 +2238,7 @@ static HRESULT drag_notify_subitem(IShellViewImpl *This, DWORD grfKeyState, POIN
     DWORD *pdwEffect)
 {
     LVHITTESTINFO htinfo;
-    LVITEMA lvItem;
+    LVITEMW lvItem;
     LONG lResult;
     HRESULT hr;
     RECT clientRect;
@@ -2270,7 +2296,7 @@ static HRESULT drag_notify_subitem(IShellViewImpl *This, DWORD grfKeyState, POIN
         lvItem.mask = LVIF_PARAM;
         lvItem.iItem = lResult;
         lvItem.iSubItem = 0;
-        SendMessageA(This->hWndList, LVM_GETITEMA, 0, (LPARAM) &lvItem);
+        SendMessageW(This->hWndList, LVM_GETITEMW, 0, (LPARAM) &lvItem);
 
         /* ... and bind pCurDropTarget to the IDropTarget interface of an UIObject of this object */
         hr = IShellFolder_GetUIObjectOf(This->pSFParent, This->hWndList, 1,

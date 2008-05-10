@@ -25,15 +25,19 @@ WINE_DEFAULT_DEBUG_CHANNEL(richedit);
 
 static const WCHAR wszParagraphSign[] = {0xB6, 0};
 
-void ME_MakeFirstParagraph(HDC hDC, ME_TextBuffer *text)
+void ME_MakeFirstParagraph(ME_TextEditor *editor)
 {
+  ME_Context c;
   PARAFORMAT2 fmt;
   CHARFORMAT2W cf;
   LOGFONTW lf;
   HFONT hf;
+  ME_TextBuffer *text = editor->pBuffer;
   ME_DisplayItem *para = ME_MakeDI(diParagraph);
   ME_DisplayItem *run;
   ME_Style *style;
+
+  ME_InitContext(&c, editor, GetDC(editor->hWnd));
 
   hf = (HFONT)GetStockObject(SYSTEM_FONT);
   assert(hf);
@@ -44,29 +48,33 @@ void ME_MakeFirstParagraph(HDC hDC, ME_TextBuffer *text)
   cf.dwMask |= CFM_ALLCAPS|CFM_BOLD|CFM_DISABLED|CFM_EMBOSS|CFM_HIDDEN;
   cf.dwMask |= CFM_IMPRINT|CFM_ITALIC|CFM_LINK|CFM_OUTLINE|CFM_PROTECTED;
   cf.dwMask |= CFM_REVISED|CFM_SHADOW|CFM_SMALLCAPS|CFM_STRIKEOUT;
-  cf.dwMask |= CFM_SUBSCRIPT|CFM_UNDERLINE;
+  cf.dwMask |= CFM_SUBSCRIPT|CFM_UNDERLINETYPE|CFM_WEIGHT;
   
   cf.dwEffects = CFE_AUTOCOLOR | CFE_AUTOBACKCOLOR;
   lstrcpyW(cf.szFaceName, lf.lfFaceName);
-  cf.yHeight=lf.lfHeight*1440/GetDeviceCaps(hDC, LOGPIXELSY);
-  if (lf.lfWeight>=700) /* FIXME correct weight ? */
-    cf.dwEffects |= CFE_BOLD;
+  cf.yHeight = ME_twips2pointsY(&c, lf.lfHeight);
+  if (lf.lfWeight > FW_NORMAL) cf.dwEffects |= CFE_BOLD;
   cf.wWeight = lf.lfWeight;
   if (lf.lfItalic) cf.dwEffects |= CFE_ITALIC;
-  if (lf.lfUnderline) cf.dwEffects |= CFE_UNDERLINE;
+  cf.bUnderlineType = (lf.lfUnderline) ? CFU_CF1UNDERLINE : CFU_UNDERLINENONE;
   if (lf.lfStrikeOut) cf.dwEffects |= CFE_STRIKEOUT;
-  
+  cf.bPitchAndFamily = lf.lfPitchAndFamily;
+  cf.bCharSet = lf.lfCharSet;
+
   ZeroMemory(&fmt, sizeof(fmt));
   fmt.cbSize = sizeof(fmt);
   fmt.dwMask = PFM_ALIGNMENT | PFM_OFFSET | PFM_STARTINDENT | PFM_RIGHTINDENT | PFM_TABSTOPS;
+  fmt.wAlignment = PFA_LEFT;
 
-  CopyMemory(para->member.para.pFmt, &fmt, sizeof(PARAFORMAT2));
-  
+  *para->member.para.pFmt = fmt;
+
   style = ME_MakeStyle(&cf);
   text->pDefaultStyle = style;
   
   run = ME_MakeRun(style, ME_MakeString(wszParagraphSign), MERF_ENDPARA);
   run->member.run.nCharOfs = 0;
+  run->member.run.nCR = 1;
+  run->member.run.nLF = (editor->bEmulateVersion10) ? 1 : 0;
 
   ME_InsertBefore(text->pLast, para);
   ME_InsertBefore(text->pLast, run);
@@ -76,6 +84,8 @@ void ME_MakeFirstParagraph(HDC hDC, ME_TextBuffer *text)
   text->pLast->member.para.prev_para = para;
 
   text->pLast->member.para.nCharOfs = 1;
+
+  ME_DestroyContext(&c, editor->hWnd);
 }
  
 void ME_MarkAllForWrapping(ME_TextEditor *editor)
@@ -83,7 +93,7 @@ void ME_MarkAllForWrapping(ME_TextEditor *editor)
   ME_MarkForWrapping(editor, editor->pBuffer->pFirst->member.para.next_para, editor->pBuffer->pLast);
 }
 
-void ME_MarkForWrapping(ME_TextEditor *editor, ME_DisplayItem *first, ME_DisplayItem *last)
+void ME_MarkForWrapping(ME_TextEditor *editor, ME_DisplayItem *first, const ME_DisplayItem *last)
 {
   while(first != last)
   {
@@ -92,7 +102,7 @@ void ME_MarkForWrapping(ME_TextEditor *editor, ME_DisplayItem *first, ME_Display
   }
 }
 
-void ME_MarkForPainting(ME_TextEditor *editor, ME_DisplayItem *first, ME_DisplayItem *last)
+void ME_MarkForPainting(ME_TextEditor *editor, ME_DisplayItem *first, const ME_DisplayItem *last)
 {
   while(first != last)
   {
@@ -102,7 +112,7 @@ void ME_MarkForPainting(ME_TextEditor *editor, ME_DisplayItem *first, ME_Display
 }
 
 /* split paragraph at the beginning of the run */
-ME_DisplayItem *ME_SplitParagraph(ME_TextEditor *editor, ME_DisplayItem *run, ME_Style *style)
+ME_DisplayItem *ME_SplitParagraph(ME_TextEditor *editor, ME_DisplayItem *run, ME_Style *style, int numCR, int numLF)
 {
   ME_DisplayItem *next_para = NULL;
   ME_DisplayItem *run_para = NULL;
@@ -111,10 +121,12 @@ ME_DisplayItem *ME_SplitParagraph(ME_TextEditor *editor, ME_DisplayItem *run, ME
   ME_UndoItem *undo = NULL;
   int ofs;
   ME_DisplayItem *pp;
-  int end_len = (editor->bEmulateVersion10 ? 2 : 1);
+  int end_len = numCR + numLF;
   
   assert(run->type == diRun);  
 
+  end_run->member.run.nCR = numCR;
+  end_run->member.run.nLF = numLF;
   run_para = ME_GetParagraph(run);
   assert(run_para->member.para.pFmt->cbSize == sizeof(PARAFORMAT2));
 
@@ -137,12 +149,7 @@ ME_DisplayItem *ME_SplitParagraph(ME_TextEditor *editor, ME_DisplayItem *run, ME
   
   new_para->member.para.nFlags = MEPF_REWRAP; /* FIXME copy flags (if applicable) */
   /* FIXME initialize format style and call ME_SetParaFormat blah blah */
-  CopyMemory(new_para->member.para.pFmt, run_para->member.para.pFmt, sizeof(PARAFORMAT2));
-  
-  /* FIXME remove this as soon as nLeftMargin etc are replaced with proper fields of PARAFORMAT2 */
-  new_para->member.para.nLeftMargin = run_para->member.para.nLeftMargin;
-  new_para->member.para.nRightMargin = run_para->member.para.nRightMargin;
-  new_para->member.para.nFirstMargin = run_para->member.para.nFirstMargin;
+  *new_para->member.para.pFmt = *run_para->member.para.pFmt;
 
   new_para->member.para.bTable = run_para->member.para.bTable;
   
@@ -201,7 +208,7 @@ ME_DisplayItem *ME_JoinParagraphs(ME_TextEditor *editor, ME_DisplayItem *tp)
   ME_DisplayItem *pNext, *pFirstRunInNext, *pRun, *pTmp;
   int i, shift;
   ME_UndoItem *undo = NULL;
-  int end_len = (editor->bEmulateVersion10 ? 2 : 1);
+  int end_len;
 
   assert(tp->type == diParagraph);
   assert(tp->member.para.next_para);
@@ -209,6 +216,15 @@ ME_DisplayItem *ME_JoinParagraphs(ME_TextEditor *editor, ME_DisplayItem *tp)
   
   pNext = tp->member.para.next_para;
   
+  /* Need to locate end-of-paragraph run here, in order to know end_len */
+  pRun = ME_FindItemBack(pNext, diRunOrParagraph);
+
+  assert(pRun);
+  assert(pRun->type == diRun);
+  assert(pRun->member.run.nFlags & MERF_ENDPARA);
+
+  end_len = pRun->member.run.nCR + pRun->member.run.nLF;
+
   {
     /* null char format operation to store the original char format for the ENDPARA run */
     CHARFORMAT2W fmt;
@@ -219,18 +235,16 @@ ME_DisplayItem *ME_JoinParagraphs(ME_TextEditor *editor, ME_DisplayItem *tp)
   if (undo)
   {
     undo->nStart = pNext->member.para.nCharOfs - end_len;
+    undo->nCR = pRun->member.run.nCR;
+    undo->nLF = pRun->member.run.nLF;
     assert(pNext->member.para.pFmt->cbSize == sizeof(PARAFORMAT2));
-    CopyMemory(undo->di.member.para.pFmt, pNext->member.para.pFmt, sizeof(PARAFORMAT2));
+    *undo->di.member.para.pFmt = *pNext->member.para.pFmt;
   }
   
   shift = pNext->member.para.nCharOfs - tp->member.para.nCharOfs - end_len;
   
-  pRun = ME_FindItemBack(pNext, diRunOrParagraph);
   pFirstRunInNext = ME_FindItemFwd(pNext, diRunOrParagraph);
-  
-  assert(pRun);
-  assert(pRun->type == diRun);
-  assert(pRun->member.run.nFlags & MERF_ENDPARA);
+
   assert(pFirstRunInNext->type == diRun);
   
   /* if some cursor points at end of paragraph, make it point to the first
@@ -277,71 +291,122 @@ ME_DisplayItem *ME_GetParagraph(ME_DisplayItem *item) {
   return ME_FindItemBackOrHere(item, diParagraph);
 }
 
-static void ME_DumpStyleEffect(char **p, const char *name, PARAFORMAT2 *fmt, int mask)
+void ME_DumpParaStyleToBuf(const PARAFORMAT2 *pFmt, char buf[2048])
 {
-  *p += sprintf(*p, "%-22s%s\n", name, (fmt->dwMask & mask) ? ((fmt->wEffects & mask) ? "yes" : "no") : "N/A");
-}
-
-void ME_DumpParaStyleToBuf(PARAFORMAT2 *pFmt, char buf[2048])
-{
-  /* FIXME only PARAFORMAT styles implemented */
   char *p;
   p = buf;
-  p += sprintf(p, "Alignment:            %s\n",
-    !(pFmt->dwMask & PFM_ALIGNMENT) ? "N/A" :
-      ((pFmt->wAlignment == PFA_LEFT) ? "left" :
-        ((pFmt->wAlignment == PFA_RIGHT) ? "right" :
-          ((pFmt->wAlignment == PFA_CENTER) ? "center" :
-            /*((pFmt->wAlignment == PFA_JUSTIFY) ? "justify" : "incorrect")*/
-            "incorrect"))));
 
-  if (pFmt->dwMask & PFM_OFFSET)
-    p += sprintf(p, "Offset:               %d\n", (int)pFmt->dxOffset);
-  else
-    p += sprintf(p, "Offset:               N/A\n");
-    
-  if (pFmt->dwMask & PFM_OFFSETINDENT)
-    p += sprintf(p, "Offset indent:        %d\n", (int)pFmt->dxStartIndent);
-  else
-    p += sprintf(p, "Offset indent:        N/A\n");
-    
-  if (pFmt->dwMask & PFM_STARTINDENT)
-    p += sprintf(p, "Start indent:         %d\n", (int)pFmt->dxStartIndent);
-  else
-    p += sprintf(p, "Start indent:         N/A\n");
-    
-  if (pFmt->dwMask & PFM_RIGHTINDENT)
-    p += sprintf(p, "Right indent:         %d\n", (int)pFmt->dxRightIndent);
-  else
-    p += sprintf(p, "Right indent:         N/A\n");
-    
-  ME_DumpStyleEffect(&p, "Page break before:", pFmt, PFM_PAGEBREAKBEFORE);
+#define DUMP(mask, name, fmt, field) \
+  if (pFmt->dwMask & (mask)) p += sprintf(p, "%-22s" fmt "\n", name, pFmt->field); \
+  else p += sprintf(p, "%-22sN/A\n", name);
+
+/* we take for granted that PFE_xxx is the hiword of the corresponding PFM_xxx */
+#define DUMP_EFFECT(mask, name) \
+  p += sprintf(p, "%-22s%s\n", name, (pFmt->dwMask & (mask)) ? ((pFmt->wEffects & ((mask) >> 8)) ? "yes" : "no") : "N/A");
+
+  DUMP(PFM_NUMBERING,      "Numbering:",         "%u", wNumbering);
+  DUMP_EFFECT(PFM_DONOTHYPHEN,     "Disable auto-hyphen:");
+  DUMP_EFFECT(PFM_KEEP,            "No page break in para:");
+  DUMP_EFFECT(PFM_KEEPNEXT,        "No page break in para & next:");
+  DUMP_EFFECT(PFM_NOLINENUMBER,    "No line number:");
+  DUMP_EFFECT(PFM_NOWIDOWCONTROL,  "No widow & orphan:");
+  DUMP_EFFECT(PFM_PAGEBREAKBEFORE, "Page break before:");
+  DUMP_EFFECT(PFM_RTLPARA,         "RTL para:");
+  DUMP_EFFECT(PFM_SIDEBYSIDE,      "Side by side:");
+  DUMP_EFFECT(PFM_TABLE,           "Table:");
+  DUMP(PFM_OFFSETINDENT,   "Offset indent:",     "%d", dxStartIndent);
+  DUMP(PFM_STARTINDENT,    "Start indent:",      "%d", dxStartIndent);
+  DUMP(PFM_RIGHTINDENT,    "Right indent:",      "%d", dxRightIndent);
+  DUMP(PFM_OFFSET,         "Offset:",            "%d", dxOffset);
+  if (pFmt->dwMask & PFM_ALIGNMENT) {
+    switch (pFmt->wAlignment) {
+    case PFA_LEFT   : p += sprintf(p, "Alignment:            left\n"); break;
+    case PFA_RIGHT  : p += sprintf(p, "Alignment:            right\n"); break;
+    case PFA_CENTER : p += sprintf(p, "Alignment:            center\n"); break;
+    case PFA_JUSTIFY: p += sprintf(p, "Alignment:            justify\n"); break;
+    default         : p += sprintf(p, "Alignment:            incorrect %d\n", pFmt->wAlignment); break;
+    }
+  }
+  else p += sprintf(p, "Alignment:            N/A\n");
+  DUMP(PFM_TABSTOPS,       "Tab Stops:",         "%d", cTabCount);
+  if (pFmt->dwMask & PFM_TABSTOPS) {
+    int i;
+    p += sprintf(p, "\t");
+    for (i = 0; i < pFmt->cTabCount; i++) p += sprintf(p, "%x ", pFmt->rgxTabs[i]);
+    p += sprintf(p, "\n");
+  }
+  DUMP(PFM_SPACEBEFORE,    "Space Before:",      "%d", dySpaceBefore);
+  DUMP(PFM_SPACEAFTER,     "Space After:",       "%d", dySpaceAfter);
+  DUMP(PFM_LINESPACING,    "Line spacing:",      "%d", dyLineSpacing);
+  DUMP(PFM_STYLE,          "Text style:",        "%d", sStyle);
+  DUMP(PFM_LINESPACING,    "Line spacing rule:", "%u", bLineSpacingRule);
+  /* bOutlineLevel should be 0 */
+  DUMP(PFM_SHADING,        "Shading Weigth:",    "%u", wShadingWeight);
+  DUMP(PFM_SHADING,        "Shading Style:",     "%u", wShadingStyle);
+  DUMP(PFM_NUMBERINGSTART, "Numbering Start:",   "%u", wNumberingStart);
+  DUMP(PFM_NUMBERINGSTYLE, "Numbering Style:",   "0x%x", wNumberingStyle);
+  DUMP(PFM_NUMBERINGTAB,   "Numbering Tab:",     "%u", wNumberingStyle);
+  DUMP(PFM_BORDER,         "Border Space:",      "%u", wBorderSpace);
+  DUMP(PFM_BORDER,         "Border Width:",      "%u", wBorderWidth);
+  DUMP(PFM_BORDER,         "Borders:",           "%u", wBorders);
+
+#undef DUMP
+#undef DUMP_EFFECT
 }
 
-void ME_SetParaFormat(ME_TextEditor *editor, ME_DisplayItem *para, PARAFORMAT2 *pFmt)
+void ME_SetParaFormat(ME_TextEditor *editor, ME_DisplayItem *para, const PARAFORMAT2 *pFmt)
 {
   PARAFORMAT2 copy;
   assert(sizeof(*para->member.para.pFmt) == sizeof(PARAFORMAT2));
   ME_AddUndoItem(editor, diUndoSetParagraphFormat, para);
   
-  CopyMemory(&copy, para->member.para.pFmt, sizeof(PARAFORMAT2));
+  copy = *para->member.para.pFmt;
 
-  if (pFmt->dwMask & PFM_ALIGNMENT)
-    para->member.para.pFmt->wAlignment = pFmt->wAlignment;
-  if (pFmt->dwMask & PFM_STARTINDENT)
-    para->member.para.pFmt->dxStartIndent = pFmt->dxStartIndent;
-  if (pFmt->dwMask & PFM_OFFSET)
-    para->member.para.pFmt->dxOffset = pFmt->dxOffset;
+#define COPY_FIELD(m, f) \
+  if (pFmt->dwMask & (m)) {                     \
+    para->member.para.pFmt->dwMask |= m;        \
+    para->member.para.pFmt->f = pFmt->f;        \
+  }
+
+  COPY_FIELD(PFM_NUMBERING, wNumbering);
+#define EFFECTS_MASK (PFM_RTLPARA|PFM_KEEP|PFM_KEEPNEXT|PFM_PAGEBREAKBEFORE| \
+                      PFM_NOLINENUMBER|PFM_NOWIDOWCONTROL|PFM_DONOTHYPHEN|PFM_SIDEBYSIDE| \
+                      PFM_TABLE)
+  /* we take for granted that PFE_xxx is the hiword of the corresponding PFM_xxx */
+  if (pFmt->dwMask & EFFECTS_MASK) {
+    para->member.para.pFmt->dwMask &= ~(pFmt->dwMask & EFFECTS_MASK);
+    para->member.para.pFmt->wEffects |= pFmt->wEffects & HIWORD(pFmt->dwMask);
+  }
+#undef EFFECTS_MASK
+
+  COPY_FIELD(PFM_STARTINDENT, dxStartIndent);
   if (pFmt->dwMask & PFM_OFFSETINDENT)
     para->member.para.pFmt->dxStartIndent += pFmt->dxStartIndent;
-    
+  COPY_FIELD(PFM_RIGHTINDENT, dxRightIndent);
+  COPY_FIELD(PFM_OFFSET, dxOffset);
+  COPY_FIELD(PFM_ALIGNMENT, wAlignment);
+
   if (pFmt->dwMask & PFM_TABSTOPS)
   {
     para->member.para.pFmt->cTabCount = pFmt->cTabCount;
-    memcpy(para->member.para.pFmt->rgxTabs, pFmt->rgxTabs, pFmt->cTabCount*sizeof(int));
+    memcpy(para->member.para.pFmt->rgxTabs, pFmt->rgxTabs, pFmt->cTabCount*sizeof(LONG));
   }
-    
-  /* FIXME to be continued (indents, bulleting and such) */
+  COPY_FIELD(PFM_SPACEBEFORE, dySpaceBefore);
+  COPY_FIELD(PFM_SPACEAFTER, dySpaceAfter);
+  COPY_FIELD(PFM_LINESPACING, dyLineSpacing);
+  COPY_FIELD(PFM_STYLE, sStyle);
+  COPY_FIELD(PFM_LINESPACING, bLineSpacingRule);
+  COPY_FIELD(PFM_SHADING, wShadingWeight);
+  COPY_FIELD(PFM_SHADING, wShadingStyle);
+  COPY_FIELD(PFM_NUMBERINGSTART, wNumberingStart);
+  COPY_FIELD(PFM_NUMBERINGSTYLE, wNumberingStyle);
+  COPY_FIELD(PFM_NUMBERINGTAB, wNumberingTab);
+  COPY_FIELD(PFM_BORDER, wBorderSpace);
+  COPY_FIELD(PFM_BORDER, wBorderWidth);
+  COPY_FIELD(PFM_BORDER, wBorders);
+
+  para->member.para.pFmt->dwMask |= pFmt->dwMask;
+#undef COPY_FIELD
 
   if (memcmp(&copy, para->member.para.pFmt, sizeof(PARAFORMAT2)))
     para->member.para.nFlags |= MEPF_REWRAP;
@@ -372,7 +437,7 @@ ME_GetSelectionParas(ME_TextEditor *editor, ME_DisplayItem **para, ME_DisplayIte
 }
 
 
-void ME_SetSelectionParaFormat(ME_TextEditor *editor, PARAFORMAT2 *pFmt)
+void ME_SetSelectionParaFormat(ME_TextEditor *editor, const PARAFORMAT2 *pFmt)
 {
   ME_DisplayItem *para, *para_end;
   
@@ -386,11 +451,11 @@ void ME_SetSelectionParaFormat(ME_TextEditor *editor, PARAFORMAT2 *pFmt)
   } while(1);
 }
 
-void ME_GetParaFormat(ME_TextEditor *editor, ME_DisplayItem *para, PARAFORMAT2 *pFmt)
+void ME_GetParaFormat(ME_TextEditor *editor, const ME_DisplayItem *para, PARAFORMAT2 *pFmt)
 {
   if (pFmt->cbSize >= sizeof(PARAFORMAT2))
   {
-    CopyMemory(pFmt, para->member.para.pFmt, sizeof(PARAFORMAT2));
+    *pFmt = *para->member.para.pFmt;
     return;
   }
   CopyMemory(pFmt, para->member.para.pFmt, pFmt->cbSize);  
@@ -410,28 +475,45 @@ void ME_GetSelectionParaFormat(ME_TextEditor *editor, PARAFORMAT2 *pFmt)
     ZeroMemory(&tmp, sizeof(tmp));
     tmp.cbSize = sizeof(tmp);
     ME_GetParaFormat(editor, para, &tmp);
-    
-    assert(tmp.dwMask & PFM_ALIGNMENT);    
-    if (pFmt->wAlignment != tmp.wAlignment)
-      pFmt->dwMask &= ~PFM_ALIGNMENT;
-    
+
+#define CHECK_FIELD(m, f) \
+    if (pFmt->f != tmp.f) pFmt->dwMask &= ~(m);
+
+    CHECK_FIELD(PFM_NUMBERING, wNumbering);
+    /* para->member.para.pFmt->wEffects = pFmt->wEffects; */
+    assert(tmp.dwMask & PFM_ALIGNMENT);
+    CHECK_FIELD(PFM_NUMBERING, wNumbering);
     assert(tmp.dwMask & PFM_STARTINDENT);
-    if (pFmt->dxStartIndent != tmp.dxStartIndent)
-      pFmt->dwMask &= ~PFM_STARTINDENT;
-    
+    CHECK_FIELD(PFM_STARTINDENT, dxStartIndent);
+    assert(tmp.dwMask & PFM_RIGHTINDENT);
+    CHECK_FIELD(PFM_RIGHTINDENT, dxRightIndent);
     assert(tmp.dwMask & PFM_OFFSET);
-    if (pFmt->dxOffset != tmp.dxOffset)
-      pFmt->dwMask &= ~PFM_OFFSET;
-    
-    assert(tmp.dwMask & PFM_TABSTOPS);    
+    CHECK_FIELD(PFM_OFFSET, dxOffset);
+    CHECK_FIELD(PFM_ALIGNMENT, wAlignment);
+
+    assert(tmp.dwMask & PFM_TABSTOPS);
     if (pFmt->dwMask & PFM_TABSTOPS) {
-      if (pFmt->cTabCount != tmp.cTabCount)
-        pFmt->dwMask &= ~PFM_TABSTOPS;
-      else
-      if (memcmp(pFmt->rgxTabs, tmp.rgxTabs, tmp.cTabCount*sizeof(int)))
+      if (pFmt->cTabCount != tmp.cTabCount ||
+          memcmp(pFmt->rgxTabs, tmp.rgxTabs, tmp.cTabCount*sizeof(int)))
         pFmt->dwMask &= ~PFM_TABSTOPS;
     }
-    
+
+    CHECK_FIELD(PFM_SPACEBEFORE, dySpaceBefore);
+    CHECK_FIELD(PFM_SPACEAFTER, dySpaceAfter);
+    CHECK_FIELD(PFM_LINESPACING, dyLineSpacing);
+    CHECK_FIELD(PFM_STYLE, sStyle);
+    CHECK_FIELD(PFM_SPACEAFTER, bLineSpacingRule);
+    CHECK_FIELD(PFM_SHADING, wShadingWeight);
+    CHECK_FIELD(PFM_SHADING, wShadingStyle);
+    CHECK_FIELD(PFM_NUMBERINGSTART, wNumberingStart);
+    CHECK_FIELD(PFM_NUMBERINGSTYLE, wNumberingStyle);
+    CHECK_FIELD(PFM_NUMBERINGTAB, wNumberingTab);
+    CHECK_FIELD(PFM_BORDER, wBorderSpace);
+    CHECK_FIELD(PFM_BORDER, wBorderWidth);
+    CHECK_FIELD(PFM_BORDER, wBorders);
+
+#undef CHECK_FIELD
+
     if (para == para_end)
       return;
     para = para->member.para.next_para;

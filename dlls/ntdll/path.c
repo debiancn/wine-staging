@@ -39,7 +39,6 @@
 #include "wine/unicode.h"
 #include "wine/debug.h"
 #include "wine/library.h"
-#include "thread.h"
 #include "ntdll_misc.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(file);
@@ -49,52 +48,6 @@ static const WCHAR NTDosPrefixW[] = {'\\','?','?','\\',0};
 static const WCHAR UncPfxW[] = {'U','N','C','\\',0};
 
 #define IS_SEPARATOR(ch)  ((ch) == '\\' || (ch) == '/')
-
-#define MAX_DOS_DRIVES 26
-
-struct drive_info
-{
-    dev_t dev;
-    ino_t ino;
-};
-
-/***********************************************************************
- *           get_drives_info
- *
- * Retrieve device/inode number for all the drives. Helper for find_drive_root.
- */
-static inline int get_drives_info( struct drive_info info[MAX_DOS_DRIVES] )
-{
-    const char *config_dir = wine_get_config_dir();
-    char *buffer, *p;
-    struct stat st;
-    int i, ret;
-
-    buffer = RtlAllocateHeap( GetProcessHeap(), 0, strlen(config_dir) + sizeof("/dosdevices/a:") );
-    if (!buffer) return 0;
-    strcpy( buffer, config_dir );
-    strcat( buffer, "/dosdevices/a:" );
-    p = buffer + strlen(buffer) - 2;
-
-    for (i = ret = 0; i < MAX_DOS_DRIVES; i++)
-    {
-        *p = 'a' + i;
-        if (!stat( buffer, &st ))
-        {
-            info[i].dev = st.st_dev;
-            info[i].ino = st.st_ino;
-            ret++;
-        }
-        else
-        {
-            info[i].dev = 0;
-            info[i].ino = 0;
-        }
-    }
-    RtlFreeHeap( GetProcessHeap(), 0, buffer );
-    return ret;
-}
-
 
 /***********************************************************************
  *           remove_last_componentA
@@ -149,7 +102,7 @@ static NTSTATUS find_drive_rootA( LPCSTR *ppath, unsigned int len, int *drive_re
     struct drive_info info[MAX_DOS_DRIVES];
 
     /* get device and inode of all drives */
-    if (!get_drives_info( info )) return STATUS_OBJECT_PATH_NOT_FOUND;
+    if (!DIR_get_drives_info( info )) return STATUS_OBJECT_PATH_NOT_FOUND;
 
     /* strip off trailing slashes */
     while (len > 1 && path[len - 1] == '/') len--;
@@ -240,7 +193,7 @@ static int find_drive_rootW( LPCWSTR *ppath )
     struct drive_info info[MAX_DOS_DRIVES];
 
     /* get device and inode of all drives */
-    if (!get_drives_info( info )) return -1;
+    if (!DIR_get_drives_info( info )) return -1;
 
     /* strip off trailing slashes */
     lenW = strlenW(path);
@@ -475,7 +428,7 @@ BOOLEAN  WINAPI RtlDosPathNameToNtPathName_U(PCWSTR dos_path,
 /******************************************************************
  *		RtlDosSearchPath_U
  *
- * Searchs a file of name 'name' into a ';' separated list of paths
+ * Searches a file of name 'name' into a ';' separated list of paths
  * (stored in paths)
  * Doesn't seem to search elsewhere than the paths list
  * Stores the result in buffer (file_part will point to the position
@@ -643,7 +596,6 @@ static const WCHAR *skip_unc_prefix( const WCHAR *ptr )
 static ULONG get_full_path_helper(LPCWSTR name, LPWSTR buffer, ULONG size)
 {
     ULONG                       reqsize = 0, mark = 0, dep = 0, deplen;
-    DOS_PATHNAME_TYPE           type;
     LPWSTR                      ins_str = NULL;
     LPCWSTR                     ptr;
     const UNICODE_STRING*       cd;
@@ -660,7 +612,7 @@ static ULONG get_full_path_helper(LPCWSTR name, LPWSTR buffer, ULONG size)
     else
         cd = &NtCurrentTeb()->Peb->ProcessParameters->CurrentDirectory.DosPath;
 
-    switch (type = RtlDetermineDosPathNameType_U(name))
+    switch (RtlDetermineDosPathNameType_U(name))
     {
     case UNC_PATH:              /* \\foo   */
         ptr = skip_unc_prefix( name );
@@ -855,7 +807,7 @@ DWORD WINAPI RtlGetFullPathName_U(const WCHAR* name, ULONG size, WCHAR* buffer,
     {
         LPWSTR tmp = RtlAllocateHeap(GetProcessHeap(), 0, reqsize);
         reqsize = get_full_path_helper(name, tmp, reqsize);
-        if (reqsize > size)  /* it may have worked the second time */
+        if (reqsize + sizeof(WCHAR) > size)  /* it may have worked the second time */
         {
             RtlFreeHeap(GetProcessHeap(), 0, tmp);
             return reqsize + sizeof(WCHAR);
@@ -1071,7 +1023,7 @@ NTSTATUS WINAPI RtlSetCurrentDirectory_U(const UNICODE_STRING* dir)
  */
 NTSTATUS wine_unix_to_nt_file_name( const ANSI_STRING *name, UNICODE_STRING *nt )
 {
-    static const WCHAR prefixW[] = {'\\','?','?','\\','a',':','\\'};
+    static const WCHAR prefixW[] = {'\\','?','?','\\','A',':','\\'};
     unsigned int lenW, lenA = name->Length;
     const char *path = name->Buffer;
     char *cwd;

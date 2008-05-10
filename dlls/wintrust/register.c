@@ -26,12 +26,13 @@
 #include "winuser.h"
 #include "winreg.h"
 #include "winnls.h"
+#include "objbase.h"
 
 #include "guiddef.h"
 #include "wintrust.h"
 #include "softpub.h"
 #include "mssip.h"
-
+#include "wintrust_priv.h"
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(wintrust);
@@ -61,6 +62,8 @@ static CRYPT_TRUST_REG_ENTRY DriverCleanupPolicy;
 static CRYPT_TRUST_REG_ENTRY GenericChainCertificateTrust;
 static CRYPT_TRUST_REG_ENTRY GenericChainFinalProv;
 
+static const CRYPT_TRUST_REG_ENTRY NullCTRE = { 0, NULL, NULL };
+
 static const WCHAR Trust[]            = {'S','o','f','t','w','a','r','e','\\',
                                          'M','i','c','r','o','s','o','f','t','\\',
                                          'C','r','y','p','t','o','g','r','a','p','h','y','\\',
@@ -89,9 +92,9 @@ static void WINTRUST_InitRegStructs(void)
 {
 #define WINTRUST_INITREGENTRY( action, dllname, functionname ) \
     action.cbStruct = sizeof(CRYPT_TRUST_REG_ENTRY); \
-    action.pwszDLLName = HeapAlloc(GetProcessHeap(), 0, sizeof(dllname)); \
+    action.pwszDLLName = WINTRUST_Alloc(sizeof(dllname)); \
     lstrcpyW(action.pwszDLLName, dllname); \
-    action.pwszFunctionName = HeapAlloc(GetProcessHeap(), 0, sizeof(functionname)); \
+    action.pwszFunctionName = WINTRUST_Alloc(sizeof(functionname)); \
     lstrcpyW(action.pwszFunctionName, functionname);
 
     WINTRUST_INITREGENTRY(SoftpubInitialization, SP_POLICY_PROVIDER_DLL_NAME, SP_INIT_FUNCTION)
@@ -125,8 +128,8 @@ static void WINTRUST_InitRegStructs(void)
 static void WINTRUST_FreeRegStructs(void)
 {
 #define WINTRUST_FREEREGENTRY( action ) \
-    HeapFree(GetProcessHeap(), 0, action.pwszDLLName); \
-    HeapFree(GetProcessHeap(), 0, action.pwszFunctionName);
+    WINTRUST_Free(action.pwszDLLName); \
+    WINTRUST_Free(action.pwszFunctionName);
 
     WINTRUST_FREEREGENTRY(SoftpubInitialization);
     WINTRUST_FREEREGENTRY(SoftpubMessage);
@@ -380,11 +383,11 @@ static LONG WINTRUST_WriteSingleUsageEntry(LPCSTR OID,
 
     /* Turn OID into a wide-character string */
     Len = MultiByteToWideChar( CP_ACP, 0, OID, -1, NULL, 0 );
-    OIDW = HeapAlloc( GetProcessHeap(), 0, Len * sizeof(WCHAR) );
+    OIDW = WINTRUST_Alloc( Len * sizeof(WCHAR) );
     MultiByteToWideChar( CP_ACP, 0, OID, -1, OIDW, Len );
 
     /* Allocate the needed space for UsageKey */
-    UsageKey = HeapAlloc(GetProcessHeap(), 0, (lstrlenW(Trust) + lstrlenW(Usages) + Len) * sizeof(WCHAR));
+    UsageKey = WINTRUST_Alloc((lstrlenW(Trust) + lstrlenW(Usages) + Len) * sizeof(WCHAR));
     /* Create the key string */
     lstrcpyW(UsageKey, Trust);
     lstrcatW(UsageKey, Usages);
@@ -399,8 +402,8 @@ static LONG WINTRUST_WriteSingleUsageEntry(LPCSTR OID,
     }
     RegCloseKey(Key);
 
-    HeapFree(GetProcessHeap(), 0, OIDW);
-    HeapFree(GetProcessHeap(), 0, UsageKey);
+    WINTRUST_Free(OIDW);
+    WINTRUST_Free(UsageKey);
 
     return Res;
 }
@@ -418,20 +421,22 @@ static BOOL WINTRUST_RegisterGenVerifyV2(void)
 {
     BOOL RegisteredOK = TRUE;
     static GUID ProvGUID = WINTRUST_ACTION_GENERIC_VERIFY_V2;
-    CRYPT_REGISTER_ACTIONID ProvInfo = { sizeof(CRYPT_REGISTER_ACTIONID),
-                                         SoftpubInitialization,
-                                         SoftpubMessage,
-                                         SoftpubSignature,
-                                         SoftpubCertficate,
-                                         SoftpubCertCheck,
-                                         SoftpubFinalPolicy,
-                                         { 0, NULL, NULL }, /* No diagnostic policy */
-                                         SoftpubCleanup };
+    CRYPT_REGISTER_ACTIONID ProvInfo;
     CRYPT_PROVIDER_REGDEFUSAGE DefUsage = { sizeof(CRYPT_PROVIDER_REGDEFUSAGE),
                                             &ProvGUID,
                                             NULL,   /* No Dll provided */
                                             NULL,   /* No load callback function */
                                             NULL }; /* No free callback function */
+
+    ProvInfo.cbStruct                   = sizeof(CRYPT_REGISTER_ACTIONID);
+    ProvInfo.sInitProvider              = SoftpubInitialization;
+    ProvInfo.sObjectProvider            = SoftpubMessage;
+    ProvInfo.sSignatureProvider         = SoftpubSignature;
+    ProvInfo.sCertificateProvider       = SoftpubCertficate;
+    ProvInfo.sCertificatePolicyProvider = SoftpubCertCheck;
+    ProvInfo.sFinalPolicyProvider       = SoftpubFinalPolicy;
+    ProvInfo.sTestPolicyProvider        = NullCTRE; /* No diagnostic policy */
+    ProvInfo.sCleanupProvider           = SoftpubCleanup;
 
     if (!WintrustAddDefaultForUsage(szOID_PKIX_KP_CODE_SIGNING, &DefUsage))
         RegisteredOK = FALSE;
@@ -454,15 +459,17 @@ static BOOL WINTRUST_RegisterGenVerifyV2(void)
 static BOOL WINTRUST_RegisterPublishedSoftware(void)
 {
     static GUID ProvGUID = WIN_SPUB_ACTION_PUBLISHED_SOFTWARE;
-    CRYPT_REGISTER_ACTIONID ProvInfo = { sizeof(CRYPT_REGISTER_ACTIONID),
-                                         SoftpubInitialization,
-                                         SoftpubMessage,
-                                         SoftpubSignature,
-                                         SoftpubCertficate,
-                                         SoftpubCertCheck,
-                                         SoftpubFinalPolicy,
-                                         { 0, NULL, NULL }, /* No diagnostic policy */
-                                         SoftpubCleanup };
+    CRYPT_REGISTER_ACTIONID ProvInfo;
+
+    ProvInfo.cbStruct                   = sizeof(CRYPT_REGISTER_ACTIONID);
+    ProvInfo.sInitProvider              = SoftpubInitialization;
+    ProvInfo.sObjectProvider            = SoftpubMessage;
+    ProvInfo.sSignatureProvider         = SoftpubSignature;
+    ProvInfo.sCertificateProvider       = SoftpubCertficate;
+    ProvInfo.sCertificatePolicyProvider = SoftpubCertCheck;
+    ProvInfo.sFinalPolicyProvider       = SoftpubFinalPolicy;
+    ProvInfo.sTestPolicyProvider        = NullCTRE; /* No diagnostic policy */
+    ProvInfo.sCleanupProvider           = SoftpubCleanup;
 
     if (!WintrustAddActionID(&ProvGUID, 0, &ProvInfo))
         return FALSE;
@@ -484,15 +491,17 @@ static BOOL WINTRUST_RegisterPublishedSoftware(void)
 static BOOL WINTRUST_RegisterPublishedSoftwareNoBadUi(void)
 {
     static GUID ProvGUID = WIN_SPUB_ACTION_PUBLISHED_SOFTWARE_NOBADUI;
-    CRYPT_REGISTER_ACTIONID ProvInfo = { sizeof(CRYPT_REGISTER_ACTIONID),
-                                         SoftpubInitialization,
-                                         SoftpubMessage,
-                                         SoftpubSignature,
-                                         SoftpubCertficate,
-                                         SoftpubCertCheck,
-                                         SoftpubFinalPolicy,
-                                         { 0, NULL, NULL }, /* No diagnostic policy */
-                                         SoftpubCleanup };
+    CRYPT_REGISTER_ACTIONID ProvInfo;
+
+    ProvInfo.cbStruct                   = sizeof(CRYPT_REGISTER_ACTIONID);
+    ProvInfo.sInitProvider              = SoftpubInitialization;
+    ProvInfo.sObjectProvider            = SoftpubMessage;
+    ProvInfo.sSignatureProvider         = SoftpubSignature;
+    ProvInfo.sCertificateProvider       = SoftpubCertficate;
+    ProvInfo.sCertificatePolicyProvider = SoftpubCertCheck;
+    ProvInfo.sFinalPolicyProvider       = SoftpubFinalPolicy;
+    ProvInfo.sTestPolicyProvider        = NullCTRE; /* No diagnostic policy */
+    ProvInfo.sCleanupProvider           = SoftpubCleanup;
 
     if (!WintrustAddActionID(&ProvGUID, 0, &ProvInfo))
         return FALSE;
@@ -512,15 +521,17 @@ static BOOL WINTRUST_RegisterPublishedSoftwareNoBadUi(void)
 static BOOL WINTRUST_RegisterGenCertVerify(void)
 {
     static GUID ProvGUID = WINTRUST_ACTION_GENERIC_CERT_VERIFY;
-    CRYPT_REGISTER_ACTIONID ProvInfo = { sizeof(CRYPT_REGISTER_ACTIONID),
-                                         SoftpubDefCertInit,
-                                         SoftpubMessage,
-                                         SoftpubSignature,
-                                         SoftpubCertficate,
-                                         SoftpubCertCheck,
-                                         SoftpubFinalPolicy,
-                                         { 0, NULL, NULL }, /* No diagnostic policy */
-                                         SoftpubCleanup };
+    CRYPT_REGISTER_ACTIONID ProvInfo;
+
+    ProvInfo.cbStruct                   = sizeof(CRYPT_REGISTER_ACTIONID);
+    ProvInfo.sInitProvider              = SoftpubDefCertInit;
+    ProvInfo.sObjectProvider            = SoftpubMessage;
+    ProvInfo.sSignatureProvider         = SoftpubSignature;
+    ProvInfo.sCertificateProvider       = SoftpubCertficate;
+    ProvInfo.sCertificatePolicyProvider = SoftpubCertCheck;
+    ProvInfo.sFinalPolicyProvider       = SoftpubFinalPolicy;
+    ProvInfo.sTestPolicyProvider        = NullCTRE; /* No diagnostic policy */
+    ProvInfo.sCleanupProvider           = SoftpubCleanup;
 
     if (!WintrustAddActionID(&ProvGUID, 0, &ProvInfo))
         return FALSE;
@@ -540,15 +551,17 @@ static BOOL WINTRUST_RegisterGenCertVerify(void)
 static BOOL WINTRUST_RegisterTrustProviderTest(void)
 {
     static GUID ProvGUID = WINTRUST_ACTION_TRUSTPROVIDER_TEST;
-    CRYPT_REGISTER_ACTIONID ProvInfo = { sizeof(CRYPT_REGISTER_ACTIONID),
-                                         SoftpubInitialization,
-                                         SoftpubMessage,
-                                         SoftpubSignature,
-                                         SoftpubCertficate,
-                                         SoftpubCertCheck,
-                                         SoftpubFinalPolicy,
-                                         SoftpubDumpStructure,
-                                         SoftpubCleanup };
+    CRYPT_REGISTER_ACTIONID ProvInfo;
+
+    ProvInfo.cbStruct                   = sizeof(CRYPT_REGISTER_ACTIONID);
+    ProvInfo.sInitProvider              = SoftpubInitialization;
+    ProvInfo.sObjectProvider            = SoftpubMessage;
+    ProvInfo.sSignatureProvider         = SoftpubSignature;
+    ProvInfo.sCertificateProvider       = SoftpubCertficate;
+    ProvInfo.sCertificatePolicyProvider = SoftpubCertCheck;
+    ProvInfo.sFinalPolicyProvider       = SoftpubFinalPolicy;
+    ProvInfo.sTestPolicyProvider        = SoftpubDumpStructure;
+    ProvInfo.sCleanupProvider           = SoftpubCleanup;
 
     if (!WintrustAddActionID(&ProvGUID, 0, &ProvInfo))
         return FALSE;
@@ -571,22 +584,24 @@ static BOOL WINTRUST_RegisterHttpsProv(void)
     static CHAR SoftpubLoadUsage[] = "SoftpubLoadDefUsageCallData";
     static CHAR SoftpubFreeUsage[] = "SoftpubFreeDefUsageCallData";
     static GUID ProvGUID = HTTPSPROV_ACTION;
-    CRYPT_REGISTER_ACTIONID ProvInfo = { sizeof(CRYPT_REGISTER_ACTIONID),
-                                         SoftpubInitialization,
-                                         SoftpubMessage,
-                                         SoftpubSignature,
-                                         HTTPSCertificateTrust,
-                                         SoftpubCertCheck,
-                                         HTTPSFinalProv,
-                                         { 0, NULL, NULL }, /* No diagnostic policy */
-                                         SoftpubCleanup };
+    CRYPT_REGISTER_ACTIONID ProvInfo;
     CRYPT_PROVIDER_REGDEFUSAGE DefUsage = { sizeof(CRYPT_PROVIDER_REGDEFUSAGE),
                                             &ProvGUID,
                                             NULL, /* Will be filled later */
                                             SoftpubLoadUsage,
                                             SoftpubFreeUsage };
 
-    DefUsage.pwszDllName = HeapAlloc(GetProcessHeap(), 0, sizeof(SP_POLICY_PROVIDER_DLL_NAME));
+    ProvInfo.cbStruct                   = sizeof(CRYPT_REGISTER_ACTIONID);
+    ProvInfo.sInitProvider              = SoftpubInitialization;
+    ProvInfo.sObjectProvider            = SoftpubMessage;
+    ProvInfo.sSignatureProvider         = SoftpubSignature;
+    ProvInfo.sCertificateProvider       = HTTPSCertificateTrust;
+    ProvInfo.sCertificatePolicyProvider = SoftpubCertCheck;
+    ProvInfo.sFinalPolicyProvider       = HTTPSFinalProv;
+    ProvInfo.sTestPolicyProvider        = NullCTRE; /* No diagnostic policy */
+    ProvInfo.sCleanupProvider           = SoftpubCleanup;
+
+    DefUsage.pwszDllName = WINTRUST_Alloc(sizeof(SP_POLICY_PROVIDER_DLL_NAME));
     lstrcpyW(DefUsage.pwszDllName, SP_POLICY_PROVIDER_DLL_NAME);
 
     if (!WintrustAddDefaultForUsage(szOID_PKIX_KP_SERVER_AUTH, &DefUsage))
@@ -598,7 +613,7 @@ static BOOL WINTRUST_RegisterHttpsProv(void)
     if (!WintrustAddDefaultForUsage(szOID_SGC_NETSCAPE, &DefUsage))
         RegisteredOK = FALSE;
 
-    HeapFree(GetProcessHeap(), 0, DefUsage.pwszDllName);
+    WINTRUST_Free(DefUsage.pwszDllName);
 
     if (!WintrustAddActionID(&ProvGUID, 0, &ProvInfo))
         RegisteredOK = FALSE;
@@ -618,15 +633,18 @@ static BOOL WINTRUST_RegisterHttpsProv(void)
 static BOOL WINTRUST_RegisterOfficeSignVerify(void)
 {
     static GUID ProvGUID = OFFICESIGN_ACTION_VERIFY;
-    CRYPT_REGISTER_ACTIONID ProvInfo = { sizeof(CRYPT_REGISTER_ACTIONID),
-                                         OfficeInitializePolicy,
-                                         SoftpubMessage,
-                                         SoftpubSignature,
-                                         SoftpubCertficate,
-                                         SoftpubCertCheck,
-                                         SoftpubFinalPolicy,
-                                         { 0, NULL, NULL }, /* No diagnostic policy */
-                                         OfficeCleanupPolicy };
+    CRYPT_REGISTER_ACTIONID ProvInfo;
+
+    ProvInfo.cbStruct                   = sizeof(CRYPT_REGISTER_ACTIONID);
+    ProvInfo.sInitProvider              = OfficeInitializePolicy;
+    ProvInfo.sObjectProvider            = SoftpubMessage;
+    ProvInfo.sSignatureProvider         = SoftpubSignature;
+    ProvInfo.sCertificateProvider       = SoftpubCertficate;
+    ProvInfo.sCertificatePolicyProvider = SoftpubCertCheck;
+    ProvInfo.sFinalPolicyProvider       = SoftpubFinalPolicy;
+    ProvInfo.sTestPolicyProvider        = NullCTRE; /* No diagnostic policy */
+    ProvInfo.sCleanupProvider           = OfficeCleanupPolicy;
+
 
     if (!WintrustAddActionID(&ProvGUID, 0, &ProvInfo))
         return FALSE;
@@ -646,15 +664,18 @@ static BOOL WINTRUST_RegisterOfficeSignVerify(void)
 static BOOL WINTRUST_RegisterDriverVerify(void)
 {
     static GUID ProvGUID = DRIVER_ACTION_VERIFY;
-    CRYPT_REGISTER_ACTIONID ProvInfo = { sizeof(CRYPT_REGISTER_ACTIONID),
-                                         DriverInitializePolicy,
-                                         SoftpubMessage,
-                                         SoftpubSignature,
-                                         SoftpubCertficate,
-                                         SoftpubCertCheck,
-                                         DriverFinalPolicy,
-                                         { 0, NULL, NULL }, /* No diagnostic policy */
-                                         DriverCleanupPolicy };
+    CRYPT_REGISTER_ACTIONID ProvInfo;
+
+    ProvInfo.cbStruct                   = sizeof(CRYPT_REGISTER_ACTIONID);
+    ProvInfo.sInitProvider              = DriverInitializePolicy;
+    ProvInfo.sObjectProvider            = SoftpubMessage;
+    ProvInfo.sSignatureProvider         = SoftpubSignature;
+    ProvInfo.sCertificateProvider       = SoftpubCertficate;
+    ProvInfo.sCertificatePolicyProvider = SoftpubCertCheck;
+    ProvInfo.sFinalPolicyProvider       = DriverFinalPolicy;
+    ProvInfo.sTestPolicyProvider        = NullCTRE; /* No diagnostic policy */
+    ProvInfo.sCleanupProvider           = DriverCleanupPolicy;
+
 
     if (!WintrustAddActionID(&ProvGUID, 0, &ProvInfo))
         return FALSE;
@@ -674,15 +695,17 @@ static BOOL WINTRUST_RegisterDriverVerify(void)
 static BOOL WINTRUST_RegisterGenChainVerify(void)
 {
     static GUID ProvGUID = WINTRUST_ACTION_GENERIC_CHAIN_VERIFY;
-    CRYPT_REGISTER_ACTIONID ProvInfo = { sizeof(CRYPT_REGISTER_ACTIONID),
-                                         SoftpubInitialization,
-                                         SoftpubMessage,
-                                         SoftpubSignature,
-                                         GenericChainCertificateTrust,
-                                         SoftpubCertCheck,
-                                         GenericChainFinalProv,
-                                         { 0, NULL, NULL }, /* No diagnostic policy */
-                                         SoftpubCleanup };
+    CRYPT_REGISTER_ACTIONID ProvInfo;
+
+    ProvInfo.cbStruct                   = sizeof(CRYPT_REGISTER_ACTIONID);
+    ProvInfo.sInitProvider              = SoftpubInitialization;
+    ProvInfo.sObjectProvider            = SoftpubMessage;
+    ProvInfo.sSignatureProvider         = SoftpubSignature;
+    ProvInfo.sCertificateProvider       = GenericChainCertificateTrust;
+    ProvInfo.sCertificatePolicyProvider = SoftpubCertCheck;
+    ProvInfo.sFinalPolicyProvider       = GenericChainFinalProv;
+    ProvInfo.sTestPolicyProvider        = NullCTRE; /* No diagnostic policy */
+    ProvInfo.sCleanupProvider           = SoftpubCleanup;
 
     if (!WintrustAddActionID(&ProvGUID, 0, &ProvInfo))
         return FALSE;
@@ -739,26 +762,26 @@ BOOL WINAPI WintrustAddDefaultForUsage(const char *pszUsageOID,
         WCHAR* CallbackW;
 
         Len = MultiByteToWideChar( CP_ACP, 0, psDefUsage->pwszLoadCallbackDataFunctionName, -1, NULL, 0 );
-        CallbackW = HeapAlloc( GetProcessHeap(), 0, Len * sizeof(WCHAR) );
+        CallbackW = WINTRUST_Alloc( Len * sizeof(WCHAR) );
         MultiByteToWideChar( CP_ACP, 0, psDefUsage->pwszLoadCallbackDataFunctionName, -1, CallbackW, Len );
 
         Res = WINTRUST_WriteSingleUsageEntry(pszUsageOID, CBAlloc, CallbackW);
         if (Res != ERROR_SUCCESS) WriteUsageError = Res;
 
-        HeapFree(GetProcessHeap(), 0, CallbackW);
+        WINTRUST_Free(CallbackW);
     }
     if (psDefUsage->pwszFreeCallbackDataFunctionName)
     {
         WCHAR* CallbackW;
 
         Len = MultiByteToWideChar( CP_ACP, 0, psDefUsage->pwszFreeCallbackDataFunctionName, -1, NULL, 0 );
-        CallbackW = HeapAlloc( GetProcessHeap(), 0, Len * sizeof(WCHAR) );
+        CallbackW = WINTRUST_Alloc( Len * sizeof(WCHAR) );
         MultiByteToWideChar( CP_ACP, 0, psDefUsage->pwszFreeCallbackDataFunctionName, -1, CallbackW, Len );
 
         Res = WINTRUST_WriteSingleUsageEntry(pszUsageOID, CBFree, CallbackW);
         if (Res != ERROR_SUCCESS) WriteUsageError = Res;
 
-        HeapFree(GetProcessHeap(), 0, CallbackW);
+        WINTRUST_Free(CallbackW);
     }
 
     WINTRUST_Guid2Wstr(psDefUsage->pgActionID, GuidString);
@@ -834,12 +857,12 @@ BOOL WINAPI WintrustLoadFunctionPointers( GUID* pgActionID,
     WINTRUST_Guid2Wstr( pgActionID, GuidString);
 
     /* Get the function pointers from the registry, where applicable */
-    pPfns->pfnAlloc = NULL;
-    pPfns->pfnFree = NULL;
-    pPfns->pfnAddStore2Chain = NULL;
-    pPfns->pfnAddSgnr2Chain = NULL;
-    pPfns->pfnAddCert2Chain = NULL;
-    pPfns->pfnAddPrivData2Chain = NULL;
+    pPfns->pfnAlloc = WINTRUST_Alloc;
+    pPfns->pfnFree = WINTRUST_Free;
+    pPfns->pfnAddStore2Chain = WINTRUST_AddStore;
+    pPfns->pfnAddSgnr2Chain = WINTRUST_AddSgnr;
+    pPfns->pfnAddCert2Chain = WINTRUST_AddCert;
+    pPfns->pfnAddPrivData2Chain = WINTRUST_AddPrivData;
     pPfns->psUIpfns = NULL;
     pPfns->pfnInitialize = (PFN_PROVIDER_INIT_CALL)WINTRUST_ReadProviderFromReg(GuidString, Initialization);
     pPfns->pfnObjectTrust = (PFN_PROVIDER_OBJTRUST_CALL)WINTRUST_ReadProviderFromReg(GuidString, Message);
@@ -876,7 +899,7 @@ static BOOL WINTRUST_SIPPAddProvider(GUID* Subject, WCHAR* MagicNumber)
     /* Clear and initialize the structure */
     memset(&NewProv, 0, sizeof(SIP_ADD_NEWPROVIDER));
     NewProv.cbStruct = sizeof(SIP_ADD_NEWPROVIDER);
-    NewProv.pwszDLLFileName = HeapAlloc(GetProcessHeap(), 0, sizeof(SP_POLICY_PROVIDER_DLL_NAME));
+    NewProv.pwszDLLFileName = WINTRUST_Alloc(sizeof(SP_POLICY_PROVIDER_DLL_NAME));
     /* Fill the structure */
     NewProv.pgSubject              = Subject;
     lstrcpyW(NewProv.pwszDLLFileName, SP_POLICY_PROVIDER_DLL_NAME);
@@ -891,7 +914,7 @@ static BOOL WINTRUST_SIPPAddProvider(GUID* Subject, WCHAR* MagicNumber)
 
     Ret = CryptSIPAddProvider(&NewProv);
 
-    HeapFree(GetProcessHeap(), 0, NewProv.pwszDLLFileName);
+    WINTRUST_Free(NewProv.pwszDLLFileName);
  
     return Ret;
 }

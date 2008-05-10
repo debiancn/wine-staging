@@ -4,9 +4,8 @@ TOPOBJDIR = ../..
 SRCDIR    = @srcdir@
 VPATH     = @srcdir@
 MODULE    = ole32.dll
-IMPORTLIB = libole32.$(IMPLIBEXT)
-IMPORTS   = advapi32 user32 gdi32 rpcrt4 kernel32 ntdll
-EXTRALIBS = -luuid
+IMPORTLIB = ole32
+IMPORTS   = uuid advapi32 user32 gdi32 rpcrt4 kernel32 ntdll
 
 C_SRCS = \
 	antimoniker.c \
@@ -35,6 +34,7 @@ C_SRCS = \
 	ole32_main.c \
 	oleobj.c \
 	oleproxy.c \
+	pointermoniker.c \
 	regsvr.c \
 	rpc.c \
 	stg_bigblockfile.c \
@@ -61,16 +61,21 @@ SPEC_SRCS16 = \
 	storage.spec
 
 RC_SRCS = ole32res.rc
-RC_BINSRC = ole32res.rc
-RC_BINARIES = \
-	drag_copy.cur \
-	drag_link.cur \
-	drag_move.cur \
-	nodrop.cur 
+
+RC_SRCS16 = version16.rc
 
 IDL_H_SRCS = \
 	dcom.idl
 
+IDL_C_SRCS = \
+	irot.idl
+
 @MAKE_DLL_RULES@
+
+ole2nls.spec.o: ole2nls.spec version16.res
+	$(WINEBUILD) $(WINEBUILDFLAGS) --dll -o $@ --dll-name ole2nls --main-module $(MODULE) --res version16.res --export $(SRCDIR)/ole2nls.spec
+
+version16.res: version16.rc
+	$(LDPATH) $(RC16) $(RC16FLAGS) -fo$@ $(SRCDIR)/version16.rc
 
 @DEPENDENCIES@  # everything below this line is overwritten by make depend

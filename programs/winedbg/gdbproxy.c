@@ -1385,6 +1385,33 @@ static enum packet_return packet_write_memory(struct gdb_context* gdbctx)
     return packet_ok; /* FIXME: error while writing ? */
 }
 
+static enum packet_return packet_read_register(struct gdb_context* gdbctx)
+{
+    unsigned            reg;
+    CONTEXT             ctx;
+    CONTEXT*            pctx = &gdbctx->context;
+
+    assert(gdbctx->in_trap);
+    reg = hex_to_int(gdbctx->in_packet, gdbctx->in_packet_len);
+    if (reg >= cpu_num_regs)
+    {
+        if (gdbctx->trace & GDBPXY_TRC_COMMAND_ERROR)
+            fprintf(stderr, "Register out of bounds %x\n", reg);
+        return packet_error;
+    }
+    if (dbg_curr_thread != gdbctx->other_thread && gdbctx->other_thread)
+    {
+        if (!fetch_context(gdbctx, gdbctx->other_thread->handle, pctx = &ctx))
+            return packet_error;
+    }
+    if (gdbctx->trace & GDBPXY_TRC_COMMAND)
+        fprintf(stderr, "Read register %x => %lx\n", reg, *cpu_register(pctx, reg));
+    packet_reply_open(gdbctx);
+    packet_reply_hex_to(gdbctx, cpu_register(pctx, reg), 4);
+    packet_reply_close(gdbctx);
+    return packet_done;
+}
+
 static enum packet_return packet_write_register(struct gdb_context* gdbctx)
 {
     unsigned            reg;
@@ -1739,6 +1766,12 @@ static enum packet_return packet_query(struct gdb_context* gdbctx)
     case 'S':
         if (strncmp(gdbctx->in_packet, "Symbol::", gdbctx->in_packet_len) == 0)
             return packet_ok;
+        if (strncmp(gdbctx->in_packet, "Supported", gdbctx->in_packet_len) == 0)
+        {
+            packet_reply_open(gdbctx);
+            packet_reply_close(gdbctx);
+            return packet_done;
+        }
         break;
     case 'T':
         if (gdbctx->in_packet_len > 15 &&
@@ -1931,7 +1964,7 @@ static struct packet_entry packet_entries[] =
         {'H', packet_thread},
         {'m', packet_read_memory},
         {'M', packet_write_memory},
-        /* {'p', packet_read_register}, doesn't seem needed */
+        {'p', packet_read_register},
         {'P', packet_write_register},
         {'q', packet_query},
         /* {'Q', packet_set}, */
@@ -2154,7 +2187,6 @@ static BOOL gdb_startup(struct gdb_context* gdbctx, DEBUG_EVENT* de, unsigned fl
         case -1: /* error in parent... */
             fprintf(stderr, "Cannot create gdb\n");
             return FALSE;
-            break;
         default: /* in parent... success */
             break;
         case 0: /* in child... and alive */

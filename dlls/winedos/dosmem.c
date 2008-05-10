@@ -234,7 +234,7 @@ void BiosTick( WORD timer )
  *           DOSMEM_Collapse
  *
  * Helper function for internal use only.
- * Atach all following free blocks to this one, even if this one is not free.
+ * Attach all following free blocks to this one, even if this one is not free.
  */
 static void DOSMEM_Collapse( MCB* mcb )
 {
@@ -285,7 +285,7 @@ LPVOID DOSMEM_AllocBlock(UINT size, UINT16* pseg)
         if (curr->psp == MCB_PSP_FREE)
         {
             DOSMEM_Collapse( curr );            
-            /* is it large enough (one paragaph for the MCB)? */
+            /* is it large enough (one paragraph for the MCB)? */
             if (curr->size >= size)
             {
                 if (curr->size > size)
@@ -300,7 +300,7 @@ LPVOID DOSMEM_AllocBlock(UINT size, UINT16* pseg)
                 }
                 /* curr is the found block */
                 curr->psp = psp;
-                if( pseg ) *pseg = (((char*)curr) + 16 - (char*)DOSMEM_dosmem) >> 4;
+                if( pseg ) *pseg = (((char*)curr) + 16 - DOSMEM_dosmem) >> 4;
                 return (LPVOID) ((char*)curr + 16);
             }
         }
@@ -506,14 +506,11 @@ BOOL DOSMEM_MapDosLayout(void)
         unsigned short  sel;
         LDT_ENTRY       entry;
 
-        if (DOSMEM_dosmem)
+        if (DOSMEM_dosmem || !VirtualProtect( NULL, DOSMEM_SIZE, PAGE_EXECUTE_READWRITE, NULL ))
         {
-            ERR( "Needs access to the first megabyte for DOS mode\n" );
+            ERR( "Need full access to the first megabyte for DOS mode\n" );
             ExitProcess(1);
         }
-        MESSAGE( "Warning: unprotecting memory to allow real-mode calls.\n"
-                 "         NULL pointer accesses will no longer be caught.\n" );
-        VirtualProtect( NULL, DOSMEM_SIZE, PAGE_EXECUTE_READWRITE, NULL );
         /* copy the BIOS and ISR area down */
         memcpy( DOSMEM_dosmem, DOSMEM_sysmem, 0x400 + 0x100 );
         DOSMEM_sysmem = DOSMEM_dosmem;

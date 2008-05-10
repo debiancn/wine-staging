@@ -176,7 +176,7 @@ static inline BOOL module_is_container(const IMAGEHLP_MODULE64* wmod_cntnr,
         wmod_child->BaseOfImage + wmod_child->ImageSize;
 }
 
-static BOOL CALLBACK info_mod_cb(PSTR mod_name, DWORD64 base, void* ctx)
+static BOOL CALLBACK info_mod_cb(PCSTR mod_name, DWORD64 base, PVOID ctx)
 {
     struct info_module* im = (struct info_module*)ctx;
 
@@ -201,7 +201,7 @@ static BOOL CALLBACK info_mod_cb(PSTR mod_name, DWORD64 base, void* ctx)
 void info_win32_module(DWORD64 base)
 {
     struct info_module  im;
-    int                 i, j, num_printed = 0;
+    UINT                i, j, num_printed = 0;
     DWORD               opt;
 
     if (!dbg_curr_process)
@@ -388,7 +388,6 @@ void info_win32_window(HWND hWnd, BOOL detailed)
     char	wndName[128];
     RECT	clientRect;
     RECT	windowRect;
-    int         i;
     WORD	w;
 
     if (!IsWindow(hWnd)) hWnd = GetDesktopWindow();
@@ -434,6 +433,8 @@ void info_win32_window(HWND hWnd, BOOL detailed)
 
     if (GetClassLong(hWnd, GCL_CBWNDEXTRA))
     {
+        UINT i;
+
         dbg_printf("Extra bytes:");
         for (i = 0; i < GetClassLong(hWnd, GCL_CBWNDEXTRA) / 2; i++)
         {
@@ -583,7 +584,7 @@ void info_win32_segments(DWORD start, int length)
 
     for (i = start; i < start + length; i++)
     {
-        if (!GetThreadSelectorEntry(dbg_curr_thread->handle, (i << 3) | 7, &le))
+        if (!dbg_curr_process->process_io->get_selector(dbg_curr_thread->handle, (i << 3) | 7, &le))
             continue;
 
         if (le.HighWord.Bits.Type & 0x08)

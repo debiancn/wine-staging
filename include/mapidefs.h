@@ -24,9 +24,8 @@
 #endif
 
 #include <winerror.h>
-#ifndef _OBJBASE_H_
 #include <objbase.h>
-#endif
+#include <stddef.h>
 
 /* Some types from other headers */
 #ifndef __LHANDLE
@@ -435,7 +434,7 @@ typedef struct _SRowSet
 typedef struct _SPropProblem
 {
     ULONG ulIndex;   /* Index of the property */
-    ULONG ulPropTag; /* Proprty tag of the property */
+    ULONG ulPropTag; /* Property tag of the property */
     SCODE scode;     /* Error code of the problem */
 } SPropProblem, *LPSPropProblem;
 

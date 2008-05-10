@@ -1,6 +1,6 @@
 100 stub @
 101 stub @
-102 stub DwmEnableComposition
+102 stdcall DwmEnableComposition (long)
 103 stub @
 104 stub @
 105 stub @
@@ -39,6 +39,6 @@
 @ stub DwmRegisterThumbnail
 @ stub DwmSetDxFrameDuration
 @ stub DwmSetPresentParameters
-@ stub DwmSetWindowAttribute
-@ stub DwmUnregisterThumbnail
+@ stdcall DwmSetWindowAttribute(long long ptr long)
+@ stdcall DwmUnregisterThumbnail(long)
 @ stub DwmUpdateThumbnailProperties

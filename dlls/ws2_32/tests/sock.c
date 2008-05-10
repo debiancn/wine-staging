@@ -238,7 +238,7 @@ static char* test_buffer ( char *buf, int chunk_size, int n_chunks )
 
 /*
  * This routine is called when a client / server does not expect any more data,
- * but needs to acknowedge the closing of the connection (by reasing 0 bytes).
+ * but needs to acknowledge the closing of the connection (by reading 0 bytes).
  */
 static void read_zero_bytes ( SOCKET s )
 {
@@ -650,17 +650,17 @@ static void WINAPI event_client ( client_params *par )
     event = WSACreateEvent ();
     WSAEventSelect ( mem->s, event, FD_CONNECT );
     tmp = connect ( mem->s, (struct sockaddr*) &mem->addr, sizeof ( mem->addr ) );
-    if ( tmp != 0 && ( err = WSAGetLastError () ) != WSAEWOULDBLOCK )
-        ok ( 0, "event_client (%x): connect error: %d\n", id, err );
-
-    tmp = WaitForSingleObject ( event, INFINITE );
-    ok ( tmp == WAIT_OBJECT_0, "event_client (%x): wait for connect event failed: %d\n", id, tmp );
-    err = WSAEnumNetworkEvents ( mem->s, event, &wsa_events );
-    wsa_ok ( err, 0 ==, "event_client (%x): WSAEnumNetworkEvents error: %d\n" );
-
-    err = wsa_events.iErrorCode[ FD_CONNECT_BIT ];
-    ok ( err == 0, "event_client (%x): connect error: %d\n", id, err );
-    if ( err ) goto out;
+    if ( tmp != 0 ) {
+        err = WSAGetLastError ();
+        ok ( err == WSAEWOULDBLOCK, "event_client (%x): connect error: %d\n", id, err );
+        tmp = WaitForSingleObject ( event, INFINITE );
+        ok ( tmp == WAIT_OBJECT_0, "event_client (%x): wait for connect event failed: %d\n", id, tmp );
+        err = WSAEnumNetworkEvents ( mem->s, event, &wsa_events );
+        wsa_ok ( err, 0 ==, "event_client (%x): WSAEnumNetworkEvents error: %d\n" );
+        err = wsa_events.iErrorCode[ FD_CONNECT_BIT ];
+        ok ( err == 0, "event_client (%x): connect error: %d\n", id, err );
+        if ( err ) goto out;
+    }
 
     trace ( "event_client (%x) connected\n", id );
 
@@ -816,10 +816,10 @@ static void do_test( test_setup *test )
     WaitForSingleObject ( server_ready, INFINITE );
 
     wait = WaitForMultipleObjects ( 1 + n, thread, TRUE, 1000 * TEST_TIMEOUT );
-    ok ( wait >= WAIT_OBJECT_0 && wait <= WAIT_OBJECT_0 + n , 
+    ok ( wait <= WAIT_OBJECT_0 + n ,
          "some threads have not completed: %x\n", wait );
 
-    if ( ! ( wait >= WAIT_OBJECT_0 && wait <= WAIT_OBJECT_0 + n ) )
+    if ( ! ( wait <= WAIT_OBJECT_0 + n ) )
     {
         for (i = 0; i <= n; i++)
         {
@@ -850,7 +850,7 @@ LINGER linger_testvals[] = {
 static void test_set_getsockopt(void)
 {
     SOCKET s;
-    int i, err;
+    int i, err, lasterr;
     int timeout;
     LINGER lingval;
     int size;
@@ -889,6 +889,15 @@ static void test_set_getsockopt(void)
                  lingval.l_onoff, lingval.l_linger,
                  linger_testvals[i].l_onoff, linger_testvals[i].l_linger);
     }
+    /* Test for erroneously passing a value instead of a pointer as optval */
+    size = sizeof(char);
+    err = setsockopt(s, SOL_SOCKET, SO_DONTROUTE, (char *)1, size);
+    ok(err == SOCKET_ERROR, "setsockopt with optval being a value passed "
+                            "instead of failing.\n");
+    lasterr = WSAGetLastError();
+    ok(lasterr == WSAEFAULT, "setsockopt with optval being a value "
+                             "returned 0x%08x, not WSAEFAULT(0x%08x)\n",
+                             lasterr, WSAEFAULT);
     closesocket(s);
 }
 
@@ -1638,7 +1647,7 @@ static void test_extendedSocketOptions(void)
     sa.sin_port = htons(0);
     sa.sin_addr.s_addr = htonl(INADDR_ANY);
 
-    if((sock = socket(PF_INET, SOCK_DGRAM, IPPROTO_IP)) < 0){
+    if((sock = socket(PF_INET, SOCK_DGRAM, IPPROTO_IP)) == INVALID_SOCKET) {
         trace("Creating the socket failed: %d\n", WSAGetLastError());
         WSACleanup();
         return;
@@ -1654,7 +1663,8 @@ static void test_extendedSocketOptions(void)
     ret = getsockopt(sock, SOL_SOCKET, SO_MAX_MSG_SIZE, (char *)&optval, &optlen);
 
     ok(ret == 0, "getsockopt failed to query SO_MAX_MSG_SIZE, return value is 0x%08x\n", ret);
-    ok(optval == 65507, "SO_MAX_MSG_SIZE reported %d, expected 65507\n", optval);
+    ok((optval == 65507) || (optval == 65527),
+            "SO_MAX_MSG_SIZE reported %d, expected 65507 or 65527\n", optval);
 
     optlen = sizeof(LINGER);
     ret = getsockopt(sock, SOL_SOCKET, SO_LINGER, (char *)&linger_val, &optlen);
@@ -1664,7 +1674,7 @@ static void test_extendedSocketOptions(void)
 
     closesocket(sock);
 
-    if((sock = socket(PF_INET, SOCK_STREAM, IPPROTO_IP)) < 0){
+    if((sock = socket(PF_INET, SOCK_STREAM, IPPROTO_IP)) == INVALID_SOCKET) {
         trace("Creating the socket failed: %d\n", WSAGetLastError());
         WSACleanup();
         return;
@@ -1711,7 +1721,7 @@ static void test_getsockname(void)
     sa_set.sin_port = htons(0);
     sa_set.sin_addr.s_addr = htonl(INADDR_ANY);
 
-    if((sock = socket(PF_INET, SOCK_STREAM, IPPROTO_IP)) < 0){
+    if((sock = socket(PF_INET, SOCK_STREAM, IPPROTO_IP)) == INVALID_SOCKET) {
         trace("Creating the socket failed: %d\n", WSAGetLastError());
         WSACleanup();
         return;
@@ -1754,6 +1764,73 @@ static void test_dns(void)
 
     h = gethostbyname("");
     ok(h != NULL, "gethostbyname(\"\") failed with %d\n", h_errno);
+}
+
+/* Our winsock headers don't define gethostname because it conflicts with the
+ * definition in unistd.h. Define it here to get rid of the warning. */
+
+int WINAPI gethostname(char *name, int namelen);
+
+static void test_gethostbyname_hack(void)
+{
+    struct hostent *he;
+    char name[256];
+    static BYTE loopback[] = {127, 0, 0, 1};
+    static BYTE magic_loopback[] = {127, 12, 34, 56};
+    int ret;
+
+    ret = gethostname(name, 256);
+    ok(ret == 0, "gethostname() call failed: %d\n", WSAGetLastError());
+
+    he = gethostbyname("localhost");
+    ok(he != NULL, "gethostbyname(\"localhost\") failed: %d\n", h_errno);
+    if(he)
+    {
+        if(he->h_length != 4)
+        {
+            skip("h_length is %d, not IPv4, skipping test.\n", he->h_length);
+            return;
+        }
+
+        ok(memcmp(he->h_addr_list[0], loopback, he->h_length) == 0,
+           "gethostbyname(\"localhost\") returned %d.%d.%d.%d\n",
+           he->h_addr_list[0][0], he->h_addr_list[0][1], he->h_addr_list[0][2],
+           he->h_addr_list[0][3]);
+    }
+
+    /* No reason to test further with NULL hostname */
+    if(name == NULL)
+        return;
+
+    if(strcmp(name, "localhost") == 0)
+    {
+        skip("hostname seems to be \"localhost\", skipping test.\n");
+        return;
+    }
+
+    he = NULL;
+    he = gethostbyname(name);
+    ok(he != NULL, "gethostbyname(\"%s\") failed: %d\n", name, h_errno);
+    if(he)
+    {
+        if(he->h_length != 4)
+        {
+            skip("h_length is %d, not IPv4, skipping test.\n", he->h_length);
+            return;
+        }
+
+        if (he->h_addr_list[0][0] == 127)
+        {
+            ok(memcmp(he->h_addr_list[0], magic_loopback, he->h_length) == 0,
+               "gethostbyname(\"%s\") returned %d.%d.%d.%d not 127.12.34.56\n",
+               name, he->h_addr_list[0][0], he->h_addr_list[0][1],
+               he->h_addr_list[0][2], he->h_addr_list[0][3]);
+        }
+    }
+
+    he = NULL;
+    he = gethostbyname("someweirdandbogusname");
+    ok(he == NULL, "gethostbyname(\"someweirdandbogusname\") succeeded.\n");
 }
 
 static void test_inet_addr(void)
@@ -1909,6 +1986,52 @@ end:
     CloseHandle(hEvent);
 }
 
+static void test_ipv6only(void)
+{
+    SOCKET v4 = INVALID_SOCKET,
+           v6 = INVALID_SOCKET;
+    struct sockaddr_in sin4;
+    struct sockaddr_in6 sin6;
+    int ret;
+
+    memset(&sin4, 0, sizeof(sin4));
+    sin4.sin_family = AF_INET;
+    sin4.sin_port = htons(SERVERPORT);
+
+    memset(&sin6, 0, sizeof(sin6));
+    sin6.sin6_family = AF_INET6;
+    sin6.sin6_port = htons(SERVERPORT);
+
+    v6 = socket(AF_INET6, SOCK_STREAM, IPPROTO_TCP);
+    if (v6 == INVALID_SOCKET) {
+        skip("Could not create IPv6 socket (LastError: %d; %d expected if IPv6 not available).\n",
+            WSAGetLastError(), WSAEAFNOSUPPORT);
+        goto end;
+    }
+    ret = bind(v6, (struct sockaddr*)&sin6, sizeof(sin6));
+    if (ret) {
+        skip("Could not bind IPv6 address (LastError: %d).\n",
+            WSAGetLastError());
+        goto end;
+    }
+
+    v4 = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (v4 == INVALID_SOCKET) {
+        skip("Could not create IPv4 socket (LastError: %d).\n",
+            WSAGetLastError());
+        goto end;
+    }
+    ret = bind(v4, (struct sockaddr*)&sin4, sizeof(sin4));
+    ok(!ret, "Could not bind IPv4 address (LastError: %d; %d expected if IPv6 binds to IPv4 as well).\n",
+        WSAGetLastError(), WSAEADDRINUSE);
+
+end:
+    if (v4 != INVALID_SOCKET)
+        closesocket(v4);
+    if (v6 != INVALID_SOCKET)
+        closesocket(v6);
+}
+
 /**************** Main program  ***************/
 
 START_TEST( sock )
@@ -1942,9 +2065,12 @@ START_TEST( sock )
     test_getsockname();
     test_inet_addr();
     test_dns();
+    test_gethostbyname_hack();
 
     test_send();
     test_write_events();
+
+    test_ipv6only();
 
     Exit();
 }

@@ -25,29 +25,101 @@
 #include "winnt.h"
 #include "winuser.h"
 #include "wincred.h"
+#include "commctrl.h"
 
 #include "credui_resources.h"
 
 #include "wine/debug.h"
 #include "wine/unicode.h"
+#include "wine/list.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(credui);
 
+#define TOOLID_INCORRECTPASSWORD    1
+#define TOOLID_CAPSLOCKON           2
+
+#define ID_CAPSLOCKPOP              1
+
+struct pending_credentials
+{
+    struct list entry;
+    PWSTR pszTargetName;
+    PWSTR pszUsername;
+    PWSTR pszPassword;
+    BOOL generic;
+};
+
 static HINSTANCE hinstCredUI;
+
+static struct list pending_credentials_list = LIST_INIT(pending_credentials_list);
+
+static CRITICAL_SECTION csPendingCredentials;
+static CRITICAL_SECTION_DEBUG critsect_debug =
+{
+    0, 0, &csPendingCredentials,
+    { &critsect_debug.ProcessLocksList, &critsect_debug.ProcessLocksList },
+    0, 0, { (DWORD_PTR)(__FILE__ ": csPendingCredentials") }
+};
+static CRITICAL_SECTION csPendingCredentials = { &critsect_debug, -1, 0, 0, 0, 0 };
+
 
 BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
 {
-	TRACE("(0x%p, %d, %p)\n",hinstDLL,fdwReason,lpvReserved);
+    TRACE("(0x%p, %d, %p)\n",hinstDLL,fdwReason,lpvReserved);
 
-	if (fdwReason == DLL_WINE_PREATTACH) return FALSE;	/* prefer native version */
+    if (fdwReason == DLL_WINE_PREATTACH) return FALSE;	/* prefer native version */
 
-	if (fdwReason == DLL_PROCESS_ATTACH)
-	{
-		DisableThreadLibraryCalls(hinstDLL);
-		hinstCredUI = hinstDLL;
-	}
+    if (fdwReason == DLL_PROCESS_ATTACH)
+    {
+        DisableThreadLibraryCalls(hinstDLL);
+        hinstCredUI = hinstDLL;
+        InitCommonControls();
+    }
+    else if (fdwReason == DLL_PROCESS_DETACH)
+    {
+        struct pending_credentials *entry, *cursor2;
+        LIST_FOR_EACH_ENTRY_SAFE(entry, cursor2, &pending_credentials_list, struct pending_credentials, entry)
+        {
+            list_remove(&entry->entry);
 
-	return TRUE;
+            HeapFree(GetProcessHeap(), 0, entry->pszTargetName);
+            HeapFree(GetProcessHeap(), 0, entry->pszUsername);
+            ZeroMemory(entry->pszPassword, (strlenW(entry->pszPassword) + 1) * sizeof(WCHAR));
+            HeapFree(GetProcessHeap(), 0, entry->pszPassword);
+            HeapFree(GetProcessHeap(), 0, entry);
+        }
+    }
+
+    return TRUE;
+}
+
+static DWORD save_credentials(PCWSTR pszTargetName, PCWSTR pszUsername,
+                              PCWSTR pszPassword, BOOL generic)
+{
+    CREDENTIALW cred;
+
+    TRACE("saving servername %s with username %s\n", debugstr_w(pszTargetName), debugstr_w(pszUsername));
+
+    cred.Flags = 0;
+    cred.Type = generic ? CRED_TYPE_GENERIC : CRED_TYPE_DOMAIN_PASSWORD;
+    cred.TargetName = (LPWSTR)pszTargetName;
+    cred.Comment = NULL;
+    cred.CredentialBlobSize = strlenW(pszPassword) * sizeof(WCHAR);
+    cred.CredentialBlob = (LPBYTE)pszPassword;
+    cred.Persist = CRED_PERSIST_ENTERPRISE;
+    cred.AttributeCount = 0;
+    cred.Attributes = NULL;
+    cred.TargetAlias = NULL;
+    cred.UserName = (LPWSTR)pszUsername;
+
+    if (CredWriteW(&cred, 0))
+        return ERROR_SUCCESS;
+    else
+    {
+        DWORD ret = GetLastError();
+        ERR("CredWriteW failed with error %d\n", ret);
+        return ret;
+    }
 }
 
 struct cred_dialog_params
@@ -61,7 +133,339 @@ struct cred_dialog_params
     PWSTR pszPassword;
     ULONG ulPasswordMaxChars;
     BOOL fSave;
+    DWORD dwFlags;
+    HWND hwndBalloonTip;
+    BOOL fBalloonTipActive;
 };
+
+static void CredDialogFillUsernameCombo(HWND hwndUsername, struct cred_dialog_params *params)
+{
+    DWORD count;
+    DWORD i;
+    PCREDENTIALW *credentials;
+
+    if (!CredEnumerateW(NULL, 0, &count, &credentials))
+        return;
+
+    for (i = 0; i < count; i++)
+    {
+        COMBOBOXEXITEMW comboitem;
+        DWORD j;
+        BOOL duplicate = FALSE;
+
+        if (params->dwFlags & CREDUI_FLAGS_GENERIC_CREDENTIALS)
+        {
+            if ((credentials[i]->Type != CRED_TYPE_GENERIC) || !credentials[i]->UserName)
+                continue;
+        }
+        else
+        {
+            if (credentials[i]->Type == CRED_TYPE_GENERIC)
+                continue;
+        }
+
+        /* don't add another item with the same name if we've already added it */
+        for (j = 0; j < i; j++)
+            if (!strcmpW(credentials[i]->UserName, credentials[j]->UserName))
+            {
+                duplicate = TRUE;
+                break;
+            }
+
+        if (duplicate)
+            continue;
+
+        comboitem.mask = CBEIF_TEXT;
+        comboitem.iItem = -1;
+        comboitem.pszText = credentials[i]->UserName;
+        SendMessageW(hwndUsername, CBEM_INSERTITEMW, 0, (LPARAM)&comboitem);
+    }
+
+    CredFree(credentials);
+}
+
+static void CredDialogCreateBalloonTip(HWND hwndDlg, struct cred_dialog_params *params)
+{
+    TTTOOLINFOW toolinfo;
+    WCHAR wszText[256];
+
+    if (params->hwndBalloonTip)
+        return;
+
+    params->hwndBalloonTip = CreateWindowExW(WS_EX_TOOLWINDOW, TOOLTIPS_CLASSW,
+        NULL, WS_POPUP | TTS_NOPREFIX | TTS_BALLOON, CW_USEDEFAULT,
+        CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, hwndDlg, NULL,
+        hinstCredUI, NULL);
+    SetWindowPos(params->hwndBalloonTip, HWND_TOPMOST, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+
+    if (!LoadStringW(hinstCredUI, IDS_INCORRECTPASSWORD, wszText, sizeof(wszText)/sizeof(wszText[0])))
+    {
+        ERR("failed to load IDS_INCORRECTPASSWORD\n");
+        return;
+    }
+
+    toolinfo.cbSize = sizeof(toolinfo);
+    toolinfo.uFlags = TTF_TRACK;
+    toolinfo.hwnd = hwndDlg;
+    toolinfo.uId = TOOLID_INCORRECTPASSWORD;
+    memset(&toolinfo.rect, 0, sizeof(toolinfo.rect));
+    toolinfo.hinst = NULL;
+    toolinfo.lpszText = wszText;
+    toolinfo.lParam = 0;
+    toolinfo.lpReserved = NULL;
+    SendMessageW(params->hwndBalloonTip, TTM_ADDTOOLW, 0, (LPARAM)&toolinfo);
+
+    if (!LoadStringW(hinstCredUI, IDS_CAPSLOCKON, wszText, sizeof(wszText)/sizeof(wszText[0])))
+    {
+        ERR("failed to load IDS_CAPSLOCKON\n");
+        return;
+    }
+
+    toolinfo.uId = TOOLID_CAPSLOCKON;
+    SendMessageW(params->hwndBalloonTip, TTM_ADDTOOLW, 0, (LPARAM)&toolinfo);
+}
+
+static void CredDialogShowIncorrectPasswordBalloon(HWND hwndDlg, struct cred_dialog_params *params)
+{
+    TTTOOLINFOW toolinfo;
+    RECT rcPassword;
+    INT x;
+    INT y;
+    WCHAR wszTitle[256];
+
+    /* user name likely wrong so balloon would be confusing. focus is also
+     * not set to the password edit box, so more notification would need to be
+     * handled */
+    if (!params->pszUsername[0])
+        return;
+
+    /* don't show two balloon tips at once */
+    if (params->fBalloonTipActive)
+        return;
+
+    if (!LoadStringW(hinstCredUI, IDS_INCORRECTPASSWORDTITLE, wszTitle, sizeof(wszTitle)/sizeof(wszTitle[0])))
+    {
+        ERR("failed to load IDS_INCORRECTPASSWORDTITLE\n");
+        return;
+    }
+
+    CredDialogCreateBalloonTip(hwndDlg, params);
+
+    memset(&toolinfo, 0, sizeof(toolinfo));
+    toolinfo.cbSize = sizeof(toolinfo);
+    toolinfo.hwnd = hwndDlg;
+    toolinfo.uId = TOOLID_INCORRECTPASSWORD;
+
+    SendMessageW(params->hwndBalloonTip, TTM_SETTITLEW, TTI_ERROR, (LPARAM)wszTitle);
+
+    GetWindowRect(GetDlgItem(hwndDlg, IDC_PASSWORD), &rcPassword);
+    /* centred vertically and in the right side of the password edit control */
+    x = rcPassword.right - 12;
+    y = (rcPassword.top + rcPassword.bottom) / 2;
+    SendMessageW(params->hwndBalloonTip, TTM_TRACKPOSITION, 0, MAKELONG(x, y));
+
+    SendMessageW(params->hwndBalloonTip, TTM_TRACKACTIVATE, TRUE, (LPARAM)&toolinfo);
+
+    params->fBalloonTipActive = TRUE;
+}
+
+static void CredDialogShowCapsLockBalloon(HWND hwndDlg, struct cred_dialog_params *params)
+{
+    TTTOOLINFOW toolinfo;
+    RECT rcPassword;
+    INT x;
+    INT y;
+    WCHAR wszTitle[256];
+
+    /* don't show two balloon tips at once */
+    if (params->fBalloonTipActive)
+        return;
+
+    if (!LoadStringW(hinstCredUI, IDS_CAPSLOCKONTITLE, wszTitle, sizeof(wszTitle)/sizeof(wszTitle[0])))
+    {
+        ERR("failed to load IDS_IDSCAPSLOCKONTITLE\n");
+        return;
+    }
+
+    CredDialogCreateBalloonTip(hwndDlg, params);
+
+    memset(&toolinfo, 0, sizeof(toolinfo));
+    toolinfo.cbSize = sizeof(toolinfo);
+    toolinfo.hwnd = hwndDlg;
+    toolinfo.uId = TOOLID_CAPSLOCKON;
+
+    SendMessageW(params->hwndBalloonTip, TTM_SETTITLEW, TTI_WARNING, (LPARAM)wszTitle);
+
+    GetWindowRect(GetDlgItem(hwndDlg, IDC_PASSWORD), &rcPassword);
+    /* just inside the left side of the password edit control */
+    x = rcPassword.left + 12;
+    y = rcPassword.bottom - 3;
+    SendMessageW(params->hwndBalloonTip, TTM_TRACKPOSITION, 0, MAKELONG(x, y));
+
+    SendMessageW(params->hwndBalloonTip, TTM_TRACKACTIVATE, TRUE, (LPARAM)&toolinfo);
+
+    SetTimer(hwndDlg, ID_CAPSLOCKPOP,
+             SendMessageW(params->hwndBalloonTip, TTM_GETDELAYTIME, TTDT_AUTOPOP, 0),
+             NULL);
+
+    params->fBalloonTipActive = TRUE;
+}
+
+static void CredDialogHideBalloonTip(HWND hwndDlg, struct cred_dialog_params *params)
+{
+    TTTOOLINFOW toolinfo;
+
+    if (!params->hwndBalloonTip)
+        return;
+
+    memset(&toolinfo, 0, sizeof(toolinfo));
+
+    toolinfo.cbSize = sizeof(toolinfo);
+    toolinfo.hwnd = hwndDlg;
+    toolinfo.uId = 0;
+    SendMessageW(params->hwndBalloonTip, TTM_TRACKACTIVATE, FALSE, (LPARAM)&toolinfo);
+    toolinfo.uId = 1;
+    SendMessageW(params->hwndBalloonTip, TTM_TRACKACTIVATE, FALSE, (LPARAM)&toolinfo);
+
+    params->fBalloonTipActive = FALSE;
+}
+
+static inline BOOL CredDialogCapsLockOn(void)
+{
+    return GetKeyState(VK_CAPITAL) & 0x1 ? TRUE : FALSE;
+}
+
+static LRESULT CALLBACK CredDialogPasswordSubclassProc(HWND hwnd, UINT uMsg,
+    WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData)
+{
+    struct cred_dialog_params *params = (struct cred_dialog_params *)dwRefData;
+    switch (uMsg)
+    {
+    case WM_KEYDOWN:
+        if (wParam == VK_CAPITAL)
+        {
+            HWND hwndDlg = GetParent(hwnd);
+            if (CredDialogCapsLockOn())
+                CredDialogShowCapsLockBalloon(hwndDlg, params);
+            else
+                CredDialogHideBalloonTip(hwndDlg, params);
+        }
+        break;
+    case WM_DESTROY:
+        RemoveWindowSubclass(hwnd, CredDialogPasswordSubclassProc, uIdSubclass);
+        break;
+    }
+    return DefSubclassProc(hwnd, uMsg, wParam, lParam);
+}
+
+static BOOL CredDialogInit(HWND hwndDlg, struct cred_dialog_params *params)
+{
+    HWND hwndUsername = GetDlgItem(hwndDlg, IDC_USERNAME);
+    HWND hwndPassword = GetDlgItem(hwndDlg, IDC_PASSWORD);
+
+    SetWindowLongPtrW(hwndDlg, DWLP_USER, (LONG_PTR)params);
+
+    if (params->hbmBanner)
+        SendMessageW(GetDlgItem(hwndDlg, IDB_BANNER), STM_SETIMAGE,
+                     IMAGE_BITMAP, (LPARAM)params->hbmBanner);
+
+    if (params->pszMessageText)
+        SetDlgItemTextW(hwndDlg, IDC_MESSAGE, params->pszMessageText);
+    else
+    {
+        WCHAR format[256];
+        WCHAR message[256];
+        LoadStringW(hinstCredUI, IDS_MESSAGEFORMAT, format, sizeof(format)/sizeof(format[0]));
+        snprintfW(message, sizeof(message)/sizeof(message[0]), format, params->pszTargetName);
+        SetDlgItemTextW(hwndDlg, IDC_MESSAGE, message);
+    }
+    SetWindowTextW(hwndUsername, params->pszUsername);
+    SetWindowTextW(hwndPassword, params->pszPassword);
+
+    CredDialogFillUsernameCombo(hwndUsername, params);
+
+    if (params->pszUsername[0])
+    {
+        /* prevent showing a balloon tip here */
+        params->fBalloonTipActive = TRUE;
+        SetFocus(hwndPassword);
+        params->fBalloonTipActive = FALSE;
+    }
+    else
+        SetFocus(hwndUsername);
+
+    if (params->pszCaptionText)
+        SetWindowTextW(hwndDlg, params->pszCaptionText);
+    else
+    {
+        WCHAR format[256];
+        WCHAR title[256];
+        LoadStringW(hinstCredUI, IDS_TITLEFORMAT, format, sizeof(format)/sizeof(format[0]));
+        snprintfW(title, sizeof(title)/sizeof(title[0]), format, params->pszTargetName);
+        SetWindowTextW(hwndDlg, title);
+    }
+
+    if (params->dwFlags & (CREDUI_FLAGS_DO_NOT_PERSIST|CREDUI_FLAGS_PERSIST))
+        ShowWindow(GetDlgItem(hwndDlg, IDC_SAVE), SW_HIDE);
+    else if (params->fSave)
+        CheckDlgButton(hwndDlg, IDC_SAVE, BST_CHECKED);
+
+    /* setup subclassing for Caps Lock detection */
+    SetWindowSubclass(hwndPassword, CredDialogPasswordSubclassProc, 1, (DWORD_PTR)params);
+
+    if (params->dwFlags & CREDUI_FLAGS_INCORRECT_PASSWORD)
+        CredDialogShowIncorrectPasswordBalloon(hwndDlg, params);
+    else if ((GetFocus() == hwndPassword) && CredDialogCapsLockOn())
+        CredDialogShowCapsLockBalloon(hwndDlg, params);
+
+    return FALSE;
+}
+
+static void CredDialogCommandOk(HWND hwndDlg, struct cred_dialog_params *params)
+{
+    HWND hwndUsername = GetDlgItem(hwndDlg, IDC_USERNAME);
+    LPWSTR user;
+    INT len;
+    INT len2;
+
+    len = GetWindowTextLengthW(hwndUsername);
+    user = HeapAlloc(GetProcessHeap(), 0, (len + 1) * sizeof(WCHAR));
+    GetWindowTextW(hwndUsername, user, len + 1);
+
+    if (!user[0])
+    {
+        HeapFree(GetProcessHeap(), 0, user);
+        return;
+    }
+
+    if (!strchrW(user, '\\') && !strchrW(user, '@'))
+    {
+        INT len_target = strlenW(params->pszTargetName);
+        memcpy(params->pszUsername, params->pszTargetName,
+               min(len_target, params->ulUsernameMaxChars) * sizeof(WCHAR));
+        if (len_target + 1 < params->ulUsernameMaxChars)
+            params->pszUsername[len_target] = '\\';
+        if (len_target + 2 < params->ulUsernameMaxChars)
+            params->pszUsername[len_target + 1] = '\0';
+    }
+    else if (params->ulUsernameMaxChars > 0)
+        params->pszUsername[0] = '\0';
+
+    len2 = strlenW(params->pszUsername);
+    memcpy(params->pszUsername + len2, user, min(len, params->ulUsernameMaxChars - len2) * sizeof(WCHAR));
+    if (params->ulUsernameMaxChars)
+        params->pszUsername[len2 + min(len, params->ulUsernameMaxChars - len2 - 1)] = '\0';
+
+    HeapFree(GetProcessHeap(), 0, user);
+
+    GetDlgItemTextW(hwndDlg, IDC_PASSWORD, params->pszPassword,
+                    params->ulPasswordMaxChars);
+
+    params->fSave = IsDlgButtonChecked(hwndDlg, IDC_SAVE) == BST_CHECKED;
+
+    EndDialog(hwndDlg, IDOK);
+}
 
 static INT_PTR CALLBACK CredDialogProc(HWND hwndDlg, UINT uMsg, WPARAM wParam,
                                        LPARAM lParam)
@@ -71,60 +475,68 @@ static INT_PTR CALLBACK CredDialogProc(HWND hwndDlg, UINT uMsg, WPARAM wParam,
         case WM_INITDIALOG:
         {
             struct cred_dialog_params *params = (struct cred_dialog_params *)lParam;
-            DWORD ret;
-            WCHAR user[256];
-            WCHAR domain[256];
 
-            SetWindowLongPtrW(hwndDlg, DWLP_USER, (LONG_PTR)params);
-            ret = CredUIParseUserNameW(params->pszUsername, user, 256, domain, 256);
-            if (ret == ERROR_SUCCESS)
-            {
-                SetDlgItemTextW(hwndDlg, IDC_USERNAME, user);
-                SetDlgItemTextW(hwndDlg, IDC_DOMAIN, domain);
-            }
-            SetDlgItemTextW(hwndDlg, IDC_PASSWORD, params->pszPassword);
-
-            if (ret == ERROR_SUCCESS && user[0])
-                SetFocus(GetDlgItem(hwndDlg, IDC_PASSWORD));
-            else
-                SetFocus(GetDlgItem(hwndDlg, IDC_USERNAME));
-
-            if (params->pszCaptionText)
-                SetWindowTextW(hwndDlg, params->pszCaptionText);
-            return FALSE;
+            return CredDialogInit(hwndDlg, params);
         }
         case WM_COMMAND:
             switch (wParam)
             {
                 case MAKELONG(IDOK, BN_CLICKED):
                 {
-                    ULONG domainlen;
                     struct cred_dialog_params *params =
                         (struct cred_dialog_params *)GetWindowLongPtrW(hwndDlg, DWLP_USER);
-
-                    domainlen = GetDlgItemTextW(hwndDlg, IDC_DOMAIN,
-                                                params->pszUsername,
-                                                params->ulUsernameMaxChars);
-                    if (domainlen && (domainlen < params->ulUsernameMaxChars))
-                    {
-                        params->pszUsername[domainlen++] = '\\';
-                        params->pszUsername[domainlen] = '\0';
-                    }
-                    if (domainlen < params->ulUsernameMaxChars)
-                        GetDlgItemTextW(hwndDlg, IDC_USERNAME,
-                                        params->pszUsername + domainlen,
-                                        params->ulUsernameMaxChars - domainlen);
-                    GetDlgItemTextW(hwndDlg, IDC_PASSWORD, params->pszPassword,
-                                    params->ulPasswordMaxChars);
-
-                    EndDialog(hwndDlg, IDOK);
+                    CredDialogCommandOk(hwndDlg, params);
                     return TRUE;
                 }
                 case MAKELONG(IDCANCEL, BN_CLICKED):
                     EndDialog(hwndDlg, IDCANCEL);
                     return TRUE;
+                case MAKELONG(IDC_PASSWORD, EN_SETFOCUS):
+                    if (CredDialogCapsLockOn())
+                    {
+                        struct cred_dialog_params *params =
+                            (struct cred_dialog_params *)GetWindowLongPtrW(hwndDlg, DWLP_USER);
+                        CredDialogShowCapsLockBalloon(hwndDlg, params);
+                    }
+                    /* don't allow another window to steal focus while the
+                     * user is typing their password */
+                    LockSetForegroundWindow(LSFW_LOCK);
+                    return TRUE;
+                case MAKELONG(IDC_PASSWORD, EN_KILLFOCUS):
+                {
+                    struct cred_dialog_params *params =
+                        (struct cred_dialog_params *)GetWindowLongPtrW(hwndDlg, DWLP_USER);
+                    /* the user is no longer typing their password, so allow
+                     * other windows to become foreground ones */
+                    LockSetForegroundWindow(LSFW_UNLOCK);
+                    CredDialogHideBalloonTip(hwndDlg, params);
+                    return TRUE;
+                }
+                case MAKELONG(IDC_PASSWORD, EN_CHANGE):
+                {
+                    struct cred_dialog_params *params =
+                        (struct cred_dialog_params *)GetWindowLongPtrW(hwndDlg, DWLP_USER);
+                    CredDialogHideBalloonTip(hwndDlg, params);
+                    return TRUE;
+                }
             }
-            /* fall through */
+            return FALSE;
+        case WM_TIMER:
+            if (wParam == ID_CAPSLOCKPOP)
+            {
+                struct cred_dialog_params *params =
+                    (struct cred_dialog_params *)GetWindowLongPtrW(hwndDlg, DWLP_USER);
+                CredDialogHideBalloonTip(hwndDlg, params);
+                return TRUE;
+            }
+            return FALSE;
+        case WM_DESTROY:
+        {
+            struct cred_dialog_params *params =
+                (struct cred_dialog_params *)GetWindowLongPtrW(hwndDlg, DWLP_USER);
+            if (params->hwndBalloonTip) DestroyWindow(params->hwndBalloonTip);
+            return TRUE;
+        }
         default:
             return FALSE;
     }
@@ -145,10 +557,20 @@ DWORD WINAPI CredUIPromptForCredentialsW(PCREDUI_INFOW pUIInfo,
 {
     INT_PTR ret;
     struct cred_dialog_params params;
+    DWORD result = ERROR_SUCCESS;
 
-    TRACE("(%p, %s, %p, %d, %p, %d, %p, %d, %p, 0x%08x)\n", pUIInfo,
-          debugstr_w(pszTargetName), Reserved, dwAuthError, pszUsername,
+    TRACE("(%p, %s, %p, %d, %s, %d, %p, %d, %p, 0x%08x)\n", pUIInfo,
+          debugstr_w(pszTargetName), Reserved, dwAuthError, debugstr_w(pszUsername),
           ulUsernameMaxChars, pszPassword, ulPasswordMaxChars, pfSave, dwFlags);
+
+    if ((dwFlags & (CREDUI_FLAGS_ALWAYS_SHOW_UI|CREDUI_FLAGS_GENERIC_CREDENTIALS)) == CREDUI_FLAGS_ALWAYS_SHOW_UI)
+        return ERROR_INVALID_FLAGS;
+
+    if (!pszTargetName)
+        return ERROR_INVALID_PARAMETER;
+
+    if ((dwFlags & CREDUI_FLAGS_SHOW_SAVE_CHECK_BOX) && !pfSave)
+        return ERROR_INVALID_PARAMETER;
 
     params.pszTargetName = pszTargetName;
     if (pUIInfo)
@@ -168,9 +590,13 @@ DWORD WINAPI CredUIPromptForCredentialsW(PCREDUI_INFOW pUIInfo,
     params.pszPassword = pszPassword;
     params.ulPasswordMaxChars = ulPasswordMaxChars;
     params.fSave = pfSave ? *pfSave : FALSE;
+    params.dwFlags = dwFlags;
+    params.hwndBalloonTip = NULL;
+    params.fBalloonTipActive = FALSE;
 
     ret = DialogBoxParamW(hinstCredUI, MAKEINTRESOURCEW(IDD_CREDDIALOG),
-                          pUIInfo->hwndParent, CredDialogProc, (LPARAM)&params);
+                          pUIInfo ? pUIInfo->hwndParent : NULL,
+                          CredDialogProc, (LPARAM)&params);
     if (ret <= 0)
         return GetLastError();
 
@@ -183,7 +609,52 @@ DWORD WINAPI CredUIPromptForCredentialsW(PCREDUI_INFOW pUIInfo,
     if (pfSave)
         *pfSave = params.fSave;
 
-    return ERROR_SUCCESS;
+    if (params.fSave)
+    {
+        if (dwFlags & CREDUI_FLAGS_EXPECT_CONFIRMATION)
+        {
+            BOOL found = FALSE;
+            struct pending_credentials *entry;
+            int len;
+
+            EnterCriticalSection(&csPendingCredentials);
+
+            /* find existing pending credentials for the same target and overwrite */
+            /* FIXME: is this correct? */
+            LIST_FOR_EACH_ENTRY(entry, &pending_credentials_list, struct pending_credentials, entry)
+                if (!strcmpW(pszTargetName, entry->pszTargetName))
+                {
+                    found = TRUE;
+                    HeapFree(GetProcessHeap(), 0, entry->pszUsername);
+                    ZeroMemory(entry->pszPassword, (strlenW(entry->pszPassword) + 1) * sizeof(WCHAR));
+                    HeapFree(GetProcessHeap(), 0, entry->pszPassword);
+                }
+
+            if (!found)
+            {
+                entry = HeapAlloc(GetProcessHeap(), 0, sizeof(*entry));
+                len = strlenW(pszTargetName);
+                entry->pszTargetName = HeapAlloc(GetProcessHeap(), 0, (len + 1)*sizeof(WCHAR));
+                memcpy(entry->pszTargetName, pszTargetName, (len + 1)*sizeof(WCHAR));
+                list_add_tail(&pending_credentials_list, &entry->entry);
+            }
+
+            len = strlenW(params.pszUsername);
+            entry->pszUsername = HeapAlloc(GetProcessHeap(), 0, (len + 1)*sizeof(WCHAR));
+            memcpy(entry->pszUsername, params.pszUsername, (len + 1)*sizeof(WCHAR));
+            len = strlenW(params.pszPassword);
+            entry->pszPassword = HeapAlloc(GetProcessHeap(), 0, (len + 1)*sizeof(WCHAR));
+            memcpy(entry->pszPassword, params.pszPassword, (len + 1)*sizeof(WCHAR));
+            entry->generic = dwFlags & CREDUI_FLAGS_GENERIC_CREDENTIALS ? TRUE : FALSE;
+
+            LeaveCriticalSection(&csPendingCredentials);
+        }
+        else
+            result = save_credentials(pszTargetName, pszUsername, pszPassword,
+                                      dwFlags & CREDUI_FLAGS_GENERIC_CREDENTIALS ? TRUE : FALSE);
+    }
+
+    return result;
 }
 
 /******************************************************************************
@@ -191,9 +662,41 @@ DWORD WINAPI CredUIPromptForCredentialsW(PCREDUI_INFOW pUIInfo,
  */
 DWORD WINAPI CredUIConfirmCredentialsW(PCWSTR pszTargetName, BOOL bConfirm)
 {
-    FIXME("(%s, %s): stub\n", debugstr_w(pszTargetName),
-          bConfirm ? "TRUE" : "FALSE");
-    return ERROR_SUCCESS;
+    struct pending_credentials *entry;
+    DWORD result = ERROR_NOT_FOUND;
+
+    TRACE("(%s, %s)\n", debugstr_w(pszTargetName), bConfirm ? "TRUE" : "FALSE");
+
+    if (!pszTargetName)
+        return ERROR_INVALID_PARAMETER;
+
+    EnterCriticalSection(&csPendingCredentials);
+
+    LIST_FOR_EACH_ENTRY(entry, &pending_credentials_list, struct pending_credentials, entry)
+    {
+        if (!strcmpW(pszTargetName, entry->pszTargetName))
+        {
+            if (bConfirm)
+                result = save_credentials(entry->pszTargetName, entry->pszUsername,
+                                          entry->pszPassword, entry->generic);
+            else
+                result = ERROR_SUCCESS;
+
+            list_remove(&entry->entry);
+
+            HeapFree(GetProcessHeap(), 0, entry->pszTargetName);
+            HeapFree(GetProcessHeap(), 0, entry->pszUsername);
+            ZeroMemory(entry->pszPassword, (strlenW(entry->pszPassword) + 1) * sizeof(WCHAR));
+            HeapFree(GetProcessHeap(), 0, entry->pszPassword);
+            HeapFree(GetProcessHeap(), 0, entry);
+
+            break;
+        }
+    }
+
+    LeaveCriticalSection(&csPendingCredentials);
+
+    return result;
 }
 
 /******************************************************************************
@@ -248,4 +751,48 @@ DWORD WINAPI CredUIParseUserNameW(PCWSTR pszUserName, PWSTR pszUser,
     pszDomain[0] = '\0';
 
     return ERROR_SUCCESS;
+}
+
+/******************************************************************************
+ *           CredUIStoreSSOCredA [CREDUI.@]
+ */
+DWORD WINAPI CredUIStoreSSOCredA(PCSTR pszRealm, PCSTR pszUsername,
+                                 PCSTR pszPassword, BOOL bPersist)
+{
+    FIXME("(%s, %s, %p, %d)\n", debugstr_a(pszRealm), debugstr_a(pszUsername),
+          pszPassword, bPersist);
+    return ERROR_SUCCESS;
+}
+
+/******************************************************************************
+ *           CredUIStoreSSOCredW [CREDUI.@]
+ */
+DWORD WINAPI CredUIStoreSSOCredW(PCWSTR pszRealm, PCWSTR pszUsername,
+                                 PCWSTR pszPassword, BOOL bPersist)
+{
+    FIXME("(%s, %s, %p, %d)\n", debugstr_w(pszRealm), debugstr_w(pszUsername),
+          pszPassword, bPersist);
+    return ERROR_SUCCESS;
+}
+
+/******************************************************************************
+ *           CredUIReadSSOCredA [CREDUI.@]
+ */
+DWORD WINAPI CredUIReadSSOCredA(PCSTR pszRealm, PSTR *ppszUsername)
+{
+    FIXME("(%s, %p)\n", debugstr_a(pszRealm), ppszUsername);
+    if (ppszUsername)
+        *ppszUsername = NULL;
+    return ERROR_NOT_FOUND;
+}
+
+/******************************************************************************
+ *           CredUIReadSSOCredW [CREDUI.@]
+ */
+DWORD WINAPI CredUIReadSSOCredW(PCWSTR pszRealm, PWSTR *ppszUsername)
+{
+    FIXME("(%s, %p)\n", debugstr_w(pszRealm), ppszUsername);
+    if (ppszUsername)
+        *ppszUsername = NULL;
+    return ERROR_NOT_FOUND;
 }

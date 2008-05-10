@@ -28,7 +28,7 @@
  *
  *      When we have more than 9 opened windows, a "More Windows..."
  *      option appears in the "Windows" menu. Each child window has
- *      a WND* associated with it, accesible via the children list of
+ *      a WND* associated with it, accessible via the children list of
  *      the parent window. This WND* has a wIDmenu member, which reflects
  *      the position of the child in the window list. For example, with
  *      9 child windows, we could have the following pattern:
@@ -184,9 +184,10 @@ static void MDI_PostUpdate(HWND hwnd, MDICLIENTINFO* ci, WORD recalc)
 /*********************************************************************
  * MDIClient class descriptor
  */
+static const WCHAR mdiclientW[] = {'M','D','I','C','l','i','e','n','t',0};
 const struct builtin_class_descr MDICLIENT_builtin_class =
 {
-    "MDIClient",            /* name */
+    mdiclientW,             /* name */
     0,                      /* style */
     MDIClientWndProcA,      /* procA */
     MDIClientWndProcW,      /* procW */
@@ -726,12 +727,17 @@ static LONG MDICascade( HWND client, MDICLIENTINFO *ci )
         /* walk the list (backwards) and move windows */
         for (i = total - 1; i >= 0; i--)
         {
-            TRACE("move %p to (%d,%d) size [%d,%d]\n",
-                  win_array[i], pos[0].x, pos[0].y, pos[1].x, pos[1].y);
+            LONG style;
+            LONG posOptions = SWP_DRAWFRAME | SWP_NOACTIVATE | SWP_NOZORDER;
 
             MDI_CalcDefaultChildPos(client, n++, pos, delta, NULL);
+            TRACE("move %p to (%d,%d) size [%d,%d]\n",
+                  win_array[i], pos[0].x, pos[0].y, pos[1].x, pos[1].y);
+            style = GetWindowLongW(win_array[i], GWL_STYLE);
+
+            if (!(style & WS_SIZEBOX)) posOptions |= SWP_NOSIZE;
             SetWindowPos( win_array[i], 0, pos[0].x, pos[0].y, pos[1].x, pos[1].y,
-                          SWP_DRAWFRAME | SWP_NOACTIVATE | SWP_NOZORDER);
+                           posOptions);
         }
     }
     HeapFree( GetProcessHeap(), 0, win_array );
@@ -811,8 +817,11 @@ static void MDITile( HWND client, MDICLIENTINFO *ci, WPARAM wParam )
             y = 0;
             for (r = 1; r <= rows && *pWnd; r++, i++)
             {
-                SetWindowPos(*pWnd, 0, x, y, xsize, ysize,
-                             SWP_DRAWFRAME | SWP_NOACTIVATE | SWP_NOZORDER);
+                LONG posOptions = SWP_DRAWFRAME | SWP_NOACTIVATE | SWP_NOZORDER;
+                LONG style = GetWindowLongW(win_array[i], GWL_STYLE);
+                if (!(style & WS_SIZEBOX)) posOptions |= SWP_NOSIZE;
+
+                SetWindowPos(*pWnd, 0, x, y, xsize, ysize, posOptions);
                 y += ysize;
                 pWnd++;
             }
@@ -1879,6 +1888,15 @@ CascadeWindows (HWND hwndParent, UINT wFlags, const RECT *lpRect,
 }
 
 
+/***********************************************************************
+ *		CascadeChildWindows (USER32.@)
+ */
+WORD WINAPI CascadeChildWindows( HWND parent, UINT flags )
+{
+    return CascadeWindows( parent, flags, NULL, 0, NULL );
+}
+
+
 /******************************************************************************
  *		TileWindows (USER32.@) Tiles MDI child windows
  *
@@ -1893,6 +1911,16 @@ TileWindows (HWND hwndParent, UINT wFlags, const RECT *lpRect,
     FIXME("(%p,0x%08x,...,%u,...): stub\n", hwndParent, wFlags, cKids);
     return 0;
 }
+
+
+/***********************************************************************
+ *		TileChildWindows (USER32.@)
+ */
+WORD WINAPI TileChildWindows( HWND parent, UINT flags )
+{
+    return TileWindows( parent, flags, NULL, 0, NULL );
+}
+
 
 /************************************************************************
  *              "More Windows..." functionality

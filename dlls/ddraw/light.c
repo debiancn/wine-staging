@@ -149,7 +149,7 @@ IDirect3DLightImpl_Initialize(IDirect3DLight *iface,
  * Assigns a lighting value to this object
  *
  * Params:
- *  Light: Lighting parametes to set
+ *  Light: Lighting parameter to set
  *
  * Returns:
  *  D3D_OK on success
@@ -158,7 +158,7 @@ IDirect3DLightImpl_Initialize(IDirect3DLight *iface,
  *****************************************************************************/
 static void dump_light(const D3DLIGHT2 *light)
 {
-    DPRINTF("    - dwSize : %d\n", light->dwSize);
+    TRACE("    - dwSize : %d\n", light->dwSize);
 }
 
 static const float zero_value[] = {

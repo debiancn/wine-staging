@@ -178,9 +178,8 @@ static LONG X11DRV_XRandR_SetCurrentMode(int mode)
     short rate;
     unsigned int i;
     int j;
-    DWORD dwBpp = screen_depth;
-    if (dwBpp == 24) dwBpp = 32;
-    
+    DWORD dwBpp = screen_bpp;
+
     wine_tsx11_lock();
     root = RootWindow (gdi_display, DefaultScreen(gdi_display));
     sc = pXRRGetScreenInfo (gdi_display, root);
@@ -230,7 +229,7 @@ static LONG X11DRV_XRandR_SetCurrentMode(int mode)
     wine_tsx11_unlock();
     if (stat == RRSetConfigSuccess)
     {
-        X11DRV_handle_desktop_resize( dd_modes[mode].dwWidth, dd_modes[mode].dwHeight );
+        X11DRV_resize_desktop( dd_modes[mode].dwWidth, dd_modes[mode].dwHeight );
         return DISP_CHANGE_SUCCESSFUL;
     }
 
@@ -304,7 +303,6 @@ void X11DRV_XRandR_Init(void)
     make_modes();
     X11DRV_Settings_AddDepthModes();
     dd_mode_count = X11DRV_Settings_GetModeCount();
-    X11DRV_Settings_SetDefaultMode(0);
 
     TRACE("Available DD modes: count=%d\n", dd_mode_count);
     TRACE("Enabling XRandR\n");

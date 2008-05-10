@@ -26,10 +26,15 @@
 
 #include "resource.h"
 
+#include "gphoto2_Da.rc"
 #include "gphoto2_De.rc"
 #include "gphoto2_En.rc"
+#include "gphoto2_Es.rc"
 #include "gphoto2_Fr.rc"
 #include "gphoto2_Ko.rc"
 #include "gphoto2_Nl.rc"
 #include "gphoto2_No.rc"
 #include "gphoto2_Pl.rc"
+#include "gphoto2_Ru.rc"
+#include "gphoto2_Si.rc"
+#include "gphoto2_Sv.rc"

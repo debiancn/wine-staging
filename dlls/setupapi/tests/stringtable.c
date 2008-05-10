@@ -59,9 +59,7 @@ HANDLE table, table2;  /* Handles pointing to our tables */
 
 static void load_it_up(void)
 {
-    hdll = LoadLibraryA("setupapi.dll");
-    if (!hdll)
-        return;
+    hdll = GetModuleHandleA("setupapi.dll");
 
     pStringTableInitialize = (void*)GetProcAddress(hdll, "StringTableInitialize");
     if (!pStringTableInitialize)
@@ -189,9 +187,7 @@ START_TEST(stringtable)
     test_StringTableLookUpString();
     test_StringTableStringFromId();
 
-    /* assume we can always distroy */
+    /* assume we can always destroy */
     pStringTableDestroy(table);
     pStringTableDestroy(table2);
-
-    FreeLibrary(hdll);
 }

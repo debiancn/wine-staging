@@ -100,9 +100,10 @@ static const pfPaint staticPaintFunc[SS_TYPEMASK+1] =
 /*********************************************************************
  * static class descriptor
  */
+static const WCHAR staticW[] = {'S','t','a','t','i','c',0};
 const struct builtin_class_descr STATIC_builtin_class =
 {
-    "Static",            /* name */
+    staticW,             /* name */
     CS_DBLCLKS | CS_PARENTDC, /* style  */
     StaticWndProcA,      /* procA */
     StaticWndProcW,      /* procW */
@@ -111,6 +112,33 @@ const struct builtin_class_descr STATIC_builtin_class =
     0                    /* brush */
 };
 
+static void setup_clipping(HWND hwnd, HDC hdc, HRGN *orig)
+{
+    RECT rc;
+    HRGN hrgn;
+
+    /* Native control has always a clipping region set (this may be because
+     * builtin controls uses CS_PARENTDC) and an application depends on it
+     */
+    hrgn = CreateRectRgn(0, 0, 1, 1);
+    if (GetClipRgn(hdc, hrgn) != 1)
+    {
+        DeleteObject(hrgn);
+        *orig = NULL;
+    } else
+        *orig = hrgn;
+
+    GetClientRect(hwnd, &rc);
+    DPtoLP(hdc, (POINT *)&rc, 2);
+    IntersectClipRect(hdc, rc.left, rc.top, rc.right, rc.bottom);
+}
+
+static void restore_clipping(HDC hdc, HRGN hrgn)
+{
+    SelectClipRgn(hdc, hrgn);
+    if (hrgn != NULL)
+        DeleteObject(hrgn);
+}
 
 /***********************************************************************
  *           STATIC_SetIcon
@@ -315,8 +343,12 @@ static VOID STATIC_TryPaintFcn(HWND hwnd, LONG full_style)
     if (!IsRectEmpty(&rc) && IsWindowVisible(hwnd) && staticPaintFunc[style])
     {
 	HDC hdc;
+        HRGN hOrigClipping;
+
 	hdc = GetDC( hwnd );
+        setup_clipping(hwnd, hdc, &hOrigClipping);
 	(staticPaintFunc[style])( hwnd, hdc, full_style );
+        restore_clipping(hdc, hOrigClipping);
 	ReleaseDC( hwnd, hdc );
     }
 }
@@ -413,7 +445,12 @@ static LRESULT StaticWndProc_common( HWND hwnd, UINT uMsg, WPARAM wParam,
             PAINTSTRUCT ps;
             HDC hdc = wParam ? (HDC)wParam : BeginPaint(hwnd, &ps);
             if (staticPaintFunc[style])
+            {
+                HRGN hOrigClipping;
+                setup_clipping(hwnd, hdc, &hOrigClipping);
                 (staticPaintFunc[style])( hwnd, hdc, full_style );
+                restore_clipping(hdc, hOrigClipping);
+            }
             if (!wParam) EndPaint(hwnd, &ps);
         }
         break;
@@ -651,6 +688,9 @@ static void STATIC_PaintTextfn( HWND hwnd, HDC hdc, DWORD style )
         return;
     }
 
+    if (GetWindowLongW( hwnd, GWL_EXSTYLE ) & WS_EX_RIGHT)
+        wFormat = DT_RIGHT | (wFormat & ~(DT_LEFT | DT_CENTER));
+
     if (style & SS_NOPREFIX)
         wFormat |= DT_NOPREFIX;
 
@@ -721,6 +761,7 @@ static void STATIC_PaintRectfn( HWND hwnd, HDC hdc, DWORD style )
 
     GetClientRect( hwnd, &rc);
 
+    /* FIXME: send WM_CTLCOLORSTATIC */
     switch (style & SS_TYPEMASK)
     {
     case SS_BLACKRECT:
@@ -865,6 +906,7 @@ static void STATIC_PaintEtchedfn( HWND hwnd, HDC hdc, DWORD style )
 {
     RECT rc;
 
+    /* FIXME: sometimes (not always) sends WM_CTLCOLORSTATIC */
     GetClientRect( hwnd, &rc );
     switch (style & SS_TYPEMASK)
     {

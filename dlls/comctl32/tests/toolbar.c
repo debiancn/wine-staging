@@ -40,6 +40,8 @@ static BOOL g_fExpectedHotItemOld;
 static BOOL g_fExpectedHotItemNew;
 static DWORD g_dwExpectedDispInfoMask;
 
+#define expect(EXPECTED,GOT) ok((GOT)==(EXPECTED), "Expected %d, got %d\n", (EXPECTED), (GOT))
+
 #define check_rect(name, val, exp) ok(val.top == exp.top && val.bottom == exp.bottom && \
     val.left == exp.left && val.right == exp.right, "invalid rect (" name ") (%d,%d) (%d,%d) - expected (%d,%d) (%d,%d)\n", \
     val.left, val.top, val.right, val.bottom, exp.left, exp.top, exp.right, exp.bottom);
@@ -147,6 +149,15 @@ static void basic_test(void)
     ok(SendMessage(hToolbar, TB_ISBUTTONCHECKED, 1000, 0), "A1 pressed\n");
     ok(!SendMessage(hToolbar, TB_ISBUTTONCHECKED, 1007, 0), "B2 not pressed\n");
     ok(SendMessage(hToolbar, TB_ISBUTTONCHECKED, 1008, 0), "B3 pressed\n");
+
+    /* tests with invalid index */
+    compare(SendMessage(hToolbar, TB_ISBUTTONCHECKED, 0xdeadbeef, 0), -1L, "%ld");
+    compare(SendMessage(hToolbar, TB_ISBUTTONPRESSED, 0xdeadbeef, 0), -1L, "%ld");
+    compare(SendMessage(hToolbar, TB_ISBUTTONENABLED, 0xdeadbeef, 0), -1L, "%ld");
+    compare(SendMessage(hToolbar, TB_ISBUTTONINDETERMINATE, 0xdeadbeef, 0), -1L, "%ld");
+    compare(SendMessage(hToolbar, TB_ISBUTTONHIGHLIGHTED, 0xdeadbeef, 0), -1L, "%ld");
+    compare(SendMessage(hToolbar, TB_ISBUTTONHIDDEN, 0xdeadbeef, 0), -1L, "%ld");
+
     DestroyWindow(hToolbar);
 }
 
@@ -939,7 +950,7 @@ static void test_getbuttoninfo(void)
     DestroyWindow(hToolbar);
 }
 
-static void test_createtoolbarex()
+static void test_createtoolbarex(void)
 {
     HWND hToolbar;
     TBBUTTON btns[3];
@@ -1023,6 +1034,93 @@ static void test_dispinfo(void)
     g_dwExpectedDispInfoMask = 0;
 }
 
+typedef struct
+{
+    int  nRows;
+    BOOL bLarger;
+    int  expectedRows;
+} tbrows_result_t;
+
+static tbrows_result_t tbrows_results[] =
+{
+    {1, TRUE,  1}, /* 0: Simple case 9 in a row */
+    {2, TRUE,  2}, /* 1: Another simple case 5 on one row, 4 on another*/
+    {3, FALSE, 3}, /* 2: 3 lines - should be 3 lines of 3 buttons */
+    {8, FALSE, 5}, /* 3: 8 lines - should be 5 lines of 2 buttons */
+    {8, TRUE,  9}, /* 4: 8 lines but grow - should be 9 lines */
+    {1, TRUE,  1}  /* 5: Back to simple case */
+};
+
+static void test_setrows(void)
+{
+    TBBUTTON buttons[9];
+    HWND hToolbar;
+    int i;
+
+    for (i=0; i<9; i++)
+        MakeButton(buttons+i, 1000+i, TBSTYLE_FLAT | TBSTYLE_CHECKGROUP, 0);
+
+    /* Test 1 - 9 buttons */
+    hToolbar = CreateToolbarEx(hMainWnd,
+        WS_VISIBLE | WS_CLIPCHILDREN | WS_CHILD | CCS_NORESIZE | CCS_NOPARENTALIGN
+        | CCS_NOMOVEY | CCS_TOP,
+        0,
+        0, NULL, (UINT)0,
+        buttons, sizeof(buttons)/sizeof(buttons[0]),
+        20, 20, 0, 0, sizeof(TBBUTTON));
+    ok(hToolbar != NULL, "Toolbar creation\n");
+    ok(SendMessageA(hToolbar, TB_AUTOSIZE, 0, 0) == 0, "TB_AUTOSIZE failed\n");
+
+    /* test setting rows to each of 1-10 with bLarger true and false */
+    for (i=0; i<(sizeof(tbrows_results) / sizeof(tbrows_result_t)); i++) {
+        RECT rc;
+        int rows;
+
+        memset(&rc, 0xCC, sizeof(rc));
+        SendMessageA(hToolbar, TB_SETROWS,
+                     MAKELONG(tbrows_results[i].nRows, tbrows_results[i].bLarger),
+                     (LONG) &rc);
+
+        rows = SendMessageA(hToolbar, TB_GETROWS, MAKELONG(0,0), MAKELONG(0,0));
+        ok(rows == tbrows_results[i].expectedRows,
+                   "[%d] Unexpected number of rows %d (expected %d)\n", i, rows,
+                   tbrows_results[i].expectedRows);
+    }
+
+    DestroyWindow(hToolbar);
+}
+
+static void test_getstring(void)
+{
+    HWND hToolbar = NULL;
+    char str[10];
+    WCHAR strW[10];
+    static const char answer[] = "STR";
+    static const WCHAR answerW[] = { 'S','T','R',0 };
+    INT r;
+
+    hToolbar = CreateWindowExA(0, TOOLBARCLASSNAME, NULL, WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, hMainWnd, (HMENU)5, GetModuleHandle(NULL), NULL);
+    ok(hToolbar != NULL, "Toolbar creation problem\n");
+
+    r = SendMessage(hToolbar, TB_GETSTRING, MAKEWPARAM(0, 0), (LPARAM)NULL);
+    expect(-1, r);
+    r = SendMessage(hToolbar, TB_GETSTRINGW, MAKEWPARAM(0, 0), (LPARAM)NULL);
+    expect(-1, r);
+    r = SendMessage(hToolbar, TB_ADDSTRING, 0, (LPARAM)answer);
+    expect(0, r);
+    r = SendMessage(hToolbar, TB_GETSTRING, MAKEWPARAM(0, 0), (LPARAM)NULL);
+    expect(lstrlenA(answer), r);
+    r = SendMessage(hToolbar, TB_GETSTRINGW, MAKEWPARAM(0, 0), (LPARAM)NULL);
+    expect(lstrlenA(answer), r);
+    r = SendMessage(hToolbar, TB_GETSTRING, MAKEWPARAM(sizeof(str), 0), (LPARAM)str);
+    expect(lstrlenA(answer), r);
+    expect(0, lstrcmp(answer, str));
+    r = SendMessage(hToolbar, TB_GETSTRINGW, MAKEWPARAM(sizeof(strW), 0), (LPARAM)strW);
+    expect(lstrlenA(answer), r);
+    expect(0, lstrcmpW(answerW, strW));
+
+    DestroyWindow(hToolbar);
+}
 
 START_TEST(toolbar)
 {
@@ -1037,7 +1135,7 @@ START_TEST(toolbar)
     wc.cbWndExtra = 0;
     wc.hInstance = GetModuleHandleA(NULL);
     wc.hIcon = NULL;
-    wc.hCursor = LoadCursorA(NULL, MAKEINTRESOURCEA(IDC_IBEAM));
+    wc.hCursor = LoadCursorA(NULL, IDC_IBEAM);
     wc.hbrBackground = GetSysColorBrush(COLOR_WINDOW);
     wc.lpszMenuName = NULL;
     wc.lpszClassName = "MyTestWnd";
@@ -1057,6 +1155,8 @@ START_TEST(toolbar)
     test_getbuttoninfo();
     test_createtoolbarex();
     test_dispinfo();
+    test_setrows();
+    test_getstring();
 
     PostQuitMessage(0);
     while(GetMessageA(&msg,0,0,0)) {

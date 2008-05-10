@@ -893,7 +893,7 @@ enum dbg_start dbg_active_auto(int argc, char* argv[])
         if (ds != start_ok) return ds;
         hFile = parser_generate_command_file("echo Modules:", "info share",
                                              "echo Threads:", "info threads",
-                                             NULL);
+                                             "backtrace", "detach", NULL);
     }
     else if (!strcmp(argv[0], "--minidump"))
     {
@@ -942,7 +942,7 @@ enum dbg_start dbg_active_auto(int argc, char* argv[])
             /* FIXME: should generate unix name as well */
             dbg_printf("Capturing program state in %s\n", tmp + 9);
         }
-        hFile = parser_generate_command_file(tmp, NULL);
+        hFile = parser_generate_command_file(tmp, "detach", NULL);
     }
     else return start_error_parse;
     if (hFile == INVALID_HANDLE_VALUE) return start_error_parse;
@@ -984,4 +984,5 @@ static struct be_process_io be_process_active_io =
     tgt_process_active_close_process,
     ReadProcessMemory,
     WriteProcessMemory,
+    GetThreadSelectorEntry,
 };

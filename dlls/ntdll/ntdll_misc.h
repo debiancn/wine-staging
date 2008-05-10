@@ -21,6 +21,7 @@
 
 #include <stdarg.h>
 #include <signal.h>
+#include <sys/types.h>
 
 #include "windef.h"
 #include "winnt.h"
@@ -28,6 +29,14 @@
 #include "wine/server.h"
 
 #define MAX_NT_PATH_LENGTH 277
+
+#define MAX_DOS_DRIVES 26
+
+struct drive_info
+{
+    dev_t dev;
+    ino_t ino;
+};
 
 /* exceptions */
 extern void wait_suspend( CONTEXT *context );
@@ -49,6 +58,7 @@ extern size_t get_signal_stack_total_size(void);
 extern void version_init( const WCHAR *appname );
 extern void debug_init(void);
 extern HANDLE thread_init(void);
+extern void actctx_init(void);
 extern void virtual_init(void);
 extern void virtual_init_threading(void);
 
@@ -68,6 +78,11 @@ extern int server_remove_fd_from_cache( obj_handle_t handle );
 extern int server_get_unix_fd( obj_handle_t handle, unsigned int access, int *unix_fd,
                                int *needs_close, enum server_fd_type *type, unsigned int *options );
 
+/* security descriptors */
+NTSTATUS NTDLL_create_struct_sd(PSECURITY_DESCRIPTOR nt_sd, struct security_descriptor **server_sd,
+                                data_size_t *server_sd_len);
+void NTDLL_free_struct_sd(struct security_descriptor *server_sd);
+
 /* module handling */
 extern NTSTATUS MODULE_DllThreadAttach( LPVOID lpReserved );
 extern FARPROC RELAY_GetProcAddress( HMODULE module, const IMAGE_EXPORT_DIRECTORY *exports,
@@ -76,7 +91,11 @@ extern FARPROC SNOOP_GetProcAddress( HMODULE hmod, const IMAGE_EXPORT_DIRECTORY 
                                      FARPROC origfun, DWORD ordinal, const WCHAR *user );
 extern void RELAY_SetupDLL( HMODULE hmod );
 extern void SNOOP_SetupDLL( HMODULE hmod );
+extern UNICODE_STRING windows_dir;
 extern UNICODE_STRING system_dir;
+
+typedef LONG (WINAPI *PUNHANDLED_EXCEPTION_FILTER)(PEXCEPTION_POINTERS);
+extern PUNHANDLED_EXCEPTION_FILTER unhandled_exception_filter;
 
 /* redefine these to make sure we don't reference kernel symbols */
 #define GetProcessHeap()       (NtCurrentTeb()->Peb->ProcessHeap)
@@ -111,8 +130,11 @@ extern NTSTATUS FILE_GetNtStatus(void);
 extern BOOL DIR_is_hidden_file( const UNICODE_STRING *name );
 extern NTSTATUS DIR_unmount_device( HANDLE handle );
 extern NTSTATUS DIR_get_unix_cwd( char **cwd );
+extern unsigned int DIR_get_drives_info( struct drive_info info[MAX_DOS_DRIVES] );
 
 /* virtual memory */
+extern NTSTATUS virtual_alloc_thread_stack( void *base, SIZE_T stack_size );
+extern BOOL virtual_handle_stack_fault( void *addr );
 extern NTSTATUS VIRTUAL_HandleFault(LPCVOID addr);
 extern void VIRTUAL_SetForceExec( BOOL enable );
 extern void VIRTUAL_UseLargeAddressSpace(void);
@@ -146,15 +168,18 @@ struct debug_info
     char  output[1024];  /* current output line */
 };
 
+/* thread private data, stored in NtCurrentTeb()->SystemReserved2 */
 struct ntdll_thread_data
 {
-    struct debug_info *debug_info;    /* info for debugstr functions */
-    int                request_fd;    /* fd for sending server requests */
-    int                reply_fd;      /* fd for receiving server replies */
-    int                wait_fd[2];    /* fd for sleeping server requests */
-    void              *vm86_ptr;      /* data for vm86 mode */
+    DWORD              fs;            /* 1d4 TEB selector */
+    DWORD              gs;            /* 1d8 libc selector; update winebuild if you move this! */
+    struct debug_info *debug_info;    /* 1dc info for debugstr functions */
+    int                request_fd;    /* 1e0 fd for sending server requests */
+    int                reply_fd;      /* 1e4 fd for receiving server replies */
+    int                wait_fd[2];    /* 1e8 fd for sleeping server requests */
+    void              *vm86_ptr;      /* 1f0 data for vm86 mode */
 
-    void              *pad[4];        /* change this if you add fields! */
+    void              *pad[2];        /* 1f4 change this if you add fields! */
 };
 
 static inline struct ntdll_thread_data *ntdll_get_thread_data(void)
@@ -162,23 +187,23 @@ static inline struct ntdll_thread_data *ntdll_get_thread_data(void)
     return (struct ntdll_thread_data *)NtCurrentTeb()->SystemReserved2;
 }
 
-/* thread registers, stored in NtCurrentTeb()->SpareBytes1 */
+/* thread debug_registers, stored in NtCurrentTeb()->SpareBytes1 */
 struct ntdll_thread_regs
 {
-    DWORD              fs;            /* 00 TEB selector */
-    DWORD              gs;            /* 04 libc selector; update winebuild if you move this! */
-    DWORD              dr0;           /* 08 debug registers */
-    DWORD              dr1;           /* 0c */
-    DWORD              dr2;           /* 10 */
-    DWORD              dr3;           /* 14 */
-    DWORD              dr6;           /* 18 */
-    DWORD              dr7;           /* 1c */
-    DWORD              spare[2];      /* 20 change this if you add fields! */
+    DWORD dr0;
+    DWORD dr1;
+    DWORD dr2;
+    DWORD dr3;
+    DWORD dr6;
+    DWORD dr7;
 };
 
 static inline struct ntdll_thread_regs *ntdll_get_thread_regs(void)
 {
     return (struct ntdll_thread_regs *)NtCurrentTeb()->SpareBytes1;
 }
+
+/* Completion */
+extern NTSTATUS NTDLL_AddCompletion( HANDLE hFile, ULONG_PTR CompletionValue, NTSTATUS CompletionStatus, ULONG_PTR Information );
 
 #endif

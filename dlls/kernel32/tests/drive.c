@@ -43,7 +43,7 @@ static void test_GetDriveTypeA(void)
 
         if (!(logical_drives & 1))
             ok(type == DRIVE_NO_ROOT_DIR,
-               "GetDriveTypeA should return DRIVE_NO_ROOT_DIR for inexistant drive %c: but not %u\n",
+               "GetDriveTypeA should return DRIVE_NO_ROOT_DIR for inexistent drive %c: but not %u\n",
                drive[0], type);
 
         logical_drives >>= 1;
@@ -71,7 +71,7 @@ static void test_GetDriveTypeW(void)
 
         if (!(logical_drives & 1))
             ok(type == DRIVE_NO_ROOT_DIR,
-               "GetDriveTypeW should return DRIVE_NO_ROOT_DIR for inexistant drive %c: but not %u\n",
+               "GetDriveTypeW should return DRIVE_NO_ROOT_DIR for inexistent drive %c: but not %u\n",
                drive[0], type);
 
         logical_drives >>= 1;
@@ -126,7 +126,7 @@ static void test_GetDiskFreeSpaceA(void)
                     ok( total_clusters <= 65535,
                             "total clusters is %d > 65535\n", total_clusters);
                 else if (pGetDiskFreeSpaceExA) {
-                    /* NT, 2k, XP : GetDiskFreeSpace shoud be accurate */
+                    /* NT, 2k, XP : GetDiskFreeSpace should be accurate */
                     ULARGE_INTEGER totEx, tot, d;
 
                     tot.QuadPart = sectors_per_cluster;

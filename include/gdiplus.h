@@ -32,6 +32,10 @@ namespace Gdiplus
 #include "gdiplusenums.h"
 #include "gdiplusinit.h"
 #include "gdipluspixelformats.h"
+#include "gdiplusmetaheader.h"
+#include "gdiplusimaging.h"
+#include "gdipluscolor.h"
+#include "gdipluscolormatrix.h"
 #include "gdiplusgpstubs.h"
 
     namespace DllExports
@@ -48,6 +52,10 @@ namespace Gdiplus
 #include "gdiplusenums.h"
 #include "gdiplusinit.h"
 #include "gdipluspixelformats.h"
+#include "gdiplusmetaheader.h"
+#include "gdiplusimaging.h"
+#include "gdipluscolor.h"
+#include "gdipluscolormatrix.h"
 #include "gdiplusgpstubs.h"
 
 #include "gdiplusflat.h"

@@ -32,6 +32,8 @@
 #include "winuser.h"
 #include "icm.h"
 
+#include "mscms_priv.h"
+
 WINE_DEFAULT_DEBUG_CHANNEL(mscms);
 
 BOOL WINAPI DllMain( HINSTANCE hinst, DWORD reason, LPVOID reserved )
@@ -44,6 +46,9 @@ BOOL WINAPI DllMain( HINSTANCE hinst, DWORD reason, LPVOID reserved )
         DisableThreadLibraryCalls( hinst );
         break;
     case DLL_PROCESS_DETACH:
+#ifdef HAVE_LCMS
+        free_handle_tables();
+#endif
         break;
     }
     return TRUE;

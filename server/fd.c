@@ -44,7 +44,25 @@
 #include <sys/statvfs.h>
 #endif
 #ifdef HAVE_SYS_VFS_H
+/*
+ * Solaris defines its system list in sys/list.h.
+ * This need to be workaround it here.
+ */
+#define list SYSLIST
+#define list_next SYSLIST_NEXT
+#define list_prev SYSLIST_PREV
+#define list_head SYSLIST_HEAD
+#define list_tail SYSLIST_TAIL
+#define list_move_tail SYSLIST_MOVE_TAIL
+#define list_remove SYSLIST_REMOVE
 #include <sys/vfs.h>
+#undef list
+#undef list_next
+#undef list_prev
+#undef list_head
+#undef list_tail
+#undef list_move_tail
+#undef list_remove
 #endif
 #ifdef HAVE_SYS_PARAM_H
 #include <sys/param.h>
@@ -180,6 +198,8 @@ struct fd
     struct async_queue  *read_q;      /* async readers of this fd */
     struct async_queue  *write_q;     /* async writers of this fd */
     struct async_queue  *wait_q;      /* other async waiters of this fd */
+    struct completion   *completion;  /* completion object attached to this fd */
+    unsigned long        comp_key;    /* completion key to set in completion events */
 };
 
 static void fd_dump( struct object *obj, int verbose );
@@ -189,6 +209,7 @@ static const struct object_ops fd_ops =
 {
     sizeof(struct fd),        /* size */
     fd_dump,                  /* dump */
+    no_get_type,              /* get_type */
     no_add_queue,             /* add_queue */
     NULL,                     /* remove_queue */
     NULL,                     /* signaled */
@@ -196,6 +217,8 @@ static const struct object_ops fd_ops =
     no_signal,                /* signal */
     no_get_fd,                /* get_fd */
     no_map_access,            /* map_access */
+    default_get_sd,           /* get_sd */
+    default_set_sd,           /* set_sd */
     no_lookup_name,           /* lookup_name */
     no_open_file,             /* open_file */
     no_close_handle,          /* close_handle */
@@ -223,6 +246,7 @@ static const struct object_ops device_ops =
 {
     sizeof(struct device),    /* size */
     device_dump,              /* dump */
+    no_get_type,              /* get_type */
     no_add_queue,             /* add_queue */
     NULL,                     /* remove_queue */
     NULL,                     /* signaled */
@@ -230,6 +254,8 @@ static const struct object_ops device_ops =
     no_signal,                /* signal */
     no_get_fd,                /* get_fd */
     no_map_access,            /* map_access */
+    default_get_sd,           /* get_sd */
+    default_set_sd,           /* set_sd */
     no_lookup_name,           /* lookup_name */
     no_open_file,             /* open_file */
     no_close_handle,          /* close_handle */
@@ -256,6 +282,7 @@ static const struct object_ops inode_ops =
 {
     sizeof(struct inode),     /* size */
     inode_dump,               /* dump */
+    no_get_type,              /* get_type */
     no_add_queue,             /* add_queue */
     NULL,                     /* remove_queue */
     NULL,                     /* signaled */
@@ -263,6 +290,8 @@ static const struct object_ops inode_ops =
     no_signal,                /* signal */
     no_get_fd,                /* get_fd */
     no_map_access,            /* map_access */
+    default_get_sd,           /* get_sd */
+    default_set_sd,           /* set_sd */
     no_lookup_name,           /* lookup_name */
     no_open_file,             /* open_file */
     no_close_handle,          /* close_handle */
@@ -291,6 +320,7 @@ static const struct object_ops file_lock_ops =
 {
     sizeof(struct file_lock),   /* size */
     file_lock_dump,             /* dump */
+    no_get_type,                /* get_type */
     add_queue,                  /* add_queue */
     remove_queue,               /* remove_queue */
     file_lock_signaled,         /* signaled */
@@ -298,6 +328,8 @@ static const struct object_ops file_lock_ops =
     no_signal,                  /* signal */
     no_get_fd,                  /* get_fd */
     no_map_access,              /* map_access */
+    default_get_sd,             /* get_sd */
+    default_set_sd,             /* set_sd */
     no_lookup_name,             /* lookup_name */
     no_open_file,               /* open_file */
     no_close_handle,            /* close_handle */
@@ -417,6 +449,11 @@ static int allocated_users;                 /* count of allocated entries in the
 static struct fd **freelist;                /* list of free entries in the array */
 
 static int get_next_timeout(void);
+
+static inline void fd_poll_event( struct fd *fd, int event )
+{
+    fd->fd_ops->poll_event( fd, event );
+}
 
 #ifdef USE_EPOLL
 
@@ -802,14 +839,12 @@ static int is_device_removable( dev_t dev, int unix_fd )
     struct statfs stfs;
 
     if (fstatfs( unix_fd, &stfs ) == -1) return 0;
-    return (!strncmp("cd9660", stfs.f_fstypename, sizeof(stfs.f_fstypename)) ||
-            !strncmp("udf", stfs.f_fstypename, sizeof(stfs.f_fstypename)));
+    return (!strcmp("cd9660", stfs.f_fstypename) || !strcmp("udf", stfs.f_fstypename));
 #elif defined(__NetBSD__)
     struct statvfs stfs;
 
     if (fstatvfs( unix_fd, &stfs ) == -1) return 0;
-    return (!strncmp("cd9660", stfs.f_fstypename, sizeof(stfs.f_fstypename)) ||
-            !strncmp("udf", stfs.f_fstypename, sizeof(stfs.f_fstypename)));
+    return (!strcmp("cd9660", stfs.f_fstypename) || !strcmp("udf", stfs.f_fstypename));
 #elif defined(sun)
 # include <sys/dkio.h>
 # include <sys/vtoc.h>
@@ -1331,6 +1366,7 @@ static void fd_destroy( struct object *obj )
     free_async_queue( fd->write_q );
     free_async_queue( fd->wait_q );
 
+    if (fd->completion) release_object( fd->completion );
     remove_fd_locks( fd );
     list_remove( &fd->inode_entry );
     if (fd->poll_index != -1) remove_poll_user( fd, fd->poll_index );
@@ -1408,6 +1444,7 @@ static struct fd *alloc_fd_object(void)
     fd->read_q     = NULL;
     fd->write_q    = NULL;
     fd->wait_q     = NULL;
+    fd->completion = NULL;
     list_init( &fd->inode_entry );
     list_init( &fd->locks );
 
@@ -1440,6 +1477,7 @@ struct fd *alloc_pseudo_fd( const struct fd_ops *fd_user_ops, struct object *use
     fd->read_q     = NULL;
     fd->write_q    = NULL;
     fd->wait_q     = NULL;
+    fd->completion = NULL;
     fd->no_fd_status = STATUS_BAD_DEVICE_TYPE;
     list_init( &fd->inode_entry );
     list_init( &fd->locks );
@@ -1678,12 +1716,6 @@ int fd_close_handle( struct object *obj, struct process *process, obj_handle_t h
     return (!current || current->process == process);
 }
 
-/* callback for event happening in the main poll() loop */
-void fd_poll_event( struct fd *fd, int event )
-{
-    return fd->fd_ops->poll_event( fd, event );
-}
-
 /* check if events are pending and if yes return which one(s) */
 int check_fd_events( struct fd *fd, int events )
 {
@@ -1705,6 +1737,16 @@ int default_fd_signaled( struct object *obj, struct thread *thread )
     int ret = fd->signaled;
     release_object( fd );
     return ret;
+}
+
+/* default map_access() routine for objects that behave like an fd */
+unsigned int default_fd_map_access( struct object *obj, unsigned int access )
+{
+    if (access & GENERIC_READ)    access |= FILE_GENERIC_READ;
+    if (access & GENERIC_WRITE)   access |= FILE_GENERIC_WRITE;
+    if (access & GENERIC_EXECUTE) access |= FILE_GENERIC_EXECUTE;
+    if (access & GENERIC_ALL)     access |= FILE_ALL_ACCESS;
+    return access & ~(GENERIC_READ | GENERIC_WRITE | GENERIC_EXECUTE | GENERIC_ALL);
 }
 
 int default_fd_get_poll_events( struct fd *fd )
@@ -1898,6 +1940,12 @@ static struct fd *get_handle_fd_obj( struct process *process, obj_handle_t handl
     return fd;
 }
 
+void fd_assign_completion( struct fd *fd, struct completion **p_port, unsigned long *p_key )
+{
+    *p_key = fd->comp_key;
+    *p_port = fd->completion ? (struct completion *)grab_object( fd->completion ) : NULL;
+}
+
 /* flush a file buffers */
 DECL_HANDLER(flush_file)
 {
@@ -1949,11 +1997,11 @@ DECL_HANDLER(get_handle_fd)
         int unix_fd = get_unix_fd( fd );
         if (unix_fd != -1)
         {
-            send_client_fd( current->process, unix_fd, req->handle );
             reply->type = fd->fd_ops->get_fd_type( fd );
             reply->removable = is_fd_removable(fd);
             reply->options = fd->options;
             reply->access = get_handle_access( current->process, req->handle );
+            send_client_fd( current->process, unix_fd, req->handle );
         }
         release_object( fd );
     }
@@ -2008,6 +2056,35 @@ DECL_HANDLER(cancel_async)
     if (fd)
     {
         if (get_unix_fd( fd ) != -1) fd->fd_ops->cancel_async( fd );
+        release_object( fd );
+    }
+}
+
+/* attach completion object to a fd */
+DECL_HANDLER(set_completion_info)
+{
+    struct fd *fd = get_handle_fd_obj( current->process, req->handle, 0 );
+
+    if (fd)
+    {
+        if (!(fd->options & (FILE_SYNCHRONOUS_IO_ALERT | FILE_SYNCHRONOUS_IO_NONALERT)) && !fd->completion)
+        {
+            fd->completion = get_completion_obj( current->process, req->chandle, IO_COMPLETION_MODIFY_STATE );
+            fd->comp_key = req->ckey;
+        }
+        else set_error( STATUS_INVALID_PARAMETER );
+        release_object( fd );
+    }
+}
+
+/* push new completion msg into a completion queue attached to the fd */
+DECL_HANDLER(add_fd_completion)
+{
+    struct fd *fd = get_handle_fd_obj( current->process, req->handle, 0 );
+    if (fd)
+    {
+        if (fd->completion)
+            add_completion( fd->completion, fd->comp_key, req->cvalue, req->status, req->information );
         release_object( fd );
     }
 }

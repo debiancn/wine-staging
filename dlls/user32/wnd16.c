@@ -21,7 +21,6 @@
 #include "wine/winuser16.h"
 #include "wownt32.h"
 #include "win.h"
-#include "winproc.h"
 #include "user_private.h"
 
 /* handle <--> handle16 conversions */
@@ -691,7 +690,7 @@ LONG WINAPI SetClassLong16( HWND16 hwnd16, INT16 offset, LONG newval )
         {
             WNDPROC new_proc = WINPROC_AllocProc16( (WNDPROC16)newval );
             WNDPROC old_proc = (WNDPROC)SetClassLongA( WIN_Handle32(hwnd16), offset, (LONG_PTR)new_proc );
-            return (LONG)WINPROC_GetProc16( (WNDPROC)old_proc, FALSE );
+            return (LONG)WINPROC_GetProc16( old_proc, FALSE );
         }
     case GCLP_MENUNAME:
         newval = (LONG)MapSL( newval );
@@ -962,6 +961,24 @@ HWND16 WINAPI ChildWindowFromPoint16( HWND16 hwndParent, POINT16 pt )
     pt32.x = pt.x;
     pt32.y = pt.y;
     return HWND_16( ChildWindowFromPoint( WIN_Handle32(hwndParent), pt32 ));
+}
+
+
+/***********************************************************************
+ *		CascadeChildWindows (USER.198)
+ */
+void WINAPI CascadeChildWindows16( HWND16 parent, WORD action )
+{
+    CascadeWindows( WIN_Handle32(parent), action, NULL, 0, NULL );
+}
+
+
+/***********************************************************************
+ *		TileChildWindows (USER.199)
+ */
+void WINAPI TileChildWindows16( HWND16 parent, WORD action )
+{
+    TileWindows( WIN_Handle32(parent), action, NULL, 0, NULL );
 }
 
 

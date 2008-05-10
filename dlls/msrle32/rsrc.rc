@@ -33,6 +33,7 @@
 
 #include "msrle_Bg.rc"
 #include "msrle_Cs.rc"
+#include "msrle_Da.rc"
 #include "msrle_De.rc"
 #include "msrle_En.rc"
 #include "msrle_Es.rc"
@@ -45,6 +46,8 @@
 #include "msrle_No.rc"
 #include "msrle_Pl.rc"
 #include "msrle_Pt.rc"
+#include "msrle_Ro.rc"
 #include "msrle_Ru.rc"
 #include "msrle_Si.rc"
+#include "msrle_Sv.rc"
 #include "msrle_Tr.rc"

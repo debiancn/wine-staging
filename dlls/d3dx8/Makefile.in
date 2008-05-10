@@ -3,13 +3,13 @@ TOPOBJDIR = ../..
 SRCDIR    = @srcdir@
 VPATH     = @srcdir@
 MODULE    = d3dx8.dll
-IMPORTLIB = libd3dx8.$(IMPLIBEXT)
-IMPORTS   = d3d8 user32 gdi32 kernel32
-EXTRALIBS = -ldxguid -luuid
+IMPORTLIB = d3dx8
+IMPORTS   = dxguid uuid kernel32
 
 C_SRCS = \
 	d3dx8_main.c \
-	d3dxbuffer.c
+	d3dxbuffer.c \
+	math.c
 
 @MAKE_DLL_RULES@
 

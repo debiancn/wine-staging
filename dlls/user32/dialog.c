@@ -95,7 +95,7 @@ typedef struct
  */
 const struct builtin_class_descr DIALOG_builtin_class =
 {
-    (LPCSTR)DIALOG_CLASS_ATOM, /* name */
+    (LPCWSTR)DIALOG_CLASS_ATOM, /* name */
     CS_SAVEBITS | CS_DBLCLKS, /* style  */
     DefDlgProcA,        /* procA */
     DefDlgProcW,        /* procW */
@@ -1094,7 +1094,7 @@ BOOL WINAPI IsDialogMessageW( HWND hwndDlg, LPMSG msg )
     {
     case WM_KEYDOWN:
         dlgCode = SendMessageW( msg->hwnd, WM_GETDLGCODE, msg->wParam, (LPARAM)msg );
-        if (dlgCode & DLGC_WANTMESSAGE) break;
+        if (dlgCode & (DLGC_WANTMESSAGE)) break;
 
         switch(msg->wParam)
         {
@@ -1183,6 +1183,9 @@ BOOL WINAPI IsDialogMessageW( HWND hwndDlg, LPMSG msg )
                 }
                 else if (DC_HASDEFID == HIWORD(dw = SendMessageW (hwndDlg, DM_GETDEFID, 0, 0)))
                 {
+                    HWND hwndDef = GetDlgItem(hwndDlg, LOWORD(dw));
+                    if (!hwndDef || !IsWindowEnabled(hwndDef))
+                        return TRUE;
                     SendMessageW( hwndDlg, WM_COMMAND, MAKEWPARAM( LOWORD(dw), BN_CLICKED ),
                                     (LPARAM)GetDlgItem(hwndDlg, LOWORD(dw)));
                 }
@@ -1677,10 +1680,10 @@ static BOOL DIALOG_DlgDirSelect( HWND hwnd, LPWSTR str, INT len,
     item = SendMessageW(listbox, combo ? CB_GETCURSEL : LB_GETCURSEL, 0, 0 );
     if (item == LB_ERR) return FALSE;
 
-    size = SendMessageW(listbox, combo ? CB_GETLBTEXTLEN : LB_GETTEXTLEN, 0, 0 );
+    size = SendMessageW(listbox, combo ? CB_GETLBTEXTLEN : LB_GETTEXTLEN, item, 0 );
     if (size == LB_ERR) return FALSE;
 
-    if (!(buffer = HeapAlloc( GetProcessHeap(), 0, (size+1) * sizeof(WCHAR) ))) return FALSE;
+    if (!(buffer = HeapAlloc( GetProcessHeap(), 0, (size+2) * sizeof(WCHAR) ))) return FALSE;
 
     SendMessageW( listbox, combo ? CB_GETLBTEXT : LB_GETTEXT, item, (LPARAM)buffer );
 
@@ -1698,7 +1701,16 @@ static BOOL DIALOG_DlgDirSelect( HWND hwnd, LPWSTR str, INT len,
             ptr = buffer + 1;
         }
     }
-    else ptr = buffer;
+    else
+    {
+        /* Filenames without a dot extension must have one tacked at the end */
+        if (strchrW(buffer, '.') == NULL)
+        {
+            buffer[strlenW(buffer)+1] = '\0';
+            buffer[strlenW(buffer)] = '.';
+        }
+        ptr = buffer;
+    }
 
     if (!unicode)
     {
@@ -1736,6 +1748,7 @@ static INT DIALOG_DlgDirListW( HWND hDlg, LPWSTR spec, INT idLBox,
     {
         WCHAR *p, *p2;
         p = spec;
+        if ((p2 = strchrW( p, ':' ))) p = p2 + 1;
         if ((p2 = strrchrW( p, '\\' ))) p = p2;
         if ((p2 = strrchrW( p, '/' ))) p = p2;
         if (p != spec)
@@ -1755,28 +1768,29 @@ static INT DIALOG_DlgDirListW( HWND hDlg, LPWSTR spec, INT idLBox,
 
     if (idLBox && ((hwnd = GetDlgItem( hDlg, idLBox )) != 0))
     {
+        if (attrib == DDL_DRIVES) attrib |= DDL_EXCLUSIVE;
+
         SENDMSG( combo ? CB_RESETCONTENT : LB_RESETCONTENT, 0, 0 );
         if (attrib & DDL_DIRECTORY)
         {
             if (!(attrib & DDL_EXCLUSIVE))
             {
-                if (SENDMSG( combo ? CB_DIR : LB_DIR,
-                             attrib & ~(DDL_DIRECTORY | DDL_DRIVES),
-                             (LPARAM)spec ) == LB_ERR)
-                    return FALSE;
+                SENDMSG( combo ? CB_DIR : LB_DIR,
+                         attrib & ~(DDL_DIRECTORY | DDL_DRIVES),
+                         (LPARAM)spec );
             }
-            if (SENDMSG( combo ? CB_DIR : LB_DIR,
-                       (attrib & (DDL_DIRECTORY | DDL_DRIVES)) | DDL_EXCLUSIVE,
-                         (LPARAM)any ) == LB_ERR)
-                return FALSE;
+            SENDMSG( combo ? CB_DIR : LB_DIR,
+                   (attrib & (DDL_DIRECTORY | DDL_DRIVES)) | DDL_EXCLUSIVE,
+                   (LPARAM)any );
         }
         else
         {
-            if (SENDMSG( combo ? CB_DIR : LB_DIR, attrib,
-                         (LPARAM)spec ) == LB_ERR)
-                return FALSE;
+            SENDMSG( combo ? CB_DIR : LB_DIR, attrib, (LPARAM)spec );
         }
     }
+
+    /* Convert path specification to uppercase */
+    if (spec) CharUpperW(spec);
 
     if (idStatic && ((hwnd = GetDlgItem( hDlg, idStatic )) != 0))
     {

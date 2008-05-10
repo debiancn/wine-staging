@@ -29,6 +29,7 @@
 #include "lmaccess.h"
 #include "lmapibuf.h"
 #include "lmerr.h"
+#include "lmuse.h"
 #include "ntsecapi.h"
 #include "wine/debug.h"
 #include "wine/unicode.h"
@@ -56,10 +57,6 @@ struct sam_user
     DWORD user_flags;
     LPWSTR user_logon_script_path;
 };
-
-static const WCHAR sAdminUserName[] = {'A','d','m','i','n','i','s','t','r','a','t',
-                                'o','r',0};
-static const WCHAR sGuestUserName[] = {'G','u','e','s','t',0};
 
 static struct list user_list = LIST_INIT( user_list );
 
@@ -131,7 +128,7 @@ NET_API_STATUS WINAPI NetUserAdd(LPCWSTR servername,
         /* Fall through */
     case 2:
         FIXME("Level 2 not implemented.\n");
-        /* Fall throught */
+        /* Fall through */
     case 1:
     {
         PUSER_INFO_1 ui = (PUSER_INFO_1) bufptr;
@@ -177,13 +174,8 @@ NET_API_STATUS WINAPI NetUserAdd(LPCWSTR servername,
         break;
     }
 
-    if(su)
-    {
-        HeapFree(GetProcessHeap(), 0, su->home_dir);
-        HeapFree(GetProcessHeap(), 0, su->user_comment);
-        HeapFree(GetProcessHeap(), 0, su->user_logon_script_path);
-        HeapFree(GetProcessHeap(), 0, su);
-    }
+    HeapFree(GetProcessHeap(), 0, su);
+
     return status;
 }
 
@@ -608,7 +600,7 @@ NetQueryDisplayInformation(
         NetApiBufferAllocate(dwSize +
                              admin_size - sizeof(NET_DISPLAY_USER) +
                              guest_size - sizeof(NET_DISPLAY_USER),
-                             (LPVOID *) SortedBuffer);
+                             SortedBuffer);
         inf = (PNET_DISPLAY_USER) *SortedBuffer;
         str = (LPWSTR) ((PBYTE) inf + sizeof(NET_DISPLAY_USER) * records);
         inf->usri1_name = str;
@@ -830,5 +822,11 @@ NET_API_STATUS WINAPI NetUserChangePassword(LPCWSTR domainname, LPCWSTR username
 
     lstrcpyW(user->user_password, newpassword);
 
+    return NERR_Success;
+}
+
+NET_API_STATUS WINAPI NetUseAdd(LMSTR servername, DWORD level, LPBYTE bufptr, LPDWORD parm_err)
+{
+    FIXME("%s %d %p %p stub\n", debugstr_w(servername), level, bufptr, parm_err);
     return NERR_Success;
 }

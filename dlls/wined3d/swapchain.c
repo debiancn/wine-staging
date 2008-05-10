@@ -4,6 +4,7 @@
  *Copyright 2002-2003 Jason Edmeades
  *Copyright 2002-2003 Raphael Junqueira
  *Copyright 2005 Oliver Stieber
+ *Copyright 2007 Stefan Dösinger for CodeWeavers
  *
  *This library is free software; you can redistribute it and/or
  *modify it under the terms of the GNU Lesser General Public
@@ -23,27 +24,6 @@
 #include "config.h"
 #include "wined3d_private.h"
 
-
-/* TODO: move to shared header (or context manager )*/
-/* x11drv GDI escapes */
-#define X11DRV_ESCAPE 6789
-enum x11drv_escape_codes
-{
-    X11DRV_GET_DISPLAY,   /* get X11 display for a DC */
-    X11DRV_GET_DRAWABLE,  /* get current drawable for a DC */
-    X11DRV_GET_FONT,      /* get current X font for a DC */
-};
-
-/* retrieve the X display to use on a given DC */
-static inline Display *get_display( HDC hdc )
-{
-    Display *display;
-    enum x11drv_escape_codes escape = X11DRV_GET_DISPLAY;
-
-    if (!ExtEscape( hdc, X11DRV_ESCAPE, sizeof(escape), (LPCSTR)&escape,
-                    sizeof(display), (LPSTR)&display )) display = NULL;
-    return display;
-}
 
 /*TODO: some of the additional parameters may be required to
     set the gamma ramp (for some weird reason microsoft have left swap gammaramp in device
@@ -124,8 +104,12 @@ static void WINAPI IWineD3DSwapChainImpl_Destroy(IWineD3DSwapChain *iface, D3DCB
                 FIXME("(%p) Something's still holding the back buffer\n",This);
             }
         }
+        HeapFree(GetProcessHeap(), 0, This->backBuffer);
     }
 
+    for(i = 0; i < This->num_contexts; i++) {
+        DestroyContext(This->wineD3DDevice, This->context[i]);
+    }
     /* Restore the screen resolution if we rendered in fullscreen
      * This will restore the screen resolution to what it was before creating the swapchain. In case of d3d8 and d3d9
      * this will be the original desktop resolution. In case of d3d7 this will be a NOP because ddraw sets the resolution
@@ -138,9 +122,6 @@ static void WINAPI IWineD3DSwapChainImpl_Destroy(IWineD3DSwapChain *iface, D3DCB
         mode.Format = This->orig_fmt;
         IWineD3DDevice_SetDisplayMode((IWineD3DDevice *) This->wineD3DDevice, 0, &mode);
     }
-    for(i = 0; i < This->num_contexts; i++) {
-        DestroyContext(This->wineD3DDevice, This->context[i]);
-    }
     HeapFree(GetProcessHeap(), 0, This->context);
 
     HeapFree(GetProcessHeap(), 0, This);
@@ -151,9 +132,8 @@ static HRESULT WINAPI IWineD3DSwapChainImpl_Present(IWineD3DSwapChain *iface, CO
     unsigned int sync;
     int retval;
 
-    ENTER_GL();
 
-    /* Does glXSwapBuffers need a glx context? I don't think so. Blt will activate its own context if needed */
+    ActivateContext(This->wineD3DDevice, This->backBuffer[0], CTXUSAGE_RESOURCELOAD);
 
     /* Render the cursor onto the back buffer, using our nifty directdraw blitting code :-) */
     if(This->wineD3DDevice->bCursorVisible && This->wineD3DDevice->cursorTexture) {
@@ -196,16 +176,18 @@ static HRESULT WINAPI IWineD3DSwapChainImpl_Present(IWineD3DSwapChain *iface, CO
         }
         IWineD3DSurface_Blt(This->backBuffer[0], &destRect, (IWineD3DSurface *) &cursor, NULL, WINEDDBLT_KEYSRC, NULL, WINED3DTEXF_NONE);
     }
+    if(This->wineD3DDevice->logo_surface) {
+        /* Blit the logo into the upper left corner of the drawable */
+        IWineD3DSurface_BltFast(This->backBuffer[0], 0, 0, This->wineD3DDevice->logo_surface, NULL, WINEDDBLTFAST_SRCCOLORKEY);
+    }
 
     if (pSourceRect || pDestRect) FIXME("Unhandled present options %p/%p\n", pSourceRect, pDestRect);
     /* TODO: If only source rect or dest rect are supplied then clip the window to match */
-    TRACE("preseting display %p, drawable %ld\n", This->context[0]->display, This->context[0]->drawable);
+    TRACE("presetting HDC %p\n", This->context[0]->hdc);
 
     /* Don't call checkGLcall, as glGetError is not applicable here */
     if (hDestWindowOverride && This->win_handle != hDestWindowOverride) {
-        HDC hDc;
         WINED3DLOCKED_RECT r;
-        Display *display;
         BYTE *mem;
 
         TRACE("Performing dest override of swapchain %p from window %p to %p\n", This, This->win_handle, hDestWindowOverride);
@@ -216,11 +198,7 @@ static HRESULT WINAPI IWineD3DSwapChainImpl_Present(IWineD3DSwapChain *iface, CO
              */
             ERR("Cannot change the destination window of the owner of the primary context\n");
         } else {
-            hDc                          = GetDC(hDestWindowOverride);
             This->win_handle             = hDestWindowOverride;
-            This->win                    = (Window)GetPropA( hDestWindowOverride, "__wine_x11_whole_window" );
-            display                      = get_display(hDc);
-            ReleaseDC(hDestWindowOverride, hDc);
 
             /* The old back buffer has to be copied over to the new back buffer. A lockrect - switchcontext - unlockrect
              * would suffice in theory, but it is rather nasty and may cause troubles with future changes of the locking code
@@ -232,7 +210,7 @@ static HRESULT WINAPI IWineD3DSwapChainImpl_Present(IWineD3DSwapChain *iface, CO
             IWineD3DSurface_UnlockRect(This->backBuffer[0]);
 
             DestroyContext(This->wineD3DDevice, This->context[0]);
-            This->context[0] = CreateContext(This->wineD3DDevice, (IWineD3DSurfaceImpl *) This->frontBuffer, display, This->win);
+            This->context[0] = CreateContext(This->wineD3DDevice, (IWineD3DSurfaceImpl *) This->frontBuffer, This->win_handle, FALSE /* pbuffer */, &This->presentParms);
 
             IWineD3DSurface_LockRect(This->backBuffer[0], &r, NULL, WINED3DLOCK_DISCARD);
             memcpy(r.pBits, mem, r.Pitch * ((IWineD3DSurfaceImpl *) This->backBuffer[0])->currentDesc.Height);
@@ -241,9 +219,9 @@ static HRESULT WINAPI IWineD3DSwapChainImpl_Present(IWineD3DSwapChain *iface, CO
         }
     }
 
-    glXSwapBuffers(This->context[0]->display, This->context[0]->drawable); /* TODO: cycle through the swapchain buffers */
+    SwapBuffers(This->context[0]->hdc); /* TODO: cycle through the swapchain buffers */
 
-    TRACE("glXSwapBuffers called, Starting new frame\n");
+    TRACE("SwapBuffers called, Starting new frame\n");
     /* FPS support */
     if (TRACE_ON(fps))
     {
@@ -267,7 +245,9 @@ static HRESULT WINAPI IWineD3DSwapChainImpl_Present(IWineD3DSwapChain *iface, CO
 #if defined(SHOW_FRAME_MAKEUP)
             FIXME("Singe Frame snapshots Starting\n");
             isDumpingFrames = TRUE;
+            ENTER_GL();
             glClear(GL_COLOR_BUFFER_BIT);
+            LEAVE_GL();
 #endif
 
 #if defined(SINGLE_FRAME_DEBUGGING)
@@ -295,10 +275,24 @@ static HRESULT WINAPI IWineD3DSwapChainImpl_Present(IWineD3DSwapChain *iface, CO
 }
 #endif
 
-    LEAVE_GL();
-
-    if (This->presentParms.SwapEffect == WINED3DSWAPEFFECT_DISCARD) {
-        TRACE("Clearing the color buffer with pink color\n");
+    /* This is disabled, but the code left in for debug purposes.
+     *
+     * Since we're allowed to modify the new back buffer on a D3DSWAPEFFECT_DISCARD flip,
+     * we can clear it with some ugly color to make bad drawing visible and ease debugging.
+     * The Debug runtime does the same on Windows. However, a few games do not redraw the
+     * screen properly, like Max Payne 2, which leaves a few pixels undefined.
+     *
+     * Tests show that the content of the back buffer after a discard flip is indeed not
+     * reliable, so no game can depend on the exact content. However, it resembles the
+     * old contents in some way, for example by showing fragments at other locations. In
+     * general, the color theme is still intact. So Max payne, which draws rather dark scenes
+     * gets a dark background image. If we clear it with a bright ugly color, the game's
+     * bug shows up much more than it does on Windows, and the players see single pixels
+     * with wrong colors.
+     * (The Max Payne bug has been confirmed on Windows with the debug runtime)
+     */
+    if (FALSE && This->presentParms.SwapEffect == WINED3DSWAPEFFECT_DISCARD) {
+        TRACE("Clearing the color buffer with cyan color\n");
 
         IWineD3DDevice_Clear((IWineD3DDevice*)This->wineD3DDevice, 0, NULL,
                               WINED3DCLEAR_TARGET, 0xff00ffff, 1.0, 0);
@@ -346,6 +340,29 @@ static HRESULT WINAPI IWineD3DSwapChainImpl_Present(IWineD3DSwapChain *iface, CO
                 tmp = front->resource.allocatedMemory;
                 front->resource.allocatedMemory = back->resource.allocatedMemory;
                 back->resource.allocatedMemory = tmp;
+
+                tmp = front->resource.heapMemory;
+                front->resource.heapMemory = back->resource.heapMemory;
+                back->resource.heapMemory = tmp;
+            }
+
+            /* Flip the PBO */
+            {
+                DWORD tmp_flags = front->Flags;
+
+                GLuint tmp_pbo = front->pbo;
+                front->pbo = back->pbo;
+                back->pbo = tmp_pbo;
+
+                if(back->Flags & SFLAG_PBO)
+                    front->Flags |= SFLAG_PBO;
+                else
+                    front->Flags &= ~SFLAG_PBO;
+
+                if(tmp_flags & SFLAG_PBO)
+                    back->Flags |= SFLAG_PBO;
+                else
+                    back->Flags &= ~SFLAG_PBO;
             }
 
             /* client_memory should not be different, but just in case */
@@ -360,8 +377,8 @@ static HRESULT WINAPI IWineD3DSwapChainImpl_Present(IWineD3DSwapChain *iface, CO
             if(backuptodate) front->Flags |= SFLAG_INSYSMEM;
             else front->Flags &= ~SFLAG_INSYSMEM;
         } else {
-            back->Flags &= ~SFLAG_INSYSMEM;
-            front->Flags &= ~SFLAG_INSYSMEM;
+            IWineD3DSurface_ModifyLocation((IWineD3DSurface *) front, SFLAG_INDRAWABLE, TRUE);
+            IWineD3DSurface_ModifyLocation((IWineD3DSurface *) back, SFLAG_INDRAWABLE, TRUE);
         }
     }
 
@@ -464,30 +481,14 @@ static HRESULT WINAPI IWineD3DSwapChainImpl_GetRasterStatus(IWineD3DSwapChain *i
 
 static HRESULT WINAPI IWineD3DSwapChainImpl_GetDisplayMode(IWineD3DSwapChain *iface, WINED3DDISPLAYMODE*pMode) {
     IWineD3DSwapChainImpl *This = (IWineD3DSwapChainImpl *)iface;
-    HDC                 hdc;
-    int                 bpp = 0;
+    HRESULT hr;
 
-    pMode->Width        = GetSystemMetrics(SM_CXSCREEN);
-    pMode->Height       = GetSystemMetrics(SM_CYSCREEN);
-    pMode->RefreshRate  = 85; /* FIXME: How to identify? */
-
-    hdc = GetDC(0);
-    bpp = GetDeviceCaps(hdc, BITSPIXEL);
-    ReleaseDC(0, hdc);
-
-    switch (bpp) {
-    case  8: pMode->Format       = WINED3DFMT_R8G8B8; break;
-    case 16: pMode->Format       = WINED3DFMT_R5G6B5; break;
-    case 24: /*pMode->Format       = WINED3DFMT_R8G8B8; break; */ /* 32bpp and 24bpp can be aliased for X */
-    case 32: pMode->Format       = WINED3DFMT_A8R8G8B8; break;
-    default:
-       FIXME("Unrecognized display mode format\n");
-       pMode->Format       = WINED3DFMT_UNKNOWN;
-    }
+    TRACE("(%p)->(%p): Calling GetAdapterDisplayMode\n", This, pMode);
+    hr = IWineD3D_GetAdapterDisplayMode(This->wineD3DDevice->wineD3D, This->wineD3DDevice->adapter->num, pMode);
 
     TRACE("(%p) : returning w(%d) h(%d) rr(%d) fmt(%u,%s)\n", This, pMode->Width, pMode->Height, pMode->RefreshRate,
     pMode->Format, debug_d3dformat(pMode->Format));
-    return WINED3D_OK;
+    return hr;
 }
 
 static HRESULT WINAPI IWineD3DSwapChainImpl_GetDevice(IWineD3DSwapChain *iface, IWineD3DDevice**ppDevice) {
@@ -564,7 +565,7 @@ WineD3DContext *IWineD3DSwapChainImpl_CreateContextForThread(IWineD3DSwapChain *
     TRACE("Creating a new context for swapchain %p, thread %d\n", This, GetCurrentThreadId());
 
     ctx = CreateContext(This->wineD3DDevice, (IWineD3DSurfaceImpl *) This->frontBuffer,
-                        This->context[0]->display, This->win);
+                        This->context[0]->win_handle, FALSE /* pbuffer */, &This->presentParms);
     if(!ctx) {
         ERR("Failed to create a new context for the swapchain\n");
         return NULL;
@@ -584,4 +585,12 @@ WineD3DContext *IWineD3DSwapChainImpl_CreateContextForThread(IWineD3DSwapChain *
 
     TRACE("Returning context %p\n", ctx);
     return ctx;
+}
+
+void get_drawable_size_swapchain(IWineD3DSurfaceImpl *This, UINT *width, UINT *height) {
+    /* The drawable size of an onscreen drawable is the surface size.
+     * (Actually: The window size, but the surface is created in window size)
+     */
+    *width = This->currentDesc.Width;
+    *height = This->currentDesc.Height;
 }

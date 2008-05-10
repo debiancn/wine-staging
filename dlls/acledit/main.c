@@ -23,6 +23,7 @@
 #include "windef.h"
 #include "winbase.h"
 #include "winuser.h"
+#include "wfext.h"
 
 #include "wine/unicode.h"
 #include "wine/debug.h"
@@ -45,4 +46,16 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
         break;
     }
     return TRUE;
+}
+
+/***********************************************************************
+ *  FMExtensionProcW (acledit.@)
+ *
+ */
+
+LONG WINAPI FMExtensionProcW(HWND hWnd, WORD wEvent, LONG lParam)
+{
+    FIXME("%p, %d, 0x%x) stub\n", hWnd, wEvent, lParam);
+    return 0;
+
 }

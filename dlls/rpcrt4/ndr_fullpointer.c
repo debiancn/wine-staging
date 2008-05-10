@@ -63,7 +63,22 @@ PFULL_PTR_XLAT_TABLES WINAPI NdrFullPointerXlatInit(ULONG NumberOfPointers,
 
 void WINAPI NdrFullPointerXlatFree(PFULL_PTR_XLAT_TABLES pXlatTables)
 {
+    ULONG i;
+
     TRACE("(%p)\n", pXlatTables);
+
+    /* free the entries in the table */
+    for (i = 0; i < pXlatTables->PointerToRefId.NumberOfBuckets; i++)
+    {
+        PFULL_PTR_TO_REFID_ELEMENT XlatTableEntry;
+        for (XlatTableEntry = pXlatTables->PointerToRefId.XlatTable[i];
+            XlatTableEntry; )
+        {
+            PFULL_PTR_TO_REFID_ELEMENT Next = XlatTableEntry->Next;
+            HeapFree(GetProcessHeap(), 0, XlatTableEntry);
+            XlatTableEntry = Next;
+        }
+    }
 
     HeapFree(GetProcessHeap(), 0, pXlatTables->RefIdToPointer.XlatTable);
     HeapFree(GetProcessHeap(), 0, pXlatTables->RefIdToPointer.StateTable);

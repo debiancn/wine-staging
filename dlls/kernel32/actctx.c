@@ -28,31 +28,13 @@
 #include "winbase.h"
 #include "winerror.h"
 #include "winnls.h"
+#include "winternl.h"
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(actctx);
 
 
-#define ACTCTX_FLAGS_ALL (\
- ACTCTX_FLAG_PROCESSOR_ARCHITECTURE_VALID |\
- ACTCTX_FLAG_LANGID_VALID |\
- ACTCTX_FLAG_ASSEMBLY_DIRECTORY_VALID |\
- ACTCTX_FLAG_RESOURCE_NAME_VALID |\
- ACTCTX_FLAG_SET_PROCESS_DEFAULT |\
- ACTCTX_FLAG_APPLICATION_NAME_VALID |\
- ACTCTX_FLAG_SOURCE_IS_ASSEMBLYREF |\
- ACTCTX_FLAG_HMODULE_VALID )
-
 #define ACTCTX_FAKE_HANDLE ((HANDLE) 0xf00baa)
-#define ACTCTX_FAKE_COOKIE ((ULONG_PTR) 0xf00bad)
-
-#define ACTCTX_MAGIC       0xC07E3E11
-
-struct actctx
-{
-    ULONG               magic;
-    LONG                ref_count;
-};
 
 /***********************************************************************
  * CreateActCtxA (KERNEL32.@)
@@ -68,8 +50,7 @@ HANDLE WINAPI CreateActCtxA(PCACTCTXA pActCtx)
 
     TRACE("%p %08x\n", pActCtx, pActCtx ? pActCtx->dwFlags : 0);
 
-    if (!pActCtx || pActCtx->cbSize != sizeof(*pActCtx) ||
-        (pActCtx->dwFlags & ~ACTCTX_FLAGS_ALL))
+    if (!pActCtx || pActCtx->cbSize != sizeof(*pActCtx))
     {
         SetLastError(ERROR_INVALID_PARAMETER);
         return INVALID_HANDLE_VALUE;
@@ -108,7 +89,7 @@ HANDLE WINAPI CreateActCtxA(PCACTCTXA pActCtx)
             MultiByteToWideChar(CP_ACP, 0, pActCtx->lpResourceName, -1, resname, len);
             actw.lpResourceName = resname;
         }
-        else actw.lpResourceName = (LPWSTR)pActCtx->lpResourceName;
+        else actw.lpResourceName = (LPCWSTR)pActCtx->lpResourceName;
     }
     if (actw.dwFlags & ACTCTX_FLAG_APPLICATION_NAME_VALID)
     {
@@ -138,44 +119,17 @@ done:
  */
 HANDLE WINAPI CreateActCtxW(PCACTCTXW pActCtx)
 {
-    struct actctx*      actctx;
-    DWORD               ret = ERROR_SUCCESS;
+    NTSTATUS    status;
+    HANDLE      hActCtx;
 
     TRACE("%p %08x\n", pActCtx, pActCtx ? pActCtx->dwFlags : 0);
 
-    if (!pActCtx || pActCtx->cbSize != sizeof(*pActCtx) ||
-        (pActCtx->dwFlags & ~ACTCTX_FLAGS_ALL))
+    if ((status = RtlCreateActivationContext(&hActCtx, pActCtx)))
     {
-        SetLastError(ERROR_INVALID_PARAMETER);
+        SetLastError(RtlNtStatusToDosError(status));
         return INVALID_HANDLE_VALUE;
     }
-    actctx = HeapAlloc(GetProcessHeap(), 0, sizeof(*actctx));
-    if (!actctx) return INVALID_HANDLE_VALUE;
-
-    actctx->magic = ACTCTX_MAGIC;
-    actctx->ref_count = 1;
-
-    if (ret == ERROR_SUCCESS)
-    {
-        return (HANDLE)actctx;
-    }
-
-    ReleaseActCtx((HANDLE)actctx);
-    SetLastError(ret);
-    return INVALID_HANDLE_VALUE;
-}
-
-static struct actctx* check_actctx(HANDLE h)
-{
-    struct actctx*      actctx = (struct actctx*)h;
-
-    switch (actctx->magic)
-    {
-    case ACTCTX_MAGIC: return actctx;
-    default:
-        SetLastError(ERROR_INVALID_HANDLE);
-        return NULL;
-    }
+    return hActCtx;
 }
 
 /***********************************************************************
@@ -185,19 +139,14 @@ static struct actctx* check_actctx(HANDLE h)
  */
 BOOL WINAPI ActivateActCtx(HANDLE hActCtx, ULONG_PTR *ulCookie)
 {
-  static BOOL reported = FALSE;
+    NTSTATUS status;
 
-  if (reported)
-    TRACE("%p %p\n", hActCtx, ulCookie);
-  else
-  {
-    FIXME("%p %p\n", hActCtx, ulCookie);
-    reported = TRUE;
-  }
-
-  if (ulCookie)
-    *ulCookie = ACTCTX_FAKE_COOKIE;
-  return TRUE;
+    if ((status = RtlActivateActivationContext( 0, hActCtx, ulCookie )))
+    {
+        SetLastError(RtlNtStatusToDosError(status));
+        return FALSE;
+    }
+    return TRUE;
 }
 
 /***********************************************************************
@@ -207,19 +156,8 @@ BOOL WINAPI ActivateActCtx(HANDLE hActCtx, ULONG_PTR *ulCookie)
  */
 BOOL WINAPI DeactivateActCtx(DWORD dwFlags, ULONG_PTR ulCookie)
 {
-  static BOOL reported = FALSE;
-
-  if (reported)
-    TRACE("%08x %08lx\n", dwFlags, ulCookie);
-  else
-  {
-    FIXME("%08x %08lx\n", dwFlags, ulCookie);
-    reported = TRUE;
-  }
-
-  if (ulCookie != ACTCTX_FAKE_COOKIE)
-    return FALSE;
-  return TRUE;
+    RtlDeactivateActivationContext( dwFlags, ulCookie );
+    return TRUE;
 }
 
 /***********************************************************************
@@ -229,9 +167,14 @@ BOOL WINAPI DeactivateActCtx(DWORD dwFlags, ULONG_PTR ulCookie)
  */
 BOOL WINAPI GetCurrentActCtx(HANDLE* phActCtx)
 {
-  FIXME("%p\n", phActCtx);
-  *phActCtx = ACTCTX_FAKE_HANDLE;
-  return TRUE;
+    NTSTATUS status;
+
+    if ((status = RtlGetActiveActivationContext(phActCtx)))
+    {
+        SetLastError(RtlNtStatusToDosError(status));
+        return FALSE;
+    }
+    return TRUE;
 }
 
 /***********************************************************************
@@ -241,12 +184,7 @@ BOOL WINAPI GetCurrentActCtx(HANDLE* phActCtx)
  */
 void WINAPI AddRefActCtx(HANDLE hActCtx)
 {
-    struct actctx*      actctx;
-
-    TRACE("%p\n", hActCtx);
-
-    if ((actctx = check_actctx(hActCtx)))
-        InterlockedIncrement( &actctx->ref_count );
+    RtlAddRefActivationContext(hActCtx);
 }
 
 /***********************************************************************
@@ -256,18 +194,7 @@ void WINAPI AddRefActCtx(HANDLE hActCtx)
  */
 void WINAPI ReleaseActCtx(HANDLE hActCtx)
 {
-    struct actctx*      actctx;
-
-    TRACE("%p\n", hActCtx);
-
-    if ((actctx = check_actctx(hActCtx)))
-    {
-        if (!InterlockedDecrement( &actctx->ref_count ))
-        {
-            actctx->magic = 0;
-            HeapFree(GetProcessHeap(), 0, actctx);
-        }
-    }
+    RtlReleaseActivationContext(hActCtx);
 }
 
 /***********************************************************************
@@ -292,10 +219,27 @@ BOOL WINAPI FindActCtxSectionStringA(DWORD dwFlags, const GUID* lpExtGuid,
                                     ULONG ulId, LPCSTR lpSearchStr,
                                     PACTCTX_SECTION_KEYED_DATA pInfo)
 {
-  FIXME("%08x %s %u %s %p\n", dwFlags, debugstr_guid(lpExtGuid),
-       ulId, debugstr_a(lpSearchStr), pInfo);
-  SetLastError( ERROR_CALL_NOT_IMPLEMENTED);
-  return FALSE;
+    LPWSTR  search_str;
+    DWORD   len;
+    BOOL    ret;
+
+    TRACE("%08x %s %u %s %p\n", dwFlags, debugstr_guid(lpExtGuid),
+          ulId, debugstr_a(lpSearchStr), pInfo);
+
+    if (!lpSearchStr)
+    {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+
+    len = MultiByteToWideChar(CP_ACP, 0, lpSearchStr, -1, NULL, 0);
+    search_str = HeapAlloc(GetProcessHeap(), 0, len * sizeof(WCHAR));
+    MultiByteToWideChar(CP_ACP, 0, lpSearchStr, -1, search_str, len);
+
+    ret = FindActCtxSectionStringW(dwFlags, lpExtGuid, ulId, search_str, pInfo);
+
+    HeapFree(GetProcessHeap(), 0, search_str);
+    return ret;
 }
 
 /***********************************************************************
@@ -307,39 +251,16 @@ BOOL WINAPI FindActCtxSectionStringW(DWORD dwFlags, const GUID* lpExtGuid,
                                     ULONG ulId, LPCWSTR lpSearchStr,
                                     PACTCTX_SECTION_KEYED_DATA pInfo)
 {
-  FIXME("%08x %s %u %s %p\n", dwFlags, debugstr_guid(lpExtGuid),
-        ulId, debugstr_w(lpSearchStr), pInfo);
+    UNICODE_STRING us;
+    NTSTATUS status;
 
-  if (lpExtGuid)
-  {
-    FIXME("expected lpExtGuid == NULL\n");
-    SetLastError(ERROR_INVALID_PARAMETER);
-    return FALSE;
-  }
-
-  if (dwFlags & ~FIND_ACTCTX_SECTION_KEY_RETURN_HACTCTX)
-  {
-    FIXME("unknown dwFlags %08x\n", dwFlags);
-    SetLastError(ERROR_INVALID_PARAMETER);
-    return FALSE;
-  }
-
-  if (!pInfo || pInfo->cbSize < sizeof (ACTCTX_SECTION_KEYED_DATA))
-  {
-    SetLastError(ERROR_INVALID_PARAMETER);
-    return FALSE;
-  }
-
-  pInfo->ulDataFormatVersion = 1;
-  pInfo->lpData = NULL;
-  pInfo->lpSectionGlobalData = NULL;
-  pInfo->ulSectionGlobalDataLength = 0;
-  pInfo->lpSectionBase = NULL;
-  pInfo->ulSectionTotalLength = 0;
-  pInfo->hActCtx = ACTCTX_FAKE_HANDLE;
-  pInfo->ulAssemblyRosterIndex = 0;
-
-  return TRUE;
+    RtlInitUnicodeString(&us, lpSearchStr);
+    if ((status = RtlFindActivationContextSectionString(dwFlags, lpExtGuid, ulId, &us, pInfo)))
+    {
+        SetLastError(RtlNtStatusToDosError(status));
+        return FALSE;
+    }
+    return TRUE;
 }
 
 /***********************************************************************
@@ -366,9 +287,13 @@ BOOL WINAPI QueryActCtxW(DWORD dwFlags, HANDLE hActCtx, PVOID pvSubInst,
                          ULONG ulClass, PVOID pvBuff, SIZE_T cbBuff,
                          SIZE_T *pcbLen)
 {
-  FIXME("%08x %p %p %u %p %ld %p\n", dwFlags, hActCtx,
-       pvSubInst, ulClass, pvBuff, cbBuff, pcbLen);
-  /* this makes Adobe Photoshop 7.0 happy */
-  SetLastError( ERROR_CALL_NOT_IMPLEMENTED);
-  return FALSE;
+    NTSTATUS status;
+
+    if ((status = RtlQueryInformationActivationContext( dwFlags, hActCtx, pvSubInst, ulClass,
+                                                        pvBuff, cbBuff, pcbLen )))
+    {
+        SetLastError(RtlNtStatusToDosError(status));
+        return FALSE;
+    }
+    return TRUE;
 }

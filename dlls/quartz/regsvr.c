@@ -172,9 +172,6 @@ static LONG register_key_defvalueA(HKEY base, WCHAR const *name,
 static LONG register_progid(WCHAR const *clsid,
 			    char const *progid, char const *curver_progid,
 			    char const *name, char const *extra);
-static LONG recursive_delete_key(HKEY key);
-static LONG recursive_delete_keyA(HKEY base, char const *name);
-static LONG recursive_delete_keyW(HKEY base, WCHAR const *name);
 
 /***********************************************************************
  *		register_interfaces
@@ -263,7 +260,8 @@ static HRESULT unregister_interfaces(struct regsvr_interface const *list)
 	WCHAR buf[39];
 
 	StringFromGUID2(list->iid, buf, 39);
-	res = recursive_delete_keyW(interface_key, buf);
+	res = RegDeleteTreeW(interface_key, buf);
+	if (res == ERROR_FILE_NOT_FOUND) res = ERROR_SUCCESS;
     }
 
     RegCloseKey(interface_key);
@@ -370,16 +368,19 @@ static HRESULT unregister_coclasses(struct regsvr_coclass const *list)
 	WCHAR buf[39];
 
 	StringFromGUID2(list->clsid, buf, 39);
-	res = recursive_delete_keyW(coclass_key, buf);
+	res = RegDeleteTreeW(coclass_key, buf);
+	if (res == ERROR_FILE_NOT_FOUND) res = ERROR_SUCCESS;
 	if (res != ERROR_SUCCESS) goto error_close_coclass_key;
 
 	if (list->progid) {
-	    res = recursive_delete_keyA(HKEY_CLASSES_ROOT, list->progid);
+	    res = RegDeleteTreeA(HKEY_CLASSES_ROOT, list->progid);
+	    if (res == ERROR_FILE_NOT_FOUND) res = ERROR_SUCCESS;
 	    if (res != ERROR_SUCCESS) goto error_close_coclass_key;
 	}
 
 	if (list->viprogid) {
-	    res = recursive_delete_keyA(HKEY_CLASSES_ROOT, list->viprogid);
+	    res = RegDeleteTreeA(HKEY_CLASSES_ROOT, list->viprogid);
+	    if (res == ERROR_FILE_NOT_FOUND) res = ERROR_SUCCESS;
 	    if (res != ERROR_SUCCESS) goto error_close_coclass_key;
 	}
     }
@@ -521,7 +522,7 @@ static HRESULT unregister_mediatypes_parsing(struct regsvr_mediatype_parsing con
 	if (res != ERROR_SUCCESS) break;
 
 	StringFromGUID2(list->subtype, buf, 39);
-	res = recursive_delete_keyW(majortype_key, buf);
+	res = RegDeleteTreeW(majortype_key, buf);
     	if (res == ERROR_FILE_NOT_FOUND) res = ERROR_SUCCESS;
 
 	/* Removed majortype key if there is no more subtype key */
@@ -556,7 +557,7 @@ static HRESULT unregister_mediatypes_extension(struct regsvr_mediatype_extension
 	res = ERROR_SUCCESS;
     else if (res == ERROR_SUCCESS)
 	for (; res == ERROR_SUCCESS && list->majortype; ++list) {
-	    res = recursive_delete_keyA(extensions_root_key, list->extension);
+	    res = RegDeleteTreeA(extensions_root_key, list->extension);
 	    if (res == ERROR_FILE_NOT_FOUND) res = ERROR_SUCCESS;
 	}
 
@@ -775,71 +776,6 @@ error_close_progid_key:
     return res;
 }
 
-/***********************************************************************
- *		recursive_delete_key
- */
-static LONG recursive_delete_key(HKEY key)
-{
-    LONG res;
-    WCHAR subkey_name[MAX_PATH];
-    DWORD cName;
-    HKEY subkey;
-
-    for (;;) {
-	cName = sizeof(subkey_name) / sizeof(WCHAR);
-	res = RegEnumKeyExW(key, 0, subkey_name, &cName,
-			    NULL, NULL, NULL, NULL);
-	if (res != ERROR_SUCCESS && res != ERROR_MORE_DATA) {
-	    res = ERROR_SUCCESS; /* presumably we're done enumerating */
-	    break;
-	}
-	res = RegOpenKeyExW(key, subkey_name, 0,
-			    KEY_READ | KEY_WRITE, &subkey);
-	if (res == ERROR_FILE_NOT_FOUND) continue;
-	if (res != ERROR_SUCCESS) break;
-
-	res = recursive_delete_key(subkey);
-	RegCloseKey(subkey);
-	if (res != ERROR_SUCCESS) break;
-    }
-
-    if (res == ERROR_SUCCESS) res = RegDeleteKeyW(key, 0);
-    return res;
-}
-
-/***********************************************************************
- *		recursive_delete_keyA
- */
-static LONG recursive_delete_keyA(HKEY base, char const *name)
-{
-    LONG res;
-    HKEY key;
-
-    res = RegOpenKeyExA(base, name, 0, KEY_READ | KEY_WRITE, &key);
-    if (res == ERROR_FILE_NOT_FOUND) return ERROR_SUCCESS;
-    if (res != ERROR_SUCCESS) return res;
-    res = recursive_delete_key(key);
-    RegCloseKey(key);
-    return res;
-}
-
-/***********************************************************************
- *		recursive_delete_keyW
- */
-static LONG recursive_delete_keyW(HKEY base, WCHAR const *name)
-{
-    LONG res;
-    HKEY key;
-
-    res = RegOpenKeyExW(base, name, 0, KEY_READ | KEY_WRITE, &key);
-    if (res == ERROR_FILE_NOT_FOUND) return ERROR_SUCCESS;
-    if (res != ERROR_SUCCESS) return res;
-    res = recursive_delete_key(key);
-    RegCloseKey(key);
-    return res;
-}
-
-
 static GUID const CLSID_PSFactoryBuffer = {
     0x92a3a302, 0xda7c, 0x4a1f, {0xba,0x7e,0x18,0x02,0xbb,0x5d,0x2d,0x02} };
 
@@ -919,11 +855,23 @@ static struct regsvr_coclass const coclass_list[] = {
 	"quartz.dll",
 	"Both"
     },
+    {   &CLSID_NullRenderer,
+        "Null Renderer",
+        NULL,
+        "quartz.dll",
+        "Both"
+    },
     {   &CLSID_VideoRenderer,
 	"Video Renderer",
 	NULL,
 	"quartz.dll",
 	"Both"
+    },
+    {   &CLSID_VideoRendererDefault,
+        "Default Video Renderer",
+        NULL,
+        "quartz.dll",
+        "Both"
     },
     {   &CLSID_ACMWrapper,
 	"ACM wrapper",
@@ -1026,7 +974,7 @@ static struct regsvr_mediatype_parsing const mediatype_parsing_list[] = {
     {	&MEDIATYPE_Stream,
 	&MEDIASUBTYPE_MPEG1Audio,
 	{   "0, 2, FFE0, FFE0",
-	    "0, 10, FFFFFFFF000000000000, 494433030080808080",
+            "0, 10, FFFFFF00000080808080, 494433000000000000",
 	    NULL }
     },
     {	&MEDIATYPE_Stream,
@@ -1127,6 +1075,18 @@ static struct regsvr_filter const filter_list[] = {
             { 0xFFFFFFFF },
         }
     },
+    {   &CLSID_NullRenderer,
+        &CLSID_LegacyAmFilterCategory,
+        {'N','u','l','l',' ','R','e','n','d','e','r','e','r',0},
+        0x200000,
+        {   {   REG_PINFLAG_B_RENDERER,
+                {   { &MEDIATYPE_NULL, &GUID_NULL },
+                    { NULL }
+                },
+            },
+            { 0xFFFFFFFF },
+        }
+    },
     {   &CLSID_VideoRenderer,
 	&CLSID_LegacyAmFilterCategory,
 	{'V','i','d','e','o',' ','R','e','n','d','e','r','e','r',0},
@@ -1138,6 +1098,31 @@ static struct regsvr_filter const filter_list[] = {
 	    },
 	    { 0xFFFFFFFF },
 	}
+    },
+    {   &CLSID_VideoRendererDefault,
+        &CLSID_LegacyAmFilterCategory,
+        {'V','i','d','e','o',' ','R','e','n','d','e','r','e','r',0},
+        0x800000,
+        {   {   REG_PINFLAG_B_RENDERER,
+                {   { &MEDIATYPE_Video, &GUID_NULL },
+                    { NULL }
+                },
+            },
+            { 0xFFFFFFFF },
+        }
+    },
+    {   &CLSID_DSoundRender,
+        &CLSID_LegacyAmFilterCategory,
+        {'A','u','d','i','o',' ','R','e','n','d','e','r','e','r',0},
+        0x800000,
+        {   {   REG_PINFLAG_B_RENDERER,
+                {   { &MEDIATYPE_Audio, &MEDIASUBTYPE_PCM },
+/*                  { &MEDIATYPE_Audio, &MEDIASUBTYPE_IEEE_FLOAT }, */
+                    { NULL }
+                },
+            },
+            { 0xFFFFFFFF },
+        }
     },
     {   &CLSID_AVIDec,
 	&CLSID_LegacyAmFilterCategory,

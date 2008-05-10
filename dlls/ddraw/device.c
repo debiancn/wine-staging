@@ -2,6 +2,7 @@
  * Copyright (c) 1998-2004 Lionel Ulmer
  * Copyright (c) 2002-2005 Christian Costa
  * Copyright (c) 2006 Stefan Dösinger
+ * Copyright (c) 2008 Alexander Dorofeyev
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -28,7 +29,6 @@
 
 #include "config.h"
 #include "wine/port.h"
-#include "wine/debug.h"
 
 #include <assert.h>
 #include <stdarg.h>
@@ -36,6 +36,7 @@
 #include <stdlib.h>
 
 #define COBJMACROS
+#define NONAMELESSUNION
 
 #include "windef.h"
 #include "winbase.h"
@@ -47,6 +48,7 @@
 #include "d3d.h"
 
 #include "ddraw_private.h"
+#include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(d3d7);
 WINE_DECLARE_DEBUG_CHANNEL(ddraw_thunk);
@@ -333,7 +335,7 @@ IDirect3DDeviceImpl_7_Release(IDirect3DDevice7 *iface)
         /* Release the WineD3DDevice. This won't destroy it */
         if(IWineD3DDevice_Release(This->wineD3DDevice) <= 0)
         {
-            ERR(" (%p) The wineD3D device %p was destroyed unexpectadely. Prepare for trouble\n", This, This->wineD3DDevice);
+            ERR(" (%p) The wineD3D device %p was destroyed unexpectedly. Prepare for trouble\n", This, This->wineD3DDevice);
         }
 
         /* The texture handles should be unset by now, but there might be some bits
@@ -501,7 +503,7 @@ IDirect3DDeviceImpl_7_GetCaps(IDirect3DDevice7 *iface,
  *
  * Parameters:
  *  HWDesc: Structure to fill with the HW caps
- *  HelDesc: Structure to fill with the hardare emulation caps
+ *  HelDesc: Structure to fill with the hardware emulation caps
  *
  * Returns:
  *  D3D_OK on success
@@ -603,7 +605,7 @@ Thunk_IDirect3DDeviceImpl_1_SwapTextureHandles(IDirect3DDevice *iface,
  *
  * This method seems to retrieve some stats from the device.
  * The MSDN documentation doesn't exist any more, but the D3DSTATS
- * structure suggests that the amout of drawn primitives and processed
+ * structure suggests that the amount of drawn primitives and processed
  * vertices is returned.
  *
  * Exists in Version 1, 2 and 3
@@ -816,6 +818,8 @@ IDirect3DDeviceImpl_3_AddViewport(IDirect3DDevice3 *iface,
     EnterCriticalSection(&ddraw_cs);
     vp->next = This->viewport_list;
     This->viewport_list = vp;
+    vp->active_device = This; /* Viewport must be usable for Clear() after AddViewport,
+                                    so set active_device here. */
     LeaveCriticalSection(&ddraw_cs);
 
     return D3D_OK;
@@ -1066,7 +1070,7 @@ IDirect3DDeviceImpl_1_Pick(IDirect3DDevice *iface,
  * Params:
  *  Count: Pointer to a DWORD containing the numbers of pick records to
  *         retrieve
- *  D3DPickRec: Address to store the resulting D3DPICKRECORD arry.
+ *  D3DPickRec: Address to store the resulting D3DPICKRECORD array.
  *
  * Returns:
  *  D3D_OK, because it's a stub
@@ -1350,8 +1354,8 @@ IDirect3DDeviceImpl_1_CreateMatrix(IDirect3DDevice *iface, D3DMATRIXHANDLE *D3DM
         LeaveCriticalSection(&ddraw_cs);
         return DDERR_OUTOFMEMORY;
     }
-    This->Handles[(DWORD) *D3DMatHandle - 1].ptr = Matrix;
-    This->Handles[(DWORD) *D3DMatHandle - 1].type = DDrawHandle_Matrix;
+    This->Handles[*D3DMatHandle - 1].ptr = Matrix;
+    This->Handles[*D3DMatHandle - 1].type = DDrawHandle_Matrix;
     TRACE(" returning matrix handle %d\n", *D3DMatHandle);
 
     LeaveCriticalSection(&ddraw_cs);
@@ -1382,7 +1386,7 @@ IDirect3DDeviceImpl_1_SetMatrix(IDirect3DDevice *iface,
                                 D3DMATRIX *D3DMatrix)
 {
     ICOM_THIS_FROM(IDirect3DDeviceImpl, IDirect3DDevice, iface);
-    TRACE("(%p)->(%08x,%p)\n", This, (DWORD) D3DMatHandle, D3DMatrix);
+    TRACE("(%p)->(%08x,%p)\n", This, D3DMatHandle, D3DMatrix);
 
     if( (!D3DMatHandle) || (!D3DMatrix) )
         return DDERR_INVALIDPARAMS;
@@ -1451,7 +1455,7 @@ IDirect3DDeviceImpl_1_GetMatrix(IDirect3DDevice *iface,
                                 D3DMATRIX *D3DMatrix)
 {
     ICOM_THIS_FROM(IDirect3DDeviceImpl, IDirect3DDevice, iface);
-    TRACE("(%p)->(%08x,%p)\n", This, (DWORD) D3DMatHandle, D3DMatrix);
+    TRACE("(%p)->(%08x,%p)\n", This, D3DMatHandle, D3DMatrix);
 
     if(!D3DMatrix)
         return DDERR_INVALIDPARAMS;
@@ -1499,7 +1503,7 @@ IDirect3DDeviceImpl_1_DeleteMatrix(IDirect3DDevice *iface,
                                    D3DMATRIXHANDLE D3DMatHandle)
 {
     ICOM_THIS_FROM(IDirect3DDeviceImpl, IDirect3DDevice, iface);
-    TRACE("(%p)->(%08x)\n", This, (DWORD) D3DMatHandle);
+    TRACE("(%p)->(%08x)\n", This, D3DMatHandle);
 
     if(!D3DMatHandle)
         return DDERR_INVALIDPARAMS;
@@ -1762,7 +1766,7 @@ IDirect3DDeviceImpl_3_SetCurrentViewport(IDirect3DDevice3 *iface,
 
     /* Activate this viewport */
     This->current_viewport->active_device = This;
-    This->current_viewport->activate(This->current_viewport);
+    This->current_viewport->activate(This->current_viewport, FALSE);
 
     LeaveCriticalSection(&ddraw_cs);
     return D3D_OK;
@@ -1860,6 +1864,13 @@ IDirect3DDeviceImpl_7_SetRenderTarget(IDirect3DDevice7 *iface,
 
     EnterCriticalSection(&ddraw_cs);
     /* Flags: Not used */
+
+    if(This->target == Target)
+    {
+        TRACE("No-op SetRenderTarget operation, not doing anything\n");
+        LeaveCriticalSection(&ddraw_cs);
+        return D3D_OK;
+    }
 
     hr = IWineD3DDevice_SetRenderTarget(This->wineD3DDevice,
                                         0,
@@ -2255,39 +2266,6 @@ IDirect3DDeviceImpl_7_GetRenderState(IDirect3DDevice7 *iface,
     EnterCriticalSection(&ddraw_cs);
     switch(RenderStateType)
     {
-        case D3DRENDERSTATE_TEXTUREHANDLE:
-        {
-            /* This state is wrapped to SetTexture in SetRenderState, so
-             * it has to be wrapped to GetTexture here
-             */
-            IWineD3DBaseTexture *tex = NULL;
-            *Value = 0;
-
-            hr = IWineD3DDevice_GetTexture(This->wineD3DDevice,
-                                           0,
-                                           &tex);
-
-            if(hr == WINED3D_OK && tex)
-            {
-                IDirectDrawSurface7 *parent = NULL;
-                hr = IWineD3DBaseTexture_GetParent(tex,
-                                                   (IUnknown **) &parent);
-                if(parent)
-                {
-                    /* The parent of the texture is the IDirectDrawSurface7 interface
-                     * of the ddraw surface
-                     */
-                    IDirectDrawSurfaceImpl *texImpl = ICOM_OBJECT(IDirectDrawSurfaceImpl,
-                                                                  IDirectDrawSurface7,
-                                                                  parent);
-                    *Value = texImpl->Handle;
-                    IDirectDrawSurface7_Release(parent);
-                }
-                IWineD3DBaseTexture_Release(tex);
-            }
-            break;
-        }
-
         case D3DRENDERSTATE_TEXTUREMAG:
         {
             WINED3DTEXTUREFILTERTYPE tex_mag;
@@ -2357,15 +2335,130 @@ IDirect3DDeviceImpl_7_GetRenderState(IDirect3DDevice7 *iface,
 }
 
 static HRESULT WINAPI
-Thunk_IDirect3DDeviceImpl_3_GetRenderState(IDirect3DDevice3 *iface,
-                                           D3DRENDERSTATETYPE dwRenderStateType,
-                                           DWORD *lpdwRenderState)
+IDirect3DDeviceImpl_3_GetRenderState(IDirect3DDevice3 *iface,
+                                     D3DRENDERSTATETYPE dwRenderStateType,
+                                     DWORD *lpdwRenderState)
 {
     ICOM_THIS_FROM(IDirect3DDeviceImpl, IDirect3DDevice3, iface);
-    TRACE_(ddraw_thunk)("(%p)->(%08x,%p) thunking to IDirect3DDevice7 interface.\n", This, dwRenderStateType, lpdwRenderState);
-    return IDirect3DDevice7_GetRenderState(ICOM_INTERFACE(This, IDirect3DDevice7),
+    HRESULT hr;
+    TRACE("(%p)->(%08x,%p)\n", This, dwRenderStateType, lpdwRenderState);
+
+    /* D3DRENDERSTATE_TEXTUREMAPBLEND is mapped to texture state stages in SetRenderState; reverse
+       the mapping to get the value. */
+    switch(dwRenderStateType)
+    {
+        case D3DRENDERSTATE_TEXTUREHANDLE:
+        {
+            /* This state is wrapped to SetTexture in SetRenderState, so
+             * it has to be wrapped to GetTexture here
+             */
+            IWineD3DBaseTexture *tex = NULL;
+            *lpdwRenderState = 0;
+
+            hr = IWineD3DDevice_GetTexture(This->wineD3DDevice,
+                                           0,
+                                           &tex);
+
+            if(hr == WINED3D_OK && tex)
+            {
+                IDirectDrawSurface7 *parent = NULL;
+                hr = IWineD3DBaseTexture_GetParent(tex,
+                                                   (IUnknown **) &parent);
+                if(parent)
+                {
+                    /* The parent of the texture is the IDirectDrawSurface7 interface
+                     * of the ddraw surface
+                     */
+                    IDirectDrawSurfaceImpl *texImpl = ICOM_OBJECT(IDirectDrawSurfaceImpl,
+                                                                  IDirectDrawSurface7,
+                                                                  parent);
+                    *lpdwRenderState = texImpl->Handle;
+                    IDirectDrawSurface7_Release(parent);
+                }
+                IWineD3DBaseTexture_Release(tex);
+            }
+
+            return hr;
+        }
+
+        case D3DRENDERSTATE_TEXTUREMAPBLEND:
+        {
+            DWORD colorop, colorarg1, colorarg2;
+            DWORD alphaop, alphaarg1, alphaarg2;
+
+            EnterCriticalSection(&ddraw_cs);
+
+            This->legacyTextureBlending = TRUE;
+
+            IWineD3DDevice_GetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_COLOROP, &colorop);
+            IWineD3DDevice_GetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_COLORARG1, &colorarg1);
+            IWineD3DDevice_GetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_COLORARG2, &colorarg2);
+            IWineD3DDevice_GetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_ALPHAOP, &alphaop);
+            IWineD3DDevice_GetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_ALPHAARG1, &alphaarg1);
+            IWineD3DDevice_GetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_ALPHAARG2, &alphaarg2);
+
+            if (colorop == WINED3DTOP_SELECTARG1 && colorarg1 == WINED3DTA_TEXTURE &&
+                alphaop == WINED3DTOP_SELECTARG1 && alphaarg1 == WINED3DTA_TEXTURE)
+            {
+                *lpdwRenderState = D3DTBLEND_DECAL;
+            }
+            else if (colorop == WINED3DTOP_SELECTARG1 && colorarg1 == WINED3DTA_TEXTURE &&
+                alphaop == WINED3DTOP_MODULATE && alphaarg1 == WINED3DTA_TEXTURE && alphaarg2 == WINED3DTA_CURRENT)
+            {
+                *lpdwRenderState = D3DTBLEND_DECALALPHA;
+            }
+            else if (colorop == WINED3DTOP_MODULATE && colorarg1 == WINED3DTA_TEXTURE && colorarg2 == WINED3DTA_CURRENT &&
+                alphaop == WINED3DTOP_MODULATE && alphaarg1 == WINED3DTA_TEXTURE && alphaarg2 == WINED3DTA_CURRENT)
+            {
+                *lpdwRenderState = D3DTBLEND_MODULATEALPHA;
+            }
+            else
+            {
+                HRESULT hr;
+                BOOL tex_alpha = FALSE;
+                IWineD3DBaseTexture *tex = NULL;
+                WINED3DSURFACE_DESC desc;
+                WINED3DFORMAT fmt;
+                DDPIXELFORMAT ddfmt;
+
+                hr = IWineD3DDevice_GetTexture(This->wineD3DDevice,
+                                            0,
+                                            &tex);
+
+                if(hr == WINED3D_OK && tex)
+                {
+                    memset(&desc, 0, sizeof(desc));
+                    desc.Format = &fmt;
+                    hr = IWineD3DTexture_GetLevelDesc((IWineD3DTexture*) tex, 0, &desc);
+                    if (SUCCEEDED(hr))
+                    {
+                        ddfmt.dwSize = sizeof(ddfmt);
+                        PixelFormat_WineD3DtoDD(&ddfmt, fmt);
+                        if (ddfmt.u5.dwRGBAlphaBitMask) tex_alpha = TRUE;
+                    }
+
+                    IWineD3DBaseTexture_Release(tex);
+                }
+
+                if (!(colorop == WINED3DTOP_MODULATE && colorarg1 == WINED3DTA_TEXTURE && colorarg2 == WINED3DTA_CURRENT &&
+                      alphaop == WINED3DTOP_SELECTARG1 && alphaarg1 == (tex_alpha ? WINED3DTA_TEXTURE : WINED3DTA_CURRENT)))
+                {
+                    ERR("Unexpected texture stage state setup, returning D3DTBLEND_MODULATE - likely erroneous\n");
+                }
+
+                *lpdwRenderState = D3DTBLEND_MODULATE;
+            }
+
+            LeaveCriticalSection(&ddraw_cs);
+
+            return D3D_OK;
+        }
+
+        default:
+            return IDirect3DDevice7_GetRenderState(ICOM_INTERFACE(This, IDirect3DDevice7),
                                            dwRenderStateType,
                                            lpdwRenderState);
+    }
 }
 
 static HRESULT WINAPI
@@ -2374,8 +2467,8 @@ Thunk_IDirect3DDeviceImpl_2_GetRenderState(IDirect3DDevice2 *iface,
                                            DWORD *lpdwRenderState)
 {
     ICOM_THIS_FROM(IDirect3DDeviceImpl, IDirect3DDevice2, iface);
-    TRACE_(ddraw_thunk)("(%p)->(%08x,%p) thunking to IDirect3DDevice7 interface.\n", This, dwRenderStateType, lpdwRenderState);
-    return IDirect3DDevice7_GetRenderState(ICOM_INTERFACE(This, IDirect3DDevice7),
+    TRACE_(ddraw_thunk)("(%p)->(%08x,%p) thunking to IDirect3DDevice3 interface.\n", This, dwRenderStateType, lpdwRenderState);
+    return IDirect3DDevice3_GetRenderState(ICOM_INTERFACE(This, IDirect3DDevice3),
                                            dwRenderStateType,
                                            lpdwRenderState);
 }
@@ -2410,38 +2503,6 @@ IDirect3DDeviceImpl_7_SetRenderState(IDirect3DDevice7 *iface,
     /* Some render states need special care */
     switch(RenderStateType)
     {
-        case D3DRENDERSTATE_TEXTUREHANDLE:
-        {
-            if(Value == 0)
-            {
-                hr = IWineD3DDevice_SetTexture(This->wineD3DDevice,
-                                               0,
-                                               NULL);
-                break;
-            }
-
-            if(Value > This->numHandles)
-            {
-                FIXME("Specified handle %d out of range\n", Value);
-                hr = DDERR_INVALIDPARAMS;
-                break;
-            }
-            if(This->Handles[Value - 1].type != DDrawHandle_Texture)
-            {
-                FIXME("Handle %d isn't a texture handle\n", Value);
-                hr = DDERR_INVALIDPARAMS;
-                break;
-            }
-            else
-            {
-                IDirectDrawSurfaceImpl *surf = (IDirectDrawSurfaceImpl *) This->Handles[Value - 1].ptr;
-                hr = IWineD3DDevice_SetTexture(This->wineD3DDevice,
-                                               0,
-                                               surf->wineD3DTexture);
-                break;
-            }
-        }
-
         case D3DRENDERSTATE_TEXTUREMAG:
         {
             WINED3DTEXTUREFILTERTYPE tex_mag = WINED3DTEXF_NONE;
@@ -2525,52 +2586,6 @@ IDirect3DDeviceImpl_7_SetRenderState(IDirect3DDevice7 *iface,
                                                 Value);
             break;
 
-        case D3DRENDERSTATE_TEXTUREMAPBLEND:
-        {
-            /* Old texture combine setup style, superseded by texture stage states
-             * in D3D7. It is safe for us to wrap it to texture stage states.
-             */
-            switch ( (D3DTEXTUREBLEND) Value)
-            {
-                case D3DTBLEND_MODULATE:
-                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_COLORARG1, WINED3DTA_TEXTURE);
-                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_ALPHAARG1, WINED3DTA_TEXTURE);
-                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_COLORARG2, WINED3DTA_CURRENT);
-                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_COLOROP, WINED3DTOP_MODULATE);
-                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_ALPHAOP, WINED3DTOP_SELECTARG1);
-                    break;
-
-                case D3DTBLEND_MODULATEALPHA:
-                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_COLORARG1, WINED3DTA_TEXTURE);
-                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_ALPHAARG1, WINED3DTA_TEXTURE);
-                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_COLORARG2, WINED3DTA_CURRENT);
-                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_ALPHAARG2, WINED3DTA_CURRENT);
-                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_COLOROP, WINED3DTOP_MODULATE);
-                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_ALPHAOP, WINED3DTOP_MODULATE);
-                    break;
-
-                case D3DTBLEND_DECAL:
-                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_COLORARG1, WINED3DTA_TEXTURE);
-                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_ALPHAARG1, WINED3DTA_TEXTURE);
-                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_COLOROP, WINED3DTOP_SELECTARG1);
-                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_ALPHAOP, WINED3DTOP_SELECTARG1);
-                    break;
-
-                case D3DTBLEND_DECALALPHA:
-                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_COLORARG1, WINED3DTA_TEXTURE);
-                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_ALPHAARG1, WINED3DTA_TEXTURE);
-                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_ALPHAARG2, WINED3DTA_CURRENT);
-                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_COLOROP, WINED3DTOP_SELECTARG1);
-                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_ALPHAOP, WINED3DTOP_MODULATE);
-                    break;
-
-                default:
-                    ERR("Unhandled texture environment %d !\n",Value);
-                }
-                hr = D3D_OK;
-            break;
-        }
-
         default:
 
             /* FIXME: Unhandled: D3DRENDERSTATE_STIPPLEPATTERN00 - 31 */
@@ -2585,15 +2600,168 @@ IDirect3DDeviceImpl_7_SetRenderState(IDirect3DDevice7 *iface,
 }
 
 static HRESULT WINAPI
-Thunk_IDirect3DDeviceImpl_3_SetRenderState(IDirect3DDevice3 *iface,
-                                           D3DRENDERSTATETYPE RenderStateType,
-                                           DWORD Value)
+IDirect3DDeviceImpl_3_SetRenderState(IDirect3DDevice3 *iface,
+                                     D3DRENDERSTATETYPE RenderStateType,
+                                     DWORD Value)
 {
+    /* Note about D3DRENDERSTATE_TEXTUREMAPBLEND implementation: most of values
+    for this state can be directly mapped to texture stage colorop and alphaop, but
+    D3DTBLEND_MODULATE is tricky: it uses alpha from texture when available and alpha
+    from diffuse otherwise. So changing the texture must be monitored in SetTexture to modify
+    alphaarg when needed.
+
+    Aliens vs Predator 1 depends on accurate D3DTBLEND_MODULATE emulation
+
+    Legacy texture blending (TEXTUREMAPBLEND) and texture stage states: directx6 docs state that
+    TEXTUREMAPBLEND is deprecated, yet can still be used. Games must not use both or results
+    are undefined. D3DTBLEND_MODULATE mode in particular is dependent on texture pixel format and
+    requires fixup of stage 0 texture states when texture changes, but this fixup can interfere
+    with games not using this deprecated state. So a flag 'legacyTextureBlending' has to be kept
+    in device - TRUE if the app is using TEXTUREMAPBLEND.
+
+    Tests show that setting TEXTUREMAPBLEND on native doesn't seem to change values returned by
+    GetTextureStageState and vice versa. Not so on Wine, but it is 'undefined' anyway so, probably, ok,
+    unless some broken game will be found that cares. */
+
+    HRESULT hr;
     ICOM_THIS_FROM(IDirect3DDeviceImpl, IDirect3DDevice3, iface);
-    TRACE_(ddraw_thunk)("(%p)->(%08x,%08x) thunking to IDirect3DDevice7 interface.\n", This, RenderStateType, Value);
-    return IDirect3DDevice7_SetRenderState(ICOM_INTERFACE(This, IDirect3DDevice7),
+    TRACE("(%p)->(%08x,%d)\n", This, RenderStateType, Value);
+
+    switch(RenderStateType)
+    {
+        case D3DRENDERSTATE_TEXTUREHANDLE:
+        {
+            if(Value == 0)
+            {
+                hr = IWineD3DDevice_SetTexture(This->wineD3DDevice,
+                                               0,
+                                               NULL);
+                break;
+            }
+
+            if(Value > This->numHandles)
+            {
+                FIXME("Specified handle %d out of range\n", Value);
+                hr = DDERR_INVALIDPARAMS;
+                break;
+            }
+            if(This->Handles[Value - 1].type != DDrawHandle_Texture)
+            {
+                FIXME("Handle %d isn't a texture handle\n", Value);
+                hr = DDERR_INVALIDPARAMS;
+                break;
+            }
+            else
+            {
+                IDirectDrawSurfaceImpl *surf = (IDirectDrawSurfaceImpl *) This->Handles[Value - 1].ptr;
+                hr = IDirect3DDevice3_SetTexture(iface, 0, ICOM_INTERFACE(surf, IDirect3DTexture2));
+                break;
+            }
+        }
+
+        case D3DRENDERSTATE_TEXTUREMAPBLEND:
+        {
+            EnterCriticalSection(&ddraw_cs);
+
+            This->legacyTextureBlending = TRUE;
+
+            switch ( (D3DTEXTUREBLEND) Value)
+            {
+                case D3DTBLEND_MODULATE:
+                {
+                    BOOL tex_alpha = FALSE;
+                    IWineD3DBaseTexture *tex = NULL;
+                    WINED3DSURFACE_DESC desc;
+                    WINED3DFORMAT fmt;
+                    DDPIXELFORMAT ddfmt;
+
+                    hr = IWineD3DDevice_GetTexture(This->wineD3DDevice,
+                                                0,
+                                                &tex);
+
+                    if(hr == WINED3D_OK && tex)
+                    {
+                        memset(&desc, 0, sizeof(desc));
+                        desc.Format = &fmt;
+                        hr = IWineD3DTexture_GetLevelDesc((IWineD3DTexture*) tex, 0, &desc);
+                        if (SUCCEEDED(hr))
+                        {
+                            ddfmt.dwSize = sizeof(ddfmt);
+                            PixelFormat_WineD3DtoDD(&ddfmt, fmt);
+                            if (ddfmt.u5.dwRGBAlphaBitMask) tex_alpha = TRUE;
+                        }
+
+                        IWineD3DBaseTexture_Release(tex);
+                    }
+
+                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_ALPHAOP, WINED3DTOP_SELECTARG1);
+                    if (tex_alpha)
+                    {
+                        IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_ALPHAARG1, WINED3DTA_TEXTURE);
+                    }
+                    else
+                    {
+                        IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_ALPHAARG1, WINED3DTA_CURRENT);
+                    }
+
+                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_COLORARG1, WINED3DTA_TEXTURE);
+                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_COLORARG2, WINED3DTA_CURRENT);
+                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_COLOROP, WINED3DTOP_MODULATE);
+
+                    break;
+                }
+
+                case D3DTBLEND_ADD:
+                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_COLOROP, WINED3DTOP_ADD);
+                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_COLORARG1, WINED3DTA_TEXTURE);
+                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_COLORARG2, WINED3DTA_CURRENT);
+                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_ALPHAOP, WINED3DTOP_SELECTARG2);
+                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_ALPHAARG2, WINED3DTA_CURRENT);
+                    break;
+
+                case D3DTBLEND_MODULATEALPHA:
+                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_COLORARG1, WINED3DTA_TEXTURE);
+                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_ALPHAARG1, WINED3DTA_TEXTURE);
+                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_COLORARG2, WINED3DTA_CURRENT);
+                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_ALPHAARG2, WINED3DTA_CURRENT);
+                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_COLOROP, WINED3DTOP_MODULATE);
+                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_ALPHAOP, WINED3DTOP_MODULATE);
+                    break;
+
+                case D3DTBLEND_COPY:
+                case D3DTBLEND_DECAL:
+                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_COLORARG1, WINED3DTA_TEXTURE);
+                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_ALPHAARG1, WINED3DTA_TEXTURE);
+                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_COLOROP, WINED3DTOP_SELECTARG1);
+                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_ALPHAOP, WINED3DTOP_SELECTARG1);
+                    break;
+
+                case D3DTBLEND_DECALALPHA:
+                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_COLOROP, WINED3DTOP_BLENDTEXTUREALPHA);
+                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_COLORARG1, WINED3DTA_TEXTURE);
+                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_COLORARG2, WINED3DTA_CURRENT);
+                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_ALPHAOP, WINED3DTOP_SELECTARG2);
+                    IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_ALPHAARG2, WINED3DTA_CURRENT);
+                    break;
+
+                default:
+                    ERR("Unhandled texture environment %d !\n",Value);
+            }
+
+            LeaveCriticalSection(&ddraw_cs);
+
+            hr = D3D_OK;
+            break;
+        }
+
+        default:
+            hr = IDirect3DDevice7_SetRenderState(ICOM_INTERFACE(This, IDirect3DDevice7),
                                            RenderStateType,
                                            Value);
+            break;
+    }
+
+    return hr;
 }
 
 static HRESULT WINAPI
@@ -2602,10 +2770,8 @@ Thunk_IDirect3DDeviceImpl_2_SetRenderState(IDirect3DDevice2 *iface,
                                            DWORD Value)
 {
     ICOM_THIS_FROM(IDirect3DDeviceImpl, IDirect3DDevice2, iface);
-    TRACE_(ddraw_thunk)("(%p)->(%08x,%08x) thunking to IDirect3DDevice7 interface.\n", This, RenderStateType, Value);
-    return IDirect3DDevice7_SetRenderState(ICOM_INTERFACE(This, IDirect3DDevice7),
-                                           RenderStateType,
-                                           Value);
+    TRACE_(ddraw_thunk)("(%p)->(%08x,%d) thunking to IDirect3DDevice3 interface.\n", This, RenderStateType, Value);
+    return IDirect3DDevice3_SetRenderState(ICOM_INTERFACE(This, IDirect3DDevice3), RenderStateType, Value);
 }
 
 /*****************************************************************************
@@ -3510,14 +3676,14 @@ IDirect3DDeviceImpl_7_DrawPrimitiveStrided(IDirect3DDevice7 *iface,
     {
         WineD3DStrided.u.s.diffuse.lpData = D3DDrawPrimStrideData->diffuse.lpvData;
         WineD3DStrided.u.s.diffuse.dwStride = D3DDrawPrimStrideData->diffuse.dwStride;
-        WineD3DStrided.u.s.diffuse.dwType = WINED3DDECLTYPE_SHORT4;
+        WineD3DStrided.u.s.diffuse.dwType = WINED3DDECLTYPE_D3DCOLOR;
     }
 
     if(VertexType & D3DFVF_SPECULAR)
     {
         WineD3DStrided.u.s.specular.lpData = D3DDrawPrimStrideData->specular.lpvData;
         WineD3DStrided.u.s.specular.dwStride = D3DDrawPrimStrideData->specular.dwStride;
-        WineD3DStrided.u.s.specular.dwType = WINED3DDECLTYPE_SHORT4;
+        WineD3DStrided.u.s.specular.dwType = WINED3DDECLTYPE_D3DCOLOR;
     }
 
     for( i = 0; i < GET_TEXCOUNT_FROM_FVF(VertexType); i++)
@@ -3621,12 +3787,110 @@ IDirect3DDeviceImpl_7_DrawIndexedPrimitiveStrided(IDirect3DDevice7 *iface,
                                                   DWORD Flags)
 {
     ICOM_THIS_FROM(IDirect3DDeviceImpl, IDirect3DDevice7, iface);
-    FIXME("(%p)->(%08x,%08x,%p,%08x,%p,%08x,%08x): stub!\n", This, PrimitiveType, VertexType, D3DDrawPrimStrideData, VertexCount, Indices, IndexCount, Flags);
+    WineDirect3DVertexStridedData WineD3DStrided;
+    int i;
+    UINT PrimitiveCount;
+    HRESULT hr;
 
-    /* I'll implement it as soon as I find a app to test it.
-     * This needs an additional method in IWineD3DDevice.
+    TRACE("(%p)->(%08x,%08x,%p,%08x,%p,%08x,%08x)\n", This, PrimitiveType, VertexType, D3DDrawPrimStrideData, VertexCount, Indices, IndexCount, Flags);
+
+    memset(&WineD3DStrided, 0, sizeof(WineD3DStrided));
+    /* Get the strided data right. the wined3d structure is a bit bigger
+     * Watch out: The contents of the strided data are determined by the fvf,
+     * not by the members set in D3DDrawPrimStrideData. So it's valid
+     * to have diffuse.lpvData set to 0xdeadbeef if the diffuse flag is
+     * not set in the fvf.
      */
-    return D3D_OK;
+    if(VertexType & D3DFVF_POSITION_MASK)
+    {
+        WineD3DStrided.u.s.position.lpData = D3DDrawPrimStrideData->position.lpvData;
+        WineD3DStrided.u.s.position.dwStride = D3DDrawPrimStrideData->position.dwStride;
+        WineD3DStrided.u.s.position.dwType = WINED3DDECLTYPE_FLOAT3;
+        if (VertexType & D3DFVF_XYZRHW)
+        {
+            WineD3DStrided.u.s.position.dwType = WINED3DDECLTYPE_FLOAT4;
+            WineD3DStrided.u.s.position_transformed = TRUE;
+        } else
+            WineD3DStrided.u.s.position_transformed = FALSE;
+    }
+
+    if(VertexType & D3DFVF_NORMAL)
+    {
+        WineD3DStrided.u.s.normal.lpData = D3DDrawPrimStrideData->normal.lpvData;
+        WineD3DStrided.u.s.normal.dwStride = D3DDrawPrimStrideData->normal.dwStride;
+        WineD3DStrided.u.s.normal.dwType = WINED3DDECLTYPE_FLOAT3;
+    }
+
+    if(VertexType & D3DFVF_DIFFUSE)
+    {
+        WineD3DStrided.u.s.diffuse.lpData = D3DDrawPrimStrideData->diffuse.lpvData;
+        WineD3DStrided.u.s.diffuse.dwStride = D3DDrawPrimStrideData->diffuse.dwStride;
+        WineD3DStrided.u.s.diffuse.dwType = WINED3DDECLTYPE_D3DCOLOR;
+    }
+
+    if(VertexType & D3DFVF_SPECULAR)
+    {
+        WineD3DStrided.u.s.specular.lpData = D3DDrawPrimStrideData->specular.lpvData;
+        WineD3DStrided.u.s.specular.dwStride = D3DDrawPrimStrideData->specular.dwStride;
+        WineD3DStrided.u.s.specular.dwType = WINED3DDECLTYPE_D3DCOLOR;
+    }
+
+    for( i = 0; i < GET_TEXCOUNT_FROM_FVF(VertexType); i++)
+    {
+        WineD3DStrided.u.s.texCoords[i].lpData = D3DDrawPrimStrideData->textureCoords[i].lpvData;
+        WineD3DStrided.u.s.texCoords[i].dwStride = D3DDrawPrimStrideData->textureCoords[i].dwStride;
+        switch(GET_TEXCOORD_SIZE_FROM_FVF(VertexType, i))
+        {
+            case 1: WineD3DStrided.u.s.texCoords[i].dwType = WINED3DDECLTYPE_FLOAT1; break;
+            case 2: WineD3DStrided.u.s.texCoords[i].dwType = WINED3DDECLTYPE_FLOAT2; break;
+            case 3: WineD3DStrided.u.s.texCoords[i].dwType = WINED3DDECLTYPE_FLOAT3; break;
+            case 4: WineD3DStrided.u.s.texCoords[i].dwType = WINED3DDECLTYPE_FLOAT4; break;
+            default: ERR("Unexpected texture coordinate size %d\n",
+                         GET_TEXCOORD_SIZE_FROM_FVF(VertexType, i));
+        }
+    }
+
+    /* Get the primitive count */
+    switch(PrimitiveType)
+    {
+        case D3DPT_POINTLIST:
+            PrimitiveCount = IndexCount;
+            break;
+
+        case D3DPT_LINELIST:
+            PrimitiveCount = IndexCount / 2;
+            break;
+
+        case D3DPT_LINESTRIP:
+            PrimitiveCount = IndexCount - 1;
+            break;
+
+        case D3DPT_TRIANGLELIST:
+            PrimitiveCount = IndexCount / 3;
+            break;
+
+        case D3DPT_TRIANGLESTRIP:
+            PrimitiveCount = IndexCount - 2;
+            break;
+
+        case D3DPT_TRIANGLEFAN:
+            PrimitiveCount = IndexCount - 2;
+            break;
+
+            default: return DDERR_INVALIDPARAMS;
+    }
+
+    /* WineD3D doesn't need the FVF here */
+    EnterCriticalSection(&ddraw_cs);
+    hr = IWineD3DDevice_DrawIndexedPrimitiveStrided(This->wineD3DDevice,
+                                                    PrimitiveType,
+                                                    PrimitiveCount,
+                                                    &WineD3DStrided,
+                                                    VertexCount,
+                                                    Indices,
+                                                    WINED3DFMT_INDEX16);
+    LeaveCriticalSection(&ddraw_cs);
+    return hr;
 }
 
 static HRESULT WINAPI
@@ -4081,7 +4345,7 @@ IDirect3DDeviceImpl_7_GetTexture(IDirect3DDevice7 *iface,
     }
 
     EnterCriticalSection(&ddraw_cs);
-    hr = IWineD3DDevice_GetTexture(This->wineD3DDevice, Stage, (IWineD3DBaseTexture **) &Surf);
+    hr = IWineD3DDevice_GetTexture(This->wineD3DDevice, Stage, &Surf);
     if( (hr != D3D_OK) || (!Surf) ) 
     {
         *Texture = NULL;
@@ -4155,16 +4419,69 @@ IDirect3DDeviceImpl_7_SetTexture(IDirect3DDevice7 *iface,
 }
 
 static HRESULT WINAPI
-Thunk_IDirect3DDeviceImpl_3_SetTexture(IDirect3DDevice3 *iface,
-                                       DWORD Stage,
-                                       IDirect3DTexture2 *Texture2)
+IDirect3DDeviceImpl_3_SetTexture(IDirect3DDevice3 *iface,
+                                 DWORD Stage,
+                                 IDirect3DTexture2 *Texture2)
 {
     ICOM_THIS_FROM(IDirect3DDeviceImpl, IDirect3DDevice3, iface);
     IDirectDrawSurfaceImpl *tex = ICOM_OBJECT(IDirectDrawSurfaceImpl, IDirect3DTexture2, Texture2);
-    TRACE_(ddraw_thunk)("(%p)->(%d,%p) thunking to IDirect3DDevice7 interface.\n", This, Stage, tex);
-    return IDirect3DDevice7_SetTexture(ICOM_INTERFACE(This, IDirect3DDevice7),
+    DWORD texmapblend;
+    HRESULT hr;
+    TRACE("(%p)->(%d,%p)\n", This, Stage, tex);
+
+    if (This->legacyTextureBlending)
+        IDirect3DDevice3_GetRenderState(iface, D3DRENDERSTATE_TEXTUREMAPBLEND, &texmapblend);
+
+    hr = IDirect3DDevice7_SetTexture(ICOM_INTERFACE(This, IDirect3DDevice7),
                                        Stage,
                                        ICOM_INTERFACE(tex, IDirectDrawSurface7));
+
+    if (This->legacyTextureBlending && texmapblend == D3DTBLEND_MODULATE)
+    {
+        /* This fixup is required by the way D3DTBLEND_MODULATE maps to texture stage states.
+           See IDirect3DDeviceImpl_3_SetRenderState for details. */
+        BOOL tex_alpha = FALSE;
+        IWineD3DBaseTexture *tex = NULL;
+        WINED3DSURFACE_DESC desc;
+        WINED3DFORMAT fmt;
+        DDPIXELFORMAT ddfmt;
+        HRESULT result;
+
+        EnterCriticalSection(&ddraw_cs);
+
+        result = IWineD3DDevice_GetTexture(This->wineD3DDevice,
+                                    0,
+                                    &tex);
+
+        if(result == WINED3D_OK && tex)
+        {
+            memset(&desc, 0, sizeof(desc));
+            desc.Format = &fmt;
+            result = IWineD3DTexture_GetLevelDesc((IWineD3DTexture*) tex, 0, &desc);
+            if (SUCCEEDED(result))
+            {
+                ddfmt.dwSize = sizeof(ddfmt);
+                PixelFormat_WineD3DtoDD(&ddfmt, fmt);
+                if (ddfmt.u5.dwRGBAlphaBitMask) tex_alpha = TRUE;
+            }
+
+            IWineD3DBaseTexture_Release(tex);
+        }
+
+        /* alphaop is WINED3DTOP_SELECTARG1 if it's D3DTBLEND_MODULATE, so only modify alphaarg1 */
+        if (tex_alpha)
+        {
+            IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_ALPHAARG1, WINED3DTA_TEXTURE);
+        }
+        else
+        {
+            IWineD3DDevice_SetTextureStageState(This->wineD3DDevice, 0, WINED3DTSS_ALPHAARG1, WINED3DTA_CURRENT);
+        }
+
+        LeaveCriticalSection(&ddraw_cs);
+    }
+
+    return hr;
 }
 
 /*****************************************************************************
@@ -4491,7 +4808,7 @@ IDirect3DDeviceImpl_7_Clear(IDirect3DDevice7 *iface,
 {
     ICOM_THIS_FROM(IDirect3DDeviceImpl, IDirect3DDevice7, iface);
     HRESULT hr;
-    TRACE("(%p)->(%08x,%p,%08x,%08x,%f,%08x): Relay\n", This, Count, Rects, Flags, (DWORD) Color, Z, Stencil);
+    TRACE("(%p)->(%08x,%p,%08x,%08x,%f,%08x): Relay\n", This, Count, Rects, Flags, Color, Z, Stencil);
 
     /* Note; D3DRECT is compatible with WINED3DRECT */
     EnterCriticalSection(&ddraw_cs);
@@ -4972,6 +5289,11 @@ IDirect3DDeviceImpl_7_CreateStateBlock(IDirect3DDevice7 *iface,
         WARN("BlockHandle == NULL, returning DDERR_INVALIDPARAMS\n");
         return DDERR_INVALIDPARAMS;
     }
+    if(Type != D3DSBT_ALL         && Type != D3DSBT_PIXELSTATE &&
+       Type != D3DSBT_VERTEXSTATE                              ) {
+        WARN("Unexpected stateblock type, returning DDERR_INVALIDPARAMS\n");
+        return DDERR_INVALIDPARAMS;
+    }
 
     EnterCriticalSection(&ddraw_cs);
     *BlockHandle = IDirect3DDeviceImpl_CreateHandle(This);
@@ -4992,6 +5314,150 @@ IDirect3DDeviceImpl_7_CreateStateBlock(IDirect3DDevice7 *iface,
     return hr_ddraw_from_wined3d(hr);
 }
 
+/* Helper function for IDirect3DDeviceImpl_7_Load. */
+static BOOL is_mip_level_subset(IDirectDrawSurfaceImpl *dest,
+                                IDirectDrawSurfaceImpl *src)
+{
+    IDirectDrawSurfaceImpl *src_level, *dest_level;
+    IDirectDrawSurface7 *temp;
+    DDSURFACEDESC2 ddsd;
+    BOOL levelFound; /* at least one suitable sublevel in dest found */
+
+    /* To satisfy "destination is mip level subset of source" criteria (regular texture counts as 1 level),
+     * 1) there must be at least one mip level in destination that matched dimensions of some mip level in source and
+     * 2) there must be no destination levels that don't match any levels in source. Otherwise it's INVALIDPARAMS.
+     */
+    levelFound = FALSE;
+
+    src_level = src;
+    dest_level = dest;
+
+    for (;src_level && dest_level;)
+    {
+        if (src_level->surface_desc.dwWidth == dest_level->surface_desc.dwWidth &&
+            src_level->surface_desc.dwHeight == dest_level->surface_desc.dwHeight)
+        {
+            levelFound = TRUE;
+
+            ddsd.ddsCaps.dwCaps = DDSCAPS_TEXTURE;
+            ddsd.ddsCaps.dwCaps2 = DDSCAPS2_MIPMAPSUBLEVEL;
+            IDirectDrawSurface7_GetAttachedSurface(ICOM_INTERFACE(dest_level, IDirectDrawSurface7), &ddsd.ddsCaps, &temp);
+
+            if (dest_level != dest) IDirectDrawSurface7_Release(ICOM_INTERFACE(dest_level, IDirectDrawSurface7));
+
+            dest_level = ICOM_OBJECT(IDirectDrawSurfaceImpl, IDirectDrawSurface7, temp);
+        }
+
+        ddsd.ddsCaps.dwCaps = DDSCAPS_TEXTURE;
+        ddsd.ddsCaps.dwCaps2 = DDSCAPS2_MIPMAPSUBLEVEL;
+        IDirectDrawSurface7_GetAttachedSurface(ICOM_INTERFACE(src_level, IDirectDrawSurface7), &ddsd.ddsCaps, &temp);
+
+        if (src_level != src) IDirectDrawSurface7_Release(ICOM_INTERFACE(src_level, IDirectDrawSurface7));
+
+        src_level = ICOM_OBJECT(IDirectDrawSurfaceImpl, IDirectDrawSurface7, temp);
+    }
+
+    if (src_level && src_level != src) IDirectDrawSurface7_Release(ICOM_INTERFACE(src_level, IDirectDrawSurface7));
+    if (dest_level && dest_level != dest) IDirectDrawSurface7_Release(ICOM_INTERFACE(dest_level, IDirectDrawSurface7));
+
+    return !dest_level && levelFound;
+}
+
+/* Helper function for IDirect3DDeviceImpl_7_Load. */
+static void copy_mipmap_chain(IDirect3DDeviceImpl *device,
+                              IDirectDrawSurfaceImpl *dest,
+                              IDirectDrawSurfaceImpl *src,
+                              POINT *DestPoint,
+                              RECT *SrcRect)
+{
+    IDirectDrawSurfaceImpl *src_level, *dest_level;
+    IDirectDrawSurface7 *temp;
+    DDSURFACEDESC2 ddsd;
+    POINT point;
+    RECT rect;
+    HRESULT hr;
+    IDirectDrawPalette *pal = NULL, *pal_src = NULL;
+    DWORD ckeyflag;
+    DDCOLORKEY ddckey;
+
+    src_level = src;
+    dest_level = dest;
+
+    point = *DestPoint;
+    rect = *SrcRect;
+
+    for (;src_level && dest_level;)
+    {
+        if (src_level->surface_desc.dwWidth == dest_level->surface_desc.dwWidth &&
+            src_level->surface_desc.dwHeight == dest_level->surface_desc.dwHeight)
+        {
+            /* Try UpdateSurface that may perform a more direct opengl loading. */
+            hr = IWineD3DDevice_UpdateSurface(device->wineD3DDevice, src_level->WineD3DSurface, &rect, dest_level->WineD3DSurface,
+                                &point);
+            if (FAILED(hr))
+            {
+                /* UpdateSurface may fail e.g. if dest is in system memory. Fall back to BltFast that is less strict. */
+                IWineD3DSurface_BltFast(dest_level->WineD3DSurface,
+                                        point.x, point.y,
+                                        src_level->WineD3DSurface, &rect, 0);
+            }
+
+            ddsd.ddsCaps.dwCaps = DDSCAPS_TEXTURE;
+            ddsd.ddsCaps.dwCaps2 = DDSCAPS2_MIPMAPSUBLEVEL;
+            IDirectDrawSurface7_GetAttachedSurface(ICOM_INTERFACE(dest_level, IDirectDrawSurface7), &ddsd.ddsCaps, &temp);
+
+            if (dest_level != dest) IDirectDrawSurface7_Release(ICOM_INTERFACE(dest_level, IDirectDrawSurface7));
+
+            dest_level = ICOM_OBJECT(IDirectDrawSurfaceImpl, IDirectDrawSurface7, temp);
+        }
+
+        ddsd.ddsCaps.dwCaps = DDSCAPS_TEXTURE;
+        ddsd.ddsCaps.dwCaps2 = DDSCAPS2_MIPMAPSUBLEVEL;
+        IDirectDrawSurface7_GetAttachedSurface(ICOM_INTERFACE(src_level, IDirectDrawSurface7), &ddsd.ddsCaps, &temp);
+
+        if (src_level != src) IDirectDrawSurface7_Release(ICOM_INTERFACE(src_level, IDirectDrawSurface7));
+
+        src_level = ICOM_OBJECT(IDirectDrawSurfaceImpl, IDirectDrawSurface7, temp);
+
+        point.x /= 2;
+        point.y /= 2;
+
+        rect.top /= 2;
+        rect.left /= 2;
+        rect.right = (rect.right + 1) / 2;
+        rect.bottom = (rect.bottom + 1) / 2;
+    }
+
+    if (src_level && src_level != src) IDirectDrawSurface7_Release(ICOM_INTERFACE(src_level, IDirectDrawSurface7));
+    if (dest_level && dest_level != dest) IDirectDrawSurface7_Release(ICOM_INTERFACE(dest_level, IDirectDrawSurface7));
+
+    /* Copy palette, if possible. */
+    IDirectDrawSurface7_GetPalette(ICOM_INTERFACE(src, IDirectDrawSurface7), &pal_src);
+    IDirectDrawSurface7_GetPalette(ICOM_INTERFACE(dest, IDirectDrawSurface7), &pal);
+
+    if (pal_src != NULL && pal != NULL)
+    {
+        PALETTEENTRY palent[256];
+
+        IDirectDrawPalette_GetEntries(pal_src, 0, 0, 256, palent);
+        IDirectDrawPalette_SetEntries(pal, 0, 0, 256, palent);
+    }
+
+    if (pal) IDirectDrawPalette_Release(pal);
+    if (pal_src) IDirectDrawPalette_Release(pal_src);
+
+    /* Copy colorkeys, if present. */
+    for (ckeyflag = DDCKEY_DESTBLT; ckeyflag <= DDCKEY_SRCOVERLAY; ckeyflag <<= 1)
+    {
+        hr = IDirectDrawSurface7_GetColorKey(ICOM_INTERFACE(src, IDirectDrawSurface7), ckeyflag, &ddckey);
+
+        if (SUCCEEDED(hr))
+        {
+            IDirectDrawSurface7_SetColorKey(ICOM_INTERFACE(dest, IDirectDrawSurface7), ckeyflag, &ddckey);
+        }
+    }
+}
+
 /*****************************************************************************
  * IDirect3DDevice7::Load
  *
@@ -5006,14 +5472,17 @@ IDirect3DDeviceImpl_7_CreateStateBlock(IDirect3DDevice7 *iface,
  *             written to
  *  SrcTex: Source texture
  *  SrcRect: Source rectangle
- *  Flags: Some flags
+ *  Flags: Cubemap faces to load (DDSCAPS2_CUBEMAP_ALLFACES, DDSCAPS2_CUBEMAP_POSITIVEX,
+ *          DDSCAPS2_CUBEMAP_NEGATIVEX, DDSCAPS2_CUBEMAP_POSITIVEY, DDSCAPS2_CUBEMAP_NEGATIVEY,
+ *          DDSCAPS2_CUBEMAP_POSITIVEZ, DDSCAPS2_CUBEMAP_NEGATIVEZ)
  *
  * Returns:
  *  D3D_OK on success
- *  DDERR_INVALIDPARAMS if DestTex or SrcTex are NULL
- *  See IDirect3DTexture2::Load for details
+ *  DDERR_INVALIDPARAMS if DestTex or SrcTex are NULL, broken coordinates or anything unexpected.
+ *
  *
  *****************************************************************************/
+
 static HRESULT WINAPI
 IDirect3DDeviceImpl_7_Load(IDirect3DDevice7 *iface,
                            IDirectDrawSurface7 *DestTex,
@@ -5025,13 +5494,163 @@ IDirect3DDeviceImpl_7_Load(IDirect3DDevice7 *iface,
     ICOM_THIS_FROM(IDirect3DDeviceImpl, IDirect3DDevice7, iface);
     IDirectDrawSurfaceImpl *dest = ICOM_OBJECT(IDirectDrawSurfaceImpl, IDirectDrawSurface7, DestTex);
     IDirectDrawSurfaceImpl *src = ICOM_OBJECT(IDirectDrawSurfaceImpl, IDirectDrawSurface7, SrcTex);
-    FIXME("(%p)->(%p,%p,%p,%p,%08x): Partially Implemented!\n", This, dest, DestPoint, src, SrcRect, Flags);
+    POINT destpoint;
+    RECT srcrect;
+    TRACE("(%p)->(%p,%p,%p,%p,%08x)\n", This, dest, DestPoint, src, SrcRect, Flags);
 
     if( (!src) || (!dest) )
         return DDERR_INVALIDPARAMS;
 
-    IDirect3DTexture2_Load(ICOM_INTERFACE(dest, IDirect3DTexture2),
-                           ICOM_INTERFACE(src, IDirect3DTexture2));
+    EnterCriticalSection(&ddraw_cs);
+
+    if (SrcRect) srcrect = *SrcRect;
+    else
+    {
+        srcrect.left = srcrect.top = 0;
+        srcrect.right = src->surface_desc.dwWidth;
+        srcrect.bottom = src->surface_desc.dwHeight;
+    }
+
+    if (DestPoint) destpoint = *DestPoint;
+    else
+    {
+        destpoint.x = destpoint.y = 0;
+    }
+    /* Check bad dimensions. DestPoint is validated against src, not dest, because
+     * destination can be a subset of mip levels, in which case actual coordinates used
+     * for it may be divided. If any dimension of dest is larger than source, it can't be
+     * mip level subset, so an error can be returned early.
+     */
+    if (srcrect.left >= srcrect.right || srcrect.top >= srcrect.bottom ||
+        srcrect.right > src->surface_desc.dwWidth ||
+        srcrect.bottom > src->surface_desc.dwHeight ||
+        destpoint.x + srcrect.right - srcrect.left > src->surface_desc.dwWidth ||
+        destpoint.y + srcrect.bottom - srcrect.top > src->surface_desc.dwHeight ||
+        dest->surface_desc.dwWidth > src->surface_desc.dwWidth ||
+        dest->surface_desc.dwHeight > src->surface_desc.dwHeight)
+    {
+        LeaveCriticalSection(&ddraw_cs);
+        return DDERR_INVALIDPARAMS;
+    }
+
+    /* Must be top level surfaces. */
+    if (src->surface_desc.ddsCaps.dwCaps2 & DDSCAPS2_MIPMAPSUBLEVEL ||
+        dest->surface_desc.ddsCaps.dwCaps2 & DDSCAPS2_MIPMAPSUBLEVEL)
+    {
+        LeaveCriticalSection(&ddraw_cs);
+        return DDERR_INVALIDPARAMS;
+    }
+
+    if (src->surface_desc.ddsCaps.dwCaps2 & DDSCAPS2_CUBEMAP)
+    {
+        DWORD src_face_flag, dest_face_flag;
+        IDirectDrawSurfaceImpl *src_face, *dest_face;
+        IDirectDrawSurface7 *temp;
+        DDSURFACEDESC2 ddsd;
+        int i;
+
+        if (!(dest->surface_desc.ddsCaps.dwCaps2 & DDSCAPS2_CUBEMAP))
+        {
+            LeaveCriticalSection(&ddraw_cs);
+            return DDERR_INVALIDPARAMS;
+        }
+
+        /* Iterate through cube faces 2 times. First time is just to check INVALIDPARAMS conditions, second
+         * time it's actual surface loading. */
+        for (i = 0; i < 2; i++)
+        {
+            dest_face = dest;
+            src_face = src;
+
+            for (;dest_face && src_face;)
+            {
+                src_face_flag = src_face->surface_desc.ddsCaps.dwCaps2 & DDSCAPS2_CUBEMAP_ALLFACES;
+                dest_face_flag = dest_face->surface_desc.ddsCaps.dwCaps2 & DDSCAPS2_CUBEMAP_ALLFACES;
+
+                if (src_face_flag == dest_face_flag)
+                {
+                    if (i == 0)
+                    {
+                        /* Destination mip levels must be subset of source mip levels. */
+                        if (!is_mip_level_subset(dest_face, src_face))
+                        {
+                            LeaveCriticalSection(&ddraw_cs);
+                            return DDERR_INVALIDPARAMS;
+                        }
+                    }
+                    else if (Flags & dest_face_flag)
+                    {
+                        copy_mipmap_chain(This, dest_face, src_face, &destpoint, &srcrect);
+                    }
+
+                    if (src_face_flag < DDSCAPS2_CUBEMAP_NEGATIVEZ)
+                    {
+                        ddsd.ddsCaps.dwCaps = DDSCAPS_TEXTURE;
+                        ddsd.ddsCaps.dwCaps2 = DDSCAPS2_CUBEMAP | (src_face_flag << 1);
+                        IDirectDrawSurface7_GetAttachedSurface(ICOM_INTERFACE(src, IDirectDrawSurface7), &ddsd.ddsCaps, &temp);
+
+                        if (src_face != src) IDirectDrawSurface7_Release(ICOM_INTERFACE(src_face, IDirectDrawSurface7));
+
+                        src_face = ICOM_OBJECT(IDirectDrawSurfaceImpl, IDirectDrawSurface7, temp);
+                    }
+                    else
+                    {
+                        if (src_face != src) IDirectDrawSurface7_Release(ICOM_INTERFACE(src_face, IDirectDrawSurface7));
+
+                        src_face = NULL;
+                    }
+                }
+
+                if (dest_face_flag < DDSCAPS2_CUBEMAP_NEGATIVEZ)
+                {
+                    ddsd.ddsCaps.dwCaps = DDSCAPS_TEXTURE;
+                    ddsd.ddsCaps.dwCaps2 = DDSCAPS2_CUBEMAP | (dest_face_flag << 1);
+                    IDirectDrawSurface7_GetAttachedSurface(ICOM_INTERFACE(dest, IDirectDrawSurface7), &ddsd.ddsCaps, &temp);
+
+                    if (dest_face != dest) IDirectDrawSurface7_Release(ICOM_INTERFACE(dest_face, IDirectDrawSurface7));
+
+                    dest_face = ICOM_OBJECT(IDirectDrawSurfaceImpl, IDirectDrawSurface7, temp);
+                }
+                else
+                {
+                    if (dest_face != dest) IDirectDrawSurface7_Release(ICOM_INTERFACE(dest_face, IDirectDrawSurface7));
+
+                    dest_face = NULL;
+                }
+            }
+
+            if (i == 0)
+            {
+                /* Native returns error if src faces are not subset of dest faces. */
+                if (src_face)
+                {
+                    LeaveCriticalSection(&ddraw_cs);
+                    return DDERR_INVALIDPARAMS;
+                }
+            }
+        }
+
+        LeaveCriticalSection(&ddraw_cs);
+        return D3D_OK;
+    }
+    else if (dest->surface_desc.ddsCaps.dwCaps2 & DDSCAPS2_CUBEMAP)
+    {
+        LeaveCriticalSection(&ddraw_cs);
+        return DDERR_INVALIDPARAMS;
+    }
+
+    /* Handle non cube map textures. */
+
+    /* Destination mip levels must be subset of source mip levels. */
+    if (!is_mip_level_subset(dest, src))
+    {
+        LeaveCriticalSection(&ddraw_cs);
+        return DDERR_INVALIDPARAMS;
+    }
+
+    copy_mipmap_chain(This, dest, src, &destpoint, &srcrect);
+
+    LeaveCriticalSection(&ddraw_cs);
     return D3D_OK;
 }
 
@@ -5289,8 +5908,8 @@ const IDirect3DDevice3Vtbl IDirect3DDevice3_Vtbl =
     IDirect3DDeviceImpl_3_Vertex,
     IDirect3DDeviceImpl_3_Index,
     IDirect3DDeviceImpl_3_End,
-    Thunk_IDirect3DDeviceImpl_3_GetRenderState,
-    Thunk_IDirect3DDeviceImpl_3_SetRenderState,
+    IDirect3DDeviceImpl_3_GetRenderState,
+    IDirect3DDeviceImpl_3_SetRenderState,
     IDirect3DDeviceImpl_3_GetLightState,
     IDirect3DDeviceImpl_3_SetLightState,
     Thunk_IDirect3DDeviceImpl_3_SetTransform,
@@ -5306,7 +5925,7 @@ const IDirect3DDevice3Vtbl IDirect3DDevice3_Vtbl =
     Thunk_IDirect3DDeviceImpl_3_DrawIndexedPrimitiveVB,
     Thunk_IDirect3DDeviceImpl_3_ComputeSphereVisibility,
     Thunk_IDirect3DDeviceImpl_3_GetTexture,
-    Thunk_IDirect3DDeviceImpl_3_SetTexture,
+    IDirect3DDeviceImpl_3_SetTexture,
     Thunk_IDirect3DDeviceImpl_3_GetTextureStageState,
     Thunk_IDirect3DDeviceImpl_3_SetTextureStageState,
     Thunk_IDirect3DDeviceImpl_3_ValidateDevice
@@ -5374,8 +5993,8 @@ const IDirect3DDeviceVtbl IDirect3DDevice1_Vtbl =
     IDirect3DDeviceImpl_1_SetMatrix,
     IDirect3DDeviceImpl_1_GetMatrix,
     IDirect3DDeviceImpl_1_DeleteMatrix,
-    Thunk_IDirect3DDeviceImpl_1_EndScene,
     Thunk_IDirect3DDeviceImpl_1_BeginScene,
+    Thunk_IDirect3DDeviceImpl_1_EndScene,
     Thunk_IDirect3DDeviceImpl_1_GetDirect3D
 };
 

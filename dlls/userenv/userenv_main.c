@@ -20,10 +20,13 @@
 
 #include <stdarg.h>
 
+#include "ntstatus.h"
+#define WIN32_NO_STATUS
 #include "windef.h"
 #include "winbase.h"
 #include "winreg.h"
-#include "profinfo.h"
+#include "winternl.h"
+#include "userenv.h"
 
 #include "wine/debug.h"
 
@@ -49,7 +52,16 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
 BOOL WINAPI CreateEnvironmentBlock( LPVOID* lpEnvironment,
                      HANDLE hToken, BOOL bInherit )
 {
-    FIXME("%p %p %d\n", lpEnvironment, hToken, bInherit );
+    NTSTATUS r;
+
+    TRACE("%p %p %d\n", lpEnvironment, hToken, bInherit );
+
+    if (!lpEnvironment)
+        return FALSE;
+
+    r = RtlCreateEnvironment(bInherit, (WCHAR **)lpEnvironment);
+    if (r == STATUS_SUCCESS)
+        return TRUE;
     return FALSE;
 }
 
@@ -103,12 +115,7 @@ BOOL WINAPI GetProfilesDirectoryW( LPWSTR lpProfilesDir, LPDWORD lpcchSize )
     return FALSE;
 }
 
-/* FIXME: these belong in userenv.h */
-#define PT_TEMPORARY    0x00000001
-#define PT_ROAMING      0x00000002
-#define PT_MANDATORY    0x00000004
-
-BOOL WINAPI GetProfileType( LPDWORD pdwFlags )
+BOOL WINAPI GetProfileType( DWORD *pdwFlags )
 {
     FIXME("%p\n", pdwFlags );
     *pdwFlags = 0;
@@ -132,4 +139,10 @@ BOOL WINAPI UnregisterGPNotification( HANDLE event )
 {
     FIXME("%p\n", event );
     return TRUE;
+}
+
+BOOL WINAPI UnloadUserProfile( HANDLE hToken, HANDLE hProfile )
+{
+    FIXME("(%p, %p): stub\n", hToken, hProfile);
+    return FALSE;
 }

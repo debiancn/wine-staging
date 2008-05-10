@@ -21,14 +21,24 @@
 
 #include <stdarg.h>
 
+#define COBJMACROS
+#define NONAMELESSUNION
+#define NONAMELESSSTRUCT
+
 #include "windef.h"
 #include "winbase.h"
+#include "winuser.h"
+#include "ole2.h"
+#include "urlmon.h"
+
+#include "wine/unicode.h"
 
 extern HINSTANCE URLMON_hInstance;
 extern HRESULT SecManagerImpl_Construct(IUnknown *pUnkOuter, LPVOID *ppobj);
 extern HRESULT ZoneMgrImpl_Construct(IUnknown *pUnkOuter, LPVOID *ppobj);
 extern HRESULT FileProtocol_Construct(IUnknown *pUnkOuter, LPVOID *ppobj);
 extern HRESULT HttpProtocol_Construct(IUnknown *pUnkOuter, LPVOID *ppobj);
+extern HRESULT HttpSProtocol_Construct(IUnknown *pUnkOuter, LPVOID *ppobj);
 extern HRESULT FtpProtocol_Construct(IUnknown *pUnkOuter, LPVOID *ppobj);
 extern HRESULT MkProtocol_Construct(IUnknown *pUnkOuter, LPVOID *ppobj);
 
@@ -57,9 +67,61 @@ void	UMCloseCacheFileStream(IUMCacheStream *pstr);
 
 IInternetProtocolInfo *get_protocol_info(LPCWSTR url);
 HRESULT get_protocol_handler(LPCWSTR url, CLSID *clsid, IClassFactory **ret);
+BOOL is_registered_protocol(LPCWSTR);
+void register_urlmon_namespace(IClassFactory*,REFIID,LPCWSTR,BOOL);
 
-HRESULT start_binding(LPCWSTR url, IBindCtx *pbc, REFIID riid, void **ppv);
+HRESULT bind_to_storage(LPCWSTR url, IBindCtx *pbc, REFIID riid, void **ppv);
+HRESULT bind_to_object(IMoniker *mon, LPCWSTR url, IBindCtx *pbc, REFIID riid, void **ppv);
 
-HRESULT create_binding_protocol(LPCWSTR url, IInternetProtocol **protocol);
+HRESULT create_binding_protocol(LPCWSTR url, BOOL from_urlmon, IInternetProtocol **protocol);
+void set_binding_sink(IInternetProtocol *bind_protocol, IInternetProtocolSink *sink);
+
+static inline void *heap_alloc(size_t len)
+{
+    return HeapAlloc(GetProcessHeap(), 0, len);
+}
+
+static inline void *heap_alloc_zero(size_t len)
+{
+    return HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, len);
+}
+
+static inline void *heap_realloc(void *mem, size_t len)
+{
+    return HeapReAlloc(GetProcessHeap(), 0, mem, len);
+}
+
+static inline BOOL heap_free(void *mem)
+{
+    return HeapFree(GetProcessHeap(), 0, mem);
+}
+
+static inline LPWSTR heap_strdupW(LPCWSTR str)
+{
+    LPWSTR ret = NULL;
+
+    if(str) {
+        DWORD size;
+
+        size = (strlenW(str)+1)*sizeof(WCHAR);
+        ret = heap_alloc(size);
+        memcpy(ret, str, size);
+    }
+
+    return ret;
+}
+
+static inline LPWSTR heap_strdupAtoW(const char *str)
+{
+    LPWSTR ret = NULL;
+
+    if(str) {
+        DWORD len = MultiByteToWideChar(CP_ACP, 0, str, -1, NULL, 0);
+        ret = heap_alloc(len*sizeof(WCHAR));
+        MultiByteToWideChar(CP_ACP, 0, str, -1, ret, len);
+    }
+
+    return ret;
+}
 
 #endif /* __WINE_URLMON_MAIN_H */

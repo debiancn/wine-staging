@@ -44,7 +44,6 @@ WINE_DEFAULT_DEBUG_CHANNEL(msxml);
 /* FIXME: IXMLDocument needs to implement
  *   - IXMLError
  *   - IPersistMoniker
- *   - IPersistStream
  */
 
 typedef struct _xmldoc
@@ -79,11 +78,13 @@ static HRESULT WINAPI xmldoc_QueryInterface(IXMLDocument *iface, REFIID riid, vo
     TRACE("%p %s %p\n", This, debugstr_guid(riid), ppvObject);
 
     if (IsEqualGUID(riid, &IID_IUnknown) ||
-        IsEqualGUID(riid, &IID_IXMLDocument))
+        IsEqualGUID(riid, &IID_IXMLDocument) ||
+        IsEqualGUID(riid, &IID_IXMLDOMDocument))
     {
         *ppvObject = iface;
     }
-    else if (IsEqualGUID(&IID_IPersistStreamInit, riid))
+    else if (IsEqualGUID(&IID_IPersistStreamInit, riid) ||
+             IsEqualGUID(&IID_IPersistStream, riid))
     {
         *ppvObject = (IPersistStreamInit *)&(This->lpvtblIPersistStreamInit);
     }
@@ -125,23 +126,50 @@ static ULONG WINAPI xmldoc_Release(IXMLDocument *iface)
 
 static HRESULT WINAPI xmldoc_GetTypeInfoCount(IXMLDocument *iface, UINT* pctinfo)
 {
-    FIXME("\n");
-    return E_NOTIMPL;
+    xmldoc *This = impl_from_IXMLDocument(iface);
+
+    TRACE("(%p)->(%p)\n", This, pctinfo);
+
+    *pctinfo = 1;
+
+    return S_OK;
 }
 
 static HRESULT WINAPI xmldoc_GetTypeInfo(IXMLDocument *iface, UINT iTInfo,
                                          LCID lcid, ITypeInfo** ppTInfo)
 {
-    FIXME("\n");
-    return E_NOTIMPL;
+    xmldoc *This = impl_from_IXMLDocument(iface);
+    HRESULT hr;
+
+    TRACE("(%p)->(%u %u %p)\n", This, iTInfo, lcid, ppTInfo);
+
+    hr = get_typeinfo(IXMLDocument_tid, ppTInfo);
+
+    return hr;
 }
 
 static HRESULT WINAPI xmldoc_GetIDsOfNames(IXMLDocument *iface, REFIID riid,
                                            LPOLESTR* rgszNames, UINT cNames,
                                            LCID lcid, DISPID* rgDispId)
 {
-    FIXME("\n");
-    return E_NOTIMPL;
+    xmldoc *This = impl_from_IXMLDocument(iface);
+    ITypeInfo *typeinfo;
+    HRESULT hr;
+
+    TRACE("(%p)->(%s %p %u %u %p)\n", This, debugstr_guid(riid), rgszNames, cNames,
+          lcid, rgDispId);
+
+    if(!rgszNames || cNames == 0 || !rgDispId)
+        return E_INVALIDARG;
+
+    hr = get_typeinfo(IXMLDocument_tid, &typeinfo);
+    if(SUCCEEDED(hr))
+    {
+        hr = ITypeInfo_GetIDsOfNames(typeinfo, rgszNames, cNames, rgDispId);
+        ITypeInfo_Release(typeinfo);
+    }
+
+    return hr;
 }
 
 static HRESULT WINAPI xmldoc_Invoke(IXMLDocument *iface, DISPID dispIdMember,
@@ -149,8 +177,22 @@ static HRESULT WINAPI xmldoc_Invoke(IXMLDocument *iface, DISPID dispIdMember,
                                     DISPPARAMS* pDispParams, VARIANT* pVarResult,
                                     EXCEPINFO* pExcepInfo, UINT* puArgErr)
 {
-    FIXME("\n");
-    return E_NOTIMPL;
+    xmldoc *This = impl_from_IXMLDocument(iface);
+    ITypeInfo *typeinfo;
+    HRESULT hr;
+
+    TRACE("(%p)->(%d %s %d %d %p %p %p %p)\n", This, dispIdMember, debugstr_guid(riid),
+          lcid, wFlags, pDispParams, pVarResult, pExcepInfo, puArgErr);
+
+    hr = get_typeinfo(IXMLDocument_tid, &typeinfo);
+    if(SUCCEEDED(hr))
+    {
+        hr = ITypeInfo_Invoke(typeinfo, &(This->lpVtbl), dispIdMember, wFlags, pDispParams,
+                pVarResult, pExcepInfo, puArgErr);
+        ITypeInfo_Release(typeinfo);
+    }
+
+    return hr;
 }
 
 static HRESULT WINAPI xmldoc_get_root(IXMLDocument *iface, IXMLElement **p)
@@ -449,11 +491,13 @@ static HRESULT WINAPI xmldoc_createElement(IXMLDocument *iface, VARIANT vType,
 
     *ppElem = NULL;
 
-    node = xmlNewNode(NULL, empty);
-
     if (V_VT(&vType) != VT_I4)
         return E_INVALIDARG;
 
+    if(type_msxml_to_libxml(V_I4(&vType)) == -1)
+        return E_NOTIMPL;
+
+    node = xmlNewNode(NULL, empty);
     node->type = type_msxml_to_libxml(V_I4(&vType));
 
     /* FIXME: create xmlNodePtr based on vType and var1 */
@@ -523,7 +567,7 @@ static HRESULT WINAPI xmldoc_IPersistStreamInit_IsDirty(
     return E_NOTIMPL;
 }
 
-static xmlDocPtr parse_xml(char *ptr, int len)
+xmlDocPtr parse_xml(char *ptr, int len)
 {
 #ifdef HAVE_XMLREADMEMORY
     return xmlReadMemory(ptr, len, NULL, NULL,

@@ -113,8 +113,8 @@ static void _dump_DIEFFECT_flags(DWORD dwFlags)
         };
         for (i = 0; i < (sizeof(flags) / sizeof(flags[0])); i++)
             if (flags[i].mask & dwFlags)
-                DPRINTF("%s ", flags[i].name);
-        DPRINTF("\n");
+                TRACE("%s ", flags[i].name);
+        TRACE("\n");
     }       
 }
 
@@ -160,11 +160,11 @@ static void _dump_DICUSTOMFORCE(LPCDICUSTOMFORCE frc)
     if (frc->cSamples % frc->cChannels != 0)
 	WARN("Custom force has a non-integral samples-per-channel count!\n");
     if (TRACE_ON(dinput)) {
-	DPRINTF("Custom force data (time aligned, axes in order):\n");
+	TRACE("Custom force data (time aligned, axes in order):\n");
 	for (i = 1; i <= frc->cSamples; ++i) {
-	    DPRINTF("%d ", frc->rglForceData[i]);
+	    TRACE("%d ", frc->rglForceData[i]);
 	    if (i % frc->cChannels == 0)
-		DPRINTF("\n");
+		TRACE("\n");
 	}	
     }
 }
@@ -185,8 +185,8 @@ static void _dump_DIEFFECT(LPCDIEFFECT eff, REFGUID guid)
     _dump_DIEFFECT_flags(eff->dwFlags); 
     TRACE("  - dwDuration: %d\n", eff->dwDuration);
     TRACE("  - dwGain: %d\n", eff->dwGain);
-    if ((eff->dwGain > 10000) || (eff->dwGain < 0))
-	WARN("dwGain is out of range (0 - 10,000)\n"); 
+    if (eff->dwGain > 10000)
+	WARN("dwGain is out of range (>10,000)\n");
     TRACE("  - dwTriggerButton: %d\n", eff->dwTriggerButton);
     TRACE("  - dwTriggerRepeatInterval: %d\n", eff->dwTriggerRepeatInterval);
     TRACE("  - cAxes: %d\n", eff->cAxes);
@@ -194,8 +194,8 @@ static void _dump_DIEFFECT(LPCDIEFFECT eff, REFGUID guid)
     if (TRACE_ON(dinput)) {
 	TRACE("    ");	
 	for (i = 0; i < eff->cAxes; ++i)
-	    DPRINTF("%d ", eff->rgdwAxes[i]);
-	DPRINTF("\n");
+	    TRACE("%d ", eff->rgdwAxes[i]);
+	TRACE("\n");
     }
     TRACE("  - rglDirection: %p\n", eff->rglDirection);
     TRACE("  - lpEnvelope: %p\n", eff->lpEnvelope);
@@ -540,7 +540,7 @@ static HRESULT WINAPI LinuxInputEffectImpl_SetParameters(
 
     _dump_DIEFFECT(peff, &This->guid);
 
-    if ((dwFlags & !DIEP_NORESTART & !DIEP_NODOWNLOAD & !DIEP_START) == 0) {
+    if ((dwFlags & ~DIEP_NORESTART & ~DIEP_NODOWNLOAD & ~DIEP_START) == 0) {
 	/* set everything */
 	dwFlags = DIEP_AXES | DIEP_DIRECTION | DIEP_DURATION | DIEP_ENVELOPE |
 	    DIEP_GAIN | DIEP_SAMPLEPERIOD | DIEP_STARTDELAY | DIEP_TRIGGERBUTTON |
@@ -780,12 +780,12 @@ HRESULT linuxinput_create_effect(
     LinuxInputEffectImpl* newEffect = HeapAlloc(GetProcessHeap(), 
 	HEAP_ZERO_MEMORY, sizeof(LinuxInputEffectImpl));
     DWORD type = _typeFromGUID(rguid);
-    
+
     newEffect->lpVtbl = &LinuxInputEffectVtbl;
     newEffect->ref = 1;
-    memcpy(&(newEffect->guid), rguid, sizeof(*rguid));
+    newEffect->guid = *rguid;
     newEffect->fd = fd;
-    
+
     /* set the type.  this cannot be changed over the effect's life. */
     switch (type) {
 	case DIEFT_PERIODIC: 

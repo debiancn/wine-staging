@@ -154,6 +154,12 @@ DWORD WINAPI FormatMessageA(
         &&((dwFlags & FORMAT_MESSAGE_FROM_SYSTEM)
            || (dwFlags & FORMAT_MESSAGE_FROM_HMODULE))) return 0;
 
+    if (!lpBuffer)
+    {
+        SetLastError(ERROR_NOT_ENOUGH_MEMORY);
+        return 0;
+    }
+
     if (width && width != FORMAT_MESSAGE_MAX_WIDTH_MASK)
         FIXME("line wrapping (%u) not supported.\n", width);
     from = NULL;
@@ -325,7 +331,7 @@ DWORD WINAPI FormatMessageA(
     }
     TRACE("-- %s\n",debugstr_a(target));
     if (dwFlags & FORMAT_MESSAGE_ALLOCATE_BUFFER) {
-        *((LPVOID*)lpBuffer) = (LPVOID)LocalAlloc(LMEM_ZEROINIT,max(nSize, talloced));
+        *((LPVOID*)lpBuffer) = LocalAlloc(LMEM_ZEROINIT,max(nSize, talloced));
         memcpy(*(LPSTR*)lpBuffer,target,talloced);
     } else {
         lstrcpynA(lpBuffer,target,nSize);
@@ -367,6 +373,12 @@ DWORD WINAPI FormatMessageW(
     if ((dwFlags & FORMAT_MESSAGE_FROM_STRING)
         &&((dwFlags & FORMAT_MESSAGE_FROM_SYSTEM)
            || (dwFlags & FORMAT_MESSAGE_FROM_HMODULE))) return 0;
+
+    if (!lpBuffer)
+    {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return 0;
+    }
 
     if (width && width != FORMAT_MESSAGE_MAX_WIDTH_MASK)
         FIXME("line wrapping not supported.\n");
@@ -535,7 +547,7 @@ DWORD WINAPI FormatMessageW(
     if (dwFlags & FORMAT_MESSAGE_ALLOCATE_BUFFER) {
         /* nSize is the MINIMUM size */
         DWORD len = strlenW(target) + 1;
-        *((LPVOID*)lpBuffer) = (LPVOID)LocalAlloc(LMEM_ZEROINIT,len*sizeof(WCHAR));
+        *((LPVOID*)lpBuffer) = LocalAlloc(LMEM_ZEROINIT,len*sizeof(WCHAR));
         strcpyW(*(LPWSTR*)lpBuffer, target);
     }
     else lstrcpynW(lpBuffer, target, nSize);

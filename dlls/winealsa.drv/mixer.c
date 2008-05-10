@@ -209,6 +209,8 @@ static const struct mixerlinetype {
     { "CD",         MIXERLINE_COMPONENTTYPE_SRC_COMPACTDISC, },
     { "Line",       MIXERLINE_COMPONENTTYPE_SRC_LINE,        },
     { "Phone",      MIXERLINE_COMPONENTTYPE_SRC_TELEPHONE,   },
+    { "Digital",    MIXERLINE_COMPONENTTYPE_SRC_MICROPHONE,  },
+    { "Front Mic",  MIXERLINE_COMPONENTTYPE_SRC_MICROPHONE,  },
 };
 
 /* Map name to MIXERLINE_COMPONENTTYPE_XXX */
@@ -232,8 +234,7 @@ static int blacklisted(snd_mixer_elem_t *elem)
     BOOL blisted = 0;
 
     if (!snd_mixer_selem_has_playback_volume(elem) &&
-        (!snd_mixer_selem_has_capture_volume(elem) ||
-         !snd_mixer_selem_has_capture_switch(elem)))
+        !snd_mixer_selem_has_capture_volume(elem))
         blisted = 1;
 
     TRACE("%s: %x\n", name, blisted);
@@ -370,7 +371,8 @@ static void filllines(mixer *mmixer, snd_mixer_elem_t *mastelem, snd_mixer_elem_
             const char * name = snd_mixer_selem_get_name(elem);
             DWORD comp = getcomponenttype(name);
 
-            if (snd_mixer_selem_has_playback_volume(elem))
+            if (snd_mixer_selem_has_playback_volume(elem) &&
+               (snd_mixer_selem_has_capture_volume(elem) || comp != MIXERLINE_COMPONENTTYPE_SRC_MICROPHONE))
             {
                 (++mline)->component = comp;
                 MultiByteToWideChar(CP_UNIXCP, 0, name, -1, mline->name, MAXPNAMELEN);
@@ -381,7 +383,7 @@ static void filllines(mixer *mmixer, snd_mixer_elem_t *mastelem, snd_mixer_elem_
             else if (!capt)
                 continue;
 
-            if (capt && snd_mixer_selem_has_capture_switch(elem))
+            if (capt && (snd_mixer_selem_has_capture_volume(elem) || comp == MIXERLINE_COMPONENTTYPE_SRC_MICROPHONE))
             {
                 (++mline)->component = comp;
                 MultiByteToWideChar(CP_UNIXCP, 0, name, -1, mline->name, MAXPNAMELEN);
@@ -405,7 +407,9 @@ static void filllines(mixer *mmixer, snd_mixer_elem_t *mastelem, snd_mixer_elem_
 static void ALSA_MixerInit(void)
 {
     int x, mixnum = 0;
+    snd_ctl_card_info_t *info;
 
+    info = HeapAlloc( GetProcessHeap(), 0, snd_ctl_card_info_sizeof());
     for (x = 0; x < MAX_MIXERS; ++x)
     {
         int card, err, capcontrols = 0;
@@ -413,9 +417,8 @@ static void ALSA_MixerInit(void)
 
         snd_ctl_t *ctl;
         snd_mixer_elem_t *elem, *mastelem = NULL, *headelem = NULL, *captelem = NULL, *pcmelem = NULL;
-        snd_ctl_card_info_t *info = NULL;
-        snd_ctl_card_info_alloca(&info);
 
+        memset(info, 0, snd_ctl_card_info_sizeof());
         memset(&mixdev[mixnum], 0, sizeof(*mixdev));
         snprintf(cardind, sizeof(cardind), "%d", x);
         card = snd_card_get_index(cardind);
@@ -471,9 +474,19 @@ static void ALSA_MixerInit(void)
                 captelem = elem;
             else if (!blacklisted(elem))
             {
-                if (snd_mixer_selem_has_capture_switch(elem))
+                DWORD comp = getcomponenttype(snd_mixer_selem_get_name(elem));
+                DWORD skip = 0;
+
+                /* Work around buggy drivers: Make this a capture control if the name is recognised as a microphone */
+                if (snd_mixer_selem_has_capture_volume(elem))
                     ++capcontrols;
-                if (snd_mixer_selem_has_playback_volume(elem))
+                else if (comp == MIXERLINE_COMPONENTTYPE_SRC_MICROPHONE)
+                {
+                    ++capcontrols;
+                    skip = 1;
+                }
+
+                if (!skip && snd_mixer_selem_has_playback_volume(elem))
                 {
                     if (!strcasecmp(snd_mixer_selem_get_name(elem), "Headphone") && !headelem)
                         headelem = elem;
@@ -511,7 +524,7 @@ static void ALSA_MixerInit(void)
         else if (!mastelem)
         {
             /* If there is nothing sensible that can act as 'Master' control, something is wrong */
-            FIXME("No master control found, disabling mixer\n");
+            FIXME("No master control found on %s, disabling mixer\n", snd_ctl_card_info_get_name(info));
             goto close;
         }
 
@@ -553,6 +566,7 @@ static void ALSA_MixerInit(void)
         snd_mixer_close(mixdev[mixnum].mix);
     }
     cards = mixnum;
+    HeapFree( GetProcessHeap(), 0, info );
 
     /* There is no trouble with already assigning callbacks without initialising critsect:
      * Callbacks only occur when snd_mixer_handle_events is called (only happens in thread)
@@ -573,6 +587,7 @@ static void ALSA_MixerExit(void)
         EnterCriticalSection(&elem_crst);
         TerminateThread(thread, 1);
         refcnt = 0;
+        LeaveCriticalSection(&elem_crst);
     }
 
     TRACE("Cleaning up\n");
@@ -970,6 +985,12 @@ static DWORD MIX_GetControlDetails(UINT wDevID, LPMIXERCONTROLDETAILS mctrld, DW
                     break;
                 }
 
+	    if (chn > SND_MIXER_SCHN_LAST)
+	    {
+		TRACE("can't find active channel\n");
+		return MMSYSERR_INVALPARAM;  /* fixme: what's right error? */
+	    }
+
             mcdb->fValue = !ival;
             TRACE("=> %s\n", mcdb->fValue ? "on" : "off");
             return MMSYSERR_NOERROR;
@@ -1302,14 +1323,14 @@ static DWORD MIX_GetLineInfo(UINT wDevID, LPMIXERLINEW Ml, DWORD_PTR flags)
         return MMSYSERR_INVALPARAM;
     }
 
-    Ml->fdwLine = MIXERLINE_LINEF_ACTIVE;
     Ml->dwUser  = 0;
-
+    Ml->fdwLine = MIXERLINE_LINEF_DISCONNECTED;
     switch (qf)
     {
     case MIXER_GETLINEINFOF_COMPONENTTYPE:
     {
         Ml->dwLineID = 0xFFFF;
+        TRACE("Looking for componenttype %d/%x\n", Ml->dwComponentType, Ml->dwComponentType);
         for (idx = 0; idx < mmixer->chans; ++idx)
             if (mmixer->lines[idx].component == Ml->dwComponentType)
             {
@@ -1379,6 +1400,8 @@ static DWORD MIX_GetLineInfo(UINT wDevID, LPMIXERLINEW Ml, DWORD_PTR flags)
         return MMSYSERR_INVALPARAM;
     }
 
+    Ml->fdwLine &= ~MIXERLINE_LINEF_DISCONNECTED;
+    Ml->fdwLine |= MIXERLINE_LINEF_ACTIVE;
     if (Ml->dwLineID >= mmixer->dests)
         Ml->fdwLine |= MIXERLINE_LINEF_SOURCE;
 

@@ -81,7 +81,7 @@
 #define HRESULT_SEVERITY(hr)    (((hr) >> 31) & 0x1)
 #define SCODE_SEVERITY(sc)      (((sc) >> 31) & 0x1)
 
-#define __HRESULT_FROM_WIN32(x)   ((x) ? ((HRESULT) (((x) & 0x0000FFFF) | (FACILITY_WIN32 << 16) | 0x80000000)) : 0 )
+#define __HRESULT_FROM_WIN32(x)   ((HRESULT)(x) > 0 ? ((HRESULT) (((x) & 0x0000FFFF) | (FACILITY_WIN32 << 16) | 0x80000000)) : (HRESULT)(x) )
 #ifndef _HRESULT_DEFINED
 #define _HRESULT_DEFINED
 # ifdef _MSC_VER
@@ -92,7 +92,7 @@ typedef int             HRESULT;
 #endif
 static inline HRESULT HRESULT_FROM_WIN32(unsigned long x)
 {
-    return x ? ((HRESULT) ((x & 0x0000FFFF) | (FACILITY_WIN32 << 16) | 0x80000000)) : 0;
+    return (HRESULT)x > 0 ? ((HRESULT) ((x & 0x0000FFFF) | (FACILITY_WIN32 << 16) | 0x80000000)) : (HRESULT)x;
 }
 #define FACILITY_NT_BIT         0x10000000
 #define HRESULT_FROM_NT(x)      ((HRESULT) ((x) | FACILITY_NT_BIT))
@@ -2278,6 +2278,26 @@ static inline HRESULT HRESULT_FROM_WIN32(unsigned long x)
 #define TRUST_E_SUBJECT_FORM_UNKNOWN                       _HRESULT_TYPEDEF_(0x800B0003L)
 #define TRUST_E_SUBJECT_NOT_TRUSTED                        _HRESULT_TYPEDEF_(0x800B0004L)
 #define TRUST_E_NOSIGNATURE                                _HRESULT_TYPEDEF_(0x800B0100L)
+#define CERT_E_EXPIRED                                     _HRESULT_TYPEDEF_(0x800B0101)
+#define CERT_E_VALIDITYPERIODNESTING                       _HRESULT_TYPEDEF_(0x800B0102)
+#define CERT_E_ROLE                                        _HRESULT_TYPEDEF_(0x800B0103)
+#define CERT_E_PATHLENCONST                                _HRESULT_TYPEDEF_(0x800B0104)
+#define CERT_E_CRITICAL                                    _HRESULT_TYPEDEF_(0x800B0105)
+#define CERT_E_PURPOSE                                     _HRESULT_TYPEDEF_(0x800B0106)
+#define CERT_E_ISSUERCHAINING                              _HRESULT_TYPEDEF_(0x800B0107)
+#define CERT_E_MALFORMED                                   _HRESULT_TYPEDEF_(0x800B0108)
+#define CERT_E_UNTRUSTEDROOT                               _HRESULT_TYPEDEF_(0x800B0109)
+#define CERT_E_CHAINING                                    _HRESULT_TYPEDEF_(0x800B010A)
+#define TRUST_E_FAIL                                       _HRESULT_TYPEDEF_(0x800B010B)
+#define CERT_E_REVOKED                                     _HRESULT_TYPEDEF_(0x800B010C)
+#define CERT_E_UNTRUSTEDTESTROOT                           _HRESULT_TYPEDEF_(0x800B010D)
+#define CERT_E_REVOCATION_FAILURE                          _HRESULT_TYPEDEF_(0x800B010E)
+#define CERT_E_CN_NO_MATCH                                 _HRESULT_TYPEDEF_(0x800B010F)
+#define CERT_E_WRONG_USAGE                                 _HRESULT_TYPEDEF_(0x800B0110)
+#define TRUST_E_EXPLICIT_DISTRUST                          _HRESULT_TYPEDEF_(0x800B0111)
+#define CERT_E_UNTRUSTEDCA                                 _HRESULT_TYPEDEF_(0x800B0112)
+#define CERT_E_INVALID_POLICY                              _HRESULT_TYPEDEF_(0x800B0113)
+#define CERT_E_INVALID_NAME                                _HRESULT_TYPEDEF_(0x800B0114)
 
 #define SPAPI_E_EXPECTED_SECTION_NAME                      _HRESULT_TYPEDEF_(0x800F0000L)
 #define SPAPI_E_BAD_SECTION_NAME_LINE                      _HRESULT_TYPEDEF_(0x800F0001L)

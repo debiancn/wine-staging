@@ -21,8 +21,6 @@
 #include "config.h"
 #include "wine/port.h"
 
-#ifdef HAVE_PTHREAD_H
-
 #include <assert.h>
 #include <stdlib.h>
 #include <signal.h>
@@ -37,9 +35,15 @@
 #ifdef HAVE_MACH_MACH_H
 #include <mach/mach.h>
 #endif
+#ifdef HAVE_SYS_THR_H
+#include <sys/ucontext.h>
+#include <sys/thr.h>
+#endif
 
 #include "wine/library.h"
 #include "wine/pthread.h"
+
+#ifdef HAVE_PTHREAD_H
 
 static int init_done;
 static int nb_threads = 1;
@@ -149,6 +153,12 @@ static void init_current_teb( struct wine_pthread_thread_info *info )
     info->tid = pthread_self();  /* this should return the lwp id on solaris */
 #elif defined(__APPLE__)
     info->tid = mach_thread_self();
+#elif defined(__FreeBSD__)
+    {
+        long lwpid;
+        thr_self( &lwpid );
+        info->tid = (int) lwpid;
+    }
 #else
     info->tid = gettid();
 #endif
@@ -191,6 +201,47 @@ static void DECLSPEC_NORETURN abort_thread( long status )
     pthread_exit( (void *)status );
 }
 
+#else  /* HAVE_PTHREAD_H */
+
+static void init_process( const struct wine_pthread_callbacks *callbacks, size_t size )
+{
+}
+
+static void init_thread( struct wine_pthread_thread_info *info )
+{
+}
+
+static int create_thread( struct wine_pthread_thread_info *info )
+{
+    return -1;
+}
+
+static void init_current_teb( struct wine_pthread_thread_info *info )
+{
+}
+
+static void *get_current_teb(void)
+{
+    return NULL;
+}
+
+static void DECLSPEC_NORETURN exit_thread( struct wine_pthread_thread_info *info )
+{
+    abort();
+}
+
+static void DECLSPEC_NORETURN abort_thread( long status )
+{
+    abort();
+}
+
+static int pthread_sigmask( int how, const sigset_t *newset, sigset_t *oldset )
+{
+    return -1;
+}
+
+#endif  /* HAVE_PTHREAD_H */
+
 
 /***********************************************************************
  *           pthread_functions
@@ -206,5 +257,3 @@ const struct wine_pthread_functions pthread_functions =
     abort_thread,
     pthread_sigmask
 };
-
-#endif  /* HAVE_PTHREAD_H */

@@ -96,7 +96,7 @@ static UINT CREATE_get_column_info( struct tagMSIVIEW *view,
 }
 
 static UINT CREATE_modify( struct tagMSIVIEW *view, MSIMODIFY eModifyMode,
-                MSIRECORD *rec)
+                           MSIRECORD *rec, UINT row)
 {
     MSICREATEVIEW *cv = (MSICREATEVIEW*)view;
 
@@ -117,10 +117,10 @@ static UINT CREATE_delete( struct tagMSIVIEW *view )
     return ERROR_SUCCESS;
 }
 
-
 static const MSIVIEWOPS create_ops =
 {
     CREATE_fetch_int,
+    NULL,
     NULL,
     NULL,
     NULL,
@@ -130,7 +130,13 @@ static const MSIVIEWOPS create_ops =
     CREATE_get_dimensions,
     CREATE_get_column_info,
     CREATE_modify,
-    CREATE_delete
+    CREATE_delete,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
 };
 
 static UINT check_columns( column_info *col_info )

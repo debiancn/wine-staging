@@ -192,7 +192,7 @@ PixelFormat_WineD3DtoDD(DDPIXELFORMAT *DDPixelFormat,
             DDPixelFormat->u2.dwStencilBitDepth = 0;
             DDPixelFormat->u3.dwZBitMask = 0x0000FFFF;
             DDPixelFormat->u4.dwStencilBitMask = 0x0;
-            DDPixelFormat->u5.dwRGBZBitMask = 0x0000FFFF;
+            DDPixelFormat->u5.dwRGBZBitMask = 0x00000000;
             break;
 
         case WINED3DFMT_D32:
@@ -202,17 +202,17 @@ PixelFormat_WineD3DtoDD(DDPIXELFORMAT *DDPixelFormat,
             DDPixelFormat->u2.dwStencilBitDepth = 0;
             DDPixelFormat->u3.dwZBitMask = 0xFFFFFFFF;
             DDPixelFormat->u4.dwStencilBitMask = 0x0;
-            DDPixelFormat->u5.dwRGBZBitMask = 0xFFFFFFFF;
+            DDPixelFormat->u5.dwRGBZBitMask = 0x00000000;
             break;
 
         case WINED3DFMT_D24X4S4:
             DDPixelFormat->dwFlags = DDPF_ZBUFFER | DDPF_STENCILBUFFER;
             DDPixelFormat->dwFourCC = 0;
             /* Should I set dwZBufferBitDepth to 32 here? */
-            DDPixelFormat->u1.dwZBufferBitDepth = 24;
+            DDPixelFormat->u1.dwZBufferBitDepth = 32;
             DDPixelFormat->u2.dwStencilBitDepth = 4;
-            DDPixelFormat->u3.dwZBitMask = 0x0;
-            DDPixelFormat->u4.dwStencilBitMask = 0x0;
+            DDPixelFormat->u3.dwZBitMask = 0x00FFFFFF;
+            DDPixelFormat->u4.dwStencilBitMask = 0x0F000000;
             DDPixelFormat->u5.dwRGBAlphaBitMask = 0x0;
             break;
 
@@ -220,36 +220,36 @@ PixelFormat_WineD3DtoDD(DDPIXELFORMAT *DDPixelFormat,
             DDPixelFormat->dwFlags = DDPF_ZBUFFER | DDPF_STENCILBUFFER;
             DDPixelFormat->dwFourCC = 0;
             /* Should I set dwZBufferBitDepth to 32 here? */
-            DDPixelFormat->u1.dwZBufferBitDepth = 24;
+            DDPixelFormat->u1.dwZBufferBitDepth = 32;
             DDPixelFormat->u2.dwStencilBitDepth = 8;
-            DDPixelFormat->u3.dwZBitMask = 0x0;
-            DDPixelFormat->u4.dwStencilBitMask = 0x0;
+            DDPixelFormat->u3.dwZBitMask = 0x00FFFFFFFF;
+            DDPixelFormat->u4.dwStencilBitMask = 0xFF000000;
             DDPixelFormat->u5.dwRGBAlphaBitMask = 0x0;
             break;
 
         case WINED3DFMT_D24X8:
             DDPixelFormat->dwFlags = DDPF_ZBUFFER;
             DDPixelFormat->dwFourCC = 0;
-            DDPixelFormat->u1.dwZBufferBitDepth = 24;
-            DDPixelFormat->u2.dwStencilBitDepth = 8;
-            DDPixelFormat->u3.dwZBitMask = 0x0;
-            DDPixelFormat->u4.dwStencilBitMask = 0x0;
+            DDPixelFormat->u1.dwZBufferBitDepth = 32;
+            DDPixelFormat->u2.dwStencilBitDepth = 0;
+            DDPixelFormat->u3.dwZBitMask = 0x00FFFFFFFF;
+            DDPixelFormat->u4.dwStencilBitMask = 0x00000000;
             DDPixelFormat->u5.dwRGBAlphaBitMask = 0x0;
 
             break;
         case WINED3DFMT_D15S1:
             DDPixelFormat->dwFlags = DDPF_ZBUFFER | DDPF_STENCILBUFFER;
             DDPixelFormat->dwFourCC = 0;
-            /* Should I set dwZBufferBitDepth to 16 here? */
-            DDPixelFormat->u1.dwZBufferBitDepth = 15;
+            DDPixelFormat->u1.dwZBufferBitDepth = 16;
             DDPixelFormat->u2.dwStencilBitDepth = 1;
-            DDPixelFormat->u3.dwZBitMask = 0x0;
-            DDPixelFormat->u4.dwStencilBitMask = 0x0;
+            DDPixelFormat->u3.dwZBitMask = 0x7fff;
+            DDPixelFormat->u4.dwStencilBitMask = 0x8000;
             DDPixelFormat->u5.dwRGBAlphaBitMask = 0x0;
             break;
 
         case WINED3DFMT_UYVY:
         case WINED3DFMT_YUY2:
+        case WINED3DFMT_YV12:
         case WINED3DFMT_DXT1:
         case WINED3DFMT_DXT2:
         case WINED3DFMT_DXT3:
@@ -321,7 +321,6 @@ PixelFormat_WineD3DtoDD(DDPIXELFORMAT *DDPixelFormat,
     if(TRACE_ON(ddraw)) {
         TRACE("Returning: ");
         DDRAW_dump_pixelformat(DDPixelFormat);
-        TRACE("\n");
     }
 }
 /*****************************************************************************
@@ -343,7 +342,6 @@ PixelFormat_DD2WineD3D(const DDPIXELFORMAT *DDPixelFormat)
     if(TRACE_ON(ddraw))
     {
         DDRAW_dump_pixelformat(DDPixelFormat);
-        TRACE("\n");
     }
 
     if(DDPixelFormat->dwFlags & DDPF_PALETTEINDEXED8)
@@ -496,19 +494,20 @@ PixelFormat_DD2WineD3D(const DDPIXELFORMAT *DDPixelFormat)
             switch(DDPixelFormat->u1.dwZBufferBitDepth)
             {
                 case 8:
-                    ERR("8 Bits Z+Stencil buffer pixelformat is not supported. Returning WINED3DFMT_UNKNOWN\n");
+                    FIXME("8 Bits Z+Stencil buffer pixelformat is not supported. Returning WINED3DFMT_UNKNOWN\n");
                     return WINED3DFMT_UNKNOWN;
 
                 case 15:
+                    FIXME("15 bit depth buffer not handled yet, assuming 16 bit\n");
                 case 16:
                     if(DDPixelFormat->u2.dwStencilBitDepth == 1)
                         return WINED3DFMT_D15S1;
 
-                    ERR("Don't know how to handle a 16 bit Z buffer with %d bit stencil buffer pixelformat\n", DDPixelFormat->u2.dwStencilBitDepth);
+                    FIXME("Don't know how to handle a 16 bit Z buffer with %d bit stencil buffer pixelformat\n", DDPixelFormat->u2.dwStencilBitDepth);
                     return WINED3DFMT_UNKNOWN;
 
                 case 24:
-                    ERR("Don't know how to handle a 24 bit depth buffer with stencil bits\n");
+                    FIXME("Don't know how to handle a 24 bit depth buffer with stencil bits\n");
                     return WINED3DFMT_D24S8;
 
                 case 32:
@@ -534,10 +533,15 @@ PixelFormat_DD2WineD3D(const DDPIXELFORMAT *DDPixelFormat)
                     return WINED3DFMT_D16;
 
                 case 24:
-                    return WINED3DFMT_D24X8;
-
+                    FIXME("24 Bit depth buffer, treating like a 32 bit one\n");
                 case 32:
-                    return WINED3DFMT_D32;
+                    if(DDPixelFormat->u3.dwZBitMask == 0x00FFFFFF) {
+                        return WINED3DFMT_D24X8;
+                    } else if(DDPixelFormat->u3.dwZBitMask == 0xFFFFFFFF) {
+                        return WINED3DFMT_D32;
+                    }
+                    FIXME("Unhandled 32 bit depth buffer bitmasks, returning WINED3DFMT_D24X8\n");
+                    return WINED3DFMT_D24X8; /* That's most likely to make games happy */
 
                 default:
                     ERR("Unsupported Z buffer depth %d\n", DDPixelFormat->u1.dwZBufferBitDepth);
@@ -554,6 +558,10 @@ PixelFormat_DD2WineD3D(const DDPIXELFORMAT *DDPixelFormat)
         if(DDPixelFormat->dwFourCC == MAKEFOURCC('Y', 'U', 'Y', '2'))
         {
             return WINED3DFMT_YUY2;
+        }
+        if(DDPixelFormat->dwFourCC == MAKEFOURCC('Y', 'V', '1', '2'))
+        {
+            return WINED3DFMT_YV12;
         }
         if(DDPixelFormat->dwFourCC == MAKEFOURCC('D', 'X', 'T', '1'))
         {
@@ -610,41 +618,40 @@ PixelFormat_DD2WineD3D(const DDPIXELFORMAT *DDPixelFormat)
 /*****************************************************************************
  * Various dumping functions.
  *
- * They write the contents of a specific function to a DPRINTF.
+ * They write the contents of a specific function to a TRACE.
  *
  *****************************************************************************/
 static void
 DDRAW_dump_DWORD(const void *in)
 {
-    DPRINTF("%d", *((const DWORD *) in));
+    TRACE("%d\n", *((const DWORD *) in));
 }
 static void
 DDRAW_dump_PTR(const void *in)
 {
-    DPRINTF("%p", *((const void * const*) in));
+    TRACE("%p\n", *((const void * const*) in));
 }
 static void
 DDRAW_dump_DDCOLORKEY(const DDCOLORKEY *ddck)
 {
-    DPRINTF(" Low : %d  - High : %d", ddck->dwColorSpaceLowValue, ddck->dwColorSpaceHighValue);
+    TRACE("Low : %d  - High : %d\n", ddck->dwColorSpaceLowValue, ddck->dwColorSpaceHighValue);
 }
 
-#define DDRAW_dump_flags(flags,names,num_names) DDRAW_dump_flags_(flags, names, num_names, 1)
-static void
-DDRAW_dump_flags_(DWORD flags,
-                  const flag_info* names,
-                  size_t num_names,
-                  int newline)
+static void DDRAW_dump_flags_nolf(DWORD flags, const flag_info* names,
+                                  size_t num_names)
 {
     unsigned int	i;
 
     for (i=0; i < num_names; i++)
         if ((flags & names[i].val) ||      /* standard flag value */
             ((!flags) && (!names[i].val))) /* zero value only */
-            DPRINTF("%s ", names[i].name);
+            TRACE("%s ", names[i].name);
+}
 
-    if (newline)
-        DPRINTF("\n");
+static void DDRAW_dump_flags(DWORD flags, const flag_info* names, size_t num_names)
+{
+    DDRAW_dump_flags_nolf(flags, names, num_names);
+    TRACE("\n");
 }
 
 void DDRAW_dump_DDSCAPS2(const DDSCAPS2 *in)
@@ -703,8 +710,8 @@ void DDRAW_dump_DDSCAPS2(const DDSCAPS2 *in)
         FE(DDSCAPS2_STEREOSURFACELEFT)
     };
 
-    DDRAW_dump_flags_(in->dwCaps, flags, sizeof(flags)/sizeof(flags[0]), 0);
-    DDRAW_dump_flags_(in->dwCaps2, flags2, sizeof(flags2)/sizeof(flags2[0]), 0);
+    DDRAW_dump_flags_nolf(in->dwCaps, flags, sizeof(flags)/sizeof(flags[0]));
+    DDRAW_dump_flags(in->dwCaps2, flags2, sizeof(flags2)/sizeof(flags2[0]));
 }
 
 void
@@ -741,7 +748,7 @@ DDRAW_dump_pixelformat_flag(DWORD flagmask)
             FE(DDPF_ZPIXELS)
     };
 
-    DDRAW_dump_flags_(flagmask, flags, sizeof(flags)/sizeof(flags[0]), 0);
+    DDRAW_dump_flags_nolf(flagmask, flags, sizeof(flags)/sizeof(flags[0]));
 }
 
 static void
@@ -756,9 +763,8 @@ DDRAW_dump_members(DWORD flags,
     {
         if (mems[i].val & flags)
         {
-            DPRINTF(" - %s : ", mems[i].name);
+            TRACE(" - %s : ", mems[i].name);
             mems[i].func((const char *)data + mems[i].offset);
-            DPRINTF("\n");
         }
     }
 }
@@ -766,11 +772,11 @@ DDRAW_dump_members(DWORD flags,
 void
 DDRAW_dump_pixelformat(const DDPIXELFORMAT *pf)
 {
-    DPRINTF("( ");
+    TRACE("( ");
     DDRAW_dump_pixelformat_flag(pf->dwFlags);
     if (pf->dwFlags & DDPF_FOURCC)
     {
-        DPRINTF(", dwFourCC code '%c%c%c%c' (0x%08x) - %d bits per pixel",
+        TRACE(", dwFourCC code '%c%c%c%c' (0x%08x) - %d bits per pixel",
                 (unsigned char)( pf->dwFourCC     &0xff),
                 (unsigned char)((pf->dwFourCC>> 8)&0xff),
                 (unsigned char)((pf->dwFourCC>>16)&0xff),
@@ -782,7 +788,7 @@ DDRAW_dump_pixelformat(const DDPIXELFORMAT *pf)
     if (pf->dwFlags & DDPF_RGB)
     {
         const char *cmd;
-        DPRINTF(", RGB bits: %d, ", pf->u1.dwRGBBitCount);
+        TRACE(", RGB bits: %d, ", pf->u1.dwRGBBitCount);
         switch (pf->u1.dwRGBBitCount)
         {
         case 4: cmd = "%1lx"; break;
@@ -792,35 +798,35 @@ DDRAW_dump_pixelformat(const DDPIXELFORMAT *pf)
         case 32: cmd = "%08lx"; break;
         default: ERR("Unexpected bit depth !\n"); cmd = "%d"; break;
         }
-        DPRINTF(" R "); DPRINTF(cmd, pf->u2.dwRBitMask);
-        DPRINTF(" G "); DPRINTF(cmd, pf->u3.dwGBitMask);
-        DPRINTF(" B "); DPRINTF(cmd, pf->u4.dwBBitMask);
+        TRACE(" R "); TRACE(cmd, pf->u2.dwRBitMask);
+        TRACE(" G "); TRACE(cmd, pf->u3.dwGBitMask);
+        TRACE(" B "); TRACE(cmd, pf->u4.dwBBitMask);
         if (pf->dwFlags & DDPF_ALPHAPIXELS)
         {
-            DPRINTF(" A "); DPRINTF(cmd, pf->u5.dwRGBAlphaBitMask);
+            TRACE(" A "); TRACE(cmd, pf->u5.dwRGBAlphaBitMask);
         }
         if (pf->dwFlags & DDPF_ZPIXELS)
         {
-            DPRINTF(" Z "); DPRINTF(cmd, pf->u5.dwRGBZBitMask);
+            TRACE(" Z "); TRACE(cmd, pf->u5.dwRGBZBitMask);
         }
     }
     if (pf->dwFlags & DDPF_ZBUFFER)
     {
-        DPRINTF(", Z bits : %d", pf->u1.dwZBufferBitDepth);
+        TRACE(", Z bits : %d", pf->u1.dwZBufferBitDepth);
     }
     if (pf->dwFlags & DDPF_ALPHA)
     {
-        DPRINTF(", Alpha bits : %d", pf->u1.dwAlphaBitDepth);
+        TRACE(", Alpha bits : %d", pf->u1.dwAlphaBitDepth);
     }
     if (pf->dwFlags & DDPF_BUMPDUDV)
     {
         const char *cmd = "%08lx";
-        DPRINTF(", Bump bits: %d, ", pf->u1.dwBumpBitCount);
-        DPRINTF(" U "); DPRINTF(cmd, pf->u2.dwBumpDuBitMask);
-        DPRINTF(" V "); DPRINTF(cmd, pf->u3.dwBumpDvBitMask);
-        DPRINTF(" L "); DPRINTF(cmd, pf->u4.dwBumpLuminanceBitMask);
+        TRACE(", Bump bits: %d, ", pf->u1.dwBumpBitCount);
+        TRACE(" U "); TRACE(cmd, pf->u2.dwBumpDuBitMask);
+        TRACE(" V "); TRACE(cmd, pf->u3.dwBumpDvBitMask);
+        TRACE(" L "); TRACE(cmd, pf->u4.dwBumpLuminanceBitMask);
     }
-    DPRINTF(")");
+    TRACE(")\n");
 }
 
 void DDRAW_dump_surface_desc(const DDSURFACEDESC2 *lpddsd)
@@ -856,7 +862,7 @@ void DDRAW_dump_surface_desc(const DDSURFACEDESC2 *lpddsd)
 
     if (NULL == lpddsd)
     {
-        DPRINTF("(null)\n");
+        TRACE("(null)\n");
     }
     else
     {
@@ -876,10 +882,10 @@ void DDRAW_dump_surface_desc(const DDSURFACEDESC2 *lpddsd)
 void
 dump_D3DMATRIX(const D3DMATRIX *mat)
 {
-    DPRINTF("  %f %f %f %f\n", mat->_11, mat->_12, mat->_13, mat->_14);
-    DPRINTF("  %f %f %f %f\n", mat->_21, mat->_22, mat->_23, mat->_24);
-    DPRINTF("  %f %f %f %f\n", mat->_31, mat->_32, mat->_33, mat->_34);
-    DPRINTF("  %f %f %f %f\n", mat->_41, mat->_42, mat->_43, mat->_44);
+    TRACE("  %f %f %f %f\n", mat->_11, mat->_12, mat->_13, mat->_14);
+    TRACE("  %f %f %f %f\n", mat->_21, mat->_22, mat->_23, mat->_24);
+    TRACE("  %f %f %f %f\n", mat->_31, mat->_32, mat->_33, mat->_34);
+    TRACE("  %f %f %f %f\n", mat->_41, mat->_42, mat->_43, mat->_44);
 }
 
 DWORD
@@ -945,7 +951,7 @@ void DDRAW_dump_cooperativelevel(DWORD cooplevel)
 
     if (TRACE_ON(ddraw))
     {
-        DPRINTF(" - ");
+        TRACE(" - ");
         DDRAW_dump_flags(cooplevel, flags, sizeof(flags)/sizeof(flags[0]));
     }
 }
@@ -1104,21 +1110,21 @@ void DDRAW_dump_DDCAPS(const DDCAPS *lpcaps)
       FE(DDSVCAPS_STEREOSEQUENTIAL),
     };
 
-    DPRINTF(" - dwSize : %d\n", lpcaps->dwSize);
-    DPRINTF(" - dwCaps : "); DDRAW_dump_flags(lpcaps->dwCaps, flags1, sizeof(flags1)/sizeof(flags1[0]));
-    DPRINTF(" - dwCaps2 : "); DDRAW_dump_flags(lpcaps->dwCaps2, flags2, sizeof(flags2)/sizeof(flags2[0]));
-    DPRINTF(" - dwCKeyCaps : "); DDRAW_dump_flags(lpcaps->dwCKeyCaps, flags3, sizeof(flags3)/sizeof(flags3[0]));
-    DPRINTF(" - dwFXCaps : "); DDRAW_dump_flags(lpcaps->dwFXCaps, flags4, sizeof(flags4)/sizeof(flags4[0]));
-    DPRINTF(" - dwFXAlphaCaps : "); DDRAW_dump_flags(lpcaps->dwFXAlphaCaps, flags5, sizeof(flags5)/sizeof(flags5[0]));
-    DPRINTF(" - dwPalCaps : "); DDRAW_dump_flags(lpcaps->dwPalCaps, flags6, sizeof(flags6)/sizeof(flags6[0]));
-    DPRINTF(" - dwSVCaps : "); DDRAW_dump_flags(lpcaps->dwSVCaps, flags7, sizeof(flags7)/sizeof(flags7[0]));
-    DPRINTF("...\n");
-    DPRINTF(" - dwNumFourCCCodes : %d\n", lpcaps->dwNumFourCCCodes);
-    DPRINTF(" - dwCurrVisibleOverlays : %d\n", lpcaps->dwCurrVisibleOverlays);
-    DPRINTF(" - dwMinOverlayStretch : %d\n", lpcaps->dwMinOverlayStretch);
-    DPRINTF(" - dwMaxOverlayStretch : %d\n", lpcaps->dwMaxOverlayStretch);
-    DPRINTF("...\n");
-    DPRINTF(" - ddsCaps : "); DDRAW_dump_DDSCAPS2(&lpcaps->ddsCaps); DPRINTF("\n");
+    TRACE(" - dwSize : %d\n", lpcaps->dwSize);
+    TRACE(" - dwCaps : "); DDRAW_dump_flags(lpcaps->dwCaps, flags1, sizeof(flags1)/sizeof(flags1[0]));
+    TRACE(" - dwCaps2 : "); DDRAW_dump_flags(lpcaps->dwCaps2, flags2, sizeof(flags2)/sizeof(flags2[0]));
+    TRACE(" - dwCKeyCaps : "); DDRAW_dump_flags(lpcaps->dwCKeyCaps, flags3, sizeof(flags3)/sizeof(flags3[0]));
+    TRACE(" - dwFXCaps : "); DDRAW_dump_flags(lpcaps->dwFXCaps, flags4, sizeof(flags4)/sizeof(flags4[0]));
+    TRACE(" - dwFXAlphaCaps : "); DDRAW_dump_flags(lpcaps->dwFXAlphaCaps, flags5, sizeof(flags5)/sizeof(flags5[0]));
+    TRACE(" - dwPalCaps : "); DDRAW_dump_flags(lpcaps->dwPalCaps, flags6, sizeof(flags6)/sizeof(flags6[0]));
+    TRACE(" - dwSVCaps : "); DDRAW_dump_flags(lpcaps->dwSVCaps, flags7, sizeof(flags7)/sizeof(flags7[0]));
+    TRACE("...\n");
+    TRACE(" - dwNumFourCCCodes : %d\n", lpcaps->dwNumFourCCCodes);
+    TRACE(" - dwCurrVisibleOverlays : %d\n", lpcaps->dwCurrVisibleOverlays);
+    TRACE(" - dwMinOverlayStretch : %d\n", lpcaps->dwMinOverlayStretch);
+    TRACE(" - dwMaxOverlayStretch : %d\n", lpcaps->dwMaxOverlayStretch);
+    TRACE("...\n");
+    TRACE(" - ddsCaps : "); DDRAW_dump_DDSCAPS2(&lpcaps->ddsCaps);
 }
 
 /*****************************************************************************

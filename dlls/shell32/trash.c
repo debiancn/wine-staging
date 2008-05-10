@@ -138,7 +138,7 @@ static BOOL TRASH_EnsureInitialized(void)
     return TRUE;
 }
 
-static BOOL file_good_for_bucket(TRASH_BUCKET *pBucket, struct stat *file_stat)
+static BOOL file_good_for_bucket(const TRASH_BUCKET *pBucket, const struct stat *file_stat)
 {
     if (pBucket->device != file_stat->st_dev)
         return FALSE;
@@ -349,7 +349,7 @@ static HRESULT TRASH_CreateSimplePIDL(const TRASH_ELEMENT *element, const WIN32_
 /***********************************************************************
  *      TRASH_UnpackItemID [Internal]
  *
- * DESCRITION:
+ * DESCRIPTION:
  * Extract the information stored in an Item ID. The TRASH_ELEMENT
  * identifies the element in the Trash. The WIN32_FIND_DATA contains the
  * information about the original file. The data->ftLastAccessTime contains
@@ -486,7 +486,7 @@ static INT CALLBACK free_item_callback(void *item, void *lParam)
     return TRUE;
 }
 
-static HDPA enum_bucket_trashinfos(TRASH_BUCKET *bucket, int *count)
+static HDPA enum_bucket_trashinfos(const TRASH_BUCKET *bucket, int *count)
 {
     HDPA ret = DPA_Create(32);
     struct dirent *entry;

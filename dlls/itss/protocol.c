@@ -216,17 +216,17 @@ static HRESULT WINAPI ITSProtocol_Start(IInternetProtocol *iface, LPCWSTR szUrl,
     res = chm_resolve_object(chm_file, object_name, &chm_object);
     if(res != CHM_RESOLVE_SUCCESS) {
         WARN("Could not resolve chm object\n");
-        HeapFree(GetProcessHeap(), 0, object_name);
+        HeapFree(GetProcessHeap(), 0, file_name);
         chm_close(chm_file);
         return report_result(pOIProtSink, STG_E_FILENOTFOUND);
     }
 
     IInternetProtocolSink_ReportProgress(pOIProtSink, BINDSTATUS_SENDINGREQUEST,
                                          strrchrW(object_name, '/')+1);
-    HeapFree(GetProcessHeap(), 0, file_name);
 
     /* FIXME: Native doesn't use FindMimeFromData */
     hres = FindMimeFromData(NULL, object_name, NULL, 0, NULL, 0, &mime, 0);
+    HeapFree(GetProcessHeap(), 0, file_name);
     if(SUCCEEDED(hres)) {
         IInternetProtocolSink_ReportProgress(pOIProtSink, BINDSTATUS_MIMETYPEAVAILABLE, mime);
         CoTaskMemFree(mime);
@@ -234,7 +234,7 @@ static HRESULT WINAPI ITSProtocol_Start(IInternetProtocol *iface, LPCWSTR szUrl,
 
     release_chm(This); /* Native leaks handle here */
     This->chm_file = chm_file;
-    memcpy(&This->chm_object, &chm_object, sizeof(chm_object));
+    This->chm_object = chm_object;
 
     hres = IInternetProtocolSink_ReportData(pOIProtSink,
             BSCF_FIRSTDATANOTIFICATION|BSCF_DATAFULLYAVAILABLE,

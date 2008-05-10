@@ -34,7 +34,6 @@
 #include "windef.h"
 #include "winbase.h"
 #include "winerror.h"
-#include "thread.h"
 #include "wine/winbase16.h"
 #include "wine/exception.h"
 #include "wine/library.h"
@@ -168,7 +167,11 @@ void WINAPI ExitThread( DWORD code ) /* [in] Exit code for this thread */
         LdrShutdownProcess();
         exit( code );
     }
-    else RtlExitUserThread( code );
+    else
+    {
+        RtlFreeThreadActivationContextStack();
+        RtlExitUserThread( code );
+    }
 }
 
 
@@ -374,7 +377,7 @@ BOOL WINAPI GetThreadPriorityBoost(
 /**********************************************************************
  * SetThreadPriorityBoost [KERNEL32.@]  Sets priority boost for thread.
  *
- * Priority boost is not implemented. Thsi function always returns
+ * Priority boost is not implemented. This function always returns
  * FALSE and sets last error to ERROR_CALL_NOT_IMPLEMENTED
  *
  * RETURNS
@@ -512,6 +515,36 @@ BOOL WINAPI GetThreadTimes(
     }
     
     return TRUE;
+}
+
+/**********************************************************************
+ * GetThreadId [KERNEL32.@]
+ *
+ * Retrieve the identifier of a thread.
+ *
+ * PARAMS
+ *  Thread [I] The thread to retrieve the identifier of.
+ *
+ * RETURNS
+ *    Success: Identifier of the target thread.
+ *    Failure: 0
+ */
+DWORD WINAPI GetThreadId(HANDLE Thread)
+{
+    THREAD_BASIC_INFORMATION tbi;
+    NTSTATUS status;
+
+    TRACE("(%p)\n", Thread);
+
+    status = NtQueryInformationThread(Thread, ThreadBasicInformation, &tbi,
+                                      sizeof(tbi), NULL);
+    if (status)
+    {
+        SetLastError( RtlNtStatusToDosError(status) );
+        return 0;
+    }
+
+    return HandleToULong(tbi.ClientId.UniqueThread);
 }
 
 

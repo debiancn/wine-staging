@@ -34,6 +34,7 @@
 #include "handle.h"
 #include "thread.h"
 #include "request.h"
+#include "security.h"
 
 struct event
 {
@@ -43,6 +44,7 @@ struct event
 };
 
 static void event_dump( struct object *obj, int verbose );
+static struct object_type *event_get_type( struct object *obj );
 static int event_signaled( struct object *obj, struct thread *thread );
 static int event_satisfied( struct object *obj, struct thread *thread );
 static unsigned int event_map_access( struct object *obj, unsigned int access );
@@ -52,6 +54,7 @@ static const struct object_ops event_ops =
 {
     sizeof(struct event),      /* size */
     event_dump,                /* dump */
+    event_get_type,            /* get_type */
     add_queue,                 /* add_queue */
     remove_queue,              /* remove_queue */
     event_signaled,            /* signaled */
@@ -59,6 +62,8 @@ static const struct object_ops event_ops =
     event_signal,              /* signal */
     no_get_fd,                 /* get_fd */
     event_map_access,          /* map_access */
+    default_get_sd,            /* get_sd */
+    default_set_sd,            /* set_sd */
     no_lookup_name,            /* lookup_name */
     no_open_file,              /* open_file */
     no_close_handle,           /* close_handle */
@@ -67,7 +72,8 @@ static const struct object_ops event_ops =
 
 
 struct event *create_event( struct directory *root, const struct unicode_str *name,
-                            unsigned int attr, int manual_reset, int initial_state )
+                            unsigned int attr, int manual_reset, int initial_state,
+                            const struct security_descriptor *sd )
 {
     struct event *event;
 
@@ -78,6 +84,10 @@ struct event *create_event( struct directory *root, const struct unicode_str *na
             /* initialize it if it didn't already exist */
             event->manual_reset = manual_reset;
             event->signaled     = initial_state;
+            if (sd) default_set_sd( &event->obj, sd, OWNER_SECURITY_INFORMATION|
+                                                     GROUP_SECURITY_INFORMATION|
+                                                     DACL_SECURITY_INFORMATION|
+                                                     SACL_SECURITY_INFORMATION );
         }
     }
     return event;
@@ -116,6 +126,13 @@ static void event_dump( struct object *obj, int verbose )
              event->manual_reset, event->signaled );
     dump_object_name( &event->obj );
     fputc( '\n', stderr );
+}
+
+static struct object_type *event_get_type( struct object *obj )
+{
+    static const WCHAR name[] = {'E','v','e','n','t'};
+    static const struct unicode_str str = { name, sizeof(name) };
+    return get_object_type( &str );
 }
 
 static int event_signaled( struct object *obj, struct thread *thread )
@@ -163,15 +180,26 @@ DECL_HANDLER(create_event)
     struct event *event;
     struct unicode_str name;
     struct directory *root = NULL;
+    const struct object_attributes *objattr = get_req_data();
+    const struct security_descriptor *sd;
 
     reply->handle = 0;
-    get_req_unicode_str( &name );
-    if (req->rootdir && !(root = get_directory_obj( current->process, req->rootdir, 0 )))
+
+    if (!objattr_is_valid( objattr, get_req_data_size() ))
         return;
 
-    if ((event = create_event( root, &name, req->attributes, req->manual_reset, req->initial_state )))
+    sd = objattr->sd_len ? (const struct security_descriptor *)(objattr + 1) : NULL;
+    objattr_get_name( objattr, &name );
+
+    if (objattr->rootdir && !(root = get_directory_obj( current->process, objattr->rootdir, 0 )))
+        return;
+
+    if ((event = create_event( root, &name, req->attributes, req->manual_reset, req->initial_state, sd )))
     {
-        reply->handle = alloc_handle( current->process, event, req->access, req->attributes );
+        if (get_error() == STATUS_OBJECT_NAME_EXISTS)
+            reply->handle = alloc_handle( current->process, event, req->access, req->attributes );
+        else
+            reply->handle = alloc_handle_no_access_check( current->process, event, req->access, req->attributes );
         release_object( event );
     }
 

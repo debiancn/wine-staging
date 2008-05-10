@@ -39,8 +39,6 @@
 #include "wine/debug.h"
 #include "internet.h"
 
-#include "wine/list.h"
-
 #define RESPONSE_TIMEOUT        30            /* FROM internet.c */
 
 
@@ -176,7 +174,7 @@ static cookie_domain *COOKIE_addDomain(LPCWSTR domain, LPCWSTR path)
     return newDomain;
 }
 
-static void COOKIE_crackUrlSimple(LPCWSTR lpszUrl, LPWSTR hostName, int hostNameLen, LPWSTR path, int pathLen)
+static BOOL COOKIE_crackUrlSimple(LPCWSTR lpszUrl, LPWSTR hostName, int hostNameLen, LPWSTR path, int pathLen)
 {
     URL_COMPONENTSW UrlComponents;
 
@@ -186,10 +184,14 @@ static void COOKIE_crackUrlSimple(LPCWSTR lpszUrl, LPWSTR hostName, int hostName
     UrlComponents.lpszUrlPath = path;
     UrlComponents.lpszUserName = NULL;
     UrlComponents.lpszHostName = hostName;
+    UrlComponents.dwExtraInfoLength = 0;
+    UrlComponents.dwPasswordLength = 0;
+    UrlComponents.dwSchemeLength = 0;
+    UrlComponents.dwUserNameLength = 0;
     UrlComponents.dwHostNameLength = hostNameLen;
     UrlComponents.dwUrlPathLength = pathLen;
 
-    InternetCrackUrlW(lpszUrl, 0, 0, &UrlComponents);
+    return InternetCrackUrlW(lpszUrl, 0, 0, &UrlComponents);
 }
 
 /* match a domain. domain must match if the domain is not NULL. path must match if the path is not NULL */
@@ -256,21 +258,23 @@ static void COOKIE_deleteDomain(cookie_domain *deadDomain)
 BOOL WINAPI InternetGetCookieW(LPCWSTR lpszUrl, LPCWSTR lpszCookieName,
     LPWSTR lpCookieData, LPDWORD lpdwSize)
 {
+    BOOL ret;
     struct list * cursor;
-    int cnt = 0, domain_count = 0;
-    int cookie_count = 0;
+    unsigned int cnt = 0, domain_count = 0, cookie_count = 0;
     WCHAR hostName[2048], path[2048];
 
     TRACE("(%s, %s, %p, %p)\n", debugstr_w(lpszUrl),debugstr_w(lpszCookieName),
-	  lpCookieData, lpdwSize);
+          lpCookieData, lpdwSize);
 
     if (!lpszUrl)
     {
-        SetLastError(ERROR_INTERNET_UNRECOGNIZED_SCHEME);
+        SetLastError(ERROR_INVALID_PARAMETER);
         return FALSE;
     }
 
-    COOKIE_crackUrlSimple(lpszUrl, hostName, sizeof(hostName)/sizeof(hostName[0]), path, sizeof(path)/sizeof(path[0]));
+    hostName[0] = 0;
+    ret = COOKIE_crackUrlSimple(lpszUrl, hostName, sizeof(hostName)/sizeof(hostName[0]), path, sizeof(path)/sizeof(path[0]));
+    if (!ret || !hostName[0]) return FALSE;
 
     LIST_FOR_EACH(cursor, &domain_list)
     {
@@ -286,22 +290,29 @@ BOOL WINAPI InternetGetCookieW(LPCWSTR lpszUrl, LPCWSTR lpszCookieName,
                 cookie *thisCookie = LIST_ENTRY(cursor, cookie, entry);
                 if (lpCookieData == NULL) /* return the size of the buffer required to lpdwSize */
                 {
-                    if (cookie_count != 0)
-                        cnt += 2; /* '; ' */
+                    unsigned int len;
+
+                    if (cookie_count) cnt += 2; /* '; ' */
                     cnt += strlenW(thisCookie->lpCookieName);
-                    cnt += 1; /* = */
-                    cnt += strlenW(thisCookie->lpCookieData);
+                    if ((len = strlenW(thisCookie->lpCookieData)))
+                    {
+                        cnt += 1; /* = */
+                        cnt += len;
+                    }
                 }
                 else
                 {
                     static const WCHAR szsc[] = { ';',' ',0 };
-                    static const WCHAR szpseq[] = { '%','s','=','%','s',0 };
-                    if (cookie_count != 0)
-                        cnt += snprintfW(lpCookieData + cnt, *lpdwSize - cnt, szsc);
-                    cnt += snprintfW(lpCookieData + cnt, *lpdwSize - cnt, szpseq,
-                                    thisCookie->lpCookieName,
-                                    thisCookie->lpCookieData);
-                    TRACE("Cookie: %s=%s\n", debugstr_w(thisCookie->lpCookieName), debugstr_w(thisCookie->lpCookieData));
+                    static const WCHAR szname[] = { '%','s',0 };
+                    static const WCHAR szdata[] = { '=','%','s',0 };
+
+                    if (cookie_count) cnt += snprintfW(lpCookieData + cnt, *lpdwSize - cnt, szsc);
+                    cnt += snprintfW(lpCookieData + cnt, *lpdwSize - cnt, szname, thisCookie->lpCookieName);
+
+                    if (thisCookie->lpCookieData[0])
+                        cnt += snprintfW(lpCookieData + cnt, *lpdwSize - cnt, szdata, thisCookie->lpCookieData);
+
+                    TRACE("Cookie: %s\n", debugstr_w(lpCookieData));
                 }
                 cookie_count++;
             }
@@ -317,15 +328,14 @@ BOOL WINAPI InternetGetCookieW(LPCWSTR lpszUrl, LPCWSTR lpszCookieName,
 
     if (lpCookieData == NULL)
     {
-	cnt += 1; /* NULL */
-	*lpdwSize = cnt*sizeof(WCHAR);
-	TRACE("returning\n");
-	return TRUE;
+        *lpdwSize = (cnt + 1) * sizeof(WCHAR);
+        TRACE("returning %u\n", *lpdwSize);
+        return TRUE;
     }
 
-    *lpdwSize = (cnt + 1)*sizeof(WCHAR);
+    *lpdwSize = cnt + 1;
 
-    TRACE("Returning %i (from %i domains): %s\n", cnt, domain_count,
+    TRACE("Returning %u (from %u domains): %s\n", cnt, domain_count,
            debugstr_w(lpCookieData));
 
     return (cnt ? TRUE : FALSE);
@@ -371,12 +381,16 @@ BOOL WINAPI InternetGetCookieA(LPCSTR lpszUrl, LPCSTR lpszCookieName,
     {
         szCookieData = HeapAlloc( GetProcessHeap(), 0, len * sizeof(WCHAR) );
         if( !szCookieData )
-            return FALSE;
+        {
+            r = FALSE;
+        }
+        else
+        {
+            r = InternetGetCookieW( szUrl, szCookieName, szCookieData, &len );
 
-        r = InternetGetCookieW( szUrl, szCookieName, szCookieData, &len );
-
-        *lpdwSize = WideCharToMultiByte( CP_ACP, 0, szCookieData, len,
-                                lpCookieData, *lpdwSize, NULL, NULL );
+            *lpdwSize = WideCharToMultiByte( CP_ACP, 0, szCookieData, len,
+                                    lpCookieData, *lpdwSize, NULL, NULL );
+        }
     }
 
     HeapFree( GetProcessHeap(), 0, szCookieData );
@@ -386,6 +400,34 @@ BOOL WINAPI InternetGetCookieA(LPCSTR lpszUrl, LPCSTR lpszCookieName,
     return r;
 }
 
+static BOOL set_cookie(LPCWSTR domain, LPCWSTR path, LPCWSTR cookie_name, LPCWSTR cookie_data)
+{
+    cookie_domain *thisCookieDomain = NULL;
+    cookie *thisCookie;
+    struct list *cursor;
+
+    LIST_FOR_EACH(cursor, &domain_list)
+    {
+        thisCookieDomain = LIST_ENTRY(cursor, cookie_domain, entry);
+        if (COOKIE_matchDomain(domain, NULL /* FIXME: path */, thisCookieDomain, FALSE))
+            break;
+        thisCookieDomain = NULL;
+    }
+
+    if (!thisCookieDomain)
+        thisCookieDomain = COOKIE_addDomain(domain, path);
+
+    if ((thisCookie = COOKIE_findCookie(thisCookieDomain, cookie_name)))
+        COOKIE_deleteCookie(thisCookie, FALSE);
+
+    TRACE("setting cookie %s=%s for domain %s\n", debugstr_w(cookie_name),
+          debugstr_w(cookie_data), debugstr_w(thisCookieDomain->lpCookieDomain));
+
+    if (!COOKIE_addCookie(thisCookieDomain, cookie_name, cookie_data))
+        return FALSE;
+
+    return TRUE;
+}
 
 /***********************************************************************
  *           InternetSetCookieW (WININET.@)
@@ -400,64 +442,47 @@ BOOL WINAPI InternetGetCookieA(LPCSTR lpszUrl, LPCSTR lpszCookieName,
 BOOL WINAPI InternetSetCookieW(LPCWSTR lpszUrl, LPCWSTR lpszCookieName,
     LPCWSTR lpCookieData)
 {
-    cookie_domain *thisCookieDomain = NULL;
-    cookie *thisCookie;
+    BOOL ret;
     WCHAR hostName[2048], path[2048];
-    struct list * cursor;
 
     TRACE("(%s,%s,%s)\n", debugstr_w(lpszUrl),
         debugstr_w(lpszCookieName), debugstr_w(lpCookieData));
 
-    if (!lpCookieData)
+    if (!lpszUrl || !lpCookieData)
     {
         SetLastError(ERROR_INVALID_PARAMETER);
-	return FALSE;
+        return FALSE;
     }
+
+    hostName[0] = path[0] = 0;
+    ret = COOKIE_crackUrlSimple(lpszUrl, hostName, sizeof(hostName)/sizeof(hostName[0]), path, sizeof(path)/sizeof(path[0]));
+    if (!ret || !hostName[0]) return FALSE;
+
     if (!lpszCookieName)
     {
-	/* some apps (or is it us??) try to add a cookie with no cookie name, but
-         * the cookie data in the form of name=data. */
-	/* FIXME, probably a bug here, for now I don't care */
-	WCHAR *ourCookieName, *ourCookieData;
-	int ourCookieNameSize;
-        BOOL ret;
+        unsigned int len;
+        WCHAR *cookie, *data;
 
-	if (!(ourCookieData = strchrW(lpCookieData, '=')))
-	{
-            TRACE("something terribly wrong with cookie data %s\n", 
-                   debugstr_w(ourCookieData));
-	    return FALSE;
-	}
-	ourCookieNameSize = ourCookieData - lpCookieData;
-	ourCookieData += 1;
-	ourCookieName = HeapAlloc(GetProcessHeap(), 0, 
-                              (ourCookieNameSize + 1)*sizeof(WCHAR));
-	memcpy(ourCookieName, lpCookieData, ourCookieNameSize * sizeof(WCHAR));
-	ourCookieName[ourCookieNameSize] = '\0';
-	TRACE("setting (hacked) cookie of %s, %s\n",
-               debugstr_w(ourCookieName), debugstr_w(ourCookieData));
-        ret = InternetSetCookieW(lpszUrl, ourCookieName, ourCookieData);
-	HeapFree(GetProcessHeap(), 0, ourCookieName);
+        len = strlenW(lpCookieData);
+        if (!(cookie = HeapAlloc(GetProcessHeap(), 0, (len + 1) * sizeof(WCHAR))))
+        {
+            SetLastError(ERROR_OUTOFMEMORY);
+            return FALSE;
+        }
+        strcpyW(cookie, lpCookieData);
+
+        /* some apps (or is it us??) try to add a cookie with no cookie name, but
+         * the cookie data in the form of name[=data].
+         */
+        if (!(data = strchrW(cookie, '='))) data = cookie + len;
+        else data++;
+
+        ret = set_cookie(hostName, path, cookie, data);
+
+        HeapFree(GetProcessHeap(), 0, cookie);
         return ret;
     }
-
-    COOKIE_crackUrlSimple(lpszUrl, hostName, sizeof(hostName)/sizeof(hostName[0]), path, sizeof(path)/sizeof(path[0]));
-
-    LIST_FOR_EACH(cursor, &domain_list)
-    {
-        thisCookieDomain = LIST_ENTRY(cursor, cookie_domain, entry);
-        if (COOKIE_matchDomain(hostName, NULL /* FIXME: path */, thisCookieDomain, FALSE))
-            break;
-        thisCookieDomain = NULL;
-    }
-    if (!thisCookieDomain)
-        thisCookieDomain = COOKIE_addDomain(hostName, path);
-
-    if ((thisCookie = COOKIE_findCookie(thisCookieDomain, lpszCookieName)))
-	COOKIE_deleteCookie(thisCookie, FALSE);
-
-    thisCookie = COOKIE_addCookie(thisCookieDomain, lpszCookieName, lpCookieData);
-    return TRUE;
+    return set_cookie(hostName, path, lpszCookieName, lpCookieData);
 }
 
 

@@ -37,7 +37,6 @@
 #include "windef.h"
 #include "winbase.h"
 #include "winerror.h"
-#include "wownt32.h"
 #include "winreg.h"
 #include "psdrv.h"
 #include "winspool.h"
@@ -65,13 +64,13 @@ static const PSDRV_DEVMODEA DefaultDevmode =
 /* dmOrientation */	DMORIENT_PORTRAIT,
 /* dmPaperSize */	DMPAPER_LETTER,
 /* dmPaperLength */	2794,
-/* dmPaperWidth */      2159
-     }
-   },
+/* dmPaperWidth */      2159,
 /* dmScale */		100, /* ?? */
 /* dmCopies */		1,
 /* dmDefaultSource */	DMBIN_AUTO,
-/* dmPrintQuality */	0,
+/* dmPrintQuality */	0
+     }
+   },
 /* dmColor */		DMCOLOR_COLOR,
 /* dmDuplex */		DMDUP_SIMPLEX,
 /* dmYResolution */	0,
@@ -82,7 +81,9 @@ static const PSDRV_DEVMODEA DefaultDevmode =
 /* dmBitsPerPel */	0,
 /* dmPelsWidth */	0,
 /* dmPelsHeight */	0,
-/* dmDisplayFlags */	0,
+   { /* u2 */
+/* dmDisplayFlags */	0
+   },
 /* dmDisplayFrequency */ 0,
 /* dmICMMethod */       0,
 /* dmICMIntent */       0,
@@ -177,7 +178,7 @@ static void PSDRV_UpdateDevCaps( PSDRV_PDEVICE *physDev )
 	        break;
 	}
 
-	if(!page) {
+	if(&page->entry == &physDev->pi->ppd->PageSizes) {
 	    FIXME("Can't find page\n");
 	    physDev->ImageableArea.left = 0;
 	    physDev->ImageableArea.right = 0;
@@ -328,8 +329,14 @@ BOOL PSDRV_CreateDC( HDC hdc, PSDRV_PDEVICE **pdev, LPCWSTR driver, LPCWSTR devi
     if(!pi) return FALSE;
 
     if(!pi->Fonts) {
-        MESSAGE("To use WINEPS you need to install some AFM files.\n");
-	return FALSE;
+        RASTERIZER_STATUS status;
+        if(!GetRasterizerCaps(&status, sizeof(status)) ||
+           !(status.wFlags & TT_AVAILABLE) ||
+           !(status.wFlags & TT_ENABLED)) {
+            MESSAGE("Disabling printer %s since it has no builtin fonts and there are no TrueType fonts available.\n",
+                    debugstr_w(device));
+            return FALSE;
+        }
     }
 
     physDev = HeapAlloc( PSDRV_Heap, HEAP_ZERO_MEMORY, sizeof(*physDev) );
@@ -345,12 +352,12 @@ BOOL PSDRV_CreateDC( HDC hdc, PSDRV_PDEVICE **pdev, LPCWSTR driver, LPCWSTR devi
 	return FALSE;
     }
 
-    memcpy( physDev->Devmode, pi->Devmode, sizeof(PSDRV_DEVMODEA) );
+    *physDev->Devmode = *pi->Devmode;
 
     physDev->logPixelsX = physDev->pi->ppd->DefaultResolution;
     physDev->logPixelsY = physDev->pi->ppd->DefaultResolution;
 
-    if (output) {
+    if (output && *output) {
         INT len = WideCharToMultiByte( CP_ACP, 0, output, -1, NULL, 0, NULL, NULL );
         if ((physDev->job.output = HeapAlloc( PSDRV_Heap, 0, len )))
             WideCharToMultiByte( CP_ACP, 0, output, -1, physDev->job.output, len, NULL, NULL );
@@ -398,7 +405,7 @@ HDC PSDRV_ResetDC( PSDRV_PDEVICE *physDev, const DEVMODEW *lpInitData )
         HeapFree(PSDRV_Heap, 0, devmodeA);
         PSDRV_UpdateDevCaps(physDev);
         hrgn = CreateRectRgn(0, 0, physDev->horzRes, physDev->vertRes);
-        SelectVisRgn16(HDC_16(physDev->hdc), HRGN_16(hrgn));
+        SelectVisRgn( physDev->hdc, hrgn );
         DeleteObject(hrgn);
     }
     return physDev->hdc;
@@ -417,10 +424,10 @@ INT PSDRV_GetDeviceCaps( PSDRV_PDEVICE *physDev, INT cap )
         return DT_RASPRINTER;
     case HORZSIZE:
         return MulDiv(physDev->horzSize, 100,
-		      physDev->Devmode->dmPublic.dmScale);
+		      physDev->Devmode->dmPublic.u1.s1.dmScale);
     case VERTSIZE:
         return MulDiv(physDev->vertSize, 100,
-		      physDev->Devmode->dmPublic.dmScale);
+		      physDev->Devmode->dmPublic.u1.s1.dmScale);
     case HORZRES:
     case DESKTOPHORZRES:
         return physDev->horzRes;
@@ -469,10 +476,10 @@ INT PSDRV_GetDeviceCaps( PSDRV_PDEVICE *physDev, INT cap )
                            (double)physDev->pi->ppd->DefaultResolution );
     case LOGPIXELSX:
         return MulDiv(physDev->logPixelsX,
-		      physDev->Devmode->dmPublic.dmScale, 100);
+		      physDev->Devmode->dmPublic.u1.s1.dmScale, 100);
     case LOGPIXELSY:
         return MulDiv(physDev->logPixelsY,
-		      physDev->Devmode->dmPublic.dmScale, 100);
+		      physDev->Devmode->dmPublic.u1.s1.dmScale, 100);
     case SIZEPALETTE:
         return 0;
     case NUMRESERVED:
@@ -559,7 +566,7 @@ PRINTERINFO *PSDRV_FindPrinterInfo(LPCSTR name)
         pi->Devmode = HeapAlloc( PSDRV_Heap, 0, sizeof(DefaultDevmode) );
 	if (pi->Devmode == NULL)
 	    goto cleanup;
-	memcpy(pi->Devmode, &DefaultDevmode, sizeof(DefaultDevmode) );
+	*pi->Devmode = DefaultDevmode;
 	lstrcpynA((LPSTR)pi->Devmode->dmPublic.dmDeviceName,name,CCHDEVICENAME);
 	using_default_devmode = TRUE;
 
@@ -623,6 +630,7 @@ PRINTERINFO *PSDRV_FindPrinterInfo(LPCSTR name)
             value_name=NULL;
         }
         if (value_name) {
+            HeapFree(PSDRV_Heap, 0, ppdFileName);
             ppdFileName=HeapAlloc(PSDRV_Heap, 0, needed);
             RegQueryValueExA(hkey, value_name, 0, &ppdType, (LPBYTE)ppdFileName, &needed);
         }

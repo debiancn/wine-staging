@@ -25,8 +25,6 @@
 #include "windef.h"
 #include "winbase.h"
 #include "wingdi.h"
-#include "wine/winbase16.h"
-#include "wine/winuser16.h"
 #include "winternl.h"
 #include "dlgs.h"
 #include "user_private.h"
@@ -76,40 +74,51 @@ static HFONT MSGBOX_OnInit(HWND hwnd, LPMSGBOXPARAMSW lpmb)
     HMONITOR monitor = 0;
     MONITORINFO mon_info;
     LPCWSTR lpszText;
-    WCHAR buf[256];
+    WCHAR *buffer = NULL;
+    const WCHAR *ptr;
+
+    /* Index the order the buttons need to appear to an ID* constant */
+    static const int buttonOrder[10] = { 6, 7, 1, 3, 4, 2, 5, 10, 11, 9 };
 
     nclm.cbSize = sizeof(nclm);
     SystemParametersInfoW (SPI_GETNONCLIENTMETRICS, 0, &nclm, 0);
     hFont = CreateFontIndirectW (&nclm.lfMessageFont);
     /* set button font */
-    for (i=1; i < 8; i++)
-	SendDlgItemMessageW (hwnd, i, WM_SETFONT, (WPARAM)hFont, 0);
+    for (i=1; i < 12; i++)
+        /* No button 8 (Close) */
+        if (i != 8) {
+            SendDlgItemMessageW (hwnd, i, WM_SETFONT, (WPARAM)hFont, 0);
+        }
     /* set text font */
     SendDlgItemMessageW (hwnd, MSGBOX_IDTEXT, WM_SETFONT, (WPARAM)hFont, 0);
 
     if (HIWORD(lpmb->lpszCaption)) {
        SetWindowTextW(hwnd, lpmb->lpszCaption);
     } else {
-       UINT res_id = LOWORD(lpmb->lpszCaption);
-       if (res_id)
-       {
-           if (LoadStringW(lpmb->hInstance, res_id, buf, 256))
-               SetWindowTextW(hwnd, buf);
-       }
-       else
-       {
-           if (LoadStringW(user32_module, IDS_ERROR, buf, 256))
-               SetWindowTextW(hwnd, buf);
-       }
+        UINT len = LoadStringW( lpmb->hInstance, LOWORD(lpmb->lpszCaption), (LPWSTR)&ptr, 0 );
+        if (!len) len = LoadStringW( user32_module, IDS_ERROR, (LPWSTR)&ptr, 0 );
+        buffer = HeapAlloc( GetProcessHeap(), 0, (len + 1) * sizeof(WCHAR) );
+        if (buffer)
+        {
+            memcpy( buffer, ptr, len * sizeof(WCHAR) );
+            buffer[len] = 0;
+            SetWindowTextW( hwnd, buffer );
+            HeapFree( GetProcessHeap(), 0, buffer );
+            buffer = NULL;
+        }
     }
     if (HIWORD(lpmb->lpszText)) {
        lpszText = lpmb->lpszText;
     } else {
-       lpszText = buf;
-       if (!LoadStringW(lpmb->hInstance, LOWORD(lpmb->lpszText), buf, 256))
-	  *buf = 0;	/* FIXME ?? */
+        UINT len = LoadStringW( lpmb->hInstance, LOWORD(lpmb->lpszText), (LPWSTR)&ptr, 0 );
+        lpszText = buffer = HeapAlloc( GetProcessHeap(), 0, (len + 1) * sizeof(WCHAR) );
+        if (buffer)
+        {
+            memcpy( buffer, ptr, len * sizeof(WCHAR) );
+            buffer[len] = 0;
+        }
     }
-    
+
     TRACE_(msgbox)("%s\n", debugstr_w(lpszText));
     SetWindowTextW(GetDlgItem(hwnd, MSGBOX_IDTEXT), lpszText);
 
@@ -124,12 +133,16 @@ static HFONT MSGBOX_OnInit(HWND hwnd, LPMSGBOXPARAMSW lpmb)
 	ShowWindow(GetDlgItem(hwnd, IDIGNORE), SW_HIDE);
 	ShowWindow(GetDlgItem(hwnd, IDYES), SW_HIDE);
 	ShowWindow(GetDlgItem(hwnd, IDNO), SW_HIDE);
+	ShowWindow(GetDlgItem(hwnd, IDTRYAGAIN), SW_HIDE);
+	ShowWindow(GetDlgItem(hwnd, IDCONTINUE), SW_HIDE);
 	break;
     case MB_ABORTRETRYIGNORE:
 	ShowWindow(GetDlgItem(hwnd, IDOK), SW_HIDE);
 	ShowWindow(GetDlgItem(hwnd, IDCANCEL), SW_HIDE);
 	ShowWindow(GetDlgItem(hwnd, IDYES), SW_HIDE);
 	ShowWindow(GetDlgItem(hwnd, IDNO), SW_HIDE);
+	ShowWindow(GetDlgItem(hwnd, IDCONTINUE), SW_HIDE);
+	ShowWindow(GetDlgItem(hwnd, IDTRYAGAIN), SW_HIDE);
 	break;
     case MB_YESNO:
 	ShowWindow(GetDlgItem(hwnd, IDCANCEL), SW_HIDE);
@@ -139,6 +152,8 @@ static HFONT MSGBOX_OnInit(HWND hwnd, LPMSGBOXPARAMSW lpmb)
 	ShowWindow(GetDlgItem(hwnd, IDABORT), SW_HIDE);
 	ShowWindow(GetDlgItem(hwnd, IDRETRY), SW_HIDE);
 	ShowWindow(GetDlgItem(hwnd, IDIGNORE), SW_HIDE);
+	ShowWindow(GetDlgItem(hwnd, IDCONTINUE), SW_HIDE);
+	ShowWindow(GetDlgItem(hwnd, IDTRYAGAIN), SW_HIDE);
 	break;
     case MB_RETRYCANCEL:
 	ShowWindow(GetDlgItem(hwnd, IDOK), SW_HIDE);
@@ -146,7 +161,16 @@ static HFONT MSGBOX_OnInit(HWND hwnd, LPMSGBOXPARAMSW lpmb)
 	ShowWindow(GetDlgItem(hwnd, IDIGNORE), SW_HIDE);
 	ShowWindow(GetDlgItem(hwnd, IDYES), SW_HIDE);
 	ShowWindow(GetDlgItem(hwnd, IDNO), SW_HIDE);
+	ShowWindow(GetDlgItem(hwnd, IDCONTINUE), SW_HIDE);
+	ShowWindow(GetDlgItem(hwnd, IDTRYAGAIN), SW_HIDE);
 	break;
+    case MB_CANCELTRYCONTINUE:
+	ShowWindow(GetDlgItem(hwnd, IDOK), SW_HIDE);
+	ShowWindow(GetDlgItem(hwnd, IDABORT), SW_HIDE);
+	ShowWindow(GetDlgItem(hwnd, IDIGNORE), SW_HIDE);
+	ShowWindow(GetDlgItem(hwnd, IDYES), SW_HIDE);
+	ShowWindow(GetDlgItem(hwnd, IDNO), SW_HIDE);
+	ShowWindow(GetDlgItem(hwnd, IDRETRY), SW_HIDE);
     }
     /* Set the icon */
     switch(lpmb->dwStyle & MB_ICONMASK) {
@@ -177,6 +201,11 @@ static HFONT MSGBOX_OnInit(HWND hwnd, LPMSGBOXPARAMSW lpmb)
 	break;
     }
 
+    /* Hide Help button unless MB_HELP supplied */
+    if (!(lpmb->dwStyle & MB_HELP)) {
+        ShowWindow(GetDlgItem(hwnd, IDHELP), SW_HIDE);
+    }
+
     /* Position everything */
     GetWindowRect(hwnd, &rect);
     borheight = rect.bottom - rect.top;
@@ -203,8 +232,9 @@ static HFONT MSGBOX_OnInit(HWND hwnd, LPMSGBOXPARAMSW lpmb)
 
     /* Get the number of visible buttons and their size */
     bh = bw = 1; /* Minimum button sizes */
-    for (buttons = 0, i = 1; i < 8; i++)
+    for (buttons = 0, i = 1; i < 12; i++)
     {
+        if (i == 8) continue; /* No CLOSE button */
 	hItem = GetDlgItem(hwnd, i);
 	if (GetWindowLongW(hItem, GWL_STYLE) & WS_VISIBLE)
 	{
@@ -248,6 +278,7 @@ static HFONT MSGBOX_OnInit(HWND hwnd, LPMSGBOXPARAMSW lpmb)
 
     /* Message boxes are always desktop centered, so query desktop size and center window */
     monitor = MonitorFromWindow(lpmb->hwndOwner ? lpmb->hwndOwner : GetActiveWindow(), MONITOR_DEFAULTTOPRIMARY);
+    mon_info.cbSize = sizeof(mon_info);
     GetMonitorInfoW(monitor, &mon_info);
     wleft = (mon_info.rcWork.left + mon_info.rcWork.right - wwidth) / 2;
     wtop = (mon_info.rcWork.top + mon_info.rcWork.bottom - wheight) / 2;
@@ -266,9 +297,10 @@ static HFONT MSGBOX_OnInit(HWND hwnd, LPMSGBOXPARAMSW lpmb)
 
     /* Position the buttons */
     bpos = (wwidth - (bw + bspace) * buttons + bspace) / 2;
-    for (buttons = i = 0; i < 7; i++) {
-	/* some arithmetic to get the right order for YesNoCancel windows */
-	hItem = GetDlgItem(hwnd, (i + 5) % 7 + 1);
+    for (buttons = i = 0; i < (sizeof(buttonOrder) / sizeof(buttonOrder[0])); i++) {
+
+	/* Convert the button order to ID* value to order for the buttons */
+	hItem = GetDlgItem(hwnd, buttonOrder[i]);
 	if (GetWindowLongW(hItem, GWL_STYLE) & WS_VISIBLE) {
 	    if (buttons++ == ((lpmb->dwStyle & MB_DEFMASK) >> 8)) {
 		SetFocus(hItem);
@@ -284,6 +316,7 @@ static HFONT MSGBOX_OnInit(HWND hwnd, LPMSGBOXPARAMSW lpmb)
     if (((lpmb->dwStyle & MB_TASKMODAL) && (lpmb->hwndOwner==NULL)) || (lpmb->dwStyle & MB_SYSTEMMODAL))
         SetWindowPos(hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE);
 
+    HeapFree( GetProcessHeap(), 0, buffer );
     return hFont;
 }
 
@@ -319,10 +352,15 @@ static INT_PTR CALLBACK MSGBOX_DlgProc( HWND hwnd, UINT message,
      case IDIGNORE:
      case IDYES:
      case IDNO:
+     case IDTRYAGAIN:
+     case IDCONTINUE:
       hFont = GetPropA(hwnd, "WINE_MSGBOX_HFONT");
       EndDialog(hwnd, wParam);
       if (hFont)
 	  DeleteObject(hFont);
+      break;
+     case IDHELP:
+      FIXME("Help button not supported yet\n");
       break;
     }
     break;
@@ -475,7 +513,7 @@ INT WINAPI MessageBoxIndirectW( LPMSGBOXPARAMSW msgbox )
     if (!(hRes = FindResourceExW(user32_module, (LPWSTR)RT_DIALOG,
                                  msg_box_res_nameW, msgbox->dwLanguageId)))
         return 0;
-    if (!(tmplate = (LPVOID)LoadResource(user32_module, hRes)))
+    if (!(tmplate = LoadResource(user32_module, hRes)))
         return 0;
 
     if ((msgbox->dwStyle & MB_TASKMODAL) && (msgbox->hwndOwner==NULL))

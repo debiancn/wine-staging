@@ -207,7 +207,7 @@ static const IDirect3DVertexBuffer9Vtbl Direct3DVertexBuffer9_Vtbl =
 
 
 /* IDirect3DDevice9 IDirect3DVertexBuffer9 Methods follow: */
-HRESULT WINAPI IDirect3DDevice9Impl_CreateVertexBuffer(LPDIRECT3DDEVICE9 iface, 
+HRESULT WINAPI IDirect3DDevice9Impl_CreateVertexBuffer(LPDIRECT3DDEVICE9EX iface,
                                 UINT Size, DWORD Usage, DWORD FVF, D3DPOOL Pool,
                                 IDirect3DVertexBuffer9** ppVertexBuffer, HANDLE* pSharedHandle) {
     
@@ -231,7 +231,7 @@ HRESULT WINAPI IDirect3DDevice9Impl_CreateVertexBuffer(LPDIRECT3DDEVICE9 iface,
     if (hrc != D3D_OK) {
 
         /* free up object */
-        FIXME("(%p) call to IWineD3DDevice_CreateVertexBuffer failed\n", This);
+        WARN("(%p) call to IWineD3DDevice_CreateVertexBuffer failed\n", This);
         HeapFree(GetProcessHeap(), 0, object);
     } else {
         IUnknown_AddRef(iface);

@@ -74,6 +74,17 @@ const GUID DInput_Wine_Mouse_GUID = { /* 9e573ed8-7734-11d2-8d4a-23903fb6bdf7 */
     0x9e573ed8, 0x7734, 0x11d2, {0x8d, 0x4a, 0x23, 0x90, 0x3f, 0xb6, 0xbd, 0xf7}
 };
 
+static void _dump_mouse_state(DIMOUSESTATE2 *m_state)
+{
+    int i;
+
+    if (!TRACE_ON(dinput)) return;
+
+    TRACE("(X: %d Y: %d Z: %d", m_state->lX, m_state->lY, m_state->lZ);
+    for (i = 0; i < 5; i++) TRACE(" B%d: %02x", i, m_state->rgbButtons[i]);
+    TRACE(")\n");
+}
+
 static void fill_mouse_dideviceinstanceA(LPDIDEVICEINSTANCEA lpddi, DWORD version) {
     DWORD dwSize;
     DIDEVICEINSTANCEA ddi;
@@ -162,14 +173,14 @@ static SysMouseImpl *alloc_device(REFGUID rguid, const void *mvt, IDirectInputIm
 {
     SysMouseImpl* newDevice;
     LPDIDATAFORMAT df = NULL;
-    int i;
+    unsigned i;
 
     newDevice = HeapAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,sizeof(SysMouseImpl));
     if (!newDevice) return NULL;
     newDevice->base.lpVtbl = mvt;
     newDevice->base.ref = 1;
     newDevice->base.dwCoopLevel = DISCL_NONEXCLUSIVE | DISCL_BACKGROUND;
-    memcpy(&newDevice->base.guid, rguid, sizeof(*rguid));
+    newDevice->base.guid = *rguid;
     InitializeCriticalSection(&newDevice->base.crit);
     newDevice->base.crit.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": SysMouseImpl*->base.crit");
     newDevice->base.dinput = dinput;
@@ -259,6 +270,8 @@ static void dinput_mouse_hook( LPDIRECTINPUTDEVICE8A iface, WPARAM wparam, LPARA
     DWORD dwCoop;
     int wdata = 0, inst_id = -1;
 
+    TRACE("msg %lx @ (%d %d)\n", wparam, hook->pt.x, hook->pt.y);
+
     EnterCriticalSection(&This->base.crit);
     dwCoop = This->base.dwCoopLevel;
 
@@ -279,11 +292,16 @@ static void dinput_mouse_hook( LPDIRECTINPUTDEVICE8A iface, WPARAM wparam, LPARA
                 pt1 = pt;
 
             if (pt.x)
-                queue_event((LPDIRECTINPUTDEVICE8A)This, id_to_offset(&This->base.data_format,
-                            DIDFT_MAKEINSTANCE(WINE_MOUSE_X_AXIS_INSTANCE) | DIDFT_RELAXIS),
-                            pt1.x, hook->time, This->base.dinput->evsequence);
+            {
+                inst_id = DIDFT_MAKEINSTANCE(WINE_MOUSE_X_AXIS_INSTANCE) | DIDFT_RELAXIS;
+                wdata = pt1.x;
+            }
             if (pt.y)
             {
+                /* Already have X, need to queue it */
+                if (inst_id != -1)
+                    queue_event((LPDIRECTINPUTDEVICE8A)This, id_to_offset(&This->base.data_format, inst_id),
+                                wdata, GetCurrentTime(), This->base.dinput->evsequence);
                 inst_id = DIDFT_MAKEINSTANCE(WINE_MOUSE_Y_AXIS_INSTANCE) | DIDFT_RELAXIS;
                 wdata = pt1.y;
             }
@@ -329,18 +347,13 @@ static void dinput_mouse_hook( LPDIRECTINPUTDEVICE8A iface, WPARAM wparam, LPARA
             break;
     }
 
-    if (TRACE_ON(dinput))
-    {
-        int i;
 
-        TRACE("msg %lx @ (%d %d): (X: %d Y: %d Z: %d", wparam, hook->pt.x, hook->pt.y,
-              This->m_state.lX, This->m_state.lY, This->m_state.lZ);
-        for (i = 0; i < 5; i++) TRACE(" B%d: %02x", i, This->m_state.rgbButtons[i]);
-        TRACE(")\n");
-    }
     if (inst_id != -1)
+    {
+        _dump_mouse_state(&This->m_state);
         queue_event((LPDIRECTINPUTDEVICE8A)This, id_to_offset(&This->base.data_format, inst_id),
-                    wdata, hook->time, This->base.dinput->evsequence++);
+                    wdata, GetCurrentTime(), This->base.dinput->evsequence++);
+    }
 
     LeaveCriticalSection(&This->base.crit);
 }
@@ -397,7 +410,18 @@ static HRESULT WINAPI SysMouseAImpl_Acquire(LPDIRECTINPUTDEVICE8A iface)
     
     /* Install our mouse hook */
     if (This->base.dwCoopLevel & DISCL_EXCLUSIVE)
+    {
+      RECT rc;
+
       ShowCursor(FALSE); /* hide cursor */
+      if (GetWindowRect(This->base.win, &rc))
+      {
+        FIXME("Clipping cursor to %s\n", wine_dbgstr_rect( &rc ));
+        ClipCursor(&rc);
+      }
+      else
+        ERR("Failed to get RECT: %d\n", GetLastError());
+    }
     
     /* Get the window dimension and find the center */
     GetWindowRect(This->base.win, &rect);
@@ -433,7 +457,10 @@ static HRESULT WINAPI SysMouseAImpl_Unacquire(LPDIRECTINPUTDEVICE8A iface)
     if ((res = IDirectInputDevice2AImpl_Unacquire(iface)) != DI_OK) return res;
 
     if (This->base.dwCoopLevel & DISCL_EXCLUSIVE)
+    {
+        ClipCursor(NULL);
         ShowCursor(TRUE); /* show cursor */
+    }
 
     /* And put the mouse cursor back where it was at acquire time */
     if (This->base.dwCoopLevel & DISCL_EXCLUSIVE)
@@ -459,9 +486,7 @@ static HRESULT WINAPI SysMouseAImpl_GetDeviceState(
     if(This->base.acquired == 0) return DIERR_NOTACQUIRED;
 
     TRACE("(this=%p,0x%08x,%p):\n", This, len, ptr);
-    TRACE("(X: %d - Y: %d - Z: %d  L: %02x M: %02x R: %02x)\n",
-	  This->m_state.lX, This->m_state.lY, This->m_state.lZ,
-	  This->m_state.rgbButtons[0], This->m_state.rgbButtons[2], This->m_state.rgbButtons[1]);
+    _dump_mouse_state(&This->m_state);
 
     EnterCriticalSection(&This->base.crit);
     /* Copy the current mouse state */
@@ -565,7 +590,7 @@ static HRESULT WINAPI SysMouseAImpl_GetProperty(LPDIRECTINPUTDEVICE8A iface,
 }
 
 /******************************************************************************
-  *     GetCapabilities : get the device capablitites
+  *     GetCapabilities : get the device capabilities
   */
 static HRESULT WINAPI SysMouseAImpl_GetCapabilities(
 	LPDIRECTINPUTDEVICE8A iface,

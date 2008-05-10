@@ -268,11 +268,11 @@ HRESULT WINAPI UrlCanonicalizeA(LPCSTR pszUrl, LPSTR pszCanonicalized,
 	LPDWORD pcchCanonicalized, DWORD dwFlags)
 {
     LPWSTR base, canonical;
-    DWORD ret, len, len2;
+    HRESULT ret;
+    DWORD   len, len2;
 
-    TRACE("(%s %p %p 0x%08x) using W version\n",
-	  debugstr_a(pszUrl), pszCanonicalized,
-	  pcchCanonicalized, dwFlags);
+    TRACE("(%s, %p, %p, 0x%08x) *pcchCanonicalized: %d\n", debugstr_a(pszUrl), pszCanonicalized,
+        pcchCanonicalized, dwFlags, pcchCanonicalized ? *pcchCanonicalized : -1);
 
     if(!pszUrl || !pszCanonicalized || !pcchCanonicalized)
 	return E_INVALIDARG;
@@ -286,19 +286,19 @@ HRESULT WINAPI UrlCanonicalizeA(LPCSTR pszUrl, LPSTR pszCanonicalized,
 
     ret = UrlCanonicalizeW(base, canonical, &len, dwFlags);
     if (ret != S_OK) {
-	HeapFree(GetProcessHeap(), 0, base);
-	return ret;
+        *pcchCanonicalized = len * 2;
+        HeapFree(GetProcessHeap(), 0, base);
+        return ret;
     }
 
-    len2 = WideCharToMultiByte(0, 0, canonical, len, 0, 0, 0, 0);
+    len2 = WideCharToMultiByte(0, 0, canonical, -1, 0, 0, 0, 0);
     if (len2 > *pcchCanonicalized) {
-	*pcchCanonicalized = len;
-	HeapFree(GetProcessHeap(), 0, base);
-	return E_POINTER;
+        *pcchCanonicalized = len2;
+        HeapFree(GetProcessHeap(), 0, base);
+        return E_POINTER;
     }
-    WideCharToMultiByte(0, 0, canonical, len+1, pszCanonicalized,
-			*pcchCanonicalized, 0, 0);
-    *pcchCanonicalized = len2;
+    WideCharToMultiByte(0, 0, canonical, -1, pszCanonicalized, *pcchCanonicalized, 0, 0);
+    *pcchCanonicalized = len;
     HeapFree(GetProcessHeap(), 0, base);
     return S_OK;
 }
@@ -320,8 +320,8 @@ HRESULT WINAPI UrlCanonicalizeW(LPCWSTR pszUrl, LPWSTR pszCanonicalized,
 
     static const WCHAR wszFile[] = {'f','i','l','e',':'};
 
-    TRACE("(%s %p %p 0x%08x)\n", debugstr_w(pszUrl), pszCanonicalized,
-	  pcchCanonicalized, dwFlags);
+    TRACE("(%s, %p, %p, 0x%08x) *pcchCanonicalized: %d\n", debugstr_w(pszUrl), pszCanonicalized,
+        pcchCanonicalized, dwFlags, pcchCanonicalized ? *pcchCanonicalized : -1);
 
     if(!pszUrl || !pszCanonicalized || !pcchCanonicalized)
 	return E_INVALIDARG;
@@ -332,7 +332,8 @@ HRESULT WINAPI UrlCanonicalizeW(LPCWSTR pszUrl, LPWSTR pszCanonicalized,
     }
 
     nByteLen = (lstrlenW(pszUrl) + 1) * sizeof(WCHAR); /* length in bytes */
-    lpszUrlCpy = HeapAlloc(GetProcessHeap(), 0, INTERNET_MAX_URL_LENGTH);
+    lpszUrlCpy = HeapAlloc(GetProcessHeap(), 0,
+                           INTERNET_MAX_URL_LENGTH * sizeof(WCHAR));
 
     if((dwFlags & URL_FILE_USE_PATHURL) && nByteLen >= sizeof(wszFile)
             && !memcmp(wszFile, pszUrl, sizeof(wszFile)))
@@ -735,8 +736,9 @@ HRESULT WINAPI UrlCombineW(LPCWSTR pszBase, LPCWSTR pszRelative,
 		process_case = 4;
 		break;
 	    }
-	    /* case where scheme is followed by document path */
-	    process_case = 5;
+            /* replace either just location if base's location starts with a
+             * slash or otherwise everything */
+            process_case = (*base.pszSuffix == '/') ? 5 : 1;
 	    break;
 	}
         if ((*relative.pszSuffix == '/') && (*(relative.pszSuffix+1) == '/')) {
@@ -748,8 +750,7 @@ HRESULT WINAPI UrlCombineW(LPCWSTR pszBase, LPCWSTR pszRelative,
 	}
 	process_case = 1;
 	break;
-    } while(FALSE); /* a litte trick to allow easy exit from nested if's */
-
+    } while(FALSE); /* a little trick to allow easy exit from nested if's */
 
     ret = S_OK;
     switch (process_case) {
@@ -778,9 +779,6 @@ HRESULT WINAPI UrlCombineW(LPCWSTR pszBase, LPCWSTR pszRelative,
         memcpy(preliminary, base.pszProtocol, (base.cchProtocol + 1)*sizeof(WCHAR));
 	work = preliminary + base.cchProtocol + 1;
 	strcpyW(work, relative.pszSuffix);
-	if (!(dwFlags & URL_PLUGGABLE_PROTOCOL) &&
-	    URL_JustLocation(relative.pszSuffix))
-	    strcatW(work, single_slash);
 	break;
 
     case 4:  /*
@@ -841,6 +839,9 @@ HRESULT WINAPI UrlEscapeA(
     HRESULT ret;
     DWORD lenW = sizeof(bufW)/sizeof(WCHAR), lenA;
 
+    if (!pszEscaped || !pcchEscaped || !*pcchEscaped)
+        return E_INVALIDARG;
+
     if(!RtlCreateUnicodeStringFromAsciiz(&urlW, pszUrl))
         return E_INVALIDARG;
     if((ret = UrlEscapeW(urlW.Buffer, escapedW, &lenW, dwFlags)) == E_POINTER) {
@@ -849,13 +850,13 @@ HRESULT WINAPI UrlEscapeA(
     }
     if(ret == S_OK) {
         RtlUnicodeToMultiByteSize(&lenA, escapedW, lenW * sizeof(WCHAR));
-        if(pszEscaped && *pcchEscaped > lenA) {
+        if(*pcchEscaped > lenA) {
             RtlUnicodeToMultiByteN(pszEscaped, *pcchEscaped - 1, &lenA, escapedW, lenW * sizeof(WCHAR));
             pszEscaped[lenA] = 0;
             *pcchEscaped = lenA;
         } else {
             *pcchEscaped = lenA + 1;
-            ret = E_INVALIDARG;
+            ret = E_POINTER;
         }
     }
     if(escapedW != bufW) HeapFree(GetProcessHeap(), 0, escapedW);
@@ -1579,14 +1580,18 @@ static HRESULT URL_ApplyDefault(LPCWSTR pszIn, LPWSTR pszOut, LPDWORD pcchOut)
 {
     HKEY newkey;
     DWORD data_len, dwType;
-    WCHAR reg_path[MAX_PATH];
     WCHAR value[MAX_PATH], data[MAX_PATH];
 
+    static const WCHAR prefix_keyW[] =
+        {'S','o','f','t','w','a','r','e',
+         '\\','M','i','c','r','o','s','o','f','t',
+         '\\','W','i','n','d','o','w','s',
+         '\\','C','u','r','r','e','n','t','V','e','r','s','i','o','n',
+         '\\','U','R','L',
+         '\\','D','e','f','a','u','l','t','P','r','e','f','i','x',0};
+
     /* get and prepend default */
-    MultiByteToWideChar(0, 0,
-	 "Software\\Microsoft\\Windows\\CurrentVersion\\URL\\DefaultPrefix",
-			-1, reg_path, MAX_PATH);
-    RegOpenKeyExW(HKEY_LOCAL_MACHINE, reg_path, 0, 1, &newkey);
+    RegOpenKeyExW(HKEY_LOCAL_MACHINE, prefix_keyW, 0, 1, &newkey);
     data_len = MAX_PATH;
     value[0] = '@';
     value[1] = '\0';
@@ -2008,7 +2013,7 @@ static LONG URL_ParseUrl(LPCWSTR pszUrl, WINE_PARSE_URL *pl)
  *  pszIn   [I]   Url to parse
  *  pszOut  [O]   Destination for part of pszIn requested
  *  pcchOut [I]   Size of pszOut
- *          [O]   length of pszOut string EXLUDING '\0' if S_OK, otherwise
+ *          [O]   length of pszOut string EXCLUDING '\0' if S_OK, otherwise
  *                needed size of pszOut INCLUDING '\0'.
  *  dwPart  [I]   URL_PART_ enum from "shlwapi.h"
  *  dwFlags [I]   URL_ flags from "shlwapi.h"
@@ -2148,13 +2153,14 @@ HRESULT WINAPI UrlGetPartW(LPCWSTR pszIn, LPWSTR pszOut, LPDWORD pcchOut,
 BOOL WINAPI PathIsURLA(LPCSTR lpstrPath)
 {
     PARSEDURLA base;
-    DWORD res1;
+
+    TRACE("%s\n", debugstr_a(lpstrPath));
 
     if (!lpstrPath || !*lpstrPath) return FALSE;
 
     /* get protocol        */
     base.cbSize = sizeof(base);
-    res1 = ParseURLA(lpstrPath, &base);
+    ParseURLA(lpstrPath, &base);
     return (base.nScheme != URL_SCHEME_INVALID);
 }
 
@@ -2166,13 +2172,14 @@ BOOL WINAPI PathIsURLA(LPCSTR lpstrPath)
 BOOL WINAPI PathIsURLW(LPCWSTR lpstrPath)
 {
     PARSEDURLW base;
-    DWORD res1;
+
+    TRACE("%s\n", debugstr_w(lpstrPath));
 
     if (!lpstrPath || !*lpstrPath) return FALSE;
 
     /* get protocol        */
     base.cbSize = sizeof(base);
-    res1 = ParseURLW(lpstrPath, &base);
+    ParseURLW(lpstrPath, &base);
     return (base.nScheme != URL_SCHEME_INVALID);
 }
 
@@ -2303,7 +2310,7 @@ HRESULT WINAPI SHAutoComplete(HWND hwndEdit, DWORD dwFlags)
  *  dwDestLen   [I] Length of lpszDest
  *
  * RETURNS
- *  Success: S_OK. lpszDest constains the resource Url.
+ *  Success: S_OK. lpszDest contains the resource Url.
  *  Failure: E_INVALIDARG, if any argument is invalid, or
  *           E_FAIL if dwDestLen is too small.
  */

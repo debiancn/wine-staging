@@ -56,8 +56,8 @@ struct message_result
     struct msg_queue      *sender;        /* sender queue */
     struct msg_queue      *receiver;      /* receiver queue */
     int                    replied;       /* has it been replied to? */
-    unsigned int           result;        /* reply result */
     unsigned int           error;         /* error code to pass back to sender */
+    unsigned long          result;        /* reply result */
     struct message        *callback_msg;  /* message to queue for callback */
     void                  *data;          /* message reply data */
     unsigned int           data_size;     /* size of message reply data */
@@ -149,6 +149,7 @@ static const struct object_ops msg_queue_ops =
 {
     sizeof(struct msg_queue),  /* size */
     msg_queue_dump,            /* dump */
+    no_get_type,               /* get_type */
     msg_queue_add_queue,       /* add_queue */
     msg_queue_remove_queue,    /* remove_queue */
     msg_queue_signaled,        /* signaled */
@@ -156,6 +157,8 @@ static const struct object_ops msg_queue_ops =
     no_signal,                 /* signal */
     no_get_fd,                 /* get_fd */
     no_map_access,             /* map_access */
+    default_get_sd,            /* get_sd */
+    default_set_sd,            /* set_sd */
     no_lookup_name,            /* lookup_name */
     no_open_file,              /* open_file */
     no_close_handle,           /* close_handle */
@@ -179,6 +182,7 @@ static const struct object_ops thread_input_ops =
 {
     sizeof(struct thread_input),  /* size */
     thread_input_dump,            /* dump */
+    no_get_type,                  /* get_type */
     no_add_queue,                 /* add_queue */
     NULL,                         /* remove_queue */
     NULL,                         /* signaled */
@@ -186,6 +190,8 @@ static const struct object_ops thread_input_ops =
     no_signal,                    /* signal */
     no_get_fd,                    /* get_fd */
     no_map_access,                /* map_access */
+    default_get_sd,               /* get_sd */
+    default_set_sd,               /* set_sd */
     no_lookup_name,               /* lookup_name */
     no_open_file,                 /* open_file */
     no_close_handle,              /* close_handle */
@@ -265,7 +271,7 @@ static struct msg_queue *create_msg_queue( struct thread *thread, struct thread_
         queue->paint_count     = 0;
         queue->quit_message    = 0;
         queue->recv_result     = NULL;
-        queue->next_timer_id   = 1;
+        queue->next_timer_id   = 0x7fff;
         queue->timeout         = NULL;
         queue->input           = (struct thread_input *)grab_object( input );
         queue->hooks           = NULL;
@@ -402,9 +408,8 @@ static int merge_message( struct thread_input *input, const struct message *msg 
 
     if (!ptr) return 0;
     prev = LIST_ENTRY( ptr, struct message, entry );
-    if (prev->unique_id) return 0;
     if (prev->result) return 0;
-    if (prev->win != msg->win) return 0;
+    if (prev->win && msg->win && prev->win != msg->win) return 0;
     if (prev->msg != msg->msg) return 0;
     if (prev->type != msg->type) return 0;
     /* now we can merge it */
@@ -437,7 +442,7 @@ static inline void remove_result_from_sender( struct message_result *result )
 }
 
 /* store the message result in the appropriate structure */
-static void store_message_result( struct message_result *res, unsigned int result,
+static void store_message_result( struct message_result *res, unsigned long result,
                                   unsigned int error )
 {
     res->result  = result;
@@ -626,7 +631,7 @@ static void receive_message( struct msg_queue *queue, struct message *msg,
 }
 
 /* set the result of the current received message */
-static void reply_message( struct msg_queue *queue, unsigned int result,
+static void reply_message( struct msg_queue *queue, unsigned long result,
                            unsigned int error, int remove, const void *data, data_size_t len )
 {
     struct message_result *res = queue->recv_result;
@@ -1117,7 +1122,7 @@ static void set_input_key_state( struct thread_input *input, unsigned char key, 
 static void update_input_key_state( struct thread_input *input, const struct message *msg )
 {
     unsigned char key;
-    int down = 0, extended;
+    int down = 0;
 
     switch (msg->msg)
     {
@@ -1153,29 +1158,22 @@ static void update_input_key_state( struct thread_input *input, const struct mes
     case WM_KEYUP:
     case WM_SYSKEYUP:
         key = (unsigned char)msg->wparam;
-        extended = ((msg->lparam >> 16) & KF_EXTENDED) != 0;
         set_input_key_state( input, key, down );
         switch(key)
         {
-        case VK_SHIFT:
-            set_input_key_state( input, extended ? VK_RSHIFT : VK_LSHIFT, down );
-            break;
-        case VK_CONTROL:
-            set_input_key_state( input, extended ? VK_RCONTROL : VK_LCONTROL, down );
-            break;
-        case VK_MENU:
-            set_input_key_state( input, extended ? VK_RMENU : VK_LMENU, down );
-            break;
         case VK_LCONTROL:
         case VK_RCONTROL:
+            down = (input->keystate[VK_LCONTROL] | input->keystate[VK_RCONTROL]) & 0x80;
             set_input_key_state( input, VK_CONTROL, down );
             break;
         case VK_LMENU:
         case VK_RMENU:
+            down = (input->keystate[VK_LMENU] | input->keystate[VK_RMENU]) & 0x80;
             set_input_key_state( input, VK_MENU, down );
             break;
         case VK_LSHIFT:
         case VK_RSHIFT:
+            down = (input->keystate[VK_LSHIFT] | input->keystate[VK_RSHIFT]) & 0x80;
             set_input_key_state( input, VK_SHIFT, down );
             break;
         }
@@ -1219,12 +1217,20 @@ static void release_hardware_message( struct msg_queue *queue, unsigned int hw_i
         struct thread *owner = get_window_thread( new_win );
         if (owner)
         {
-            if (owner->queue->input == input)
+            msg->win = new_win;
+            if (owner->queue->input != input)
             {
-                msg->win = new_win;
-                set_queue_bits( owner->queue, get_hardware_msg_bit( msg ));
-                remove = 0;
+                list_remove( &msg->entry );
+                if (msg->msg == WM_MOUSEMOVE && merge_message( owner->queue->input, msg ))
+                {
+                    free_message( msg );
+                    release_object( owner );
+                    return;
+                }
+                list_add_tail( &owner->queue->input->msg_list, &msg->entry );
             }
+            set_queue_bits( owner->queue, get_hardware_msg_bit( msg ));
+            remove = 0;
             release_object( owner );
         }
     }
@@ -1549,6 +1555,22 @@ void post_win_event( struct thread *thread, unsigned int event,
     }
 }
 
+
+/* check if the thread owning the window is hung */
+DECL_HANDLER(is_window_hung)
+{
+    struct thread *thread;
+
+    thread = get_window_thread( req->win );
+    if (thread)
+    {
+        reply->is_hung = is_queue_hung( thread->queue );
+        release_object( thread );
+    }
+    else reply->is_hung = 0;
+}
+
+
 /* get the message queue of the current thread */
 DECL_HANDLER(get_msg_queue)
 {
@@ -1828,6 +1850,8 @@ DECL_HANDLER(get_message)
         return;
     }
 
+    queue->wake_mask = req->wake_mask;
+    queue->changed_mask = req->changed_mask;
     set_error( STATUS_PENDING );  /* FIXME */
 }
 
@@ -1925,13 +1949,22 @@ DECL_HANDLER(set_win_timer)
     else
     {
         queue = get_current_queue();
-        /* find a free id for it */
-        do
+        /* look for a timer with this id */
+        if (id && (timer = find_timer( queue, NULL, req->msg, id )))
         {
-            id = queue->next_timer_id;
-            if (++queue->next_timer_id >= 0x10000) queue->next_timer_id = 1;
+            /* free and reuse id */
+            free_timer( queue, timer );
         }
-        while (find_timer( queue, 0, req->msg, id ));
+        else
+        {
+            /* find a free id for it */
+            do
+            {
+                id = queue->next_timer_id;
+                if (--queue->next_timer_id <= 0x100) queue->next_timer_id = 0x7fff;
+            }
+            while (find_timer( queue, 0, req->msg, id ));
+        }
     }
 
     if ((timer = set_timer( queue, req->rate )))

@@ -17,6 +17,9 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include "config.h"
+#include "wine/port.h"
+
 #include "dmscript_private.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(dmscript);
@@ -828,7 +831,7 @@ const char *debugstr_dmguid (const GUID *id) {
         if (!id) return "(null)";
 
 	for (i = 0; i < sizeof(guids)/sizeof(guids[0]); i++) {
-		if (IsEqualGUID(id, &guids[i].guid))
+		if (IsEqualGUID(id, guids[i].guid))
 			return guids[i].name;
 	}
 	/* if we didn't find it, act like standard debugstr_guid */	

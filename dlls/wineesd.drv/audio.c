@@ -23,7 +23,7 @@
  */
 /* NOTE:
  *    with esd we cannot stop the audio that is already in
- *    the servers buffer.
+ *    the server's buffer.
  *
  * FIXME:
  *	pause in waveOut does not work correctly in loop mode
@@ -462,7 +462,7 @@ LONG ESD_WaveInit(void)
 	WOutDev[i].esd_fd = -1;
 	memset(&WOutDev[i].caps, 0, sizeof(WOutDev[i].caps)); /* zero out
 							caps values */
-    	WOutDev[i].caps.wMid = 0x00FF; 	/* Manufac ID */
+	WOutDev[i].caps.wMid = 0x00FF; 	/* Manufacturer ID */
     	WOutDev[i].caps.wPid = 0x0001; 	/* Product ID */
     	lstrcpyW(WOutDev[i].caps.szPname, ini);
         snprintf(WOutDev[i].interface_name, sizeof(WOutDev[i].interface_name), "wineesd: %d", i);
@@ -571,7 +571,7 @@ static int ESD_DestroyRingMessage(ESD_MSG_RING* mr)
 /******************************************************************
  *		ESD_AddRingMessage
  *
- * Inserts a new message into the ring (should be called from DriverProc derivated routines)
+ * Inserts a new message into the ring (should be called from DriverProc derived routines)
  */
 static int ESD_AddRingMessage(ESD_MSG_RING* mr, enum win_wm_message msg, DWORD param, BOOL wait)
 {
@@ -1227,7 +1227,7 @@ static DWORD wodOpen(WORD wDevID, LPWAVEOPENDESC lpDesc, DWORD dwFlags)
 
     wwo->wFlags = HIWORD(dwFlags & CALLBACK_TYPEMASK);
 
-    memcpy(&wwo->waveDesc, lpDesc, sizeof(WAVEOPENDESC));
+    wwo->waveDesc = *lpDesc;
     copy_format(lpDesc->lpFormat, &wwo->waveFormat);
 
     if (wwo->waveFormat.Format.wBitsPerSample == 0) {
@@ -1881,8 +1881,8 @@ static DWORD widOpen(WORD wDevID, LPWAVEOPENDESC lpDesc, DWORD dwFlags)
     dwFlags &= ~WAVE_DIRECTSOUND;
 
     wwi->wFlags = HIWORD(dwFlags & CALLBACK_TYPEMASK);
- 
-    memcpy(&wwi->waveDesc, lpDesc, sizeof(WAVEOPENDESC));
+
+    wwi->waveDesc = *lpDesc;
     copy_format(lpDesc->lpFormat, &wwi->waveFormat);
 
     if (wwi->waveFormat.Format.wBitsPerSample == 0) {

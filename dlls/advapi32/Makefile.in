@@ -4,11 +4,14 @@ TOPOBJDIR = ../..
 SRCDIR    = @srcdir@
 VPATH     = @srcdir@
 MODULE    = advapi32.dll
-IMPORTLIB = libadvapi32.$(IMPLIBEXT)
+IMPORTLIB = advapi32
 IMPORTS   = kernel32 ntdll
+EXTRALIBS = @SECURITYLIB@
+DELAYIMPORTS = rpcrt4
 
 C_SRCS = \
 	advapi.c \
+	cred.c \
 	crypt.c \
 	crypt_arc4.c \
 	crypt_des.c \
@@ -21,6 +24,8 @@ C_SRCS = \
 	registry.c \
 	security.c \
 	service.c
+
+IDL_C_SRCS = svcctl.idl
 
 RC_SRCS = version.rc
 

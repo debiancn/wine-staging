@@ -1,6 +1,7 @@
 /* Unit test suite for Ntdll file functions
  *
  * Copyright 2007 Jeff Latimer
+ * Copyright 2007 Andrey Turkin
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -33,8 +34,11 @@
 #include "wine/test.h"
 #include "winternl.h"
 
+#ifndef IO_COMPLETION_ALL_ACCESS
+#define IO_COMPLETION_ALL_ACCESS 0x001F0003
+#endif
+
 static VOID     (WINAPI *pRtlInitUnicodeString)( PUNICODE_STRING, LPCWSTR );
-static VOID     (WINAPI *pRtlFreeUnicodeString)(PUNICODE_STRING);
 static NTSTATUS (WINAPI *pNtCreateMailslotFile)( PHANDLE, ULONG, POBJECT_ATTRIBUTES, PIO_STATUS_BLOCK,
                                        ULONG, ULONG, ULONG, PLARGE_INTEGER );
 static NTSTATUS (WINAPI *pNtReadFile)(HANDLE hFile, HANDLE hEvent,
@@ -47,6 +51,13 @@ static NTSTATUS (WINAPI *pNtWriteFile)(HANDLE hFile, HANDLE hEvent,
                                        const void* buffer, ULONG length,
                                        PLARGE_INTEGER offset, PULONG key);
 static NTSTATUS (WINAPI *pNtClose)( PHANDLE );
+
+static NTSTATUS (WINAPI *pNtCreateIoCompletion)(PHANDLE, ACCESS_MASK, POBJECT_ATTRIBUTES, ULONG);
+static NTSTATUS (WINAPI *pNtOpenIoCompletion)(PHANDLE, ACCESS_MASK, POBJECT_ATTRIBUTES);
+static NTSTATUS (WINAPI *pNtQueryIoCompletion)(HANDLE, IO_COMPLETION_INFORMATION_CLASS, PVOID, ULONG, PULONG);
+static NTSTATUS (WINAPI *pNtRemoveIoCompletion)(HANDLE, PULONG_PTR, PULONG_PTR, PIO_STATUS_BLOCK, PLARGE_INTEGER);
+static NTSTATUS (WINAPI *pNtSetIoCompletion)(HANDLE, ULONG_PTR, ULONG_PTR, NTSTATUS, ULONG);
+static NTSTATUS (WINAPI *pNtSetInformationFile)(HANDLE, PIO_STATUS_BLOCK, PVOID, ULONG, FILE_INFORMATION_CLASS);
 
 static inline BOOL is_signaled( HANDLE obj )
 {
@@ -79,6 +90,41 @@ static HANDLE create_temp_file( ULONG flags )
     return (handle == INVALID_HANDLE_VALUE) ? 0 : handle;
 }
 
+#define CVALUE_FIRST 0xfffabbcc
+#define CKEY_FIRST 0x1030341
+#define CKEY_SECOND 0x132E46
+
+ULONG_PTR completionKey;
+IO_STATUS_BLOCK ioSb;
+ULONG_PTR completionValue;
+
+static long get_pending_msgs(HANDLE h)
+{
+    NTSTATUS res;
+    ULONG a, req;
+
+    res = pNtQueryIoCompletion( h, IoCompletionBasicInformation, (PVOID)&a, sizeof(a), &req );
+    ok( res == STATUS_SUCCESS, "NtQueryIoCompletion failed: %x\n", res );
+    if (res != STATUS_SUCCESS) return -1;
+    ok( req == sizeof(a), "Unexpected response size: %x\n", req );
+    return a;
+}
+
+static BOOL get_msg(HANDLE h)
+{
+    LARGE_INTEGER timeout = {{-10000000*3}};
+    DWORD res = pNtRemoveIoCompletion( h, &completionKey, &completionValue, &ioSb, &timeout);
+    ok( res == STATUS_SUCCESS, "NtRemoveIoCompletion failed: %x\n", res );
+    if (res != STATUS_SUCCESS)
+    {
+        completionKey = completionValue = 0;
+        memset(&ioSb, 0, sizeof(ioSb));
+        return FALSE;
+    }
+    return TRUE;
+}
+
+
 static void WINAPI apc( void *arg, IO_STATUS_BLOCK *iosb, ULONG reserved )
 {
     int *count = arg;
@@ -100,6 +146,8 @@ static void read_file_test(void)
     char buffer[128];
     LARGE_INTEGER offset;
     HANDLE event = CreateEventA( NULL, TRUE, FALSE, NULL );
+
+    buffer[0] = 1;
 
     if (!create_pipe( &read, &write, FILE_FLAG_OVERLAPPED, 4096 )) return;
 
@@ -418,8 +466,137 @@ static void nt_mailslot_test(void)
 
     rc = pNtClose(hslot);
     ok( rc == STATUS_SUCCESS, "NtClose failed\n");
+}
 
-    pRtlFreeUnicodeString(&str);
+static void test_iocp_setcompletion(HANDLE h)
+{
+    NTSTATUS res;
+    long count;
+
+    res = pNtSetIoCompletion( h, CKEY_FIRST, CVALUE_FIRST, STATUS_INVALID_DEVICE_REQUEST, 3 );
+    ok( res == STATUS_SUCCESS, "NtSetIoCompletion failed: %x\n", res );
+
+    count = get_pending_msgs(h);
+    ok( count == 1, "Unexpected msg count: %ld\n", count );
+
+    if (get_msg(h))
+    {
+        ok( completionKey == CKEY_FIRST, "Invalid completion key: %lx\n", completionKey );
+        ok( ioSb.Information == 3, "Invalid ioSb.Information: %ld\n", ioSb.Information );
+        ok( U(ioSb).Status == STATUS_INVALID_DEVICE_REQUEST, "Invalid ioSb.Status: %x\n", U(ioSb).Status);
+        ok( completionValue == CVALUE_FIRST, "Invalid completion value: %lx\n", completionValue );
+    }
+
+    count = get_pending_msgs(h);
+    ok( !count, "Unexpected msg count: %ld\n", count );
+}
+
+static void test_iocp_fileio(HANDLE h)
+{
+    static const char pipe_name[] = "\\\\.\\pipe\\iocompletiontestnamedpipe";
+
+    IO_STATUS_BLOCK iosb;
+    FILE_COMPLETION_INFORMATION fci = {h, CKEY_SECOND};
+    HANDLE hPipeSrv, hPipeClt;
+    NTSTATUS res;
+
+    hPipeSrv = CreateNamedPipeA( pipe_name, PIPE_ACCESS_INBOUND, PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT, 4, 1024, 1024, 1000, NULL );
+    ok( hPipeSrv != INVALID_HANDLE_VALUE, "Cannot create named pipe\n" );
+    if (hPipeSrv != INVALID_HANDLE_VALUE )
+    {
+        hPipeClt = CreateFileA( pipe_name, GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_FLAG_NO_BUFFERING | FILE_FLAG_OVERLAPPED, NULL );
+        ok( hPipeClt != INVALID_HANDLE_VALUE, "Cannot connect to pipe\n" );
+        if (hPipeClt != INVALID_HANDLE_VALUE)
+        {
+            res = pNtSetInformationFile( hPipeSrv, &iosb, &fci, sizeof(fci), FileCompletionInformation );
+            ok( res == STATUS_INVALID_PARAMETER, "Unexpected NtSetInformationFile on non-overlapped handle: %x\n", res );
+            CloseHandle(hPipeClt);
+        }
+        CloseHandle( hPipeSrv );
+    }
+
+    hPipeSrv = CreateNamedPipeA( pipe_name, PIPE_ACCESS_INBOUND | FILE_FLAG_OVERLAPPED, PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT, 4, 1024, 1024, 1000, NULL );
+    ok( hPipeSrv != INVALID_HANDLE_VALUE, "Cannot create named pipe\n" );
+    if (hPipeSrv == INVALID_HANDLE_VALUE )
+        return;
+
+    hPipeClt = CreateFileA( pipe_name, GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_FLAG_NO_BUFFERING | FILE_FLAG_OVERLAPPED, NULL );
+    ok( hPipeClt != INVALID_HANDLE_VALUE, "Cannot connect to pipe\n" );
+    if (hPipeClt != INVALID_HANDLE_VALUE)
+    {
+        OVERLAPPED o = {0,};
+        BYTE buf[3];
+        DWORD read;
+        long count;
+
+        NTSTATUS res = pNtSetInformationFile( hPipeSrv, &iosb, &fci, sizeof(fci), FileCompletionInformation );
+        ok( res == STATUS_SUCCESS, "NtSetInformationFile failed: %x\n", res );
+        ok( U(iosb).Status == STATUS_SUCCESS, "iosb.Status invalid: %x\n", U(iosb).Status );
+
+        count = get_pending_msgs(h);
+        ok( !count, "Unexpected msg count: %ld\n", count );
+        ReadFile( hPipeSrv, buf, 3, &read, &o);
+        count = get_pending_msgs(h);
+        ok( !count, "Unexpected msg count: %ld\n", count );
+        WriteFile( hPipeClt, buf, 3, &read, NULL );
+
+        if (get_msg(h))
+        {
+            ok( completionKey == CKEY_SECOND, "Invalid completion key: %lx\n", completionKey );
+            ok( ioSb.Information == 3, "Invalid ioSb.Information: %ld\n", ioSb.Information );
+            ok( U(ioSb).Status == STATUS_SUCCESS, "Invalid ioSb.Status: %x\n", U(ioSb).Status);
+            ok( completionValue == (ULONG_PTR)&o, "Invalid completion value: %lx\n", completionValue );
+        }
+        count = get_pending_msgs(h);
+        ok( !count, "Unexpected msg count: %ld\n", count );
+
+        WriteFile( hPipeClt, buf, 2, &read, NULL );
+        count = get_pending_msgs(h);
+        ok( !count, "Unexpected msg count: %ld\n", count );
+        ReadFile( hPipeSrv, buf, 2, &read, &o);
+        count = get_pending_msgs(h);
+        ok( count == 1, "Unexpected msg count: %ld\n", count );
+        if (get_msg(h))
+        {
+            ok( completionKey == CKEY_SECOND, "Invalid completion key: %lx\n", completionKey );
+            ok( ioSb.Information == 2, "Invalid ioSb.Information: %ld\n", ioSb.Information );
+            ok( U(ioSb).Status == STATUS_SUCCESS, "Invalid ioSb.Status: %x\n", U(ioSb).Status);
+            ok( completionValue == (ULONG_PTR)&o, "Invalid completion value: %lx\n", completionValue );
+        }
+
+        ReadFile( hPipeSrv, buf, sizeof(buf), &read, &o);
+        CloseHandle( hPipeSrv );
+        count = get_pending_msgs(h);
+        ok( count == 1, "Unexpected msg count: %ld\n", count );
+        if (get_msg(h))
+        {
+            ok( completionKey == CKEY_SECOND, "Invalid completion key: %lx\n", completionKey );
+            ok( ioSb.Information == 0, "Invalid ioSb.Information: %ld\n", ioSb.Information );
+            /* wine sends wrong status here */
+            todo_wine ok( U(ioSb).Status == STATUS_PIPE_BROKEN, "Invalid ioSb.Status: %x\n", U(ioSb).Status);
+            ok( completionValue == (ULONG_PTR)&o, "Invalid completion value: %lx\n", completionValue );
+        }
+    }
+
+    CloseHandle( hPipeClt );
+}
+
+static void test_iocompletion(void)
+{
+    HANDLE h = INVALID_HANDLE_VALUE;
+    NTSTATUS res;
+
+    res = pNtCreateIoCompletion( &h, IO_COMPLETION_ALL_ACCESS, NULL, 0);
+
+    ok( res == 0, "NtCreateIoCompletion anonymous failed: %x\n", res );
+    ok( h && h != INVALID_HANDLE_VALUE, "Invalid handle returned\n" );
+
+    if ( h && h != INVALID_HANDLE_VALUE)
+    {
+        test_iocp_setcompletion(h);
+        test_iocp_fileio(h);
+        pNtClose(h);
+    }
 }
 
 START_TEST(file)
@@ -431,13 +608,19 @@ START_TEST(file)
         return;
     }
 
-    pRtlFreeUnicodeString   = (void *)GetProcAddress(hntdll, "RtlFreeUnicodeString");
     pRtlInitUnicodeString   = (void *)GetProcAddress(hntdll, "RtlInitUnicodeString");
     pNtCreateMailslotFile   = (void *)GetProcAddress(hntdll, "NtCreateMailslotFile");
     pNtReadFile             = (void *)GetProcAddress(hntdll, "NtReadFile");
     pNtWriteFile            = (void *)GetProcAddress(hntdll, "NtWriteFile");
     pNtClose                = (void *)GetProcAddress(hntdll, "NtClose");
+    pNtCreateIoCompletion   = (void *)GetProcAddress(hntdll, "NtCreateIoCompletion");
+    pNtOpenIoCompletion     = (void *)GetProcAddress(hntdll, "NtOpenIoCompletion");
+    pNtQueryIoCompletion    = (void *)GetProcAddress(hntdll, "NtQueryIoCompletion");
+    pNtRemoveIoCompletion   = (void *)GetProcAddress(hntdll, "NtRemoveIoCompletion");
+    pNtSetIoCompletion      = (void *)GetProcAddress(hntdll, "NtSetIoCompletion");
+    pNtSetInformationFile   = (void *)GetProcAddress(hntdll, "NtSetInformationFile");
 
     read_file_test();
     nt_mailslot_test();
+    test_iocompletion();
 }

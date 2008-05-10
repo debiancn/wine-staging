@@ -46,7 +46,7 @@ IDM_MENU MENU
         MENUITEM "&Typ-Informationen anzeigen",    IDM_TYPEINFO, GRAYED
         MENUITEM SEPARATOR
         MENUITEM "&Instanz erstellen",    IDM_CREATEINST, GRAYED
-        MENUITEM "Instanz erstellen &auf",    IDM_CREATEINSTON, GRAYED
+        MENUITEM "Instanz erstellen &auf...",    IDM_CREATEINSTON, GRAYED
         MENUITEM "Instanz &freigeben",    IDM_RELEASEINST, GRAYED
         MENUITEM SEPARATOR
         MENUITEM "C&LSID in Zwischenablage kopieren",    IDM_COPYCLSID, GRAYED
@@ -75,7 +75,7 @@ IDM_TYPELIB MENU
 {
     POPUP "&Datei"
     {
-        MENUITEM "&Speichern unter",    IDM_SAVEAS
+        MENUITEM "&Speichern unter...",    IDM_SAVEAS
         MENUITEM "&Schliessen",  IDM_CLOSE
     }
     POPUP "&Ansicht"
@@ -96,6 +96,7 @@ STRINGTABLE
     IDS_ABOUTVER           "Version 1.0"
     IDS_TYPELIBTITLE       "ITypeLib-Betrachter"
     IDS_OPEN               "Öffnen"
+    IDS_OPEN_TYPELIB_FILTER "TypeLib Files (*.tlb;*.olb;*.dll;*.ocx;*.exe)\0*.tlb;*.olb;*.dll;*.ocx;*.exe\0All Files (*.*)\0*.*\0\0"
 
     IDM_BIND,              "An Datei via Datei-Moniker binden"
     IDM_TYPELIB,           "TypeLib-Datei öffnen und Inhalt betrachten"

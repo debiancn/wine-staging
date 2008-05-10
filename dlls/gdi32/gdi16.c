@@ -119,6 +119,109 @@ static void logfont_16_to_W( const LOGFONT16 *font16, LPLOGFONTW font32 )
     font32->lfFaceName[LF_FACESIZE-1] = 0;
 }
 
+/* convert a LOGFONTW to a LOGFONT16 */
+static void logfont_W_to_16( const LOGFONTW* font32, LPLOGFONT16 font16 )
+{
+    font16->lfHeight = font32->lfHeight;
+    font16->lfWidth = font32->lfWidth;
+    font16->lfEscapement = font32->lfEscapement;
+    font16->lfOrientation = font32->lfOrientation;
+    font16->lfWeight = font32->lfWeight;
+    font16->lfItalic = font32->lfItalic;
+    font16->lfUnderline = font32->lfUnderline;
+    font16->lfStrikeOut = font32->lfStrikeOut;
+    font16->lfCharSet = font32->lfCharSet;
+    font16->lfOutPrecision = font32->lfOutPrecision;
+    font16->lfClipPrecision = font32->lfClipPrecision;
+    font16->lfQuality = font32->lfQuality;
+    font16->lfPitchAndFamily = font32->lfPitchAndFamily;
+    WideCharToMultiByte( CP_ACP, 0, font32->lfFaceName, -1, font16->lfFaceName, LF_FACESIZE, NULL, NULL );
+    font16->lfFaceName[LF_FACESIZE-1] = 0;
+}
+
+/* convert a ENUMLOGFONTEXW to a ENUMLOGFONTEX16 */
+static void enumlogfontex_W_to_16( const ENUMLOGFONTEXW *fontW,
+                                   LPENUMLOGFONTEX16 font16 )
+{
+    logfont_W_to_16( (const LOGFONTW *)fontW, (LPLOGFONT16)font16);
+
+    WideCharToMultiByte( CP_ACP, 0, fontW->elfFullName, -1,
+                         (LPSTR) font16->elfFullName, LF_FULLFACESIZE, NULL, NULL );
+    font16->elfFullName[LF_FULLFACESIZE-1] = '\0';
+    WideCharToMultiByte( CP_ACP, 0, fontW->elfStyle, -1,
+                         (LPSTR) font16->elfStyle, LF_FACESIZE, NULL, NULL );
+    font16->elfStyle[LF_FACESIZE-1] = '\0';
+    WideCharToMultiByte( CP_ACP, 0, fontW->elfScript, -1,
+                         (LPSTR) font16->elfScript, LF_FACESIZE, NULL, NULL );
+    font16->elfScript[LF_FACESIZE-1] = '\0';
+}
+
+/* convert a NEWTEXTMETRICEXW to a NEWTEXTMETRICEX16 */
+static void newtextmetricex_W_to_16( const NEWTEXTMETRICEXW *ptmW,
+                                     LPNEWTEXTMETRICEX16 ptm16 )
+{
+    ptm16->ntmTm.tmHeight = ptmW->ntmTm.tmHeight;
+    ptm16->ntmTm.tmAscent = ptmW->ntmTm.tmAscent;
+    ptm16->ntmTm.tmDescent = ptmW->ntmTm.tmDescent;
+    ptm16->ntmTm.tmInternalLeading = ptmW->ntmTm.tmInternalLeading;
+    ptm16->ntmTm.tmExternalLeading = ptmW->ntmTm.tmExternalLeading;
+    ptm16->ntmTm.tmAveCharWidth = ptmW->ntmTm.tmAveCharWidth;
+    ptm16->ntmTm.tmMaxCharWidth = ptmW->ntmTm.tmMaxCharWidth;
+    ptm16->ntmTm.tmWeight = ptmW->ntmTm.tmWeight;
+    ptm16->ntmTm.tmOverhang = ptmW->ntmTm.tmOverhang;
+    ptm16->ntmTm.tmDigitizedAspectX = ptmW->ntmTm.tmDigitizedAspectX;
+    ptm16->ntmTm.tmDigitizedAspectY = ptmW->ntmTm.tmDigitizedAspectY;
+    ptm16->ntmTm.tmFirstChar = ptmW->ntmTm.tmFirstChar > 255 ? 255 : ptmW->ntmTm.tmFirstChar;
+    ptm16->ntmTm.tmLastChar = ptmW->ntmTm.tmLastChar > 255 ? 255 : ptmW->ntmTm.tmLastChar;
+    ptm16->ntmTm.tmDefaultChar = ptmW->ntmTm.tmDefaultChar > 255 ? 255 : ptmW->ntmTm.tmDefaultChar;
+    ptm16->ntmTm.tmBreakChar = ptmW->ntmTm.tmBreakChar > 255 ? 255 : ptmW->ntmTm.tmBreakChar;
+    ptm16->ntmTm.tmItalic = ptmW->ntmTm.tmItalic;
+    ptm16->ntmTm.tmUnderlined = ptmW->ntmTm.tmUnderlined;
+    ptm16->ntmTm.tmStruckOut = ptmW->ntmTm.tmStruckOut;
+    ptm16->ntmTm.tmPitchAndFamily = ptmW->ntmTm.tmPitchAndFamily;
+    ptm16->ntmTm.tmCharSet = ptmW->ntmTm.tmCharSet;
+    ptm16->ntmTm.ntmFlags = ptmW->ntmTm.ntmFlags;
+    ptm16->ntmTm.ntmSizeEM = ptmW->ntmTm.ntmSizeEM;
+    ptm16->ntmTm.ntmCellHeight = ptmW->ntmTm.ntmCellHeight;
+    ptm16->ntmTm.ntmAvgWidth = ptmW->ntmTm.ntmAvgWidth;
+    ptm16->ntmFontSig = ptmW->ntmFontSig;
+}
+
+/*
+ * callback for EnumFontFamiliesEx16
+ * Note: plf is really an ENUMLOGFONTEXW, and ptm is a NEWTEXTMETRICEXW.
+ *       We have to use other types because of the FONTENUMPROCW definition.
+ */
+static INT CALLBACK enum_font_callback( const LOGFONTW *plf,
+                                        const TEXTMETRICW *ptm, DWORD fType,
+                                        LPARAM param )
+{
+    const struct callback16_info *info = (struct callback16_info *)param;
+    ENUMLOGFONTEX16 elfe16;
+    NEWTEXTMETRICEX16 ntm16;
+    SEGPTR segelfe16;
+    SEGPTR segntm16;
+    WORD args[7];
+    DWORD ret;
+
+    enumlogfontex_W_to_16((const ENUMLOGFONTEXW *)plf, &elfe16);
+    newtextmetricex_W_to_16((const NEWTEXTMETRICEXW *)ptm, &ntm16);
+    segelfe16 = MapLS( &elfe16 );
+    segntm16 = MapLS( &ntm16 );
+    args[6] = SELECTOROF(segelfe16);
+    args[5] = OFFSETOF(segelfe16);
+    args[4] = SELECTOROF(segntm16);
+    args[3] = OFFSETOF(segntm16);
+    args[2] = fType;
+    args[1] = HIWORD(info->param);
+    args[0] = LOWORD(info->param);
+
+    WOWCallback16Ex( (DWORD)info->proc, WCB16_PASCAL, sizeof(args), args, &ret );
+    UnMapLS( segelfe16 );
+    UnMapLS( segntm16 );
+    return LOWORD(ret);
+}
+
 
 /***********************************************************************
  *           SetBkColor    (GDI.1)
@@ -1027,6 +1130,16 @@ BOOL16 WINAPI DeleteObject16( HGDIOBJ16 obj )
 
 
 /***********************************************************************
+ *           EnumFonts      (GDI.70)
+ */
+INT16 WINAPI EnumFonts16( HDC16 hDC, LPCSTR lpName, FONTENUMPROC16 efproc,
+                          LPARAM lpData )
+{
+    return EnumFontFamilies16( hDC, lpName, efproc, lpData );
+}
+
+
+/***********************************************************************
  *           EnumObjects    (GDI.71)
  */
 INT16 WINAPI EnumObjects16( HDC16 hdc, INT16 obj, GOBJENUMPROC16 proc, LPARAM lParam )
@@ -1141,6 +1254,95 @@ INT16 WINAPI GetDeviceCaps16( HDC16 hdc, INT16 cap )
 INT16 WINAPI GetMapMode16( HDC16 hdc )
 {
     return GetMapMode( HDC_32(hdc) );
+}
+
+
+/***********************************************************************
+ *           GetObject    (GDI.82)
+ */
+INT16 WINAPI GetObject16( HGDIOBJ16 handle16, INT16 count, LPVOID buffer )
+{
+    HGDIOBJ handle = HGDIOBJ_32( handle16 );
+    switch( GetObjectType( handle ))
+    {
+    case OBJ_PEN:
+        if (buffer)
+        {
+            LOGPEN16 *pen16 = buffer;
+            LOGPEN pen;
+
+            if (count < sizeof(LOGPEN16)) return 0;
+            if (!GetObjectW( handle, sizeof(pen), &pen )) return 0;
+
+            pen16->lopnStyle   = pen.lopnStyle;
+            pen16->lopnColor   = pen.lopnColor;
+            pen16->lopnWidth.x = pen.lopnWidth.x;
+            pen16->lopnWidth.y = pen.lopnWidth.y;
+        }
+        return sizeof(LOGPEN16);
+
+    case OBJ_BRUSH:
+        if (buffer)
+        {
+            LOGBRUSH brush;
+            LOGBRUSH16 brush16;
+
+            if (!GetObjectW( handle, sizeof(brush), &brush )) return 0;
+            brush16.lbStyle = brush.lbStyle;
+            brush16.lbColor = brush.lbColor;
+            brush16.lbHatch = brush.lbHatch;
+            if (count > sizeof(brush16)) count = sizeof(brush16);
+            memcpy( buffer, &brush16, count );
+            return count;
+        }
+        return sizeof(LOGBRUSH16);
+
+    case OBJ_PAL:
+        return GetObjectW( handle, count, buffer );
+
+    case OBJ_FONT:
+        if (buffer)
+        {
+            LOGFONTW font;
+            LOGFONT16 font16;
+
+            if (!GetObjectW( handle, sizeof(font), &font )) return 0;
+            logfont_W_to_16( &font, &font16 );
+            if (count > sizeof(font16)) count = sizeof(font16);
+            memcpy( buffer, &font16, count );
+            return count;
+        }
+        return sizeof(LOGFONT16);
+
+    case OBJ_BITMAP:
+        {
+            DIBSECTION dib;
+            INT size;
+            BITMAP16 *bmp16 = buffer;
+
+            if (!(size = GetObjectW( handle, sizeof(dib), &dib ))) return 0;
+            if (size == sizeof(DIBSECTION) && count > sizeof(BITMAP16))
+            {
+                FIXME("not implemented for DIBs: count %d\n", count);
+                return 0;
+            }
+            else
+            {
+                if (count < sizeof(BITMAP16)) return 0;
+                bmp16->bmType       = dib.dsBm.bmType;
+                bmp16->bmWidth      = dib.dsBm.bmWidth;
+                bmp16->bmHeight     = dib.dsBm.bmHeight;
+                bmp16->bmWidthBytes = dib.dsBm.bmWidthBytes;
+                bmp16->bmPlanes     = dib.dsBm.bmPlanes;
+                bmp16->bmBitsPixel  = dib.dsBm.bmBitsPixel;
+                bmp16->bmBits       = 0;
+                return sizeof(BITMAP16);
+            }
+        }
+
+    default:
+        return 0;
+    }
 }
 
 
@@ -1343,6 +1545,15 @@ INT16 WINAPI OffsetRgn16( HRGN16 hrgn, INT16 x, INT16 y )
 BOOL16 WINAPI PtVisible16( HDC16 hdc, INT16 x, INT16 y )
 {
     return PtVisible( HDC_32(hdc), x, y );
+}
+
+
+/***********************************************************************
+ *           SelectVisRgn   (GDI.105)
+ */
+INT16 WINAPI SelectVisRgn16( HDC16 hdc, HRGN16 hrgn )
+{
+    return SelectVisRgn( HDC_32(hdc), HRGN_32(hrgn) );
 }
 
 
@@ -1567,6 +1778,15 @@ void WINAPI PlayMetaFileRecord16( HDC16 hdc, HANDLETABLE16 *ht, METARECORD *mr, 
 
 
 /***********************************************************************
+ *           SetHookFlags   (GDI.192)
+ */
+WORD WINAPI SetHookFlags16( HDC16 hdc, WORD flags )
+{
+    return SetHookFlags( HDC_32(hdc), flags );
+}
+
+
+/***********************************************************************
  *           SetBoundsRect    (GDI.193)
  */
 UINT16 WINAPI SetBoundsRect16( HDC16 hdc, const RECT16* rect, UINT16 flags )
@@ -1728,6 +1948,31 @@ BOOL16 WINAPI GetCharABCWidths16( HDC16 hdc, UINT16 firstChar, UINT16 lastChar, 
 
 
 /***********************************************************************
+ *           GetOutlineTextMetrics (GDI.308)
+ *
+ * Gets metrics for TrueType fonts.
+ *
+ * PARAMS
+ *    hdc    [In]  Handle of device context
+ *    cbData [In]  Size of metric data array
+ *    lpOTM  [Out] Address of metric data array
+ *
+ * RETURNS
+ *    Success: Non-zero or size of required buffer
+ *    Failure: 0
+ *
+ * NOTES
+ *    lpOTM should be LPOUTLINETEXTMETRIC
+ */
+UINT16 WINAPI GetOutlineTextMetrics16( HDC16 hdc, UINT16 cbData,
+                                       LPOUTLINETEXTMETRIC16 lpOTM )
+{
+    FIXME("(%04x,%04x,%p): stub\n", hdc,cbData,lpOTM);
+    return 0;
+}
+
+
+/***********************************************************************
  *           GetGlyphOutline    (GDI.309)
  */
 DWORD WINAPI GetGlyphOutline16( HDC16 hdc, UINT16 uChar, UINT16 fuFormat,
@@ -1774,6 +2019,28 @@ DWORD WINAPI GetFontData16( HDC16 hdc, DWORD table, DWORD offset, LPVOID buffer,
 BOOL16 WINAPI GetRasterizerCaps16( LPRASTERIZER_STATUS lprs, UINT16 cbNumBytes )
 {
     return GetRasterizerCaps( lprs, cbNumBytes );
+}
+
+
+/***********************************************************************
+ *             EnumFontFamilies    (GDI.330)
+ */
+INT16 WINAPI EnumFontFamilies16( HDC16 hDC, LPCSTR lpFamily,
+                                 FONTENUMPROC16 efproc, LPARAM lpData )
+{
+    LOGFONT16 lf, *plf;
+
+    if (lpFamily)
+    {
+        if (!*lpFamily) return 1;
+        lstrcpynA( lf.lfFaceName, lpFamily, LF_FACESIZE );
+        lf.lfCharSet = DEFAULT_CHARSET;
+        lf.lfPitchAndFamily = 0;
+        plf = &lf;
+    }
+    else plf = NULL;
+
+    return EnumFontFamiliesEx16( hDC, plf, efproc, lpData, 0 );
 }
 
 
@@ -2117,6 +2384,31 @@ BOOL16 WINAPI FastWindowFrame16( HDC16 hdc, const RECT16 *rect,
 
 
 /***********************************************************************
+ *           GdiInit2     (GDI.403)
+ *
+ * See "Undocumented Windows"
+ *
+ * PARAMS
+ *   h1 [I] GDI object
+ *   h2 [I] global data
+ */
+HANDLE16 WINAPI GdiInit216( HANDLE16 h1, HANDLE16 h2 )
+{
+    FIXME("(%04x, %04x), stub.\n", h1, h2);
+    if (h2 == 0xffff) return 0xffff; /* undefined return value */
+    return h1; /* FIXME: should be the memory handle of h1 */
+}
+
+
+/***********************************************************************
+ *           FinalGdiInit     (GDI.405)
+ */
+void WINAPI FinalGdiInit16( HBRUSH16 hPattern /* [in] fill pattern of desktop */ )
+{
+}
+
+
+/***********************************************************************
  *           CreateUserBitmap    (GDI.407)
  */
 HBITMAP16 WINAPI CreateUserBitmap16( INT16 width, INT16 height, UINT16 planes,
@@ -2305,11 +2597,77 @@ HRGN16 WINAPI CreatePolyPolygonRgn16( const POINT16 *points,
 
 
 /***********************************************************************
+ *           GdiSeeGdiDo   (GDI.452)
+ */
+DWORD WINAPI GdiSeeGdiDo16( WORD wReqType, WORD wParam1, WORD wParam2,
+                          WORD wParam3 )
+{
+    DWORD ret = ~0U;
+
+    switch (wReqType)
+    {
+    case 0x0001:  /* LocalAlloc */
+        WARN("LocalAlloc16(%x, %x): ignoring\n", wParam1, wParam3);
+        ret = 0;
+        break;
+    case 0x0002:  /* LocalFree */
+        WARN("LocalFree16(%x): ignoring\n", wParam1);
+        ret = 0;
+        break;
+    case 0x0003:  /* LocalCompact */
+        WARN("LocalCompact16(%x): ignoring\n", wParam3);
+        ret = 65000; /* lie about the amount of free space */
+        break;
+    case 0x0103:  /* LocalHeap */
+        WARN("LocalHeap16(): ignoring\n");
+        break;
+    default:
+        WARN("(wReqType=%04x): Unknown\n", wReqType);
+        break;
+    }
+    return ret;
+}
+
+
+/***********************************************************************
  *           SetObjectOwner    (GDI.461)
  */
 void WINAPI SetObjectOwner16( HGDIOBJ16 handle, HANDLE16 owner )
 {
     /* Nothing to do */
+}
+
+
+/***********************************************************************
+ *           IsGDIObject    (GDI.462)
+ *
+ * returns type of object if valid (W95 system programming secrets p. 264-5)
+ */
+BOOL16 WINAPI IsGDIObject16( HGDIOBJ16 handle16 )
+{
+    static const BYTE type_map[] =
+    {
+        0,  /* bad */
+        1,  /* OBJ_PEN */
+        2,  /* OBJ_BRUSH */
+        7,  /* OBJ_DC */
+        9,  /* OBJ_METADC */
+        4,  /* OBJ_PAL */
+        3,  /* OBJ_FONT */
+        5,  /* OBJ_BITMAP */
+        6,  /* OBJ_REGION */
+        10, /* OBJ_METAFILE */
+        7,  /* OBJ_MEMDC */
+        0,  /* OBJ_EXTPEN */
+        9,  /* OBJ_ENHMETADC */
+        12, /* OBJ_ENHMETAFILE */
+        0   /* OBJ_COLORSPACE */
+    };
+
+    UINT type = GetObjectType( HGDIOBJ_32( handle16 ));
+
+    if (type >= sizeof(type_map)/sizeof(type_map[0])) return 0;
+    return type_map[type];
 }
 
 
@@ -2611,6 +2969,16 @@ BOOL16 WINAPI ScaleWindowExtEx16( HDC16 hdc, INT16 xNum, INT16 xDenom,
 }
 
 
+/***********************************************************************
+ *           GetAspectRatioFilterEx  (GDI.486)
+ */
+BOOL16 WINAPI GetAspectRatioFilterEx16( HDC16 hdc, LPSIZE16 pAspectRatio )
+{
+    FIXME("(%04x, %p): -- Empty Stub !\n", hdc, pAspectRatio);
+    return FALSE;
+}
+
+
 /******************************************************************************
  *           PolyBezier  (GDI.502)
  */
@@ -2827,11 +3195,55 @@ DWORD WINAPI GetRegionData16( HRGN16 hrgn, DWORD count, LPRGNDATA rgndata )
 
 
 /***********************************************************************
+ *           GdiFreeResources   (GDI.609)
+ */
+WORD WINAPI GdiFreeResources16( DWORD reserve )
+{
+    return 90; /* lie about it, it shouldn't matter */
+}
+
+
+/***********************************************************************
+ *           GdiSignalProc32     (GDI.610)
+ */
+WORD WINAPI GdiSignalProc( UINT uCode, DWORD dwThreadOrProcessID,
+                           DWORD dwFlags, HMODULE16 hModule )
+{
+    return 0;
+}
+
+
+/***********************************************************************
  *           GetTextCharset   (GDI.612)
  */
 UINT16 WINAPI GetTextCharset16( HDC16 hdc )
 {
     return GetTextCharset( HDC_32(hdc) );
+}
+
+
+/***********************************************************************
+ *           EnumFontFamiliesEx (GDI.613)
+ */
+INT16 WINAPI EnumFontFamiliesEx16( HDC16 hdc, LPLOGFONT16 plf,
+                                   FONTENUMPROC16 proc, LPARAM lParam,
+                                   DWORD dwFlags)
+{
+    struct callback16_info info;
+    LOGFONTW lfW, *plfW;
+
+    info.proc  = (FARPROC16)proc;
+    info.param = lParam;
+
+    if (plf)
+    {
+        logfont_16_to_W(plf, &lfW);
+        plfW = &lfW;
+    }
+    else plfW = NULL;
+
+    return EnumFontFamiliesExW( HDC_32(hdc), plfW, enum_font_callback,
+                                (LPARAM)&info, dwFlags );
 }
 
 

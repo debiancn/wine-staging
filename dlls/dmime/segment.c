@@ -175,7 +175,7 @@ static HRESULT WINAPI IDirectMusicSegment8Impl_IDirectMusicSegment8_GetTrack (LP
     if (FALSE == IsEqualGUID(&GUID_NULL, rguidType)) {
       /**
        * it rguidType is not null we must check if CLSID are equals
-       * and the unqiue way to get it its using IPersistStream Interface
+       * and the unique way to get it is using IPersistStream Interface
        */
       hr = IDirectMusicTrack_QueryInterface(pIt->pTrack, &IID_IPersistStream, (void**) &pCLSIDStream);
       if (FAILED(hr)) {
@@ -310,7 +310,6 @@ static HRESULT WINAPI IDirectMusicSegment8Impl_IDirectMusicSegment8_GetGraph (LP
   }
   /** 
    * should return This, as seen in msdn 
-   * http://msdn.microsoft.com/archive/default.asp?url=/archive/en-us/directx9_c/directx/htm/idirectmusicsegment8getgraph.asp
    * "...The segment object implements IDirectMusicGraph directly..."
    */
   *ppGraph = This->pGraph;
@@ -541,12 +540,12 @@ static HRESULT WINAPI IDirectMusicSegment8Impl_IDirectMusicObject_GetDescriptor 
 static HRESULT WINAPI IDirectMusicSegment8Impl_IDirectMusicObject_SetDescriptor (LPDIRECTMUSICOBJECT iface, LPDMUS_OBJECTDESC pDesc) {
 	ICOM_THIS_MULTI(IDirectMusicSegment8Impl, ObjectVtbl, iface);
 	TRACE("(%p, %p): setting descriptor:\n%s\n", This, pDesc, debugstr_DMUS_OBJECTDESC (pDesc));
-	
+
 	/* According to MSDN, we should copy only given values, not whole struct */	
 	if (pDesc->dwValidData & DMUS_OBJ_OBJECT)
-		memcpy (&This->pDesc->guidObject, &pDesc->guidObject, sizeof (pDesc->guidObject));
+		This->pDesc->guidObject = pDesc->guidObject;
 	if (pDesc->dwValidData & DMUS_OBJ_CLASS)
-		memcpy (&This->pDesc->guidClass, &pDesc->guidClass, sizeof (pDesc->guidClass));		
+		This->pDesc->guidClass = pDesc->guidClass;
 	if (pDesc->dwValidData & DMUS_OBJ_NAME)
 		lstrcpynW (This->pDesc->wszName, pDesc->wszName, DMUS_MAX_NAME);
 	if (pDesc->dwValidData & DMUS_OBJ_CATEGORY)
@@ -554,9 +553,9 @@ static HRESULT WINAPI IDirectMusicSegment8Impl_IDirectMusicObject_SetDescriptor 
 	if (pDesc->dwValidData & DMUS_OBJ_FILENAME)
 		lstrcpynW (This->pDesc->wszFileName, pDesc->wszFileName, DMUS_MAX_FILENAME);
 	if (pDesc->dwValidData & DMUS_OBJ_VERSION)
-		memcpy (&This->pDesc->vVersion, &pDesc->vVersion, sizeof (pDesc->vVersion));				
+		This->pDesc->vVersion = pDesc->vVersion;
 	if (pDesc->dwValidData & DMUS_OBJ_DATE)
-		memcpy (&This->pDesc->ftDate, &pDesc->ftDate, sizeof (pDesc->ftDate));				
+		This->pDesc->ftDate = pDesc->ftDate;
 	if (pDesc->dwValidData & DMUS_OBJ_MEMORY) {
 		memcpy (&This->pDesc->llMemLength, &pDesc->llMemLength, sizeof (pDesc->llMemLength));				
 		memcpy (This->pDesc->pbMemData, pDesc->pbMemData, sizeof (pDesc->pbMemData));
@@ -579,11 +578,11 @@ static HRESULT WINAPI IDirectMusicSegment8Impl_IDirectMusicObject_ParseDescripto
 	LARGE_INTEGER liMove; /* used when skipping chunks */
 
 	TRACE("(%p,%p, %p)\n", This, pStream, pDesc);
-	
+
 	/* FIXME: should this be determined from stream? */
 	pDesc->dwValidData |= DMUS_OBJ_CLASS;
-	memcpy (&pDesc->guidClass, &CLSID_DirectMusicSegment, sizeof(CLSID));
-	
+	pDesc->guidClass = CLSID_DirectMusicSegment;
+
 	IStream_Read (pStream, &Chunk, sizeof(FOURCC)+sizeof(DWORD), NULL);
 	TRACE_(dmfile)(": %s chunk (size = 0x%04x)", debugstr_fourcc (Chunk.fccID), Chunk.dwSize);
 	switch (Chunk.fccID) {	
@@ -771,7 +770,7 @@ static ULONG WINAPI IDirectMusicSegment8Impl_IPersistStream_Release (LPPERSISTST
 static HRESULT WINAPI IDirectMusicSegment8Impl_IPersistStream_GetClassID (LPPERSISTSTREAM iface, CLSID* pClassID) {
   ICOM_THIS_MULTI(IDirectMusicSegment8Impl, PersistStreamVtbl, iface);
   TRACE("(%p, %p)\n", This, pClassID);
-  memcpy(pClassID, &CLSID_DirectMusicSegment, sizeof(CLSID));
+  *pClassID = CLSID_DirectMusicSegment;
   return S_OK;
 }
 
@@ -823,9 +822,9 @@ static HRESULT IDirectMusicSegment8Impl_IPersistStream_ParseTrackForm (LPPERSIST
   /*ICOM_THIS_MULTI(IDirectMusicSegment8Impl, PersistStreamVtbl, iface);*/
   HRESULT hr = E_FAIL;
   DMUS_PRIVATE_CHUNK Chunk;
-  DWORD StreamSize, StreamCount, ListSize[3], ListCount[3];
+  DWORD StreamSize, StreamCount, ListSize[3];
   LARGE_INTEGER liMove; /* used when skipping chunks */
-  
+
   DMUS_IO_TRACK_HEADER        track_hdr;
   DMUS_IO_TRACK_EXTRAS_HEADER track_xhdr;
   IDirectMusicTrack*          pTrack = NULL;
@@ -845,7 +844,7 @@ static HRESULT IDirectMusicSegment8Impl_IPersistStream_ParseTrackForm (LPPERSIST
     
     switch (Chunk.fccID) {
     case DMUS_FOURCC_TRACK_CHUNK: {
-      TRACE_(dmfile)(": track chunck\n");
+      TRACE_(dmfile)(": track chunk\n");
       IStream_Read (pStm, &track_hdr, sizeof(DMUS_IO_TRACK_HEADER), NULL);
       TRACE_(dmfile)(" - class: %s\n", debugstr_guid (&track_hdr.guidClassID));
       TRACE_(dmfile)(" - dwGroup: %d\n", track_hdr.dwGroup);
@@ -854,7 +853,7 @@ static HRESULT IDirectMusicSegment8Impl_IPersistStream_ParseTrackForm (LPPERSIST
       break;
     }
     case DMUS_FOURCC_TRACK_EXTRAS_CHUNK: {
-      TRACE_(dmfile)(": track extras chunck\n");
+      TRACE_(dmfile)(": track extras chunk\n");
       IStream_Read (pStm, &track_xhdr, sizeof(DMUS_IO_TRACK_EXTRAS_HEADER), NULL);
       break;
     }
@@ -870,7 +869,6 @@ static HRESULT IDirectMusicSegment8Impl_IPersistStream_ParseTrackForm (LPPERSIST
       IStream_Read (pStm, &Chunk.fccID, sizeof(FOURCC), NULL);
       TRACE_(dmfile)(": LIST chunk of type %s", debugstr_fourcc(Chunk.fccID));
       ListSize[0] = Chunk.dwSize - sizeof(FOURCC);
-      ListCount[0] = 0;
       if (Chunk.fccID == track_hdr.fccType && 0 == track_hdr.ckid) {
 	LPSTREAM pClonedStream = NULL;
 
@@ -983,7 +981,7 @@ static HRESULT IDirectMusicSegment8Impl_IPersistStream_ParseTrackList (LPPERSIST
 
   HRESULT hr = E_FAIL;
   DMUS_PRIVATE_CHUNK Chunk;
-  DWORD StreamSize, StreamCount, ListSize[3], ListCount[3];
+  DWORD StreamSize, ListSize[3], ListCount[3];
   LARGE_INTEGER liMove; /* used when skipping chunks */
 
   if (pChunk->fccID != DMUS_FOURCC_TRACK_LIST) {
@@ -1003,7 +1001,6 @@ static HRESULT IDirectMusicSegment8Impl_IPersistStream_ParseTrackList (LPPERSIST
       IStream_Read (pStm, &Chunk.fccID, sizeof(FOURCC), NULL);
       TRACE_(dmfile)(": RIFF chunk of type %s", debugstr_fourcc(Chunk.fccID));
       StreamSize = Chunk.dwSize - sizeof(FOURCC);
-      StreamCount = 0;
       switch (Chunk.fccID) {
       case  DMUS_FOURCC_TRACK_FORM: {
 	TRACE_(dmfile)(": TRACK form\n");
@@ -1193,14 +1190,13 @@ static HRESULT IDirectMusicSegment8Impl_IPersistStream_LoadWave (LPPERSISTSTREAM
 
 static HRESULT WINAPI IDirectMusicSegment8Impl_IPersistStream_Load (LPPERSISTSTREAM iface, IStream* pStm) {
   ICOM_THIS_MULTI(IDirectMusicSegment8Impl, PersistStreamVtbl, iface);
-  
+
   HRESULT hr;
   DMUS_PRIVATE_CHUNK Chunk;
-  DWORD StreamSize, StreamCount;
+  DWORD StreamSize;
   /*DWORD ListSize[3], ListCount[3];*/
   LARGE_INTEGER liMove; /* used when skipping chunks */
-  
-  
+
   TRACE("(%p, %p): Loading\n", This, pStm);
   IStream_Read (pStm, &Chunk, sizeof(FOURCC)+sizeof(DWORD), NULL);
   TRACE_(dmfile)(": %s chunk (size = %d)", debugstr_fourcc (Chunk.fccID), Chunk.dwSize);
@@ -1209,7 +1205,6 @@ static HRESULT WINAPI IDirectMusicSegment8Impl_IPersistStream_Load (LPPERSISTSTR
     IStream_Read (pStm, &Chunk.fccID, sizeof(FOURCC), NULL);				
     TRACE_(dmfile)(": RIFF chunk of type %s", debugstr_fourcc(Chunk.fccID));
     StreamSize = Chunk.dwSize - sizeof(FOURCC);
-    StreamCount = 0;
     switch (Chunk.fccID) {
     case DMUS_FOURCC_SEGMENT_FORM: {
       TRACE_(dmfile)(": segment form\n");
@@ -1302,9 +1297,9 @@ HRESULT WINAPI DMUSIC_CreateDirectMusicSegmentImpl (LPCGUID lpcGUID, LPVOID* ppo
   obj->pDesc = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(DMUS_OBJECTDESC));
   DM_STRUCT_INIT(obj->pDesc);
   obj->pDesc->dwValidData |= DMUS_OBJ_CLASS;
-  memcpy (&obj->pDesc->guidClass, &CLSID_DirectMusicSegment, sizeof (CLSID));
+  obj->pDesc->guidClass = CLSID_DirectMusicSegment;
   obj->ref = 0; /* will be inited by QueryInterface */
   list_init (&obj->Tracks);
-  
+
   return IDirectMusicSegment8Impl_IUnknown_QueryInterface ((LPUNKNOWN)&obj->UnknownVtbl, lpcGUID, ppobj);
 }

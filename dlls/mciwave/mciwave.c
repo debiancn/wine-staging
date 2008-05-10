@@ -323,7 +323,7 @@ static DWORD WAVE_mciCreateRIFFSkeleton(WINE_MCIWAVE* wmw)
    {
        wmw->lpWaveFormat = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*wmw->lpWaveFormat));
        if (!wmw->lpWaveFormat) return MMSYSERR_NOMEM;
-       memcpy(wmw->lpWaveFormat, &wmw->wfxRef, sizeof(wmw->wfxRef));
+       *wmw->lpWaveFormat = wmw->wfxRef;
    }
 
    /* we can only record PCM files... there is no way in the MCI API to specify
@@ -369,7 +369,7 @@ static DWORD create_tmp_file(HMMIO* hFile, LPWSTR* pszTmpFileName)
     szPrefix[2] = 'I';
     szPrefix[3] = '\0';
 
-    if (!GetTempPathW(sizeof(szTmpPath), szTmpPath)) {
+    if (!GetTempPathW(sizeof(szTmpPath)/sizeof(szTmpPath[0]), szTmpPath)) {
         WARN("can't retrieve temp path!\n");
         return MCIERR_FILE_NOT_FOUND;
     }
@@ -784,7 +784,7 @@ static DWORD WAVE_mciPlay(MCIDEVICEID wDevID, DWORD dwFlags, LPMCI_PLAY_PARMS lp
 
     /* go back to beginning of chunk plus the requested position */
     /* FIXME: I'm not sure this is correct, notably because some data linked to
-     * the decompression state machine will not be correcly initialized.
+     * the decompression state machine will not be correctly initialized.
      * try it this way (other way would be to decompress from 0 up to dwPosition
      * and to start sending to hWave when dwPosition is reached)
      */
@@ -1015,11 +1015,11 @@ static DWORD WAVE_mciRecord(MCIDEVICEID wDevID, DWORD dwFlags, LPMCI_RECORD_PARM
     wmw->dwPosition = WAVE_ALIGN_ON_BLOCK(wmw, wmw->dwPosition);
     wmw->ckWaveData.cksize = WAVE_ALIGN_ON_BLOCK(wmw, wmw->ckWaveData.cksize);
 
-    /* go back to beginning of chunk plus the requested position */
+    /* Go back to the beginning of the chunk plus the requested position */
     /* FIXME: I'm not sure this is correct, notably because some data linked to
-     * the decompression state machine will not be correcly initialized.
-     * try it this way (other way would be to decompress from 0 up to dwPosition
-     * and to start sending to hWave when dwPosition is reached)
+     * the decompression state machine will not be correctly initialized.
+     * Try it this way (other way would be to decompress from 0 up to dwPosition
+     * and to start sending to hWave when dwPosition is reached).
      */
     mmioSeek(wmw->hFile, wmw->ckWaveData.dwDataOffset + wmw->dwPosition, SEEK_SET); /* >= 0 */
 

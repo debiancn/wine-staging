@@ -75,6 +75,7 @@ MENU_SHV_FILE MENU DISCARDABLE
 BEGIN
 	POPUP ""
 	BEGIN
+	  MENUITEM "&Select"		FCIDM_SHVIEW_OPEN
 	  MENUITEM "&Провідник",		FCIDM_SHVIEW_EXPLORE
 	  MENUITEM "&Відкрити",		FCIDM_SHVIEW_OPEN
 	  MENUITEM SEPARATOR
@@ -110,11 +111,11 @@ CAPTION "Про %s"
 FONT 10, "MS Shell Dlg"
 {
  DEFPUSHBUTTON "OK", IDOK, 153, 133, 50, 12, WS_TABSTOP
- LISTBOX 99, 8, 65, 137, 82, LBS_NOTIFY | WS_VSCROLL | WS_BORDER
- ICON "", 1088, 10, 10, 14, 16
- LTEXT "", 100, 30, 10, 137, 10
- LTEXT "", 101, 30, 22, 137, 10
- LTEXT "Розробники Wine:", 98, 8, 55, 137, 10
+ LISTBOX IDC_ABOUT_LISTBOX, 8, 65, 137, 82, LBS_NOTIFY | WS_VSCROLL | WS_BORDER
+ ICON "", stc1, 10, 10, 30, 30
+ LTEXT "", IDC_ABOUT_STATIC_TEXT1, 40, 10, 137, 10
+ LTEXT "", IDC_ABOUT_STATIC_TEXT2, 40, 22, 137, 10
+ LTEXT "Розробники Wine:", IDC_ABOUT_WINE_TEXT, 8, 55, 137, 10
 }
 
 SHELL_RUN_DLG DIALOG LOADONCALL MOVEABLE DISCARDABLE 0, 0, 227, 95
@@ -134,27 +135,19 @@ FONT 8, "MS Shell Dlg"
 /*
 	special folders
 */
-STRINGTABLE DISCARDABLE
+STRINGTABLE
 {
 	IDS_DESKTOP		"Стільниця"
 	IDS_MYCOMPUTER		"Мій Комп'ютер"
-}
 
-/*
-	context menus
-*/
-STRINGTABLE DISCARDABLE
-{
+        /* context menus */
 	IDS_VIEW_LARGE		"&Великі Іконки"
 	IDS_VIEW_SMALL		"&Малі Іконки"
 	IDS_VIEW_LIST		"&Список"
 	IDS_VIEW_DETAILS	"&Подробиці"
 	IDS_SELECT		"Ви&брати"
 	IDS_OPEN		"Ві&дкрити"
-}
 
-STRINGTABLE DISCARDABLE
-{
 	IDS_CREATEFOLDER_DENIED "Не вдалося створити нову теку: Відмова у доступі."
 	IDS_CREATEFOLDER_CAPTION "Помилка при створенні нової теки"
 	IDS_DELETEITEM_CAPTION "Підтвердження вилучення файлу"
@@ -167,11 +160,8 @@ STRINGTABLE DISCARDABLE
 	    "If the files in the destination folder have the same names as files in the\n"\
 	    "selected folder they will be replaced. Do you still want to move or copy\n"\
 	    "the folder?"
-}
 
 /*	columns in the shellview	*/
-STRINGTABLE
-BEGIN
 	IDS_SHV_COLUMN1		"Файл"
 	IDS_SHV_COLUMN2		"Розмір"
 	IDS_SHV_COLUMN3		"Тип"
@@ -179,4 +169,6 @@ BEGIN
 	IDS_SHV_COLUMN5		"Атрибути"
 	IDS_SHV_COLUMN6		"Розмір"
 	IDS_SHV_COLUMN7		"Вільний Розмір"
-END
+
+	IDS_NEWFOLDER		"New Folder"
+}

@@ -76,6 +76,7 @@ MENU_SHV_FILE MENU DISCARDABLE
 BEGIN
 	POPUP ""
 	BEGIN
+	  MENUITEM "&Seleccionar"		FCIDM_SHVIEW_OPEN
 	  MENUITEM "E&xplorar",			FCIDM_SHVIEW_EXPLORE
 	  MENUITEM "&Abrir",			FCIDM_SHVIEW_OPEN
 	  MENUITEM SEPARATOR
@@ -107,7 +108,7 @@ FONT 8, "MS Shell Dlg"
 
 SHELL_YESTOALL_MSGBOX DIALOG 200, 100, 280, 90
 STYLE DS_MODALFRAME | WS_POPUP | WS_VISIBLE | WS_CAPTION | WS_SYSMENU
-CAPTION "Message"
+CAPTION "Mensaje"
 FONT 8, "MS Shell Dlg"
 {
     DEFPUSHBUTTON "&Sí", IDYES, 34, 69, 53, 14, WS_GROUP | WS_TABSTOP
@@ -124,11 +125,11 @@ CAPTION "Acerca de %s"
 FONT 10, "MS Shell Dlg"
 {
  DEFPUSHBUTTON "Aceptar", IDOK, 153, 133, 50, 12, WS_TABSTOP
- LISTBOX 99, 8, 65, 137, 82, LBS_NOTIFY | WS_VSCROLL | WS_BORDER
- ICON "", 1088, 10, 10, 14, 16
- LTEXT "", 100, 30, 10, 137, 10
- LTEXT "", 101, 30, 22, 137, 10
- LTEXT "Wine le ha sido proporcionado por:", 98, 8, 55, 137, 10
+ LISTBOX IDC_ABOUT_LISTBOX, 8, 65, 137, 82, LBS_NOTIFY | WS_VSCROLL | WS_BORDER
+ ICON "", stc1, 10, 10, 30, 30
+ LTEXT "", IDC_ABOUT_STATIC_TEXT1, 40, 10, 137, 10
+ LTEXT "", IDC_ABOUT_STATIC_TEXT2, 40, 22, 137, 10
+ LTEXT "Wine le ha sido proporcionado por:", IDC_ABOUT_WINE_TEXT, 8, 55, 137, 10
 }
 
 SHELL_RUN_DLG DIALOG LOADONCALL MOVEABLE DISCARDABLE 0, 0, 227, 95
@@ -145,7 +146,7 @@ FONT 8, "MS Shell Dlg"
  PUSHBUTTON "&Examinar...", 12288, 170, 63, 50, 14, WS_TABSTOP
 }
 
-STRINGTABLE DISCARDABLE
+STRINGTABLE
 {
         /* columns in the shellview */
 	IDS_SHV_COLUMN1         "Archivo"
@@ -204,16 +205,16 @@ STRINGTABLE DISCARDABLE
 	IDS_PERSONAL                "Mis documentos"
 	IDS_FAVORITES               "Favoritos"
 	IDS_STARTUP                 "Menú Inicio\\Programas\\Inicio"
-	IDS_RECENT                  "Recent"
-	IDS_SENDTO                  "SendTo"
+	IDS_RECENT                  "Recientes"
+	IDS_SENDTO                  "Enviar a"
 	IDS_STARTMENU               "Menú Inicio"
 	IDS_MYMUSIC                 "Mi música"
 	IDS_MYVIDEO                 "Mis vídeos"
 	IDS_DESKTOPDIRECTORY        "Escritorio"
 	IDS_NETHOOD                 "Entorno de red"
-	IDS_TEMPLATES               "Templates"
+	IDS_TEMPLATES               "Plantillas"
 	IDS_APPDATA                 "Application Data"
-	IDS_PRINTHOOD               "PrintHood"
+	IDS_PRINTHOOD               "Vencindario de impresión"
 	IDS_LOCAL_APPDATA           "Configuración local\\Datos de programa"
 	IDS_INTERNET_CACHE          "Configuración local\\Archivos temporales de Internet"
 	IDS_COOKIES                 "Cookies"
@@ -227,4 +228,6 @@ STRINGTABLE DISCARDABLE
 	IDS_COMMON_PICTURES         "Documentos\\Mis imágenes"
 	IDS_COMMON_VIDEO            "Documentos\\Mis vídeos"
 	IDS_CDBURN_AREA             "Configuración local\\Datos de programa\\Microsoft\\CD Burning"
+
+	IDS_NEWFOLDER		"Nueva carpeta"
 }

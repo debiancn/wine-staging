@@ -24,6 +24,8 @@
 #define IDD_ABOUT  101
 #define IDD_TAG    102
 
+#define IDC_STATIC -1
+
 #define IDC_ST0 1000
 #define IDC_PB0 1001
 #define IDC_ST1 1002
@@ -39,6 +41,8 @@
 
 #define IDC_EDIT  4000
 #define IDC_ABOUT 4001
+
+#define IDS_BUILD_ID 1
 
 /* Resource types */
 

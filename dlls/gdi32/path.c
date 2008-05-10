@@ -129,7 +129,7 @@ static inline void INTERNAL_LPTODP_FLOAT(DC *dc, FLOAT_POINT *point)
 BOOL WINAPI BeginPath(HDC hdc)
 {
     BOOL ret = TRUE;
-    DC *dc = DC_GetDCPtr( hdc );
+    DC *dc = get_dc_ptr( hdc );
 
     if(!dc) return FALSE;
 
@@ -148,7 +148,7 @@ BOOL WINAPI BeginPath(HDC hdc)
             dc->path.state=PATH_Open;
         }
     }
-    GDI_ReleaseObj( hdc );
+    release_dc_ptr( dc );
     return ret;
 }
 
@@ -159,7 +159,7 @@ BOOL WINAPI BeginPath(HDC hdc)
 BOOL WINAPI EndPath(HDC hdc)
 {
     BOOL ret = TRUE;
-    DC *dc = DC_GetDCPtr( hdc );
+    DC *dc = get_dc_ptr( hdc );
 
     if(!dc) return FALSE;
 
@@ -176,7 +176,7 @@ BOOL WINAPI EndPath(HDC hdc)
         /* Set flag to indicate that path is finished */
         else dc->path.state=PATH_Closed;
     }
-    GDI_ReleaseObj( hdc );
+    release_dc_ptr( dc );
     return ret;
 }
 
@@ -198,7 +198,7 @@ BOOL WINAPI EndPath(HDC hdc)
 BOOL WINAPI AbortPath( HDC hdc )
 {
     BOOL ret = TRUE;
-    DC *dc = DC_GetDCPtr( hdc );
+    DC *dc = get_dc_ptr( hdc );
 
     if(!dc) return FALSE;
 
@@ -206,7 +206,7 @@ BOOL WINAPI AbortPath( HDC hdc )
         ret = dc->funcs->pAbortPath(dc->physDev);
     else /* Remove all entries from the path */
         PATH_EmptyPath( &dc->path );
-    GDI_ReleaseObj( hdc );
+    release_dc_ptr( dc );
     return ret;
 }
 
@@ -219,7 +219,7 @@ BOOL WINAPI AbortPath( HDC hdc )
 BOOL WINAPI CloseFigure(HDC hdc)
 {
     BOOL ret = TRUE;
-    DC *dc = DC_GetDCPtr( hdc );
+    DC *dc = get_dc_ptr( hdc );
 
     if(!dc) return FALSE;
 
@@ -235,9 +235,8 @@ BOOL WINAPI CloseFigure(HDC hdc)
         }
         else
         {
-            /* FIXME: Shouldn't we draw a line to the beginning of the
-               figure? */
             /* Set PT_CLOSEFIGURE on the last entry and start a new stroke */
+            /* It is not necessary to draw a line, PT_CLOSEFIGURE is a virtual closing line itself */
             if(dc->path.numEntriesUsed)
             {
                 dc->path.pFlags[dc->path.numEntriesUsed-1]|=PT_CLOSEFIGURE;
@@ -245,7 +244,7 @@ BOOL WINAPI CloseFigure(HDC hdc)
             }
         }
     }
-    GDI_ReleaseObj( hdc );
+    release_dc_ptr( dc );
     return ret;
 }
 
@@ -258,7 +257,7 @@ INT WINAPI GetPath(HDC hdc, LPPOINT pPoints, LPBYTE pTypes,
 {
    INT ret = -1;
    GdiPath *pPath;
-   DC *dc = DC_GetDCPtr( hdc );
+   DC *dc = get_dc_ptr( hdc );
 
    if(!dc) return -1;
 
@@ -293,7 +292,7 @@ INT WINAPI GetPath(HDC hdc, LPPOINT pPoints, LPBYTE pTypes,
      else ret = pPath->numEntriesUsed;
    }
  done:
-   GDI_ReleaseObj( hdc );
+   release_dc_ptr( dc );
    return ret;
 }
 
@@ -311,7 +310,7 @@ HRGN WINAPI PathToRegion(HDC hdc)
 {
    GdiPath *pPath;
    HRGN  hrgnRval = 0;
-   DC *dc = DC_GetDCPtr( hdc );
+   DC *dc = get_dc_ptr( hdc );
 
    /* Get pointer to path */
    if(!dc) return 0;
@@ -328,7 +327,7 @@ HRGN WINAPI PathToRegion(HDC hdc)
        else
            hrgnRval=0;
    }
-   GDI_ReleaseObj( hdc );
+   release_dc_ptr( dc );
    return hrgnRval;
 }
 
@@ -414,7 +413,7 @@ static BOOL PATH_FillPath(DC *dc, GdiPath *pPath)
  */
 BOOL WINAPI FillPath(HDC hdc)
 {
-    DC *dc = DC_GetDCPtr( hdc );
+    DC *dc = get_dc_ptr( hdc );
     BOOL bRet = FALSE;
 
     if(!dc) return FALSE;
@@ -431,7 +430,7 @@ BOOL WINAPI FillPath(HDC hdc)
             PATH_EmptyPath(&dc->path);
         }
     }
-    GDI_ReleaseObj( hdc );
+    release_dc_ptr( dc );
     return bRet;
 }
 
@@ -446,7 +445,7 @@ BOOL WINAPI SelectClipPath(HDC hdc, INT iMode)
    GdiPath *pPath;
    HRGN  hrgnPath;
    BOOL  success = FALSE;
-   DC *dc = DC_GetDCPtr( hdc );
+   DC *dc = get_dc_ptr( hdc );
 
    if(!dc) return FALSE;
 
@@ -471,7 +470,7 @@ BOOL WINAPI SelectClipPath(HDC hdc, INT iMode)
            /* FIXME: Should this function delete the path even if it failed? */
        }
    }
-   GDI_ReleaseObj( hdc );
+   release_dc_ptr( dc );
    return success;
 }
 
@@ -931,6 +930,73 @@ BOOL PATH_PolyBezier(DC *dc, const POINT *pts, DWORD cbPoints)
        PATH_AddEntry(pPath, &pt, (i == 0) ? PT_MOVETO : PT_BEZIERTO);
    }
    return TRUE;
+}
+
+/* PATH_PolyDraw
+ *
+ * Should be called when a call to PolyDraw is performed on a DC that has
+ * an open path. Returns TRUE if successful, else FALSE.
+ */
+BOOL PATH_PolyDraw(DC *dc, const POINT *pts, const BYTE *types,
+    DWORD cbPoints)
+{
+        GdiPath     *pPath = &dc->path;
+        POINT       lastmove, orig_pos;
+        INT         i;
+
+        lastmove.x = orig_pos.x = dc->CursPosX;
+        lastmove.y = orig_pos.y = dc->CursPosY;
+
+        for(i = pPath->numEntriesUsed - 1; i >= 0; i--){
+            if(pPath->pFlags[i] == PT_MOVETO){
+                lastmove.x = pPath->pPoints[i].x;
+                lastmove.y = pPath->pPoints[i].y;
+                if(!DPtoLP(dc->hSelf, &lastmove, 1))
+                    return FALSE;
+                break;
+            }
+        }
+
+        for(i = 0; i < cbPoints; i++){
+            if(types[i] == PT_MOVETO){
+                pPath->newStroke = TRUE;
+                lastmove.x = pts[i].x;
+                lastmove.y = pts[i].y;
+            }
+            else if((types[i] & ~PT_CLOSEFIGURE) == PT_LINETO){
+                PATH_LineTo(dc, pts[i].x, pts[i].y);
+            }
+            else if(types[i] == PT_BEZIERTO){
+                if(!((i + 2 < cbPoints) && (types[i + 1] == PT_BEZIERTO)
+                    && ((types[i + 2] & ~PT_CLOSEFIGURE) == PT_BEZIERTO)))
+                    goto err;
+                PATH_PolyBezierTo(dc, &(pts[i]), 3);
+                i += 2;
+            }
+            else
+                goto err;
+
+            dc->CursPosX = pts[i].x;
+            dc->CursPosY = pts[i].y;
+
+            if(types[i] & PT_CLOSEFIGURE){
+                pPath->pFlags[pPath->numEntriesUsed-1] |= PT_CLOSEFIGURE;
+                pPath->newStroke = TRUE;
+                dc->CursPosX = lastmove.x;
+                dc->CursPosY = lastmove.y;
+            }
+        }
+
+        return TRUE;
+
+err:
+        if((dc->CursPosX != orig_pos.x) || (dc->CursPosY != orig_pos.y)){
+            pPath->newStroke = TRUE;
+            dc->CursPosX = orig_pos.x;
+            dc->CursPosY = orig_pos.y;
+        }
+
+        return FALSE;
 }
 
 BOOL PATH_Polyline(DC *dc, const POINT *pts, DWORD cbPoints)
@@ -1631,7 +1697,7 @@ static void PATH_NormalizePoint(FLOAT_POINT corners[],
 BOOL WINAPI FlattenPath(HDC hdc)
 {
     BOOL ret = FALSE;
-    DC *dc = DC_GetDCPtr( hdc );
+    DC *dc = get_dc_ptr( hdc );
 
     if(!dc) return FALSE;
 
@@ -1642,7 +1708,7 @@ BOOL WINAPI FlattenPath(HDC hdc)
         if(pPath->state != PATH_Closed)
 	    ret = PATH_FlattenPath(pPath);
     }
-    GDI_ReleaseObj( hdc );
+    release_dc_ptr( dc );
     return ret;
 }
 
@@ -1785,7 +1851,7 @@ static BOOL PATH_StrokePath(DC *dc, GdiPath *pPath)
 
 static BOOL PATH_WidenPath(DC *dc)
 {
-    INT i, j, numStrokes, nLinePts, penWidth, penWidthIn, penWidthOut, size, penStyle;
+    INT i, j, numStrokes, penWidth, penWidthIn, penWidthOut, size, penStyle;
     BOOL ret = FALSE;
     GdiPath *pPath, *pNewPath, **pStrokes, *pUpPath, *pDownPath;
     EXTLOGPEN *elp;
@@ -1835,18 +1901,12 @@ static BOOL PATH_WidenPath(DC *dc)
         return FALSE;
     }
 
-    /* pen width must be strictly higher than 1 */
-    if(penWidth == 1) {
-        return TRUE;
-    }
-
     penWidthIn = penWidth / 2;
     penWidthOut = penWidth / 2;
     if(penWidthIn + penWidthOut < penWidth)
         penWidthOut++;
 
     numStrokes = 0;
-    nLinePts = 0;
 
     pStrokes = HeapAlloc(GetProcessHeap(), 0, numStrokes * sizeof(GdiPath*));
     pStrokes[0] = HeapAlloc(GetProcessHeap(), 0, sizeof(GdiPath));
@@ -2124,7 +2184,7 @@ static BOOL PATH_WidenPath(DC *dc)
  */
 BOOL WINAPI StrokeAndFillPath(HDC hdc)
 {
-   DC *dc = DC_GetDCPtr( hdc );
+   DC *dc = get_dc_ptr( hdc );
    BOOL bRet = FALSE;
 
    if(!dc) return FALSE;
@@ -2137,7 +2197,7 @@ BOOL WINAPI StrokeAndFillPath(HDC hdc)
        if(bRet) bRet = PATH_StrokePath(dc, &dc->path);
        if(bRet) PATH_EmptyPath(&dc->path);
    }
-   GDI_ReleaseObj( hdc );
+   release_dc_ptr( dc );
    return bRet;
 }
 
@@ -2149,7 +2209,7 @@ BOOL WINAPI StrokeAndFillPath(HDC hdc)
  */
 BOOL WINAPI StrokePath(HDC hdc)
 {
-    DC *dc = DC_GetDCPtr( hdc );
+    DC *dc = get_dc_ptr( hdc );
     GdiPath *pPath;
     BOOL bRet = FALSE;
 
@@ -2164,7 +2224,7 @@ BOOL WINAPI StrokePath(HDC hdc)
         bRet = PATH_StrokePath(dc, pPath);
         PATH_EmptyPath(pPath);
     }
-    GDI_ReleaseObj( hdc );
+    release_dc_ptr( dc );
     return bRet;
 }
 
@@ -2176,7 +2236,7 @@ BOOL WINAPI StrokePath(HDC hdc)
  */
 BOOL WINAPI WidenPath(HDC hdc)
 {
-   DC *dc = DC_GetDCPtr( hdc );
+   DC *dc = get_dc_ptr( hdc );
    BOOL ret = FALSE;
 
    if(!dc) return FALSE;
@@ -2185,6 +2245,6 @@ BOOL WINAPI WidenPath(HDC hdc)
       ret = dc->funcs->pWidenPath(dc->physDev);
    else
       ret = PATH_WidenPath(dc);
-   GDI_ReleaseObj( hdc );
+   release_dc_ptr( dc );
    return ret;
 }

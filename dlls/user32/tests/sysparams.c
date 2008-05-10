@@ -37,6 +37,8 @@
 # define SPI_GETDESKWALLPAPER 0x0073
 #endif
 
+static LONG (WINAPI *pChangeDisplaySettingsExA)(LPCSTR, LPDEVMODEA, HWND, DWORD, LPVOID);
+
 static int strict;
 static int dpi;
 static int iswin9x;
@@ -150,16 +152,26 @@ static LRESULT CALLBACK SysParamsTestWndProc( HWND hWnd, UINT msg, WPARAM wParam
                                               LPARAM lParam );
 static int change_counter;
 static int change_last_param;
+static int last_bpp;
+static BOOL displaychange_ok = FALSE, displaychange_test_active = FALSE;
+static HANDLE displaychange_sem = 0;
 
 static LRESULT CALLBACK SysParamsTestWndProc( HWND hWnd, UINT msg, WPARAM wParam,
                                               LPARAM lParam )
 {
     switch (msg) {
 
+    case WM_DISPLAYCHANGE:
+        ok(displaychange_ok, "Unexpected WM_DISPLAYCHANGE message\n");
+        last_bpp = wParam;
+        displaychange_ok = FALSE;
+        ReleaseSemaphore(displaychange_sem, 1, 0);
+        break;
+
     case WM_SETTINGCHANGE:
         if (change_counter>0) { 
             /* ignore these messages caused by resizing of toolbars */
-            if( wParam == SPI_SETWORKAREA) break;
+            if( wParam == SPI_SETWORKAREA || displaychange_test_active) break;
             if( change_last_param == SPI_SETWORKAREA) {
                 change_last_param = wParam;
                 break;
@@ -175,6 +187,7 @@ static LRESULT CALLBACK SysParamsTestWndProc( HWND hWnd, UINT msg, WPARAM wParam
         PostQuitMessage( 0 );
         break;
 
+    /* drop through */
     default:
         return( DefWindowProcA( hWnd, msg, wParam, lParam ) );
     }
@@ -714,9 +727,10 @@ static void test_SPI_SETBORDER( void )                 /*      6 */
      * do it twice to make the intended change). So skip parts of the tests on
      * those platforms */
     if( !iswin9x) {
-        test_setborder(1,  1, dpi);
-        test_setborder(0,  1, dpi);
+        /* win2k3 fails if you set the same border twice, or if size is 0 */
         test_setborder(2,  1, dpi);
+        test_setborder(1,  1, dpi);
+        test_setborder(3,  1, dpi);
     }
     test_setborder(1, 0, dpi);
     test_setborder(0, 0, dpi);
@@ -1521,7 +1535,7 @@ static void test_SPI_SETMINIMIZEDMETRICS( void )               /*     44 */
         lpMm_new.iVertGap, "iVertGap", "%d" );
     eq( GetSystemMetrics( SM_ARRANGE ),
         lpMm_new.iArrange, "iArrange", "%d" );
-    /* now some realy invalid settings */
+    /* now some really invalid settings */
     lpMm_cur.iWidth = -1;
     lpMm_cur.iHorzGap = -1;
     lpMm_cur.iVertGap = -1;
@@ -2169,6 +2183,82 @@ static void test_SPI_SETWALLPAPER( void )              /*   115 */
     test_reg_key(SPI_SETDESKWALLPAPER_REGKEY, SPI_SETDESKWALLPAPER_VALNAME, oldval);
 }
 
+static void test_WM_DISPLAYCHANGE(void)
+{
+    DEVMODE mode, startmode;
+    int start_bpp, last_set_bpp = 0;
+    int test_bpps[] = {8, 16, 24, 32}, i;
+    LONG change_ret;
+    DWORD wait_ret;
+
+    if (!pChangeDisplaySettingsExA)
+    {
+        skip("ChangeDisplaySettingsExA is not available\n");
+        return;
+    }
+
+    displaychange_test_active = TRUE;
+
+    memset(&startmode, 0, sizeof(startmode));
+    startmode.dmSize = sizeof(startmode);
+    EnumDisplaySettings(NULL, ENUM_CURRENT_SETTINGS, &startmode);
+    start_bpp = startmode.dmBitsPerPel;
+
+    displaychange_sem = CreateSemaphore(NULL, 0, 1, NULL);
+
+    for(i = 0; i < sizeof(test_bpps)/sizeof(test_bpps[0]); i++) {
+        last_bpp = -1;
+
+        memset(&mode, 0, sizeof(mode));
+        mode.dmSize = sizeof(mode);
+        mode.dmFields = DM_BITSPERPEL | DM_PELSWIDTH | DM_PELSHEIGHT;
+        mode.dmBitsPerPel = test_bpps[i];
+        mode.dmPelsWidth = GetSystemMetrics(SM_CXSCREEN);
+        mode.dmPelsHeight = GetSystemMetrics(SM_CYSCREEN);
+
+        change_counter = 0; /* This sends a SETTINGSCHANGE message as well in which we aren't interested */
+        displaychange_ok = TRUE;
+        change_ret = pChangeDisplaySettingsExA(NULL, &mode, NULL, 0, NULL);
+        /* Wait quite long for the message, screen setting changes can take some time */
+        if(change_ret == DISP_CHANGE_SUCCESSFUL) {
+            wait_ret = WaitForSingleObject(displaychange_sem, 10000);
+            ok(wait_ret == WAIT_OBJECT_0, "Waiting for the WM_DISPLAYCHANGE message timed out\n");
+        }
+        displaychange_ok = FALSE;
+
+        if(change_ret != DISP_CHANGE_SUCCESSFUL) {
+            skip("Setting depth %d failed(ret = %d)\n", test_bpps[i], change_ret);
+            ok(last_bpp == -1, "WM_DISPLAYCHANGE was sent with wParam %d despide mode change failure\n", last_bpp);
+            continue;
+        }
+
+        if(start_bpp != test_bpps[i]) {
+            todo_wine ok(last_bpp == test_bpps[i], "Set bpp %d, but WM_DISPLAYCHANGE reported bpp %d\n", test_bpps[i], last_bpp);
+        } else {
+            ok(last_bpp == test_bpps[i], "Set bpp %d, but WM_DISPLAYCHANGE reported bpp %d\n", test_bpps[i], last_bpp);
+        }
+        last_set_bpp = test_bpps[i];
+    }
+
+    if(start_bpp != last_set_bpp && last_set_bpp != 0) {
+        memset(&mode, 0, sizeof(mode));
+        mode.dmSize = sizeof(mode);
+        mode.dmFields = DM_BITSPERPEL | DM_PELSWIDTH | DM_PELSHEIGHT;
+        mode.dmBitsPerPel = start_bpp;
+        mode.dmPelsWidth = GetSystemMetrics(SM_CXSCREEN);
+        mode.dmPelsHeight = GetSystemMetrics(SM_CYSCREEN);
+
+        displaychange_ok = TRUE;
+        change_ret = pChangeDisplaySettingsExA(NULL, &mode, NULL, 0, NULL);
+        WaitForSingleObject(displaychange_sem, 10000);
+        displaychange_ok = FALSE;
+        CloseHandle(displaychange_sem);
+        displaychange_sem = 0;
+    }
+
+    displaychange_test_active = FALSE;
+}
+
 /*
  * Registry entries for the system parameters.
  * Names are created by 'SET' flags names.
@@ -2210,6 +2300,9 @@ static DWORD WINAPI SysParamsThreadFunc( LPVOID lpParam )
     test_SPI_SETWHEELSCROLLLINES();             /*    105 */
     test_SPI_SETMENUSHOWDELAY();                /*    107 */
     test_SPI_SETWALLPAPER();                    /*    115 */
+
+    test_WM_DISPLAYCHANGE();
+
     SendMessageA( ghTestWnd, WM_DESTROY, 0, 0 );
     return 0;
 }
@@ -2435,6 +2528,44 @@ static void test_GetSystemMetrics( void)
     ReleaseDC( 0, hdc);
 }
 
+static void test_EnumDisplaySettings(void)
+{
+    DEVMODE devmode;
+    DWORD val;
+    HDC hdc;
+    DWORD num;
+
+    memset(&devmode, 0, sizeof(devmode));
+    devmode.dmSize = sizeof(devmode);
+    EnumDisplaySettings(NULL, ENUM_CURRENT_SETTINGS, &devmode);
+
+    hdc = GetDC(0);
+    val = GetDeviceCaps(hdc, BITSPIXEL);
+    ok(devmode.dmBitsPerPel == val, "GetDeviceCaps(BITSPIXEL) returned %d, EnumDisplaySettings returned %d\n",
+        val, devmode.dmBitsPerPel);
+
+    val = GetDeviceCaps(hdc, NUMCOLORS);
+    if(devmode.dmBitsPerPel <= 8) {
+        ok(val == 256, "Screen bpp is %d, NUMCOLORS returned %d\n", devmode.dmBitsPerPel, val);
+    } else {
+        ok(val == -1, "Screen bpp is %d, NUMCOLORS returned %d\n", devmode.dmBitsPerPel, val);
+    }
+
+    ReleaseDC(0, hdc);
+
+    num = 1;
+    while (1) {
+        SetLastError (0xdeadbeef);
+        if (!EnumDisplaySettings(NULL, num++, &devmode)) {
+            DWORD le = GetLastError();
+            ok(le == ERROR_NO_MORE_FILES ||
+               le == 0xdeadbeef, /* XP, 2003 */
+               "Expected ERROR_NO_MORE_FILES or 0xdeadbeef, got %d\n", le);
+            break;
+	}
+    }
+}
+
 START_TEST(sysparams)
 {
     int argc;
@@ -2443,8 +2574,12 @@ START_TEST(sysparams)
     MSG msg;
     HANDLE hThread;
     DWORD dwThreadId;
-    HANDLE hInstance = GetModuleHandleA( NULL );
+    HANDLE hInstance, hdll;
 
+    hdll = GetModuleHandleA("user32.dll");
+    pChangeDisplaySettingsExA=(void*)GetProcAddress(hdll, "ChangeDisplaySettingsExA");
+
+    hInstance = GetModuleHandleA( NULL );
     hdc = GetDC(0);
     dpi = GetDeviceCaps( hdc, LOGPIXELSY);
     iswin9x = GetVersion() & 0x80000000;
@@ -2459,6 +2594,8 @@ START_TEST(sysparams)
 
     trace("testing GetSystemMetrics with your current desktop settings\n");
     test_GetSystemMetrics( );
+    trace("testing EnumDisplaySettings vs GetDeviceCaps\n");
+    test_EnumDisplaySettings( );
 
     change_counter = 0;
     change_last_param = 0;

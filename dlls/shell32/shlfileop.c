@@ -649,11 +649,11 @@ static DWORD SHNotifyCopyFileW(LPCWSTR src, LPCWSTR dest, BOOL bFailIfExists)
  *  path       [I]   path of directory to create
  *
  * RETURNS
- *  ERRROR_SUCCESS or one of the following values:
+ *  ERROR_SUCCESS or one of the following values:
  *  ERROR_BAD_PATHNAME if the path is relative
  *  ERROR_FILE_EXISTS when a file with that name exists
  *  ERROR_PATH_NOT_FOUND can't find the path, probably invalid
- *  ERROR_INVLID_NAME if the path contains invalid chars
+ *  ERROR_INVALID_NAME if the path contains invalid chars
  *  ERROR_ALREADY_EXISTS when the directory already exists
  *  ERROR_FILENAME_EXCED_RANGE if the filename was to long to process
  *
@@ -682,9 +682,9 @@ DWORD WINAPI SHCreateDirectory(HWND hWnd, LPCVOID path)
  *  sec        [I]   security attributes to use or NULL
  *
  * RETURNS
- *  ERRROR_SUCCESS or one of the following values:
+ *  ERROR_SUCCESS or one of the following values:
  *  ERROR_BAD_PATHNAME or ERROR_PATH_NOT_FOUND if the path is relative
- *  ERROR_INVLID_NAME if the path contains invalid chars
+ *  ERROR_INVALID_NAME if the path contains invalid chars
  *  ERROR_FILE_EXISTS when a file with that name exists
  *  ERROR_ALREADY_EXISTS when the directory already exists
  *  ERROR_FILENAME_EXCED_RANGE if the filename was to long to process
@@ -830,7 +830,7 @@ static DWORD SHNameTranslate(LPWSTR* wString, LPCWSTR* pWToFrom, BOOL more)
 	    aString += size;
 	  } while ((size != 1) && more);
 	  /* The two sizes might be different in the case of multibyte chars */
-	  size = MultiByteToWideChar(CP_ACP, 0, aString, aSize, *wString, 0);
+	  size = MultiByteToWideChar(CP_ACP, 0, (LPCSTR)*pWToFrom, aSize, *wString, 0);
 	  if (*wString) /* only in the second loop */
 	  {
 	    MultiByteToWideChar(CP_ACP, 0, (LPCSTR)*pWToFrom, aSize, *wString, size);
@@ -931,10 +931,10 @@ static inline void grow_list(FILE_LIST *list)
 
 /* adds a file to the FILE_ENTRY struct
  */
-static void add_file_to_entry(FILE_ENTRY *feFile, LPWSTR szFile)
+static void add_file_to_entry(FILE_ENTRY *feFile, LPCWSTR szFile)
 {
     DWORD dwLen = lstrlenW(szFile) + 1;
-    LPWSTR ptr;
+    LPCWSTR ptr;
 
     feFile->szFullPath = HeapAlloc(GetProcessHeap(), 0, dwLen * sizeof(WCHAR));
     lstrcpyW(feFile->szFullPath, szFile);
@@ -953,9 +953,10 @@ static void add_file_to_entry(FILE_ENTRY *feFile, LPWSTR szFile)
     feFile->bFromWildcard = FALSE;
 }
 
-static LPWSTR wildcard_to_file(LPWSTR szWildCard, LPWSTR szFileName)
+static LPWSTR wildcard_to_file(LPCWSTR szWildCard, LPCWSTR szFileName)
 {
-    LPWSTR szFullPath, ptr;
+    LPCWSTR ptr;
+    LPWSTR szFullPath;
     DWORD dwDirLen, dwFullLen;
 
     ptr = StrRChrW(szWildCard, NULL, '\\');
@@ -970,7 +971,7 @@ static LPWSTR wildcard_to_file(LPWSTR szWildCard, LPWSTR szFileName)
     return szFullPath;
 }
 
-static void parse_wildcard_files(FILE_LIST *flList, LPWSTR szFile, LPDWORD pdwListIndex)
+static void parse_wildcard_files(FILE_LIST *flList, LPCWSTR szFile, LPDWORD pdwListIndex)
 {
     WIN32_FIND_DATAW wfd;
     HANDLE hFile = FindFirstFileW(szFile, &wfd);
@@ -1001,7 +1002,7 @@ static HRESULT parse_file_list(FILE_LIST *flList, LPCWSTR szFiles)
 {
     LPCWSTR ptr = szFiles;
     WCHAR szCurFile[MAX_PATH];
-    DWORD i = 0, dwDirLen;
+    DWORD i = 0;
 
     if (!szFiles)
         return ERROR_INVALID_PARAMETER;
@@ -1026,7 +1027,7 @@ static HRESULT parse_file_list(FILE_LIST *flList, LPCWSTR szFiles)
         /* change relative to absolute path */
         if (PathIsRelativeW(ptr))
         {
-            dwDirLen = GetCurrentDirectoryW(MAX_PATH, szCurFile) + 1;
+            GetCurrentDirectoryW(MAX_PATH, szCurFile);
             PathCombineW(szCurFile, szCurFile, ptr);
             flList->feFiles[i].bFromRelative = TRUE;
         }
@@ -1080,7 +1081,7 @@ static void destroy_file_list(FILE_LIST *flList)
     HeapFree(GetProcessHeap(), 0, flList->feFiles);
 }
 
-static void copy_dir_to_dir(FILE_OPERATION *op, FILE_ENTRY *feFrom, LPWSTR szDestPath)
+static void copy_dir_to_dir(FILE_OPERATION *op, const FILE_ENTRY *feFrom, LPCWSTR szDestPath)
 {
     WCHAR szFrom[MAX_PATH], szTo[MAX_PATH];
     SHFILEOPSTRUCTW fileOp;
@@ -1111,7 +1112,7 @@ static void copy_dir_to_dir(FILE_OPERATION *op, FILE_ENTRY *feFrom, LPWSTR szDes
     PathCombineW(szFrom, feFrom->szFullPath, wildCardFiles);
     szFrom[lstrlenW(szFrom) + 1] = '\0';
 
-    memcpy(&fileOp, op->req, sizeof(fileOp));
+    fileOp = *op->req;
     fileOp.pFrom = szFrom;
     fileOp.pTo = szTo;
     fileOp.fFlags &= ~FOF_MULTIDESTFILES; /* we know we're copying to one dir */
@@ -1124,7 +1125,7 @@ static void copy_dir_to_dir(FILE_OPERATION *op, FILE_ENTRY *feFrom, LPWSTR szDes
     SHFileOperationW(&fileOp);
 }
 
-static BOOL copy_file_to_file(FILE_OPERATION *op, WCHAR *szFrom, WCHAR *szTo)
+static BOOL copy_file_to_file(FILE_OPERATION *op, const WCHAR *szFrom, const WCHAR *szTo)
 {
     if (!(op->req->fFlags & FOF_NOCONFIRMATION) && PathFileExistsW(szTo))
     {
@@ -1136,7 +1137,7 @@ static BOOL copy_file_to_file(FILE_OPERATION *op, WCHAR *szFrom, WCHAR *szTo)
 }
 
 /* copy a file or directory to another directory */
-static void copy_to_dir(FILE_OPERATION *op, FILE_ENTRY *feFrom, FILE_ENTRY *feTo)
+static void copy_to_dir(FILE_OPERATION *op, const FILE_ENTRY *feFrom, const FILE_ENTRY *feTo)
 {
     if (!PathFileExistsW(feTo->szFullPath))
         SHNotifyCreateDirectoryW(feTo->szFullPath, NULL);
@@ -1152,10 +1153,10 @@ static void copy_to_dir(FILE_OPERATION *op, FILE_ENTRY *feFrom, FILE_ENTRY *feTo
         copy_dir_to_dir(op, feFrom, feTo->szFullPath);
 }
 
-static void create_dest_dirs(LPWSTR szDestDir)
+static void create_dest_dirs(LPCWSTR szDestDir)
 {
     WCHAR dir[MAX_PATH];
-    LPWSTR ptr = StrChrW(szDestDir, '\\');
+    LPCWSTR ptr = StrChrW(szDestDir, '\\');
 
     /* make sure all directories up to last one are created */
     while (ptr && (ptr = StrChrW(ptr + 1, '\\')))
@@ -1172,64 +1173,70 @@ static void create_dest_dirs(LPWSTR szDestDir)
 }
 
 /* the FO_COPY operation */
-static HRESULT copy_files(FILE_OPERATION *op, FILE_LIST *flFrom, FILE_LIST *flTo)
+static HRESULT copy_files(FILE_OPERATION *op, const FILE_LIST *flFrom, FILE_LIST *flTo)
 {
     DWORD i;
-    FILE_ENTRY *entryToCopy;
-    FILE_ENTRY *fileDest = &flTo->feFiles[0];
-    BOOL bCancelIfAnyDirectories = FALSE;
+    const FILE_ENTRY *entryToCopy;
+    const FILE_ENTRY *fileDest = &flTo->feFiles[0];
 
     if (flFrom->bAnyDontExist)
         return ERROR_SHELL_INTERNAL_FILE_NOT_FOUND;
 
-    if (op->req->fFlags & FOF_MULTIDESTFILES && flFrom->bAnyFromWildcard)
-        return ERROR_CANCELLED;
-
-    if (!(op->req->fFlags & FOF_MULTIDESTFILES) && flTo->dwNumFiles != 1)
-        return ERROR_CANCELLED;
-
-    if (op->req->fFlags & FOF_MULTIDESTFILES && flFrom->dwNumFiles != 1 &&
-        flFrom->dwNumFiles != flTo->dwNumFiles)
+    if (op->req->fFlags & FOF_MULTIDESTFILES)
     {
-        return ERROR_CANCELLED;
+        if (flFrom->bAnyFromWildcard)
+            return ERROR_CANCELLED;
+
+        if (flFrom->dwNumFiles != flTo->dwNumFiles)
+        {
+            if (flFrom->dwNumFiles != 1 && !IsAttribDir(fileDest->attributes))
+                return ERROR_CANCELLED;
+
+            flTo->dwNumFiles = 1;
+        }
+        else if (IsAttribDir(fileDest->attributes))
+        {
+            for (i = 1; i < flTo->dwNumFiles; i++)
+                if (!IsAttribDir(flTo->feFiles[i].attributes) ||
+                    !IsAttribDir(flFrom->feFiles[i].attributes))
+                {
+                    return ERROR_CANCELLED;
+                }
+        }
     }
-
-    if (flFrom->dwNumFiles > 1 && flTo->dwNumFiles == 1 &&
-        !PathFileExistsW(flTo->feFiles[0].szFullPath) &&
-        IsAttribFile(fileDest->attributes))
+    else if (flFrom->dwNumFiles != 1)
     {
-        bCancelIfAnyDirectories = TRUE;
-    }
+        if (flTo->dwNumFiles != 1 && !IsAttribDir(fileDest->attributes))
+            return ERROR_CANCELLED;
 
-    if (flFrom->dwNumFiles > 1 && flTo->dwNumFiles == 1 && fileDest->bFromRelative &&
-        !PathFileExistsW(fileDest->szFullPath))
-    {
-        op->req->fAnyOperationsAborted = TRUE;
-        return ERROR_CANCELLED;
-    }
+        if (PathFileExistsW(fileDest->szFullPath) &&
+            IsAttribFile(fileDest->attributes))
+        {
+            return ERROR_CANCELLED;
+        }
 
-    if (!(op->req->fFlags & FOF_MULTIDESTFILES) && flFrom->dwNumFiles != 1 &&
-        PathFileExistsW(fileDest->szFullPath) &&
-        IsAttribFile(fileDest->attributes))
-    {
-        return ERROR_CANCELLED;
+        if (flTo->dwNumFiles == 1 && fileDest->bFromRelative &&
+            !PathFileExistsW(fileDest->szFullPath))
+        {
+            return ERROR_CANCELLED;
+        }
     }
 
     for (i = 0; i < flFrom->dwNumFiles; i++)
     {
         entryToCopy = &flFrom->feFiles[i];
 
-        if (op->req->fFlags & FOF_MULTIDESTFILES)
+        if ((op->req->fFlags & FOF_MULTIDESTFILES) &&
+            flTo->dwNumFiles > 1)
+        {
             fileDest = &flTo->feFiles[i];
+        }
 
         if (IsAttribDir(entryToCopy->attributes) &&
             !lstrcmpiW(entryToCopy->szFullPath, fileDest->szDirectory))
         {
             return ERROR_SUCCESS;
         }
-
-        if (IsAttribDir(entryToCopy->attributes) && bCancelIfAnyDirectories)
-            return ERROR_CANCELLED;
 
         create_dest_dirs(fileDest->szDirectory);
 
@@ -1242,7 +1249,7 @@ static HRESULT copy_files(FILE_OPERATION *op, FILE_LIST *flFrom, FILE_LIST *flTo
         }
 
         if ((flFrom->dwNumFiles > 1 && flTo->dwNumFiles == 1) ||
-            (flFrom->dwNumFiles == 1 && IsAttribDir(fileDest->attributes)))
+            IsAttribDir(fileDest->attributes))
         {
             copy_to_dir(op, entryToCopy, fileDest);
         }
@@ -1269,7 +1276,7 @@ static HRESULT copy_files(FILE_OPERATION *op, FILE_LIST *flFrom, FILE_LIST *flTo
     return ERROR_SUCCESS;
 }
 
-static BOOL confirm_delete_list(HWND hWnd, DWORD fFlags, BOOL fTrash, FILE_LIST *flFrom)
+static BOOL confirm_delete_list(HWND hWnd, DWORD fFlags, BOOL fTrash, const FILE_LIST *flFrom)
 {
     if (flFrom->dwNumFiles > 1)
     {
@@ -1281,7 +1288,7 @@ static BOOL confirm_delete_list(HWND hWnd, DWORD fFlags, BOOL fTrash, FILE_LIST 
     }
     else
     {
-        FILE_ENTRY *fileEntry = &flFrom->feFiles[0];
+        const FILE_ENTRY *fileEntry = &flFrom->feFiles[0];
 
         if (IsAttribFile(fileEntry->attributes))
             return SHELL_ConfirmDialogW(hWnd, (fTrash?ASK_TRASH_FILE:ASK_DELETE_FILE), fileEntry->szFullPath, NULL);
@@ -1292,9 +1299,9 @@ static BOOL confirm_delete_list(HWND hWnd, DWORD fFlags, BOOL fTrash, FILE_LIST 
 }
 
 /* the FO_DELETE operation */
-static HRESULT delete_files(LPSHFILEOPSTRUCTW lpFileOp, FILE_LIST *flFrom)
+static HRESULT delete_files(LPSHFILEOPSTRUCTW lpFileOp, const FILE_LIST *flFrom)
 {
-    FILE_ENTRY *fileEntry;
+    const FILE_ENTRY *fileEntry;
     DWORD i;
     BOOL bPathExists;
     BOOL bTrash;
@@ -1354,7 +1361,7 @@ static HRESULT delete_files(LPSHFILEOPSTRUCTW lpFileOp, FILE_LIST *flFrom)
     return ERROR_SUCCESS;
 }
 
-static void move_dir_to_dir(LPSHFILEOPSTRUCTW lpFileOp, FILE_ENTRY *feFrom, LPWSTR szDestPath)
+static void move_dir_to_dir(LPSHFILEOPSTRUCTW lpFileOp, const FILE_ENTRY *feFrom, LPCWSTR szDestPath)
 {
     WCHAR szFrom[MAX_PATH], szTo[MAX_PATH];
     SHFILEOPSTRUCTW fileOp;
@@ -1372,7 +1379,7 @@ static void move_dir_to_dir(LPSHFILEOPSTRUCTW lpFileOp, FILE_ENTRY *feFrom, LPWS
     lstrcpyW(szTo, szDestPath);
     szTo[lstrlenW(szDestPath) + 1] = '\0';
 
-    memcpy(&fileOp, lpFileOp, sizeof(fileOp));
+    fileOp = *lpFileOp;
     fileOp.pFrom = szFrom;
     fileOp.pTo = szTo;
 
@@ -1380,7 +1387,7 @@ static void move_dir_to_dir(LPSHFILEOPSTRUCTW lpFileOp, FILE_ENTRY *feFrom, LPWS
 }
 
 /* moves a file or directory to another directory */
-static void move_to_dir(LPSHFILEOPSTRUCTW lpFileOp, FILE_ENTRY *feFrom, FILE_ENTRY *feTo)
+static void move_to_dir(LPSHFILEOPSTRUCTW lpFileOp, const FILE_ENTRY *feFrom, const FILE_ENTRY *feTo)
 {
     WCHAR szDestPath[MAX_PATH];
 
@@ -1393,11 +1400,11 @@ static void move_to_dir(LPSHFILEOPSTRUCTW lpFileOp, FILE_ENTRY *feFrom, FILE_ENT
 }
 
 /* the FO_MOVE operation */
-static HRESULT move_files(LPSHFILEOPSTRUCTW lpFileOp, FILE_LIST *flFrom, FILE_LIST *flTo)
+static HRESULT move_files(LPSHFILEOPSTRUCTW lpFileOp, const FILE_LIST *flFrom, const FILE_LIST *flTo)
 {
     DWORD i;
-    FILE_ENTRY *entryToMove;
-    FILE_ENTRY *fileDest;
+    const FILE_ENTRY *entryToMove;
+    const FILE_ENTRY *fileDest;
 
     if (!flFrom->dwNumFiles || !flTo->dwNumFiles)
         return ERROR_CANCELLED;
@@ -1445,10 +1452,10 @@ static HRESULT move_files(LPSHFILEOPSTRUCTW lpFileOp, FILE_LIST *flFrom, FILE_LI
 }
 
 /* the FO_RENAME files */
-static HRESULT rename_files(LPSHFILEOPSTRUCTW lpFileOp, FILE_LIST *flFrom, FILE_LIST *flTo)
+static HRESULT rename_files(LPSHFILEOPSTRUCTW lpFileOp, const FILE_LIST *flFrom, const FILE_LIST *flTo)
 {
-    FILE_ENTRY *feFrom;
-    FILE_ENTRY *feTo;
+    const FILE_ENTRY *feFrom;
+    const FILE_ENTRY *feTo;
 
     if (flFrom->dwNumFiles != 1)
         return ERROR_GEN_FAILURE;
@@ -1536,7 +1543,7 @@ int WINAPI SHFileOperationW(LPSHFILEOPSTRUCTW lpFileOp)
 
     if (ret == ERROR_CANCELLED)
         lpFileOp->fAnyOperationsAborted = TRUE;
-    
+
     return ret;
 }
 
@@ -1545,7 +1552,7 @@ int WINAPI SHFileOperationW(LPSHFILEOPSTRUCTW lpFileOp)
 /*************************************************************************
  * SHFreeNameMappings      [shell32.246]
  *
- * Free the mapping handle returned by SHFileoperation if FOF_WANTSMAPPINGHANDLE
+ * Free the mapping handle returned by SHFileOperation if FOF_WANTSMAPPINGHANDLE
  * was specified.
  *
  * PARAMS
@@ -1574,37 +1581,103 @@ void WINAPI SHFreeNameMappings(HANDLE hNameMapping)
 /*************************************************************************
  * SheGetDirA [SHELL32.@]
  *
- */
-HRESULT WINAPI SheGetDirA(LPSTR u, LPSTR v)
-{   FIXME("%p %p stub\n",u,v);
+ * drive = 0: returns the current directory path
+ * drive > 0: returns the current directory path of the specified drive
+ *            drive=1 -> A:  drive=2 -> B:  ...
+ * returns 0 if successful
+*/
+DWORD WINAPI SheGetDirA(DWORD drive, LPSTR buffer)
+{
+    WCHAR org_path[MAX_PATH];
+    DWORD ret;
+    char drv_path[3];
+
+    /* change current directory to the specified drive */
+    if (drive) {
+        strcpy(drv_path, "A:");
+        drv_path[0] += (char)drive-1;
+
+        GetCurrentDirectoryW(MAX_PATH, org_path);
+
+        SetCurrentDirectoryA(drv_path);
+    }
+
+    /* query current directory path of the specified drive */
+    ret = GetCurrentDirectoryA(MAX_PATH, buffer);
+
+    /* back to the original drive */
+    if (drive)
+        SetCurrentDirectoryW(org_path);
+
+    if (!ret)
+        return GetLastError();
+
     return 0;
 }
 
 /*************************************************************************
  * SheGetDirW [SHELL32.@]
  *
+ * drive = 0: returns the current directory path
+ * drive > 0: returns the current directory path of the specified drive
+ *            drive=1 -> A:  drive=2 -> B:  ...
+ * returns 0 if successful
  */
-HRESULT WINAPI SheGetDirW(LPWSTR u, LPWSTR v)
-{	FIXME("%p %p stub\n",u,v);
-	return 0;
+DWORD WINAPI SheGetDirW(DWORD drive, LPWSTR buffer)
+{
+    WCHAR org_path[MAX_PATH];
+    DWORD ret;
+    char drv_path[3];
+
+    /* change current directory to the specified drive */
+    if (drive) {
+        strcpy(drv_path, "A:");
+        drv_path[0] += (char)drive-1;
+
+        GetCurrentDirectoryW(MAX_PATH, org_path);
+
+        SetCurrentDirectoryA(drv_path);
+    }
+
+    /* query current directory path of the specified drive */
+    ret = GetCurrentDirectoryW(MAX_PATH, buffer);
+
+    /* back to the original drive */
+    if (drive)
+        SetCurrentDirectoryW(org_path);
+
+    if (!ret)
+        return GetLastError();
+
+    return 0;
 }
 
 /*************************************************************************
  * SheChangeDirA [SHELL32.@]
  *
+ * changes the current directory to the specified path
+ * and returns 0 if successful
  */
-HRESULT WINAPI SheChangeDirA(LPSTR u)
-{   FIXME("(%s),stub\n",debugstr_a(u));
-    return 0;
+DWORD WINAPI SheChangeDirA(LPSTR path)
+{
+    if (SetCurrentDirectoryA(path))
+        return 0;
+    else
+        return GetLastError();
 }
 
 /*************************************************************************
  * SheChangeDirW [SHELL32.@]
  *
+ * changes the current directory to the specified path
+ * and returns 0 if successful
  */
-HRESULT WINAPI SheChangeDirW(LPWSTR u)
-{	FIXME("(%s),stub\n",debugstr_w(u));
-	return 0;
+DWORD WINAPI SheChangeDirW(LPWSTR path)
+{
+    if (SetCurrentDirectoryW(path))
+        return 0;
+    else
+        return GetLastError();
 }
 
 /*************************************************************************
@@ -1627,4 +1700,77 @@ INT WINAPI RealDriveType(INT drive, BOOL bQueryNet)
     char root[] = "A:\\";
     root[0] += (char)drive;
     return GetDriveTypeA(root);
+}
+
+/***********************************************************************
+ *              SHPathPrepareForWriteA (SHELL32.@)
+ */
+HRESULT WINAPI SHPathPrepareForWriteA(HWND hwnd, IUnknown *modless, LPCSTR path, DWORD flags)
+{
+    WCHAR wpath[MAX_PATH];
+    MultiByteToWideChar( CP_ACP, 0, path, -1, wpath, MAX_PATH);
+    return SHPathPrepareForWriteW(hwnd, modless, wpath, flags);
+}
+
+/***********************************************************************
+ *              SHPathPrepareForWriteW (SHELL32.@)
+ */
+HRESULT WINAPI SHPathPrepareForWriteW(HWND hwnd, IUnknown *modless, LPCWSTR path, DWORD flags)
+{
+    HRESULT res;
+    DWORD err;
+    LPCWSTR realpath;
+    int len;
+    WCHAR* last_slash;
+    WCHAR* temppath=NULL;
+
+    TRACE("%p %p %s 0x%80x\n", hwnd, modless, debugstr_w(path), flags);
+
+    if (flags & ~(SHPPFW_DIRCREATE|SHPPFW_ASKDIRCREATE|SHPPFW_IGNOREFILENAME))
+        FIXME("unimplemented flags 0x%08x\n", flags);
+
+    /* cut off filename if necessary */
+    if (flags & SHPPFW_IGNOREFILENAME)
+    {
+        last_slash = StrRChrW(path, NULL, '\\');
+        if (last_slash == NULL)
+            len = 1;
+        else
+            len = last_slash - path + 1;
+        temppath = HeapAlloc(GetProcessHeap(), 0, len * sizeof(WCHAR));
+        if (!temppath)
+            return E_OUTOFMEMORY;
+        StrCpyNW(temppath, path, len);
+        realpath = temppath;
+    }
+    else
+    {
+        realpath = path;
+    }
+
+    /* try to create the directory if asked to */
+    if (flags & (SHPPFW_DIRCREATE|SHPPFW_ASKDIRCREATE))
+    {
+        if (flags & SHPPFW_ASKDIRCREATE)
+            FIXME("treating SHPPFW_ASKDIRCREATE as SHPPFW_DIRCREATE\n");
+
+        SHCreateDirectoryExW(0, realpath, NULL);
+    }
+
+    /* check if we can access the directory */
+    res = GetFileAttributesW(realpath);
+
+    HeapFree(GetProcessHeap(), 0, temppath);
+
+    if (res == INVALID_FILE_ATTRIBUTES)
+    {
+        err = GetLastError();
+        if (err == ERROR_FILE_NOT_FOUND)
+            return HRESULT_FROM_WIN32(ERROR_PATH_NOT_FOUND);
+        return HRESULT_FROM_WIN32(err);
+    }
+    else if (res & FILE_ATTRIBUTE_DIRECTORY)
+        return S_OK;
+    else
+        return HRESULT_FROM_WIN32(ERROR_DIRECTORY);
 }

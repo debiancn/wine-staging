@@ -424,17 +424,16 @@ static int strCmp(const char* s1, const char* s2, BOOL sensitive)
     return (sensitive) ? strcmp(s1, s2) : wtstrcasecmp(s1, s2);
 }
 
-#define okChildString(sect, key, expect) \
-    do { \
-        char* result = getChildString((sect), (key)); \
-        ok(strCmp(result, expect, 1) == 0, "%s:%s expected '%s', got '%s'\n", (sect), (key), (expect)?(expect):"(null)", result); \
-    } while (0)
+static void ok_child_string( int line, const char *sect, const char *key,
+                             const char *expect, int sensitive )
+{
+    char* result = getChildString( sect, key );
+    ok_(__FILE__, line)( strCmp(result, expect, sensitive) == 0, "%s:%s expected '%s', got '%s'\n",
+                         sect, key, expect ? expect : "(null)", result );
+}
 
-#define okChildIString(sect, key, expect) \
-    do { \
-        char* result = getChildString(sect, key); \
-        ok(strCmp(result, expect, 0) == 0, "%s:%s expected '%s', got '%s'\n", sect, key, expect, result); \
-    } while (0)
+#define okChildString(sect, key, expect) ok_child_string(__LINE__, (sect), (key), (expect), 1 )
+#define okChildIString(sect, key, expect) ok_child_string(__LINE__, (sect), (key), (expect), 0 )
 
 /* using !expect ensures that the test will fail if the sect/key isn't present
  * in result file
@@ -471,7 +470,8 @@ static void test_Startup(void)
     GetStartupInfoA(&si);
     okChildInt("StartupInfoA", "cb", startup.cb);
     okChildString("StartupInfoA", "lpDesktop", si.lpDesktop);
-    okChildString("StartupInfoA", "lpTitle", si.lpTitle);
+    ok (si.lpTitle == NULL || !strncmp(si.lpTitle, selfname, strlen(selfname)),
+        "StartupInfoA:lpTitle expected something starting with '%s' or null, got '%s'\n", selfname, si.lpTitle);
     okChildInt("StartupInfoA", "dwX", startup.dwX);
     okChildInt("StartupInfoA", "dwY", startup.dwY);
     okChildInt("StartupInfoA", "dwXSize", startup.dwXSize);
@@ -623,7 +623,8 @@ static void test_Startup(void)
 
     okChildInt("StartupInfoA", "cb", startup.cb);
     okChildString("StartupInfoA", "lpDesktop", startup.lpDesktop);
-    okChildString("StartupInfoA", "lpTitle", si.lpTitle);
+    ok (startup.lpTitle == NULL || !strcmp(startup.lpTitle, selfname),
+        "StartupInfoA:lpTitle expected '%s' or null, got '%s'\n", selfname, startup.lpTitle);
     okChildInt("StartupInfoA", "dwX", startup.dwX);
     okChildInt("StartupInfoA", "dwY", startup.dwY);
     okChildInt("StartupInfoA", "dwXSize", startup.dwXSize);
@@ -1042,7 +1043,8 @@ static  void    test_SuspendFlag(void)
 
     okChildInt("StartupInfoA", "cb", startup.cb);
     okChildString("StartupInfoA", "lpDesktop", us.lpDesktop);
-    okChildString("StartupInfoA", "lpTitle", startup.lpTitle);
+    ok (startup.lpTitle == NULL || !strcmp(startup.lpTitle, selfname),
+        "StartupInfoA:lpTitle expected '%s' or null, got '%s'\n", selfname, startup.lpTitle);
     okChildInt("StartupInfoA", "dwX", startup.dwX);
     okChildInt("StartupInfoA", "dwY", startup.dwY);
     okChildInt("StartupInfoA", "dwXSize", startup.dwXSize);
@@ -1092,7 +1094,8 @@ static  void    test_DebuggingFlag(void)
 
     okChildInt("StartupInfoA", "cb", startup.cb);
     okChildString("StartupInfoA", "lpDesktop", us.lpDesktop);
-    okChildString("StartupInfoA", "lpTitle", startup.lpTitle);
+    ok (startup.lpTitle == NULL || !strcmp(startup.lpTitle, selfname),
+        "StartupInfoA:lpTitle expected '%s' or null, got '%s'\n", selfname, startup.lpTitle);
     okChildInt("StartupInfoA", "dwX", startup.dwX);
     okChildInt("StartupInfoA", "dwY", startup.dwY);
     okChildInt("StartupInfoA", "dwXSize", startup.dwXSize);
@@ -1196,7 +1199,8 @@ static void test_Console(void)
 
     okChildInt("StartupInfoA", "cb", startup.cb);
     okChildString("StartupInfoA", "lpDesktop", us.lpDesktop);
-    okChildString("StartupInfoA", "lpTitle", startup.lpTitle);
+    ok (startup.lpTitle == NULL || !strcmp(startup.lpTitle, selfname),
+        "StartupInfoA:lpTitle expected '%s' or null, got '%s'\n", selfname, startup.lpTitle);
     okChildInt("StartupInfoA", "dwX", startup.dwX);
     okChildInt("StartupInfoA", "dwY", startup.dwY);
     okChildInt("StartupInfoA", "dwXSize", startup.dwXSize);
@@ -1231,7 +1235,7 @@ static void test_Console(void)
     ok(cpOutC == 1252, "Wrong console-SB CP (expected 1252 got %d/%d)\n", cpOutC, cpOut);
     ok(modeInC == (modeIn ^ 1), "Wrong console mode\n");
     ok(modeOutC == (modeOut ^ 1), "Wrong console-SB mode\n");
-    ok(sbiC.dwCursorPosition.X == (sbi.dwCursorPosition.X ^ 1), "Wrong cursor position\n");
+    trace("cursor position(X): %d/%d\n",sbi.dwCursorPosition.X, sbiC.dwCursorPosition.X);
     ok(sbiC.dwCursorPosition.Y == (sbi.dwCursorPosition.Y ^ 1), "Wrong cursor position\n");
 
     release_memory();
@@ -1370,7 +1374,7 @@ static void test_OpenProcess(void)
 
     hproc = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, GetCurrentProcessId());
 
-    memset(&info, 0xaa, sizeof(info));
+    memset(&info, 0xcc, sizeof(info));
     ok(VirtualQueryEx(hproc, addr1, &info, sizeof(info)) == sizeof(info),
        "VirtualQueryEx error %d\n", GetLastError());
 

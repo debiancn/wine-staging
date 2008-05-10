@@ -108,9 +108,26 @@ static void flushdisplaymodes(void)
 
 static HRESULT WINAPI enummodescallback(LPDDSURFACEDESC lpddsd, LPVOID lpContext)
 {
-    trace("Width = %i, Height = %i, Refresh Rate = %i\r\n",
+    trace("Width = %i, Height = %i, Refresh Rate = %i, Pitch = %i, flags =%02X\r\n",
         lpddsd->dwWidth, lpddsd->dwHeight,
-        U2(*lpddsd).dwRefreshRate);
+          U2(*lpddsd).dwRefreshRate, U1(*lpddsd).lPitch, lpddsd->dwFlags);
+
+    /* Check that the pitch is valid if applicable */
+    if(lpddsd->dwFlags & DDSD_PITCH)
+    {
+        ok(U1(*lpddsd).lPitch != 0, "EnumDisplayModes callback with bad pitch\n");
+    }
+
+    /* Check that frequency is valid if applicable
+     *
+     * This fails on some Windows drivers or Windows versions, so it isn't important
+     * apparently
+    if(lpddsd->dwFlags & DDSD_REFRESHRATE)
+    {
+        ok(U2(*lpddsd).dwRefreshRate != 0, "EnumDisplayModes callback with bad refresh rate\n");
+    }
+     */
+
     adddisplaymode(lpddsd);
 
     return DDENUMRET_OK;

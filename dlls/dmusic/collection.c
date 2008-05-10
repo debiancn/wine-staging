@@ -118,7 +118,7 @@ static HRESULT WINAPI IDirectMusicCollectionImpl_IDirectMusicCollection_GetInstr
 		tmpEntry = LIST_ENTRY(listEntry, DMUS_PRIVATE_INSTRUMENTENTRY, entry);
 		IDirectMusicInstrument_GetPatch (tmpEntry->pInstrument, &dwInstPatch);
 		if (dwPatch == dwInstPatch) {
-			*ppInstrument = (LPDIRECTMUSICINSTRUMENT)tmpEntry->pInstrument;
+			*ppInstrument = tmpEntry->pInstrument;
 			IDirectMusicInstrument_AddRef (tmpEntry->pInstrument);
 			IDirectMusicInstrumentImpl_Custom_Load (tmpEntry->pInstrument, This->pStm); /* load instrument before returning it */
 			TRACE(": returning instrument %p\n", *ppInstrument);
@@ -192,12 +192,12 @@ static HRESULT WINAPI IDirectMusicCollectionImpl_IDirectMusicObject_GetDescripto
 static HRESULT WINAPI IDirectMusicCollectionImpl_IDirectMusicObject_SetDescriptor (LPDIRECTMUSICOBJECT iface, LPDMUS_OBJECTDESC pDesc) {
 	ICOM_THIS_MULTI(IDirectMusicCollectionImpl, ObjectVtbl, iface);
 	TRACE("(%p, %p): setting descriptor:\n%s\n", This, pDesc, debugstr_DMUS_OBJECTDESC (pDesc));
-	
+
 	/* According to MSDN, we should copy only given values, not whole struct */	
 	if (pDesc->dwValidData & DMUS_OBJ_OBJECT)
-		memcpy (&This->pDesc->guidObject, &pDesc->guidObject, sizeof (pDesc->guidObject));
+		This->pDesc->guidObject = pDesc->guidObject;
 	if (pDesc->dwValidData & DMUS_OBJ_CLASS)
-		memcpy (&This->pDesc->guidClass, &pDesc->guidClass, sizeof (pDesc->guidClass));		
+		This->pDesc->guidClass = pDesc->guidClass;
 	if (pDesc->dwValidData & DMUS_OBJ_NAME)
                lstrcpynW(This->pDesc->wszName, pDesc->wszName, DMUS_MAX_NAME);
 	if (pDesc->dwValidData & DMUS_OBJ_CATEGORY)
@@ -205,9 +205,9 @@ static HRESULT WINAPI IDirectMusicCollectionImpl_IDirectMusicObject_SetDescripto
 	if (pDesc->dwValidData & DMUS_OBJ_FILENAME)
                lstrcpynW(This->pDesc->wszFileName, pDesc->wszFileName, DMUS_MAX_FILENAME);
 	if (pDesc->dwValidData & DMUS_OBJ_VERSION)
-		memcpy (&This->pDesc->vVersion, &pDesc->vVersion, sizeof (pDesc->vVersion));				
+		This->pDesc->vVersion = pDesc->vVersion;
 	if (pDesc->dwValidData & DMUS_OBJ_DATE)
-		memcpy (&This->pDesc->ftDate, &pDesc->ftDate, sizeof (pDesc->ftDate));				
+		This->pDesc->ftDate = pDesc->ftDate;
 	if (pDesc->dwValidData & DMUS_OBJ_MEMORY) {
 		memcpy (&This->pDesc->llMemLength, &pDesc->llMemLength, sizeof (pDesc->llMemLength));				
 		memcpy (This->pDesc->pbMemData, pDesc->pbMemData, sizeof (pDesc->pbMemData));
@@ -230,11 +230,11 @@ static HRESULT WINAPI IDirectMusicCollectionImpl_IDirectMusicObject_ParseDescrip
 	LARGE_INTEGER liMove; /* used when skipping chunks */
 
 	TRACE("(%p, %p, %p)\n", This, pStream, pDesc);
-	
+
 	/* FIXME: should this be determined from stream? */
 	pDesc->dwValidData |= DMUS_OBJ_CLASS;
-	memcpy (&pDesc->guidClass, &CLSID_DirectMusicCollection, sizeof(CLSID));
-	
+	pDesc->guidClass = CLSID_DirectMusicCollection;
+
 	IStream_Read (pStream, &Chunk, sizeof(FOURCC)+sizeof(DWORD), NULL);
 	TRACE_(dmfile)(": %s chunk (size = 0x%04x)", debugstr_fourcc (Chunk.fccID), Chunk.dwSize);
 	switch (Chunk.fccID) {	
@@ -588,7 +588,7 @@ static HRESULT WINAPI IDirectMusicCollectionImpl_IPersistStream_Load (LPPERSISTS
 														case FOURCC_INS: {
 															LPDMUS_PRIVATE_INSTRUMENTENTRY pNewInstrument = HeapAlloc (GetProcessHeap (), HEAP_ZERO_MEMORY, sizeof(DMUS_PRIVATE_INSTRUMENTENTRY));
 															TRACE_(dmfile)(": instrument list\n");
-															DMUSIC_CreateDirectMusicInstrumentImpl (&IID_IDirectMusicInstrument, (LPVOID*)&pNewInstrument->pInstrument, NULL); /* only way to create this one... even M$ does it discretly */
+															DMUSIC_CreateDirectMusicInstrumentImpl (&IID_IDirectMusicInstrument, (LPVOID*)&pNewInstrument->pInstrument, NULL); /* only way to create this one... even M$ does it discretely */
                                                                                                                         {
                                                                                                                             ICOM_NAME_MULTI (IDirectMusicInstrumentImpl, InstrumentVtbl, pNewInstrument->pInstrument, pInstrument);
                                                                                                                             liMove.QuadPart = 0;
@@ -770,9 +770,9 @@ HRESULT WINAPI DMUSIC_CreateDirectMusicCollectionImpl (LPCGUID lpcGUID, LPVOID* 
 	obj->pDesc = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(DMUS_OBJECTDESC));
 	DM_STRUCT_INIT(obj->pDesc);
 	obj->pDesc->dwValidData |= DMUS_OBJ_CLASS;
-	memcpy (&obj->pDesc->guidClass, &CLSID_DirectMusicCollection, sizeof (CLSID));
+	obj->pDesc->guidClass = CLSID_DirectMusicCollection;
 	obj->ref = 0; /* will be inited by QueryInterface */
 	list_init (&obj->Instruments);
-	
+
 	return IDirectMusicCollectionImpl_IUnknown_QueryInterface ((LPUNKNOWN)&obj->UnknownVtbl, lpcGUID, ppobj);
 }

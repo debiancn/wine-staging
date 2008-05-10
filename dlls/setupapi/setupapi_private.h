@@ -29,6 +29,29 @@
 #define REGPART_RENAME "\\Rename"
 #define REG_VERSIONCONFLICT "Software\\Microsoft\\VersionConflictManager"
 
+static inline WCHAR *strdupW( const WCHAR *str )
+{
+    WCHAR *ret = NULL;
+    if (str)
+    {
+        int len = (lstrlenW(str) + 1) * sizeof(WCHAR);
+        if ((ret = HeapAlloc( GetProcessHeap(), 0, len ))) memcpy( ret, str, len );
+    }
+    return ret;
+}
+
+static inline char *strdupWtoA( const WCHAR *str )
+{
+    char *ret = NULL;
+    if (str)
+    {
+        DWORD len = WideCharToMultiByte( CP_ACP, 0, str, -1, NULL, 0, NULL, NULL );
+        if ((ret = HeapAlloc( GetProcessHeap(), 0, len )))
+            WideCharToMultiByte( CP_ACP, 0, str, -1, ret, len, NULL, NULL );
+    }
+    return ret;
+}
+
 static inline WCHAR *strdupAtoW( const char *str )
 {
     WCHAR *ret = NULL;
@@ -45,9 +68,9 @@ static inline WCHAR *strdupAtoW( const char *str )
 
 struct inf_file;
 extern const WCHAR *DIRID_get_string( int dirid );
-extern unsigned int PARSER_string_substA( struct inf_file *file, const WCHAR *text,
+extern unsigned int PARSER_string_substA( const struct inf_file *file, const WCHAR *text,
                                           char *buffer, unsigned int size );
-extern unsigned int PARSER_string_substW( struct inf_file *file, const WCHAR *text,
+extern unsigned int PARSER_string_substW( const struct inf_file *file, const WCHAR *text,
                                           WCHAR *buffer, unsigned int size );
 extern const WCHAR *PARSER_get_inf_filename( HINF hinf );
 extern WCHAR *PARSER_get_src_root( HINF hinf );

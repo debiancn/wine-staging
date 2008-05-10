@@ -219,18 +219,12 @@ static HRESULT WINAPI IDirectMusicPerformance8Impl_Init (LPDIRECTMUSICPERFORMANC
 	}
 
 	if (NULL != pDirectSound) {
-	  This->pDirectSound = (IDirectSound*) pDirectSound;
-	  IDirectSound_AddRef((LPDIRECTSOUND) This->pDirectSound);
+	  This->pDirectSound = pDirectSound;
+	  IDirectSound_AddRef(This->pDirectSound);
 	} else {
-	  HRESULT hr;
-	  hr = DirectSoundCreate8(NULL, (LPDIRECTSOUND8*) &This->pDirectSound, NULL);
+	  DirectSoundCreate8(NULL, (LPDIRECTSOUND8*) &This->pDirectSound, NULL);
 	  if (!This->pDirectSound) return DSERR_NODRIVER;
-	  
-	  /** 
-	   * as seen in msdn
-	   * 
-	   *  http://msdn.microsoft.com/library/default.asp?url=/library/en-us/directx9_c/directX/htm/idirectmusicperformance8initaudio.asp
-	   */
+
 	  if (NULL != hWnd) {
 	    IDirectSound8_SetCooperativeLevel(This->pDirectSound, hWnd, DSSCL_PRIORITY);
 	  } else {
@@ -242,9 +236,9 @@ static HRESULT WINAPI IDirectMusicPerformance8Impl_Init (LPDIRECTMUSICPERFORMANC
 	if (NULL != ppDirectMusic && NULL != *ppDirectMusic) {
 	  /* app creates it's own dmusic object and gives it to performance */
 	  This->pDirectMusic = (IDirectMusic8*) *ppDirectMusic;
-	  IDirectMusic8_AddRef((LPDIRECTMUSIC8) This->pDirectMusic);
+	  IDirectMusic8_AddRef(This->pDirectMusic);
 	} else {
-	  /* app allows the performance to initialise itfself and needs a pointer to object*/
+	  /* app allows the performance to initialise itself and needs a pointer to object*/
           CoCreateInstance (&CLSID_DirectMusic, NULL, CLSCTX_INPROC_SERVER, &IID_IDirectMusic8, (void**)&This->pDirectMusic);
 	  if (ppDirectMusic) {
 	    *ppDirectMusic = (LPDIRECTMUSIC) This->pDirectMusic;
@@ -451,8 +445,8 @@ static HRESULT WINAPI IDirectMusicPerformance8Impl_GetGraph (LPDIRECTMUSICPERFOR
   IDirectMusicPerformance8Impl *This = (IDirectMusicPerformance8Impl *)iface;
   FIXME("(%p, %p): to check\n", This, ppGraph);
   if (NULL != This->pToolGraph) {
-    *ppGraph = (LPDIRECTMUSICGRAPH) This->pToolGraph; 
-    IDirectMusicGraph_AddRef((LPDIRECTMUSICGRAPH) *ppGraph);
+    *ppGraph = This->pToolGraph;
+    IDirectMusicGraph_AddRef(*ppGraph);
   } else {
     return E_FAIL;
   }
@@ -466,11 +460,11 @@ static HRESULT WINAPI IDirectMusicPerformance8Impl_SetGraph (LPDIRECTMUSICPERFOR
   
   if (NULL != This->pToolGraph) {
     /* Todo clean buffers and tools before */
-    IDirectMusicGraph_Release((LPDIRECTMUSICGRAPH) This->pToolGraph);
+    IDirectMusicGraph_Release(This->pToolGraph);
   }
   This->pToolGraph = pGraph;
   if (NULL != This->pToolGraph) {
-    IDirectMusicGraph_AddRef((LPDIRECTMUSICGRAPH) This->pToolGraph);
+    IDirectMusicGraph_AddRef(This->pToolGraph);
   }
   return S_OK;
 }
@@ -690,11 +684,11 @@ static HRESULT WINAPI IDirectMusicPerformance8Impl_CloseDown (LPDIRECTMUSICPERFO
     CloseHandle(This->procThread);
   }
   if (NULL != This->pDirectSound) {
-    IDirectSound_Release((LPDIRECTSOUND) This->pDirectSound);
+    IDirectSound_Release(This->pDirectSound);
     This->pDirectSound = NULL;
   }
   if (NULL != This->pDirectMusic) {
-    IDirectMusic8_Release((LPDIRECTMUSIC8) This->pDirectMusic);
+    IDirectMusic8_Release(This->pDirectMusic);
     This->pDirectMusic = NULL;
   }
   return S_OK;
@@ -763,19 +757,16 @@ static HRESULT WINAPI IDirectMusicPerformance8Impl_InitAudio (LPDIRECTMUSICPERFO
 	
 	IDirectMusicPerformance8Impl_Init(iface, ppDirectMusic, dsound, hWnd);
 
-	/* Init increases the ref count of the dsound object. Decremente it if the app don't want a pointer to the object. */
+	/* Init increases the ref count of the dsound object. Decrement it if the app doesn't want a pointer to the object. */
 	if (NULL == ppDirectSound) {
 	  IDirectSound_Release(This->pDirectSound);
 	}
 
 	/* as seen in msdn we need params init before audio path creation */
 	if (NULL != pParams) {
-	  memcpy(&This->pParams, pParams, sizeof(DMUS_AUDIOPARAMS));
+	  This->pParams = *pParams;
 	} else {
-	  /**
-	   * TODO, how can i fill the struct 
-	   * as seen at http://msdn.microsoft.com/library/default.asp?url=/library/en-us/directx9_c/directX/htm/dmusaudioparams.asp
-	   */
+	  /* TODO, how can i fill the struct as seen on msdn */
 	  memset(&This->pParams, 0, sizeof(DMUS_AUDIOPARAMS));
 	  This->pParams.dwSize = sizeof(DMUS_AUDIOPARAMS);
 	  This->pParams.fInitNow = FALSE;
@@ -785,7 +776,7 @@ static HRESULT WINAPI IDirectMusicPerformance8Impl_InitAudio (LPDIRECTMUSICPERFO
 	  This->pParams.dwFeatures = dwFlags;
 	  This->pParams.clsidDefaultSynth = CLSID_DirectMusicSynthSink;
 	}
-	hr = IDirectMusicPerformance8_CreateStandardAudioPath(iface, dwDefaultPathType, dwPChannelCount, FALSE, (IDirectMusicAudioPath**) &This->pDefaultPath);
+	hr = IDirectMusicPerformance8_CreateStandardAudioPath(iface, dwDefaultPathType, dwPChannelCount, FALSE, &This->pDefaultPath);
 
 	PostMessageToProcessMsgThread(This, PROCESSMSG_START);
 
@@ -829,14 +820,11 @@ static HRESULT WINAPI IDirectMusicPerformance8Impl_CreateAudioPath (LPDIRECTMUSI
 
 	/** TODO */
 	
-	*ppNewPath = (LPDIRECTMUSICAUDIOPATH) pPath;
+	*ppNewPath = pPath;
 
 	return IDirectMusicAudioPath_Activate(*ppNewPath, fActivate);
 }
 
-/**
- * see  http://msdn.microsoft.com/library/default.asp?url=/library/en-us/directx9_c/directX/htm/standardaudiopaths.asp
- */
 static HRESULT WINAPI IDirectMusicPerformance8Impl_CreateStandardAudioPath (LPDIRECTMUSICPERFORMANCE8 iface, DWORD dwType, DWORD dwPChannelCount, BOOL fActivate, IDirectMusicAudioPath** ppNewPath) {
 	IDirectMusicAudioPathImpl *default_path;
 	IDirectMusicAudioPath *pPath;
@@ -883,7 +871,7 @@ static HRESULT WINAPI IDirectMusicPerformance8Impl_CreateStandardAudioPath (LPDI
 	        desc.dwFlags |= DSBCAPS_CTRLFREQUENCY;
 		break;
 	case DMUS_APATH_SHARED_STEREOPLUSREVERB:
-	        /* normally we havet to create 2 buffers (one for music other for reverb) 
+	        /* normally we have to create 2 buffers (one for music other for reverb)
 		 * in this case. See msdn
                  */
 	case DMUS_APATH_DYNAMIC_STEREO:
@@ -921,7 +909,7 @@ static HRESULT WINAPI IDirectMusicPerformance8Impl_CreateStandardAudioPath (LPDI
 	}
 	default_path->pPrimary = buffer;
 
-	*ppNewPath = (LPDIRECTMUSICAUDIOPATH) pPath;
+	*ppNewPath = pPath;
 	
 	TRACE(" returning IDirectMusicPerformance interface at %p.\n", *ppNewPath);
 
@@ -933,13 +921,13 @@ static HRESULT WINAPI IDirectMusicPerformance8Impl_SetDefaultAudioPath (LPDIRECT
 
 	FIXME("(%p, %p): semi-stub\n", This, pAudioPath);
 	if (NULL != This->pDefaultPath) {
-		IDirectMusicAudioPath_Release((LPDIRECTMUSICAUDIOPATH) This->pDefaultPath);
+		IDirectMusicAudioPath_Release(This->pDefaultPath);
 		((IDirectMusicAudioPathImpl*) This->pDefaultPath)->pPerf = NULL;
 		This->pDefaultPath = NULL;
 	}
 	This->pDefaultPath = pAudioPath;
 	if (NULL != This->pDefaultPath) {
-		IDirectMusicAudioPath_AddRef((LPDIRECTMUSICAUDIOPATH) This->pDefaultPath);
+		IDirectMusicAudioPath_AddRef(This->pDefaultPath);
 		((IDirectMusicAudioPathImpl*) This->pDefaultPath)->pPerf = (IDirectMusicPerformance8*) This;	
 	}
 	
@@ -952,7 +940,7 @@ static HRESULT WINAPI IDirectMusicPerformance8Impl_GetDefaultAudioPath (LPDIRECT
 	FIXME("(%p, %p): semi-stub (%p)\n", This, ppAudioPath, This->pDefaultPath);
 
 	if (NULL != This->pDefaultPath) {
-	  *ppAudioPath = (LPDIRECTMUSICAUDIOPATH) This->pDefaultPath;
+	  *ppAudioPath = This->pDefaultPath;
           IDirectMusicAudioPath_AddRef(*ppAudioPath);
         } else {
 	  *ppAudioPath = NULL;
@@ -1043,9 +1031,6 @@ HRESULT WINAPI DMUSIC_CreateDirectMusicPerformanceImpl (LPCGUID lpcGUID, LPVOID 
 	InitializeCriticalSection(&obj->safe);
 	obj->safe.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": IDirectMusicPerformance8Impl*->safe");
 
-	/**
-	 * @see http://msdn.microsoft.com/archive/default.asp?url=/archive/en-us/directx9_c/directx/htm/latencyandbumpertime.asp
-	 */
 	obj->rtLatencyTime  = 100;  /* 100ms TO FIX */
 	obj->dwBumperLength =   50; /* 50ms default */
 	obj->dwPrepareTime  = 1000; /* 1000ms default */

@@ -23,6 +23,9 @@
 #include <windows.h>
 #include <stdio.h>
 
+static BOOL (WINAPI *pGetConsoleInputExeNameA)(DWORD, LPSTR);
+static BOOL (WINAPI *pSetConsoleInputExeNameA)(LPCSTR);
+
 /* DEFAULT_ATTRIB is used for all initial filling of the console.
  * all modifications are made with TEST_ATTRIB so that we could check
  * what has to be modified or not
@@ -49,6 +52,21 @@
   expect = ReadConsoleOutputAttribute((hCon), &__attr, 1, (c), &__len) == 1 && __len == 1 && __attr == (attr); \
   ok(expect, "At (%d,%d): expecting attr %04x got %04x\n", (c).X, (c).Y, (attr), __attr); \
 } while (0)
+
+static void init_function_pointers(void)
+{
+    HMODULE hKernel32;
+
+#define KERNEL32_GET_PROC(func)                                     \
+    p##func = (void *)GetProcAddress(hKernel32, #func);             \
+    if(!p##func) trace("GetProcAddress(hKernel32, '%s') failed\n", #func);
+
+    hKernel32 = GetModuleHandleA("kernel32.dll");
+    KERNEL32_GET_PROC(GetConsoleInputExeNameA);
+    KERNEL32_GET_PROC(SetConsoleInputExeNameA);
+
+#undef KERNEL32_GET_PROC
+}
 
 /* FIXME: this could be optimized on a speed point of view */
 static void resetContent(HANDLE hCon, COORD sbSize, BOOL content)
@@ -362,6 +380,7 @@ static void testScroll(HANDLE hCon, COORD sbSize)
     SMALL_RECT  scroll, clip;
     COORD       dst, c, tc;
     CHAR_INFO   ci;
+    BOOL ret;
 
 #define W 11
 #define H 7
@@ -455,22 +474,31 @@ static void testScroll(HANDLE hCon, COORD sbSize)
     clip.Top = H / 2;
     clip.Bottom = min(H + H / 2, sbSize.Y - 1);
 
-    ok(ScrollConsoleScreenBuffer(hCon, &scroll, &clip, dst, &ci), "Scrolling SB\n");
-
-    for (c.Y = 0; c.Y < sbSize.Y; c.Y++)
+    SetLastError(0xdeadbeef);
+    ret = ScrollConsoleScreenBuffer(hCon, &scroll, &clip, dst, &ci);
+    if (ret)
     {
-        for (c.X = 0; c.X < sbSize.X; c.X++)
+        for (c.Y = 0; c.Y < sbSize.Y; c.Y++)
         {
-            if (IN_SRECT2(scroll, dst, c) && IN_SRECT(clip, c))
+            for (c.X = 0; c.X < sbSize.X; c.X++)
             {
-                tc.X = c.X - dst.X;
-                tc.Y = c.Y - dst.Y;
-                okCHAR(hCon, c, CONTENT(tc), DEFAULT_ATTRIB);
+                if (IN_SRECT2(scroll, dst, c) && IN_SRECT(clip, c))
+                {
+                    tc.X = c.X - dst.X;
+                    tc.Y = c.Y - dst.Y;
+                    okCHAR(hCon, c, CONTENT(tc), DEFAULT_ATTRIB);
+                }
+                else if (IN_SRECT(scroll, c) && IN_SRECT(clip, c))
+                    okCHAR(hCon, c, '#', TEST_ATTRIB);
+                else okCHAR(hCon, c, CONTENT(c), DEFAULT_ATTRIB);
             }
-            else if (IN_SRECT(scroll, c) && IN_SRECT(clip, c))
-                okCHAR(hCon, c, '#', TEST_ATTRIB);
-            else okCHAR(hCon, c, CONTENT(c), DEFAULT_ATTRIB);
         }
+    }
+    else
+    {
+        /* Win9x will fail, Only accept ERROR_NOT_ENOUGH_MEMORY */
+        ok(GetLastError() == ERROR_NOT_ENOUGH_MEMORY,
+            "Expected ERROR_NOT_ENOUGH_MEMORY, got %u\n", GetLastError());
     }
 
     /* clipping, src & dst rect do overlap */
@@ -582,9 +610,22 @@ static void testScreenBuffer(HANDLE hConOut)
     BOOL ret;
     DWORD oldcp;
 
+    if (!IsValidCodePage(866))
+    {
+        skip("Codepage 866 not available\n");
+        return;
+    }
+
     /* In the beginning set output codepage to 866 */
     oldcp = GetConsoleOutputCP();
-    ok(SetConsoleOutputCP(866), "Cannot set output codepage to 866\n");
+    SetLastError(0xdeadbeef);
+    ret = SetConsoleOutputCP(866);
+    if (!ret && GetLastError() == ERROR_CALL_NOT_IMPLEMENTED)
+    {
+        skip("SetConsoleOutputCP is not implemented\n");
+        return;
+    }
+    ok(ret, "Cannot set output codepage to 866\n");
 
     hConOutRW = CreateConsoleScreenBuffer(GENERIC_READ | GENERIC_WRITE,
                          FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
@@ -746,11 +787,59 @@ static void testScreenBuffer(HANDLE hConOut)
     SetConsoleOutputCP(oldcp);
 }
 
+static void test_GetSetConsoleInputExeName(void)
+{
+    BOOL ret;
+    DWORD error;
+    char buffer[MAX_PATH], module[MAX_PATH], *p;
+    static char input_exe[MAX_PATH] = "winetest.exe";
+
+    SetLastError(0xdeadbeef);
+    ret = pGetConsoleInputExeNameA(0, NULL);
+    error = GetLastError();
+    ok(ret, "GetConsoleInputExeNameA failed\n");
+    ok(error == ERROR_BUFFER_OVERFLOW, "got %u expected ERROR_BUFFER_OVERFLOW\n", error);
+
+    SetLastError(0xdeadbeef);
+    ret = pGetConsoleInputExeNameA(0, buffer);
+    error = GetLastError();
+    ok(ret, "GetConsoleInputExeNameA failed\n");
+    ok(error == ERROR_BUFFER_OVERFLOW, "got %u expected ERROR_BUFFER_OVERFLOW\n", error);
+
+    GetModuleFileNameA(GetModuleHandle(NULL), module, sizeof(module));
+    p = strrchr(module, '\\') + 1;
+
+    ret = pGetConsoleInputExeNameA(sizeof(buffer)/sizeof(buffer[0]), buffer);
+    ok(ret, "GetConsoleInputExeNameA failed\n");
+    todo_wine ok(!lstrcmpA(buffer, p), "got %s expected %s\n", buffer, p);
+
+    SetLastError(0xdeadbeef);
+    ret = pSetConsoleInputExeNameA(NULL);
+    error = GetLastError();
+    ok(!ret, "SetConsoleInputExeNameA failed\n");
+    ok(error == ERROR_INVALID_PARAMETER, "got %u expected ERROR_INVALID_PARAMETER\n", error);
+
+    SetLastError(0xdeadbeef);
+    ret = pSetConsoleInputExeNameA("");
+    error = GetLastError();
+    ok(!ret, "SetConsoleInputExeNameA failed\n");
+    ok(error == ERROR_INVALID_PARAMETER, "got %u expected ERROR_INVALID_PARAMETER\n", error);
+
+    ret = pSetConsoleInputExeNameA(input_exe);
+    ok(ret, "SetConsoleInputExeNameA failed\n");
+
+    ret = pGetConsoleInputExeNameA(sizeof(buffer)/sizeof(buffer[0]), buffer);
+    ok(ret, "GetConsoleInputExeNameA failed\n");
+    ok(!lstrcmpA(buffer, input_exe), "got %s expected %s\n", buffer, input_exe);
+}
+
 START_TEST(console)
 {
     HANDLE hConIn, hConOut;
     BOOL ret;
     CONSOLE_SCREEN_BUFFER_INFO	sbi;
+
+    init_function_pointers();
 
     /* be sure we have a clean console (and that's our own)
      * FIXME: this will make the test fail (currently) if we don't run
@@ -784,4 +873,12 @@ START_TEST(console)
     testScreenBuffer(hConOut);
     testCtrlHandler();
     /* still to be done: access rights & access on objects */
+
+    if (!pGetConsoleInputExeNameA || !pSetConsoleInputExeNameA)
+    {
+        skip("GetConsoleInputExeNameA and/or SetConsoleInputExeNameA is not available\n");
+        return;
+    }
+    else
+        test_GetSetConsoleInputExeName();
 }

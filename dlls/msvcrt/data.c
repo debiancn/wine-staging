@@ -50,7 +50,7 @@ char **MSVCRT___argv;
 MSVCRT_wchar_t **MSVCRT___wargv;
 char *MSVCRT__acmdln;
 MSVCRT_wchar_t *MSVCRT__wcmdln;
-char **_environ = 0;
+char **MSVCRT__environ = 0;
 MSVCRT_wchar_t **_wenviron = 0;
 char **MSVCRT___initenv = 0;
 MSVCRT_wchar_t **MSVCRT___winitenv = 0;
@@ -203,9 +203,9 @@ MSVCRT_wchar_t*** CDECL __p___wargv(void) { return &MSVCRT___wargv; }
  */
 char*** CDECL __p__environ(void)
 {
-  if (!_environ)
-    _environ = msvcrt_SnapshotOfEnvironmentA(NULL);
-  return &_environ;
+  if (!MSVCRT__environ)
+    MSVCRT__environ = msvcrt_SnapshotOfEnvironmentA(NULL);
+  return &MSVCRT__environ;
 }
 
 /*********************************************************************
@@ -229,7 +229,7 @@ char*** CDECL __p___initenv(void) { return &MSVCRT___initenv; }
 MSVCRT_wchar_t*** CDECL __p___winitenv(void) { return &MSVCRT___winitenv; }
 
 /* INTERNAL: Create a wide string from an ascii string */
-static MSVCRT_wchar_t *wstrdupa(const char *str)
+MSVCRT_wchar_t *msvcrt_wstrdupa(const char *str)
 {
   const size_t len = strlen(str) + 1 ;
   MSVCRT_wchar_t *wstr = MSVCRT_malloc(len* sizeof (MSVCRT_wchar_t));
@@ -249,7 +249,7 @@ void msvcrt_init_args(void)
   DWORD version;
 
   MSVCRT__acmdln = _strdup( GetCommandLineA() );
-  MSVCRT__wcmdln = wstrdupa(MSVCRT__acmdln);
+  MSVCRT__wcmdln = msvcrt_wstrdupa(MSVCRT__acmdln);
   MSVCRT___argc = __wine_main_argc;
   MSVCRT___argv = __wine_main_argv;
   MSVCRT___wargv = __wine_main_wargv;
@@ -302,7 +302,7 @@ void msvcrt_free_args(void)
   /* FIXME: more things to free */
   HeapFree(GetProcessHeap(), 0, MSVCRT___initenv);
   HeapFree(GetProcessHeap(), 0, MSVCRT___winitenv);
-  HeapFree(GetProcessHeap(), 0, _environ);
+  HeapFree(GetProcessHeap(), 0, MSVCRT__environ);
   HeapFree(GetProcessHeap(), 0, _wenviron);
   HeapFree(GetProcessHeap(), 0, MSVCRT__pgmptr);
   HeapFree(GetProcessHeap(), 0, MSVCRT__wpgmptr);

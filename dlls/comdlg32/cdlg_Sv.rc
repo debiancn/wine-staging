@@ -306,13 +306,13 @@ BEGIN
   AUTORADIOBUTTON "&Liggande", rad2, 16, 190, 52, 12, BS_AUTORADIOBUTTON
   GROUPBOX "Marginaler", grp4, 80, 156, 152, 56, BS_GROUPBOX
   LTEXT "&Vänster:", stc15, 88, 172, 21, 8
-  EDITTEXT edt4, 111, 170, 39, 12, WS_TABSTOP|WS_GROUP|WS_BORDER
+  EDITTEXT edt4, 111, 170, 39, 12, WS_TABSTOP|WS_GROUP|WS_BORDER|ES_NUMBER
   LTEXT "&Höger:", stc16, 159, 172, 27, 8
-  EDITTEXT edt6, 187, 170, 39, 12, WS_TABSTOP|WS_GROUP|WS_BORDER
+  EDITTEXT edt6, 187, 170, 39, 12, WS_TABSTOP|WS_GROUP|WS_BORDER|ES_NUMBER
   LTEXT "&Överkant:", stc17, 88, 192, 21, 8
-  EDITTEXT edt5, 111, 190, 39, 12, WS_TABSTOP|WS_GROUP|WS_BORDER
+  EDITTEXT edt5, 111, 190, 39, 12, WS_TABSTOP|WS_GROUP|WS_BORDER|ES_NUMBER
   LTEXT "&Nederkant:", stc18, 159, 192, 23, 8
-  EDITTEXT edt7, 187, 190, 39, 12, WS_TABSTOP|WS_GROUP|WS_BORDER
+  EDITTEXT edt7, 187, 190, 39, 12, WS_TABSTOP|WS_GROUP|WS_BORDER|ES_NUMBER
   DEFPUSHBUTTON "Ok", IDOK, 71, 220, 50, 14, BS_PUSHBUTTON
   PUSHBUTTON "Avbryt", IDCANCEL, 126, 220, 50, 14
   PUSHBUTTON "&Skrivare...", psh3, 184, 220, 48, 14
@@ -387,28 +387,28 @@ Var god skriv in ett värde mellan %d och %d."
  PD32_FROM_NOT_ABOVE_TO                "'från'-fältet kan inte överskrida 'till'-fältet"
  PD32_MARGINS_OVERLAP                  "Marginalerna överlappar eller är utanför \
 pappersgränserna.\nVar god skriv in marginallerna igen."
- PD32_NR_OF_COPIES_EMPTY               "Numret 'Antal kopior' kan inte vara tomt."
- PD32_TOO_LARGE_COPIES                 "Din skrivare stödjer inte så många kopior som du angav. Vad god skriv in ett värde mellan 1 och %d."
+ PD32_NR_OF_COPIES_EMPTY               "Fältet 'Antal kopior' kan inte vara tomt."
+ PD32_TOO_LARGE_COPIES                 "Din skrivare saknar stöd för så många kopior som du angav. Vad god skriv in ett värde mellan 1 och %d."
  PD32_PRINT_ERROR                      "Ett skrivarfel inträffade."
  PD32_NO_DEFAULT_PRINTER               "Det finns ingen standardskrivare."
  PD32_CANT_FIND_PRINTER                "Kan inte hitta skrivare."
  PD32_OUT_OF_MEMORY                    "Slut på minne."
- PD32_GENERIC_ERROR                    "Ett fel uppstog."
+ PD32_GENERIC_ERROR                    "Ett fel uppstod."
  PD32_DRIVER_UNKNOWN                   "Okänd skrivardrivrutin."
  PD32_NO_DEVICES                       "Before you can perform printer-related tasks \
 such as page setup or printing a document, you need to install a printer. \
 Please install one and retry."
 
  PD32_DEFAULT_PRINTER                  "Standardskrivare; "
- PD32_NR_OF_DOCUMENTS_IN_QUEUE         "Det är %d dokument i kön"
- PD32_MARGINS_IN_INCHES                "Marginaler [inches]"
+ PD32_NR_OF_DOCUMENTS_IN_QUEUE         "Det finns %d dokument i kön"
+ PD32_MARGINS_IN_INCHES                "Marginaler [tum]"
  PD32_MARGINS_IN_MILIMETERS            "Marginaler [millimeter]"
  PD32_MILIMETERS                       "millimeter"
 
  PD32_PRINTER_STATUS_READY             "Redo"
  PD32_PRINTER_STATUS_PAUSED            "Stannad; "
  PD32_PRINTER_STATUS_ERROR             "Fel; "
- PD32_PRINTER_STATUS_PENDING_DELETION  "Pendlande borttagning; "
+ PD32_PRINTER_STATUS_PENDING_DELETION  "Väntande borttagning; "
  PD32_PRINTER_STATUS_PAPER_JAM         "Papperskrångel; "
  PD32_PRINTER_STATUS_PAPER_OUT         "Slut på papper; "
  PD32_PRINTER_STATUS_MANUAL_FEED       "Fyll på papper manuellet; "
@@ -420,8 +420,8 @@ Please install one and retry."
  PD32_PRINTER_STATUS_OUTPUT_BIN_FULL   "Utmatningsfacket är fullt; "
  PD32_PRINTER_STATUS_NOT_AVAILABLE     "Inte tillgänglig; "
  PD32_PRINTER_STATUS_WAITING           "Väntar; "
- PD32_PRINTER_STATUS_PROCESSING        "Proceserar; "
- PD32_PRINTER_STATUS_INITIALIZING      "Initialiserar; "
+ PD32_PRINTER_STATUS_PROCESSING        "Behandlar; "
+ PD32_PRINTER_STATUS_INITIALIZING      "Initierar; "
  PD32_PRINTER_STATUS_WARMING_UP        "Värmer upp; "
  PD32_PRINTER_STATUS_TONER_LOW         "Toner snart slut; "
  PD32_PRINTER_STATUS_NO_TONER          "Inga toner; "

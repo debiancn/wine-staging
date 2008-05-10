@@ -36,6 +36,8 @@ struct unicode_str;
 /* that the thing pointed to starts with a struct object... */
 extern obj_handle_t alloc_handle( struct process *process, void *obj,
                                   unsigned int access, unsigned int attr );
+extern obj_handle_t alloc_handle_no_access_check( struct process *process, void *ptr,
+                                                  unsigned int access, unsigned int attr );
 extern int close_handle( struct process *process, obj_handle_t handle );
 extern struct object *get_handle_obj( struct process *process, obj_handle_t handle,
                                       unsigned int access, const struct object_ops *ops );
@@ -45,6 +47,8 @@ extern obj_handle_t duplicate_handle( struct process *src, obj_handle_t src_hand
 extern obj_handle_t open_object( const struct namespace *namespace, const struct unicode_str *name,
                                  const struct object_ops *ops, unsigned int access, unsigned int attr );
 extern obj_handle_t find_inherited_handle( struct process *process, const struct object_ops *ops );
+extern obj_handle_t enumerate_handles( struct process *process, const struct object_ops *ops,
+                                       unsigned int *index );
 extern struct handle_table *alloc_handle_table( struct process *process, int count );
 extern struct handle_table *copy_handle_table( struct process *process, struct process *parent );
 extern unsigned int get_handle_table_count( struct process *process);

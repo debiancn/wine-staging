@@ -105,7 +105,7 @@ static const char * DumpEvent( LONG event )
 #undef DUMPEV
 }
 
-static const char * NodeName(LPNOTIFICATIONLIST item)
+static const char * NodeName(const NOTIFICATIONLIST *item)
 {
     const char *str;
     WCHAR path[MAX_PATH];
@@ -267,7 +267,7 @@ static BOOL should_notify( LPCITEMIDLIST changed, LPCITEMIDLIST watched, BOOL su
         return FALSE;
     if (ILIsEqual( watched, changed ) )
         return TRUE;
-    if( sub && ILIsParent( watched, changed, FALSE ) )
+    if( sub && ILIsParent( watched, changed, TRUE ) )
         return TRUE;
     return FALSE;
 }
@@ -423,7 +423,7 @@ DWORD WINAPI NTSHChangeNotifyRegister(
     FIXME("(%p,0x%08x,0x%08x,0x%08x,0x%08x,%p):semi stub.\n",
 		hwnd,events1,events2,msg,count,idlist);
 
-    return (DWORD) SHChangeNotifyRegister(hwnd, events1, events2, msg, count, idlist);
+    return SHChangeNotifyRegister(hwnd, events1, events2, msg, count, idlist);
 }
 
 /*************************************************************************
@@ -448,7 +448,7 @@ HANDLE WINAPI SHChangeNotification_Lock(
     {
         idlist = SHAlloc( sizeof(LPCITEMIDLIST *) * node->cidl );
         for(i=0; i<node->cidl; i++)
-            idlist[i] = (LPCITEMIDLIST)node->pidlSignaled;
+            idlist[i] = node->pidlSignaled;
         *lpwEventId = node->wSignalledEvent;
         *lppidls = (LPITEMIDLIST*)idlist;
         node->wSignalledEvent = 0;

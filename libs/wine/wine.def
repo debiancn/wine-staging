@@ -50,6 +50,7 @@ EXPORTS
     vsnprintfW
     vsprintfW
     wine_anon_mmap
+    wine_call_on_stack
     wine_casemap_lower
     wine_casemap_upper
     wine_compare_string
@@ -65,7 +66,7 @@ EXPORTS
     wine_dbgstr_an
     wine_dbgstr_wn
     wine_dlclose
-    wine_dll_enum_load_path;
+    wine_dll_enum_load_path
     wine_dll_get_owner
     wine_dll_load
     wine_dll_load_main_exe
@@ -76,6 +77,7 @@ EXPORTS
     wine_exec_wine_binary
     wine_fold_string
     wine_get_build_dir
+    wine_get_build_id
     wine_get_config_dir
     wine_get_cs
     wine_get_data_dir
@@ -87,6 +89,7 @@ EXPORTS
     wine_get_sortkey
     wine_get_ss
     wine_get_user_name
+    wine_get_version
     wine_init
     wine_init_argv0_path
     wine_is_dbcs_leadbyte

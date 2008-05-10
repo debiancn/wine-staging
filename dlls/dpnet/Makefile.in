@@ -3,14 +3,14 @@ TOPOBJDIR = ../..
 SRCDIR    = @srcdir@
 VPATH     = @srcdir@
 MODULE    = dpnet.dll
-IMPORTLIB = libdpnet.$(IMPLIBEXT)
-IMPORTS   = ole32 user32 advapi32 kernel32
-EXTRALIBS = -ldxguid -luuid
+IMPORTLIB = dpnet
+IMPORTS   = dxguid uuid ole32 user32 advapi32 kernel32
 
 C_SRCS = \
 	address.c \
 	client.c \
 	dpnet_main.c \
+	lobbiedapp.c \
 	peer.c \
 	regsvr.c \
 	server.c

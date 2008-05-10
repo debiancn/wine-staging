@@ -22,6 +22,7 @@
 @ cdecl GetDIBits(ptr long long long ptr ptr long) X11DRV_GetDIBits
 @ cdecl GetDeviceCaps(ptr long) X11DRV_GetDeviceCaps
 @ cdecl GetDeviceGammaRamp(ptr ptr) X11DRV_GetDeviceGammaRamp
+@ cdecl GetICMProfile(ptr ptr ptr) X11DRV_GetICMProfile
 @ cdecl GetNearestColor(ptr long) X11DRV_GetNearestColor
 @ cdecl GetPixel(ptr long long) X11DRV_GetPixel
 @ cdecl GetPixelFormat(ptr) X11DRV_GetPixelFormat
@@ -89,37 +90,36 @@
 @ cdecl AcquireClipboard(long) X11DRV_AcquireClipboard
 @ cdecl CountClipboardFormats() X11DRV_CountClipboardFormats
 @ cdecl CreateDesktopWindow(long) X11DRV_CreateDesktopWindow
-@ cdecl CreateWindow(long ptr long) X11DRV_CreateWindow
+@ cdecl CreateWindow(long) X11DRV_CreateWindow
 @ cdecl DestroyWindow(long) X11DRV_DestroyWindow
 @ cdecl EmptyClipboard(long) X11DRV_EmptyClipboard
 @ cdecl EndClipboardUpdate() X11DRV_EndClipboardUpdate
 @ cdecl EnumClipboardFormats(long) X11DRV_EnumClipboardFormats
 @ cdecl GetClipboardData(long ptr ptr) X11DRV_GetClipboardData
-@ cdecl GetClipboardFormatName(long str long) X11DRV_GetClipboardFormatName
-@ cdecl GetDCEx(long long long) X11DRV_GetDCEx
+@ cdecl GetClipboardFormatName(long ptr long) X11DRV_GetClipboardFormatName
+@ cdecl GetDC(long long long ptr ptr long) X11DRV_GetDC
 @ cdecl IsClipboardFormatAvailable(long) X11DRV_IsClipboardFormatAvailable
 @ cdecl MsgWaitForMultipleObjectsEx(long ptr long long long) X11DRV_MsgWaitForMultipleObjectsEx
 @ cdecl RegisterClipboardFormat(wstr) X11DRV_RegisterClipboardFormat
-@ cdecl ReleaseDC(long long long) X11DRV_ReleaseDC
+@ cdecl ReleaseDC(long long) X11DRV_ReleaseDC
 @ cdecl ScrollDC(long long long ptr ptr long ptr) X11DRV_ScrollDC
 @ cdecl SetClipboardData(long long long long) X11DRV_SetClipboardData
+@ cdecl SetCapture(long long) X11DRV_SetCapture
 @ cdecl SetFocus(long) X11DRV_SetFocus
 @ cdecl SetParent(long long long) X11DRV_SetParent
 @ cdecl SetWindowIcon(long long long) X11DRV_SetWindowIcon
-@ cdecl SetWindowPos(long long ptr ptr long ptr) X11DRV_SetWindowPos
+@ cdecl SetWindowPos(long long long ptr ptr ptr ptr) X11DRV_SetWindowPos
 @ cdecl SetWindowRgn(long long long) X11DRV_SetWindowRgn
 @ cdecl SetWindowStyle(ptr long) X11DRV_SetWindowStyle
 @ cdecl SetWindowText(long wstr) X11DRV_SetWindowText
-@ cdecl ShowWindow(long long) X11DRV_ShowWindow
-@ cdecl SysCommandSizeMove(long long) X11DRV_SysCommandSizeMove
-@ cdecl WindowFromDC(long) X11DRV_WindowFromDC
+@ cdecl SysCommand(long long) X11DRV_SysCommand
 @ cdecl WindowMessage(long long long long) X11DRV_WindowMessage
 
 # WinTab32
 @ cdecl AttachEventQueueToTablet(long) X11DRV_AttachEventQueueToTablet
 @ cdecl GetCurrentPacket(ptr) X11DRV_GetCurrentPacket
 @ cdecl LoadTabletInfo(long) X11DRV_LoadTabletInfo
-@ cdecl WTInfoA(long long ptr) X11DRV_WTInfoA
+@ cdecl WTInfoW(long long ptr) X11DRV_WTInfoW
 
 # X11 locks
 @ cdecl -norelay wine_tsx11_lock()
@@ -128,16 +128,39 @@
 # Desktop
 @ cdecl wine_create_desktop(long long) X11DRV_create_desktop
 
+# System tray
+@ cdecl wine_notify_icon(long ptr)
+
 # XIM
 @ cdecl ForceXIMReset(long) X11DRV_ForceXIMReset
 
 # OpenGL
+@ cdecl wglCopyContext(long long long) X11DRV_wglCopyContext
 @ cdecl wglCreateContext(ptr) X11DRV_wglCreateContext
 @ cdecl wglDeleteContext(long) X11DRV_wglDeleteContext
 @ cdecl wglGetProcAddress(str) X11DRV_wglGetProcAddress
 @ cdecl wglGetPbufferDCARB(ptr ptr) X11DRV_wglGetPbufferDCARB
 @ cdecl wglMakeContextCurrentARB(ptr ptr long) X11DRV_wglMakeContextCurrentARB
 @ cdecl wglMakeCurrent(ptr long) X11DRV_wglMakeCurrent
+@ cdecl wglSetPixelFormatWINE(ptr long ptr) X11DRV_wglSetPixelFormatWINE
 @ cdecl wglShareLists(long long) X11DRV_wglShareLists
 @ cdecl wglUseFontBitmapsA(ptr long long long) X11DRV_wglUseFontBitmapsA
 @ cdecl wglUseFontBitmapsW(ptr long long long) X11DRV_wglUseFontBitmapsW
+
+#IME Interface
+@ stdcall ImeInquire(ptr wstr wstr)
+@ stdcall ImeConfigure(long long long ptr)
+@ stdcall ImeDestroy(long)
+@ stdcall ImeEscape(long long ptr)
+@ stdcall ImeSelect(long long)
+@ stdcall ImeSetActiveContext(long long)
+@ stdcall ImeToAsciiEx(long long ptr ptr long long)
+@ stdcall NotifyIME(long long long long)
+@ stdcall ImeRegisterWord(wstr long wstr)
+@ stdcall ImeUnregisterWord(wstr long wstr)
+@ stdcall ImeEnumRegisterWord(ptr wstr long wstr ptr)
+@ stdcall ImeSetCompositionString(long long ptr long ptr long)
+@ stdcall ImeConversionList(long wstr ptr long long)
+@ stdcall ImeProcessKey(long long long ptr)
+@ stdcall ImeGetRegisterWordStyle(wstr long wstr)
+@ stdcall ImeGetImeMenuItems(long long long ptr ptr long)

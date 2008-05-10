@@ -22,7 +22,7 @@
 # @ stub AddAccessDeniedObjectAce
 @ stdcall AddAce(ptr long long ptr long)
 @ stdcall AddAuditAccessAce(ptr long long ptr long long)
-# @ stub AddAuditAccessAceEx
+@ stdcall AddAuditAccessAceEx(ptr long long long ptr long long)
 # @ stub AddAuditAccessObjectAce
 # @ stub AddUsersToEncryptedFile
 @ stdcall AdjustTokenGroups(long long ptr long ptr ptr)
@@ -75,8 +75,8 @@
 # @ stub ConvertSecurityDescriptorToAccessNamedA
 # @ stub ConvertSecurityDescriptorToAccessNamedW
 # @ stub ConvertSecurityDescriptorToAccessW
-# @ stub ConvertSecurityDescriptorToStringSecurityDescriptorA
-# @ stub ConvertSecurityDescriptorToStringSecurityDescriptorW
+@ stdcall ConvertSecurityDescriptorToStringSecurityDescriptorA(ptr long long ptr ptr)
+@ stdcall ConvertSecurityDescriptorToStringSecurityDescriptorW(ptr long long ptr ptr)
 @ stdcall ConvertSidToStringSidA(ptr ptr)
 @ stdcall ConvertSidToStringSidW(ptr ptr)
 # @ stub ConvertStringSDToSDDomainA
@@ -96,18 +96,18 @@
 @ stdcall CreateProcessAsUserA(long str str ptr ptr long long ptr str ptr ptr)
 # @ stub CreateProcessAsUserSecure
 @ stdcall CreateProcessAsUserW(long str str ptr ptr long long ptr str ptr ptr)
-# @ stub CreateProcessWithLogonW
-# @ stub CreateRestrictedToken
+@ stdcall CreateProcessWithLogonW(wstr wstr wstr long wstr wstr long ptr wstr ptr ptr)
+@ stdcall CreateRestrictedToken(long long long ptr long ptr long ptr ptr)
 @ stdcall CreateServiceA(long ptr ptr long long long long ptr ptr ptr ptr ptr ptr)
 @ stdcall CreateServiceW (long ptr ptr long long long long ptr ptr ptr ptr ptr ptr)
 # @ stub CreateTraceInstanceId
 @ stdcall CreateWellKnownSid(long ptr ptr ptr)
-# @ stub CredDeleteA
-# @ stub CredDeleteW
-# @ stub CredEnumerateA
-# @ stub CredEnumerateW
-# @ stub CredFree
-# @ stub CredGetSessionTypes
+@ stdcall CredDeleteA(str long long)
+@ stdcall CredDeleteW(wstr long long)
+@ stdcall CredEnumerateA(str long ptr ptr)
+@ stdcall CredEnumerateW(wstr long ptr ptr)
+@ stdcall CredFree(ptr)
+@ stdcall CredGetSessionTypes(long ptr)
 # @ stub CredGetTargetInfoA
 # @ stub CredGetTargetInfoW
 # @ stub CredIsMarshaledCredentialA
@@ -115,18 +115,18 @@
 # @ stub CredMarshalCredentialA
 # @ stub CredMarshalCredentialW
 @ stub CredProfileLoaded
-# @ stub CredReadA
+@ stdcall CredReadA(str long long ptr)
 # @ stub CredReadDomainCredentialsA
 # @ stub CredReadDomainCredentialsW
-# @ stub CredReadW
+@ stdcall CredReadW(wstr long long ptr)
 # @ stub CredRenameA
 # @ stub CredRenameW
 # @ stub CredUnmarshalCredentialA
 # @ stub CredUnmarshalCredentialW
-# @ stub CredWriteA
+@ stdcall CredWriteA(ptr long)
 # @ stub CredWriteDomainCredentialsA
 # @ stub CredWriteDomainCredentialsW
-# @ stub CredWriteW
+@ stdcall CredWriteW(ptr long)
 # @ stub CredpConvertCredential
 # @ stub CredpConvertTargetInfo
 # @ stub CredpDecodeCredential
@@ -448,8 +448,8 @@
 # @ stub QueryAllTracesA
 # @ stub QueryAllTracesW
 # @ stub QueryRecoveryAgentsOnEncryptedFile
-# @ stub QueryServiceConfig2A
-# @ stub QueryServiceConfig2W
+@ stdcall QueryServiceConfig2A(long long ptr long ptr)
+@ stdcall QueryServiceConfig2W(long long ptr long ptr)
 @ stdcall QueryServiceConfigA(long ptr long ptr)
 @ stdcall QueryServiceConfigW(long ptr long ptr)
 @ stdcall QueryServiceLockStatusA(long ptr long ptr)
@@ -499,7 +499,7 @@
 @ stdcall RegOpenKeyExW(long wstr long long ptr)
 @ stdcall RegOpenKeyW(long wstr ptr)
 @ stdcall RegOpenUserClassesRoot(ptr long long ptr)
-# @ stub RegOverridePredefKey
+@ stdcall RegOverridePredefKey(long long)
 @ stdcall RegQueryInfoKeyA(long ptr ptr ptr ptr ptr ptr ptr ptr ptr ptr ptr)
 @ stdcall RegQueryInfoKeyW(long ptr ptr ptr ptr ptr ptr ptr ptr ptr ptr ptr)
 @ stdcall RegQueryMultipleValuesA(long ptr long ptr ptr)
@@ -527,10 +527,10 @@
 @ stdcall RegisterEventSourceA(ptr ptr)
 @ stdcall RegisterEventSourceW(ptr ptr)
 # @ stub RegisterIdleTask
-@ stdcall RegisterServiceCtrlHandlerA (ptr ptr)
+@ stdcall RegisterServiceCtrlHandlerA(str ptr)
 @ stdcall RegisterServiceCtrlHandlerExA(str ptr ptr)
 @ stdcall RegisterServiceCtrlHandlerExW(wstr ptr ptr)
-@ stdcall RegisterServiceCtrlHandlerW (ptr ptr)
+@ stdcall RegisterServiceCtrlHandlerW(wstr ptr)
 @ stdcall RegisterTraceGuidsA(ptr ptr ptr long ptr str str ptr)
 @ stdcall RegisterTraceGuidsW(ptr ptr ptr long ptr wstr wstr ptr)
 # @ stub RemoveTraceCallback

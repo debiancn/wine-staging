@@ -34,8 +34,10 @@
 #include "winternl.h"
 
 #include "file.h"
+#include "process.h"
 #include "thread.h"
 #include "unicode.h"
+#include "security.h"
 
 
 struct object_name
@@ -316,6 +318,24 @@ struct object *find_object( const struct namespace *namespace, const struct unic
     return NULL;
 }
 
+/* find an object by its index; the refcount is incremented */
+struct object *find_object_index( const struct namespace *namespace, unsigned int index )
+{
+    unsigned int i;
+
+    /* FIXME: not efficient at all */
+    for (i = 0; i < namespace->hash_size; i++)
+    {
+        const struct object_name *ptr;
+        LIST_FOR_EACH_ENTRY( ptr, &namespace->names[i], const struct object_name, entry )
+        {
+            if (!index--) return grab_object( ptr->obj );
+        }
+    }
+    set_error( STATUS_NO_MORE_ENTRIES );
+    return NULL;
+}
+
 /* allocate a namespace */
 struct namespace *create_namespace( unsigned int hash_size )
 {
@@ -332,6 +352,11 @@ struct namespace *create_namespace( unsigned int hash_size )
 }
 
 /* functions for unimplemented/default object operations */
+
+struct object_type *no_get_type( struct object *obj )
+{
+    return NULL;
+}
 
 int no_add_queue( struct object *obj, struct wait_queue_entry *entry )
 {
@@ -363,6 +388,99 @@ unsigned int no_map_access( struct object *obj, unsigned int access )
     if (access & GENERIC_EXECUTE) access |= STANDARD_RIGHTS_EXECUTE;
     if (access & GENERIC_ALL)     access |= STANDARD_RIGHTS_ALL;
     return access & ~(GENERIC_READ | GENERIC_WRITE | GENERIC_EXECUTE | GENERIC_ALL);
+}
+
+struct security_descriptor *default_get_sd( struct object *obj )
+{
+    return obj->sd;
+}
+
+int default_set_sd( struct object *obj, const struct security_descriptor *sd,
+                    unsigned int set_info )
+{
+    struct security_descriptor new_sd, *new_sd_ptr;
+    int present;
+    const SID *owner, *group;
+    const ACL *sacl, *dacl;
+    char *ptr;
+
+    if (!set_info) return 1;
+
+    new_sd.control = sd->control & ~SE_SELF_RELATIVE;
+
+    owner = sd_get_owner( sd );
+    if (set_info & OWNER_SECURITY_INFORMATION && owner)
+        new_sd.owner_len = sd->owner_len;
+    else
+    {
+        owner = token_get_user( current->process->token );
+        new_sd.owner_len = FIELD_OFFSET(SID, SubAuthority[owner->SubAuthorityCount]);
+        new_sd.control |= SE_OWNER_DEFAULTED;
+    }
+
+    group = sd_get_group( sd );
+    if (set_info & GROUP_SECURITY_INFORMATION && group)
+        new_sd.group_len = sd->group_len;
+    else
+    {
+        group = token_get_primary_group( current->process->token );
+        new_sd.group_len = FIELD_OFFSET(SID, SubAuthority[group->SubAuthorityCount]);
+        new_sd.control |= SE_GROUP_DEFAULTED;
+    }
+
+    new_sd.control |= SE_SACL_PRESENT;
+    sacl = sd_get_sacl( sd, &present );
+    if (set_info & SACL_SECURITY_INFORMATION && present)
+        new_sd.sacl_len = sd->sacl_len;
+    else
+    {
+        if (obj->sd) sacl = sd_get_sacl( obj->sd, &present );
+
+        if (obj->sd && present)
+            new_sd.sacl_len = obj->sd->sacl_len;
+        else
+        {
+            new_sd.sacl_len = 0;
+            new_sd.control |= SE_SACL_DEFAULTED;
+        }
+    }
+
+    new_sd.control |= SE_DACL_PRESENT;
+    dacl = sd_get_dacl( sd, &present );
+    if (set_info & DACL_SECURITY_INFORMATION && present)
+        new_sd.dacl_len = sd->dacl_len;
+    else
+    {
+        if (obj->sd) dacl = sd_get_dacl( obj->sd, &present );
+
+        if (obj->sd && present)
+            new_sd.dacl_len = obj->sd->dacl_len;
+        else
+        {
+            dacl = token_get_default_dacl( current->process->token );
+            new_sd.dacl_len = dacl->AclSize;
+            new_sd.control |= SE_DACL_DEFAULTED;
+        }
+    }
+
+    ptr = mem_alloc( sizeof(new_sd) + new_sd.owner_len + new_sd.group_len +
+                     new_sd.sacl_len + new_sd.dacl_len );
+    if (!ptr) return 0;
+    new_sd_ptr = (struct security_descriptor*)ptr;
+
+    memcpy( ptr, &new_sd, sizeof(new_sd) );
+    ptr += sizeof(new_sd);
+    memcpy( ptr, owner, new_sd.owner_len );
+    ptr += new_sd.owner_len;
+    memcpy( ptr, group, new_sd.group_len );
+    ptr += new_sd.group_len;
+    memcpy( ptr, sacl, new_sd.sacl_len );
+    ptr += new_sd.sacl_len;
+    memcpy( ptr, dacl, new_sd.dacl_len );
+
+    free( obj->sd );
+    obj->sd = new_sd_ptr;
+    return 1;
 }
 
 struct object *no_lookup_name( struct object *obj, struct unicode_str *name,

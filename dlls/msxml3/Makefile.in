@@ -4,15 +4,19 @@ TOPOBJDIR = ../..
 SRCDIR    = @srcdir@
 VPATH     = @srcdir@
 MODULE    = msxml3.dll
-IMPORTS   = urlmon shlwapi oleaut32 ole32 user32 advapi32 kernel32 ntdll
-EXTRALIBS = -luuid @XML2LIBS@ @XSLTLIBS@
+IMPORTS   = uuid urlmon shlwapi oleaut32 ole32 user32 advapi32 kernel32
+EXTRALIBS = @XML2LIBS@ @XSLTLIBS@
 EXTRAINCL = @XML2INCL@ @XSLTINCL@
 
 C_SRCS = \
 	attribute.c \
+	cdata.c \
 	comment.c \
+	docfrag.c \
 	domdoc.c \
+	domimpl.c \
 	element.c \
+	entityref.c \
 	factory.c \
 	main.c \
 	node.c \
@@ -22,6 +26,7 @@ C_SRCS = \
 	pi.c \
 	queryresult.c \
 	regsvr.c \
+	saxreader.c \
 	schema.c \
 	text.c \
 	uuid.c \
@@ -29,6 +34,8 @@ C_SRCS = \
 	xmlelem.c
 
 RC_SRCS = version.rc
+
+IDL_TLB_SRCS = msxml3_v1.idl
 
 @MAKE_DLL_RULES@
 

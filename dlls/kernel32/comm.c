@@ -477,8 +477,10 @@ BOOL WINAPI BuildCommDCBAndTimeoutsW(
 	COMMTIMEOUTS timeouts;
 	BOOL result;
 	LPCWSTR ptr = devid;
-	
+
 	TRACE("(%s,%p,%p)\n",debugstr_w(devid),lpdcb,lptimeouts);
+
+	memset(&timeouts, 0, sizeof timeouts);
 
 	/* Set DCBlength. (Windows NT does not do this, but 9x does) */
 	lpdcb->DCBlength = sizeof(DCB);
@@ -486,8 +488,8 @@ BOOL WINAPI BuildCommDCBAndTimeoutsW(
 	/* Make a copy of the original data structures to work with since if
 	   if there is an error in the device control string the originals
 	   should not be modified (except possibly DCBlength) */
-	memcpy(&dcb, lpdcb, sizeof(DCB));
-	if(lptimeouts) memcpy(&timeouts, lptimeouts, sizeof(COMMTIMEOUTS));
+	dcb = *lpdcb;
+	if(lptimeouts) timeouts = *lptimeouts;
 
 	ptr = COMM_ParseStart(ptr);
 
@@ -500,8 +502,8 @@ BOOL WINAPI BuildCommDCBAndTimeoutsW(
 
 	if(result)
 	{
-		memcpy(lpdcb, &dcb, sizeof(DCB));
-		if(lptimeouts) memcpy(lptimeouts, &timeouts, sizeof(COMMTIMEOUTS));
+		*lpdcb = dcb;
+		if(lptimeouts) *lptimeouts = timeouts;
 		return TRUE;
 	}
 	else
@@ -777,7 +779,7 @@ static void dump_dcb(const DCB* lpdcb)
  *	SetCommState    (KERNEL32.@)
  *
  *  Re-initializes all hardware and control settings of a communications device,
- *  with values from a device control block without effecting the input and output
+ *  with values from a device control block without affecting the input and output
  *  queues.
  *
  * PARAMS
@@ -787,7 +789,7 @@ static void dump_dcb(const DCB* lpdcb)
  *
  * RETURNS
  *
- *  True on success, false on failure eg if the XonChar is equal to the XoffChar.
+ *  True on success, false on failure, e.g., if the XonChar is equal to the XoffChar.
  */
 BOOL WINAPI SetCommState( HANDLE handle, LPDCB lpdcb)
 {
@@ -1301,19 +1303,21 @@ BOOL WINAPI SetCommConfig(
 }
 
 /***********************************************************************
- *           SetDefaultCommConfigA   (KERNEL32.@)
+ *           SetDefaultCommConfigW  (KERNEL32.@)
  *
- *  Initializes the default configuration for the specified communication
- *  device. (ascii)
+ * Initializes the default configuration for a communication device.
+ *
+ * PARAMS
+ *  lpszDevice   [I] Name of the device targeted for configuration
+ *  lpCommConfig [I] PTR to a buffer with the configuration for the device
+ *  dwSize       [I] Number of bytes in the buffer
  *
  * RETURNS
+ *  Failure: FALSE
+ *  Success: TRUE, and default configuration saved
  *
- *  True if the device was found and the defaults set, false otherwise
  */
-BOOL WINAPI SetDefaultCommConfigW(
-    LPCWSTR       lpszDevice,  /* [in] The ascii name of the device targeted for configuration. */
-    LPCOMMCONFIG lpCommConfig, /* [in] The default configuration for the device. */
-    DWORD        dwSize)       /* [in] The number of bytes in the configuration structure. */
+BOOL WINAPI SetDefaultCommConfigW(LPCWSTR lpszDevice, LPCOMMCONFIG lpCommConfig, DWORD dwSize)
 {
     FARPROC lpfnSetDefaultCommConfig;
     HMODULE hConfigModule;
@@ -1336,18 +1340,14 @@ BOOL WINAPI SetDefaultCommConfigW(
 
 
 /***********************************************************************
- *           SetDefaultCommConfigW     (KERNEL32.@)
+ *           SetDefaultCommConfigA     (KERNEL32.@)
  *
- *  Initializes the default configuration for the specified
- *  communication device. (unicode)
+ * Initializes the default configuration for a communication device.
  *
- * RETURNS
+ * See SetDefaultCommConfigW.
  *
  */
-BOOL WINAPI SetDefaultCommConfigA(
-    LPCSTR      lpszDevice,    /* [in] The unicode name of the device targeted for configuration. */
-    LPCOMMCONFIG lpCommConfig, /* [in] The default configuration for the device. */
-    DWORD        dwSize)       /* [in] The number of bytes in the configuration structure. */
+BOOL WINAPI SetDefaultCommConfigA(LPCSTR lpszDevice, LPCOMMCONFIG lpCommConfig, DWORD dwSize)
 {
     BOOL r;
     LPWSTR lpDeviceW = NULL;

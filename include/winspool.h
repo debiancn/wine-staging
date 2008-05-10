@@ -288,6 +288,14 @@ extern "C" {
 #define DPD_DELETE_SPECIFIC_VERSION 0x00000002
 #define DPD_DELETE_ALL_FILES        0x00000004
 
+/* dwAction for PRINTER_INFO_7 */
+#define DSPRINT_PUBLISH     0x00000001
+#define DSPRINT_UPDATE      0x00000002
+#define DSPRINT_UNPUBLISH   0x00000004
+#define DSPRINT_REPUBLISH   0x00000008
+#define DSPRINT_PENDING     0x80000000
+
+/* ##################################### */
 
 /* TYPES */
 typedef struct _PRINTER_DEFAULTSA {
@@ -473,6 +481,68 @@ typedef struct _DRIVER_INFO_6W {
 DECL_WINELIB_TYPE_AW(DRIVER_INFO_6)
 DECL_WINELIB_TYPE_AW(PDRIVER_INFO_6)
 DECL_WINELIB_TYPE_AW(LPDRIVER_INFO_6)
+
+/* DRIVER_INFO_7 is not defined in native winspool.h and not found in the www */
+
+typedef struct _DRIVER_INFO_8A {
+  DWORD     cVersion;
+  LPSTR     pName;
+  LPSTR     pEnvironment;
+  LPSTR     pDriverPath;
+  LPSTR     pDataFile;
+  LPSTR     pConfigFile;
+  LPSTR     pHelpFile;
+  LPSTR     pDependentFiles;
+  LPSTR     pMonitorName;
+  LPSTR     pDefaultDataType;
+  LPSTR     pszzPreviousNames;
+  FILETIME  ftDriverDate;
+  DWORDLONG dwlDriverVersion;
+  LPSTR     pszMfgName;
+  LPSTR     pszOEMUrl;
+  LPSTR     pszHardwareID;
+  LPSTR     pszProvider;
+  LPSTR     pszPrintProcessor;
+  LPSTR     pszVendorSetup;
+  LPSTR     pszzColorProfiles;
+  LPSTR     pszInfPath;
+  DWORD     dwPrinterDriverAttributes;
+  LPSTR     pszzCoreDriverDependencies;
+  FILETIME  ftMinInboxDriverVerDate;
+  DWORDLONG dwlMinInboxDriverVerVersion;
+} DRIVER_INFO_8A, *PDRIVER_INFO_8A, *LPDRIVER_INFO_8A;
+
+typedef struct _DRIVER_INFO_8W {
+  DWORD     cVersion;
+  LPWSTR    pName;
+  LPWSTR    pEnvironment;
+  LPWSTR    pDriverPath;
+  LPWSTR    pDataFile;
+  LPWSTR    pConfigFile;
+  LPWSTR    pHelpFile;
+  LPWSTR    pDependentFiles;
+  LPWSTR    pMonitorName;
+  LPWSTR    pDefaultDataType;
+  LPWSTR    pszzPreviousNames;
+  FILETIME  ftDriverDate;
+  DWORDLONG dwlDriverVersion;
+  LPWSTR    pszMfgName;
+  LPWSTR    pszOEMUrl;
+  LPWSTR    pszHardwareID;
+  LPWSTR    pszProvider;
+  LPWSTR    pszPrintProcessor;
+  LPWSTR    pszVendorSetup;
+  LPWSTR    pszzColorProfiles;
+  LPWSTR    pszInfPath;
+  DWORD     dwPrinterDriverAttributes;
+  LPWSTR    pszzCoreDriverDependencies;
+  FILETIME  ftMinInboxDriverVerDate;
+  DWORDLONG dwlMinInboxDriverVerVersion;
+} DRIVER_INFO_8W, *PDRIVER_INFO_8W, *LPDRIVER_INFO_8W;
+
+DECL_WINELIB_TYPE_AW(DRIVER_INFO_8)
+DECL_WINELIB_TYPE_AW(PDRIVER_INFO_8)
+DECL_WINELIB_TYPE_AW(LPDRIVER_INFO_8)
 
 
 typedef struct _PRINTER_INFO_1A {
@@ -798,6 +868,36 @@ typedef struct _FORM_INFO_1W {
 DECL_WINELIB_TYPE_AW(FORM_INFO_1)
 DECL_WINELIB_TYPE_AW(PFORM_INFO_1)
 DECL_WINELIB_TYPE_AW(LPFORM_INFO_1)
+
+typedef struct _FORM_INFO_2A {
+  DWORD  Flags;
+  LPSTR  pName;
+  SIZEL  Size;
+  RECTL  ImageableArea;
+  LPCSTR pKeyword;
+  DWORD  StringType;
+  LPSTR  pMuiDll;
+  DWORD  dwResourceId;
+  LPSTR  pDisplayName;
+  LANGID wLangId;
+} FORM_INFO_2A, *PFORM_INFO_2A, *LPFORM_INFO_2A;
+
+typedef struct _FORM_INFO_2W {
+  DWORD  Flags;
+  LPWSTR pName;
+  SIZEL  Size;
+  RECTL  ImageableArea;
+  LPCSTR pKeyword;
+  DWORD  StringType;
+  LPWSTR pMuiDll;
+  DWORD  dwResourceId;
+  LPWSTR pDisplayName;
+  LANGID wLangId;
+} FORM_INFO_2W, *PFORM_INFO_2W, *LPFORM_INFO_2W;
+
+DECL_WINELIB_TYPE_AW(FORM_INFO_2)
+DECL_WINELIB_TYPE_AW(PFORM_INFO_2)
+DECL_WINELIB_TYPE_AW(LPFORM_INFO_2)
 
 typedef struct _PRINTPROCESSOR_INFO_1A {
   LPSTR pName;

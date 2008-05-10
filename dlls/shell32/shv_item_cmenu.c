@@ -36,6 +36,8 @@
 #include "shell32_main.h"
 #include "shellfolder.h"
 
+#include "shresdef.h"
+
 WINE_DEFAULT_DEBUG_CHANNEL(shell);
 
 /**************************************************************************
@@ -77,7 +79,7 @@ static BOOL ISvItemCm_CanRenameItems(ItemCmImpl *This)
 /**************************************************************************
 *   ISvItemCm_Constructor()
 */
-IContextMenu2 *ISvItemCm_Constructor(LPSHELLFOLDER pSFParent, LPCITEMIDLIST pidl, LPCITEMIDLIST *apidl, UINT cidl)
+IContextMenu2 *ISvItemCm_Constructor(LPSHELLFOLDER pSFParent, LPCITEMIDLIST pidl, const LPCITEMIDLIST *apidl, UINT cidl)
 {	ItemCmImpl* cm;
 	UINT  u;
 
@@ -175,21 +177,17 @@ static ULONG WINAPI ISvItemCm_fnRelease(IContextMenu2 *iface)
 	return refCount;
 }
 
-/**************************************************************************
-*  ICM_InsertItem()
-*/
-void WINAPI _InsertMenuItem (
+static void _InsertMenuItemW (
 	HMENU hmenu,
 	UINT indexMenu,
 	BOOL fByPosition,
 	UINT wID,
 	UINT fType,
-	LPCSTR dwTypeData,
+	LPWSTR dwTypeData,
 	UINT fState)
 {
-	MENUITEMINFOA	mii;
+	MENUITEMINFOW	mii;
 
-	ZeroMemory(&mii, sizeof(mii));
 	mii.cbSize = sizeof(mii);
 	if (fType == MFT_SEPARATOR)
 	{
@@ -198,18 +196,16 @@ void WINAPI _InsertMenuItem (
 	else
 	{
 	  mii.fMask = MIIM_ID | MIIM_TYPE | MIIM_STATE;
-	  mii.dwTypeData = (LPSTR) dwTypeData;
+	  mii.dwTypeData = dwTypeData;
 	  mii.fState = fState;
 	}
 	mii.wID = wID;
 	mii.fType = fType;
-	InsertMenuItemA( hmenu, indexMenu, fByPosition, &mii);
+	InsertMenuItemW( hmenu, indexMenu, fByPosition, &mii);
 }
 
 /**************************************************************************
 * ISvItemCm_fnQueryContextMenu()
-* FIXME: load menu MENU_SHV_FILE out of resources instead if creating
-*		 each menu item by calling _InsertMenuItem()
 */
 static HRESULT WINAPI ISvItemCm_fnQueryContextMenu(
 	IContextMenu2 *iface,
@@ -228,31 +224,34 @@ static HRESULT WINAPI ISvItemCm_fnQueryContextMenu(
 
 	if(!(CMF_DEFAULTONLY & uFlags) && This->cidl>0)
 	{
-	  if(!(uFlags & CMF_EXPLORE))
-	    _InsertMenuItem(hmenu, indexMenu++, TRUE, FCIDM_SHVIEW_OPEN, MFT_STRING, "&Select", MFS_ENABLED);
+          HMENU hmenures = LoadMenuW(shell32_hInstance, MAKEINTRESOURCEW(MENU_SHV_FILE));
+
+	  if(uFlags & CMF_EXPLORE)
+            RemoveMenu(hmenures, FCIDM_SHVIEW_OPEN, MF_BYCOMMAND);
+
+          Shell_MergeMenus(hmenu, GetSubMenu(hmenures, 0), indexMenu, idCmdFirst, idCmdLast, MM_SUBMENUSHAVEIDS);
+
+          DestroyMenu(hmenures);
 
 	  if(This->bAllValues)
 	  {
-	    _InsertMenuItem(hmenu, indexMenu++, TRUE, FCIDM_SHVIEW_OPEN, MFT_STRING, "&Open", MFS_ENABLED);
-	    _InsertMenuItem(hmenu, indexMenu++, TRUE, FCIDM_SHVIEW_EXPLORE, MFT_STRING, "&Explore", MFS_ENABLED);
-	  }
-	  else
-	  {
-	    _InsertMenuItem(hmenu, indexMenu++, TRUE, FCIDM_SHVIEW_EXPLORE, MFT_STRING, "&Explore", MFS_ENABLED);
-	    _InsertMenuItem(hmenu, indexMenu++, TRUE, FCIDM_SHVIEW_OPEN, MFT_STRING, "&Open", MFS_ENABLED);
+            MENUITEMINFOW mi;
+            WCHAR str[255];
+            mi.cbSize = sizeof(mi);
+            mi.fMask = MIIM_ID | MIIM_STRING | MIIM_FTYPE;
+            mi.dwTypeData = str;
+            mi.cch = 255;
+            GetMenuItemInfoW(hmenu, FCIDM_SHVIEW_EXPLORE, MF_BYCOMMAND, &mi);
+            RemoveMenu(hmenu, FCIDM_SHVIEW_EXPLORE, MF_BYCOMMAND);
+            _InsertMenuItemW(hmenu, (uFlags & CMF_EXPLORE) ? 1 : 2, MF_BYPOSITION, FCIDM_SHVIEW_EXPLORE, MFT_STRING, str, MFS_ENABLED);
 	  }
 
 	  SetMenuDefaultItem(hmenu, 0, MF_BYPOSITION);
 
-	  _InsertMenuItem(hmenu, indexMenu++, TRUE, 0, MFT_SEPARATOR, NULL, 0);
-	  _InsertMenuItem(hmenu, indexMenu++, TRUE, FCIDM_SHVIEW_COPY, MFT_STRING, "&Copy", MFS_ENABLED);
-	  _InsertMenuItem(hmenu, indexMenu++, TRUE, FCIDM_SHVIEW_CUT, MFT_STRING, "&Cut", MFS_ENABLED);
-
-	  _InsertMenuItem(hmenu, indexMenu++, TRUE, 0, MFT_SEPARATOR, NULL, 0);
-	  _InsertMenuItem(hmenu, indexMenu++, TRUE, FCIDM_SHVIEW_DELETE, MFT_STRING, "&Delete", MFS_ENABLED);
-
-	  if(uFlags & CMF_CANRENAME)
-	    _InsertMenuItem(hmenu, indexMenu++, TRUE, FCIDM_SHVIEW_RENAME, MFT_STRING, "&Rename", ISvItemCm_CanRenameItems(This) ? MFS_ENABLED : MFS_DISABLED);
+	  if(uFlags & ~CMF_CANRENAME)
+            RemoveMenu(hmenu, FCIDM_SHVIEW_RENAME, MF_BYCOMMAND);
+          else
+            EnableMenuItem(hmenu, FCIDM_SHVIEW_RENAME, MF_BYCOMMAND | ISvItemCm_CanRenameItems(This) ? MFS_ENABLED : MFS_DISABLED);
 
 	  return MAKE_HRESULT(SEVERITY_SUCCESS, 0, (FCIDM_SHVIEWLAST));
 	}
@@ -473,7 +472,7 @@ static HRESULT WINAPI ISvItemCm_fnGetCommandString(
 	    switch(idCommand)
 	    {
 	      case FCIDM_SHVIEW_RENAME:
-	        strcpy((LPSTR)lpszName, "rename");
+	        strcpy(lpszName, "rename");
 	        hr = NOERROR;
 	        break;
 	    }

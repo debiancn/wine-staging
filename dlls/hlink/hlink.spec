@@ -6,15 +6,15 @@
 8 stdcall HlinkNavigateToStringReference(wstr wstr ptr long ptr long ptr ptr ptr)
 9 stdcall HlinkOnNavigate(ptr ptr long ptr wstr wstr ptr)
 10 stdcall HlinkNavigate(ptr ptr long ptr ptr ptr)
-11 stub HlinkUpdateStackItem
+11 stdcall HlinkUpdateStackItem(ptr ptr long ptr wstr wstr)
 12 stub HlinkOnRenameDocument
-14 stub HlinkResolveMonikerForData
+14 stdcall HlinkResolveMonikerForData(ptr long ptr long ptr ptr ptr)
 15 stub HlinkResolveStringForData
 16 stub OleSaveToStreamEx
-18 stub HlinkParseDisplayName
+18 stdcall HlinkParseDisplayName(ptr wstr long ptr ptr)
 20 stdcall HlinkQueryCreateFromData(ptr)
 21 stub HlinkSetSpecialReference
-22 stub HlinkGetSpecialReference
+22 stdcall HlinkGetSpecialReference(long ptr)
 23 stub HlinkCreateShortcut
 24 stub HlinkResolveShortcut
 25 stdcall HlinkIsShortcut(wstr)

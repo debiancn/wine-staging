@@ -483,7 +483,7 @@ HRESULT WINAPI SafeArrayAllocDescriptor(UINT cDims, SAFEARRAY **ppsaOut)
  *  Failure: An HRESULT error code indicating the error.
  *
  * NOTES
- *  - This function does not chack that vt is an allowed VARTYPE.
+ *  - This function does not check that vt is an allowed VARTYPE.
  *  - Unlike SafeArrayAllocDescriptor(), vt is associated with the array.
  *  See SafeArray.
  */
@@ -805,7 +805,7 @@ HRESULT WINAPI SafeArrayUnlock(SAFEARRAY *psa)
   if (!psa)
     return E_INVALIDARG;
 
-  if ((LONG)InterlockedDecrement( (LONG*) &psa->cLocks) < 0)
+  if (InterlockedDecrement( (LONG*) &psa->cLocks) < 0)
   {
     WARN("Unlocked but no lock held!\n");
     InterlockedIncrement( (LONG*) &psa->cLocks);

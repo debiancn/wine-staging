@@ -184,7 +184,7 @@ static void test_GetTimeFormatA(void)
   ret = GetTimeFormatA(lcid, NUO|TIME_FORCE24HOURFORMAT, &curtime, input, buffer, COUNTOF(buffer));
   EXPECT_FLAGS; EXPECT_LEN(0); EXPECT_EQA;
 
-  STRINGSA("tt HH':'mm'@'ss", "A"); /* Insufficent buffer */
+  STRINGSA("tt HH':'mm'@'ss", "A"); /* Insufficient buffer */
   SetLastError(0xdeadbeef);
   ret = GetTimeFormatA(lcid, TIME_FORCE24HOURFORMAT, &curtime, input, buffer, 2);
   EXPECT_BUFFER; EXPECT_LEN(0); EXPECT_EQA;
@@ -1002,7 +1002,9 @@ static void test_CompareStringA(void)
     ok(ret == 2, "a vs a expected 2, got %d\n", ret);
 
     ret = CompareStringA(lcid, 0, "a\0b", 4, "a", 2);
-    ok(ret == 3, "a\\0b vs a expected 3, got %d\n", ret);
+    ok(ret == CSTR_EQUAL || /* win2k */
+       ret == CSTR_GREATER_THAN,
+       "a\\0b vs a expected CSTR_EQUAL or CSTR_GREATER_THAN, got %d\n", ret);
 
     ret = CompareStringA(lcid, 0, "\2", 2, "\1", 2);
     todo_wine ok(ret != 2, "\\2 vs \\1 expected unequal\n");
@@ -1796,7 +1798,10 @@ static void test_FoldStringW(void)
   };
 
   if (!pFoldStringW)
+  {
+    skip("FoldStringW is not available\n");
     return; /* FoldString is present in NT v3.1+, but not 95/98/Me */
+  }
 
   /* Invalid flag combinations */
   for (i = 0; i < sizeof(badFlags)/sizeof(badFlags[0]); i++)
@@ -1805,7 +1810,10 @@ static void test_FoldStringW(void)
     SetLastError(0);
     ret = pFoldStringW(badFlags[i], src, 256, dst, 256);
     if (GetLastError()==ERROR_CALL_NOT_IMPLEMENTED)
+    {
+      skip("FoldStringW is not implemented\n");
       return;
+    }
     EXPECT_LEN(0); EXPECT_FLAGS;
   }
 
@@ -2214,7 +2222,13 @@ static void test_EnumDateFormatsA(void)
 
     trace("EnumDateFormatsA DATE_YEARMONTH\n");
     date_fmt_buf[0] = 0;
+    SetLastError(0xdeadbeef);
     ret = EnumDateFormatsA(enum_datetime_procA, lcid, DATE_YEARMONTH);
+    if (!ret && (GetLastError() == ERROR_INVALID_FLAGS))
+    {
+        skip("DATE_YEARMONTH is only present on W2K and later\n");
+        return;
+    }
     ok(ret, "EnumDateFormatsA(DATE_YEARMONTH) error %d\n", GetLastError());
     trace("%s\n", date_fmt_buf);
     /* test the 1st enumerated format */

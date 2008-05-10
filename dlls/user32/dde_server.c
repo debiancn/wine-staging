@@ -98,7 +98,7 @@ BOOL WINAPI DdePostAdvise(DWORD idInst, HSZ hszTopic, HSZ hszItem)
 	    hDdeData = WDML_InvokeCallback(pInstance, XTYP_ADVREQ, pLink->uFmt, pLink->hConv,
 					   hszTopic, hszItem, 0, --count, 0);
 
-	    if (hDdeData == (HDDEDATA)CBR_BLOCK)
+	    if (hDdeData == CBR_BLOCK)
 	    {
 		/* MS doc is not consistent here */
 		FIXME("CBR_BLOCK returned for ADVREQ\n");
@@ -165,11 +165,8 @@ HDDEDATA WINAPI DdeNameService(DWORD idInst, HSZ hsz1, HSZ hsz2, UINT afCmd)
 {
     WDML_SERVER*	pServer;
     WDML_INSTANCE*	pInstance;
-    HDDEDATA 		hDdeData;
     HWND 		hwndServer;
     WNDCLASSEXW  	wndclass;
-
-    hDdeData = NULL;
 
     TRACE("(%d,%p,%p,%x)\n", idInst, hsz1, hsz2, afCmd);
 
@@ -463,7 +460,7 @@ static LRESULT CALLBACK WDML_ServerNameProc(HWND hwndServer, UINT iMsg, WPARAM w
 		hDdeData = WDML_InvokeCallback(pInstance, XTYP_WILDCONNECT,
 					       0, 0, hszTop, hszApp, 0, (ULONG_PTR)pcc, self);
 
-		if (hDdeData == (HDDEDATA)CBR_BLOCK)
+		if (hDdeData == CBR_BLOCK)
 		{
 		    /* MS doc is not consistent here */
 		    FIXME("CBR_BLOCK returned for WILDCONNECT\n");
@@ -1005,7 +1002,7 @@ static LRESULT CALLBACK WDML_ServerConvProc(HWND hwndServer, UINT iMsg, WPARAM w
     }
     if (pConv->hwndClient != WIN_GetFullHandle( (HWND)wParam ) || pConv->hwndServer != hwndServer)
     {
-	ERR("mismatch between C/S windows and converstation\n");
+	ERR("mismatch between C/S windows and conversation\n");
         return 0;
     }
     if (pConv->instance != pInstance || pConv->instance == NULL)

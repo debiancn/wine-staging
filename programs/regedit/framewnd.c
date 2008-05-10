@@ -327,6 +327,7 @@ static BOOL ImportRegistryFile(HWND hWnd)
     } else {
         CheckCommDlgError(hWnd);
     }
+    RefreshTreeView(g_pChildWnd->hTreeWnd);
     return TRUE;
 }
 
@@ -735,7 +736,6 @@ static BOOL _CmdWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 	    StartValueRename(g_pChildWnd->hListWnd);
 	}
 	break;
-    break;
     case ID_REGISTRY_PRINTERSETUP:
         /*PRINTDLG pd;*/
         /*PrintDlg(&pd);*/

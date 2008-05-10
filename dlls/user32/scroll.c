@@ -114,9 +114,10 @@ static LRESULT WINAPI ScrollBarWndProc( HWND hwnd, UINT uMsg, WPARAM wParam, LPA
 /*********************************************************************
  * scrollbar class descriptor
  */
+static const WCHAR scrollbarW[] = {'S','c','r','o','l','l','B','a','r',0};
 const struct builtin_class_descr SCROLL_builtin_class =
 {
-    "ScrollBar",            /* name */
+    scrollbarW,             /* name */
     CS_DBLCLKS | CS_VREDRAW | CS_HREDRAW | CS_PARENTDC, /* style  */
     NULL,                   /* procA (winproc is Unicode only) */
     ScrollBarWndProc,       /* procW */
@@ -209,10 +210,7 @@ static BOOL SCROLL_GetScrollBarRect( HWND hwnd, INT nBar, RECT *lprect,
         lprect->top    = wndPtr->rectClient.bottom - wndPtr->rectWindow.top;
         lprect->right  = wndPtr->rectClient.right - wndPtr->rectWindow.left;
         lprect->bottom = lprect->top + GetSystemMetrics(SM_CYHSCROLL);
-	if(wndPtr->dwStyle & WS_BORDER) {
-	  lprect->left--;
-	  lprect->right++;
-	} else if(wndPtr->dwStyle & WS_VSCROLL)
+	if(wndPtr->dwStyle & WS_VSCROLL)
 	  lprect->right++;
         vertical = FALSE;
 	break;
@@ -225,10 +223,7 @@ static BOOL SCROLL_GetScrollBarRect( HWND hwnd, INT nBar, RECT *lprect,
         lprect->top    = wndPtr->rectClient.top - wndPtr->rectWindow.top;
         lprect->right  = lprect->left + GetSystemMetrics(SM_CXVSCROLL);
         lprect->bottom = wndPtr->rectClient.bottom - wndPtr->rectWindow.top;
-	if(wndPtr->dwStyle & WS_BORDER) {
-	  lprect->top--;
-	  lprect->bottom++;
-	} else if(wndPtr->dwStyle & WS_HSCROLL)
+	if(wndPtr->dwStyle & WS_HSCROLL)
 	  lprect->bottom++;
         vertical = TRUE;
 	break;
@@ -960,7 +955,7 @@ static void SCROLL_HandleScrollEvent( HWND hwnd, INT nBar, UINT msg, POINT pt)
         }
         else  /* WM_MOUSEMOVE */
         {
-            UINT pos;
+            INT pos;
 
             if (!SCROLL_PtInRectEx( &rect, pt, vertical )) pos = lastClickPos;
             else
@@ -1620,7 +1615,7 @@ static INT SCROLL_SetScrollInfo( HWND hwnd, INT nBar, LPCSCROLLINFO info, BOOL b
 
     if (info->fMask & SIF_PAGE)
     {
-	if( infoPtr->page != info->nPage && info->nPage >= 0)
+	if( infoPtr->page != info->nPage )
 	{
             infoPtr->page = info->nPage;
             action |= SA_SSI_REFRESH;
@@ -2003,6 +1998,9 @@ static BOOL SCROLL_ShowScrollBar( HWND hwnd, INT nBar, BOOL fShowH, BOOL fShowV 
  */
 BOOL WINAPI ShowScrollBar(HWND hwnd, INT nBar, BOOL fShow)
 {
+    if ( !hwnd )
+        return FALSE;
+
     SCROLL_ShowScrollBar( hwnd, nBar, (nBar == SB_VERT) ? 0 : fShow,
                                       (nBar == SB_HORZ) ? 0 : fShow );
     return TRUE;
@@ -2018,8 +2016,6 @@ BOOL WINAPI EnableScrollBar( HWND hwnd, UINT nBar, UINT flags )
 {
     BOOL bFineWithMe;
     SCROLLBAR_INFO *infoPtr;
-
-    TRACE("%p %d %d\n", hwnd, nBar, flags );
 
     flags &= ESB_DISABLE_BOTH;
 

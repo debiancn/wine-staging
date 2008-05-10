@@ -196,7 +196,7 @@ DEFINE_GUID(IID_IWineD3DClipper,
 /*****************************************************************************
  * Callback functions required for predefining surfaces / stencils
  */
-typedef HRESULT WINAPI (*D3DCB_CREATERENDERTARGETFN) (IUnknown *pDevice,
+typedef HRESULT (WINAPI *D3DCB_CREATERENDERTARGETFN) (IUnknown *pDevice,
                                                IUnknown   *pSuperior,
                                                UINT       Width,
                                                UINT       Height,
@@ -207,7 +207,7 @@ typedef HRESULT WINAPI (*D3DCB_CREATERENDERTARGETFN) (IUnknown *pDevice,
                                                struct IWineD3DSurface **ppSurface,
                                                HANDLE    *pSharedHandle);
 
-typedef HRESULT WINAPI (*D3DCB_CREATESURFACEFN) (IUnknown *pDevice,
+typedef HRESULT (WINAPI *D3DCB_CREATESURFACEFN) (IUnknown *pDevice,
                                                IUnknown   *pSuperior,
                                                UINT       Width,
                                                UINT       Height,
@@ -219,7 +219,7 @@ typedef HRESULT WINAPI (*D3DCB_CREATESURFACEFN) (IUnknown *pDevice,
                                                struct IWineD3DSurface **ppSurface,
                                                HANDLE    *pSharedHandle);
 
-typedef HRESULT WINAPI (*D3DCB_CREATEDEPTHSTENCILSURFACEFN) (IUnknown *pDevice,
+typedef HRESULT (WINAPI *D3DCB_CREATEDEPTHSTENCILSURFACEFN) (IUnknown *pDevice,
                                                IUnknown   *pSuperior,
                                                UINT       Width,
                                                UINT       Height,
@@ -231,7 +231,7 @@ typedef HRESULT WINAPI (*D3DCB_CREATEDEPTHSTENCILSURFACEFN) (IUnknown *pDevice,
                                                HANDLE    *pSharedHandle);
 
 
-typedef HRESULT WINAPI (*D3DCB_CREATEVOLUMEFN) (IUnknown *pDevice,
+typedef HRESULT (WINAPI *D3DCB_CREATEVOLUMEFN) (IUnknown *pDevice,
                                                IUnknown   *pSuperior,
                                                UINT       Width,
                                                UINT       Height,
@@ -242,19 +242,23 @@ typedef HRESULT WINAPI (*D3DCB_CREATEVOLUMEFN) (IUnknown *pDevice,
                                                struct IWineD3DVolume **ppVolume,
                                                HANDLE    *pSharedHandle);
 
-typedef HRESULT WINAPI (*D3DCB_CREATEADDITIONALSWAPCHAIN) (IUnknown *pDevice,
+typedef HRESULT (WINAPI *D3DCB_CREATEADDITIONALSWAPCHAIN) (IUnknown *pDevice,
                                                WINED3DPRESENT_PARAMETERS *pPresentationParameters,
                                                struct IWineD3DSwapChain **pSwapChain
+                                               );
+
+typedef HRESULT (WINAPI *D3DCB_ENUMRESOURCES) (struct IWineD3DResource *resource,
+                                               void *pData
                                                );
 
 /*****************************************************************************
  * Callback functions for custom implicit object destruction.
  */
-typedef ULONG WINAPI (*D3DCB_DESTROYSWAPCHAINFN) (struct IWineD3DSwapChain *pSwapChain);
+typedef ULONG (WINAPI *D3DCB_DESTROYSWAPCHAINFN) (struct IWineD3DSwapChain *pSwapChain);
 
-typedef ULONG WINAPI (*D3DCB_DESTROYSURFACEFN) (struct IWineD3DSurface *pSurface);
+typedef ULONG (WINAPI *D3DCB_DESTROYSURFACEFN) (struct IWineD3DSurface *pSurface);
 
-typedef ULONG WINAPI (*D3DCB_DESTROYVOLUMEFN) (struct IWineD3DVolume *pVolume);
+typedef ULONG (WINAPI *D3DCB_DESTROYVOLUMEFN) (struct IWineD3DVolume *pVolume);
 
 /*****************************************************************************
  * IWineD3DBase interface
@@ -363,7 +367,7 @@ DECLARE_INTERFACE_(IWineD3DDevice,IWineD3DBase)
     STDMETHOD(CreateCubeTexture)(THIS_ UINT EdgeLength, UINT Levels, DWORD Usage, WINED3DFORMAT Format, WINED3DPOOL Pool, struct IWineD3DCubeTexture** ppCubeTexture, HANDLE* pSharedHandle, IUnknown *parent, D3DCB_CREATESURFACEFN pFn) PURE;
     STDMETHOD(CreateQuery)(THIS_ WINED3DQUERYTYPE Type, struct IWineD3DQuery **ppQuery, IUnknown *pParent);
     STDMETHOD(CreateAdditionalSwapChain)(THIS_ WINED3DPRESENT_PARAMETERS *pPresentationParameters, struct IWineD3DSwapChain **pSwapChain, IUnknown *pParent, D3DCB_CREATERENDERTARGETFN pFn, D3DCB_CREATEDEPTHSTENCILSURFACEFN pFn2);
-    STDMETHOD(CreateVertexDeclaration)(THIS_ struct IWineD3DVertexDeclaration** ppDecl, IUnknown* pParent, const WINED3DVERTEXELEMENT *elements, size_t element_count) PURE;
+    STDMETHOD(CreateVertexDeclaration)(THIS_ struct IWineD3DVertexDeclaration** ppDecl, IUnknown* pParent, const WINED3DVERTEXELEMENT *elements, UINT element_count) PURE;
     STDMETHOD(CreateVertexDeclarationFromFVF)(THIS_ struct IWineD3DVertexDeclaration** ppDecl, IUnknown* pParent, DWORD Fvf) PURE;
     STDMETHOD(CreateVertexShader)(THIS_ struct IWineD3DVertexDeclaration *vertex_declaration, CONST DWORD* pFunction, struct IWineD3DVertexShader** ppShader, IUnknown *pParent) PURE;
     STDMETHOD(CreatePixelShader)(THIS_ CONST DWORD* pFunction, struct IWineD3DPixelShader** ppShader, IUnknown *pParent) PURE;
@@ -405,8 +409,8 @@ DECLARE_INTERFACE_(IWineD3DDevice,IWineD3DBase)
     STDMETHOD_(void, GetGammaRamp)(THIS_ UINT iSwapChain, WINED3DGAMMARAMP* pRamp) PURE;
     STDMETHOD(SetIndices)(THIS_ struct IWineD3DIndexBuffer * pIndexData) PURE;
     STDMETHOD(GetIndices)(THIS_ struct IWineD3DIndexBuffer ** ppIndexData) PURE;
-    STDMETHOD(SetBaseVertexIndex)(THIS_ UINT baseIndex);
-    STDMETHOD(GetBaseVertexIndex)(THIS_ UINT *baseIndex);
+    STDMETHOD(SetBaseVertexIndex)(THIS_ INT baseIndex);
+    STDMETHOD(GetBaseVertexIndex)(THIS_ INT *baseIndex);
     STDMETHOD(SetLight)(THIS_ DWORD  Index,CONST WINED3DLIGHT * pLight) PURE;
     STDMETHOD(GetLight)(THIS_ DWORD  Index,WINED3DLIGHT * pLight) PURE;
     STDMETHOD(SetLightEnable)(THIS_ DWORD  Index,BOOL  Enable) PURE;
@@ -472,6 +476,7 @@ DECLARE_INTERFACE_(IWineD3DDevice,IWineD3DBase)
     STDMETHOD(DrawPrimitiveUP)(THIS_ WINED3DPRIMITIVETYPE PrimitiveType, UINT PrimitiveCount, CONST void * pVertexStreamZeroData, UINT VertexStreamZeroStride) PURE;
     STDMETHOD(DrawIndexedPrimitiveUP)(THIS_ WINED3DPRIMITIVETYPE PrimitiveType, UINT MinVertexIndex, UINT NumVertexIndices, UINT PrimitiveCount, CONST void * pIndexData, WINED3DFORMAT IndexDataFormat, CONST void * pVertexStreamZeroData, UINT VertexStreamZeroStride) PURE;
     STDMETHOD(DrawPrimitiveStrided)(THIS_ WINED3DPRIMITIVETYPE PrimitiveType, UINT PrimitiveCount, WineDirect3DVertexStridedData *DrawPrimStrideData) PURE;
+    STDMETHOD(DrawIndexedPrimitiveStrided)(THIS_ WINED3DPRIMITIVETYPE PrimitiveType, UINT PrimitiveCount, WineDirect3DVertexStridedData *DrawPrimStrideData, UINT NumVertices, CONST void *pIndexData, WINED3DFORMAT IndexDataFormat) PURE;
     STDMETHOD(DrawRectPatch)(THIS_ UINT Handle, CONST float* pNumSegs, CONST WINED3DRECTPATCH_INFO* pRectPatchInfo) PURE;
     STDMETHOD(DrawTriPatch)(THIS_ UINT Handle, CONST float* pNumSegs, CONST WINED3DTRIPATCH_INFO* pTriPatchInfo) PURE;
     STDMETHOD(DeletePatch)(THIS_ UINT Handle) PURE;
@@ -481,6 +486,7 @@ DECLARE_INTERFACE_(IWineD3DDevice,IWineD3DBase)
     STDMETHOD(GetFrontBufferData)(THIS_ UINT iSwapChain,struct IWineD3DSurface* pSurface) PURE;
     /*** object tracking ***/
     STDMETHOD_(void, ResourceReleased)(THIS_ struct IWineD3DResource *resource);
+    STDMETHOD(EnumResources)(THIS_ D3DCB_ENUMRESOURCES pCallback, void *pData);
 };
 #undef INTERFACE
 
@@ -611,6 +617,7 @@ DECLARE_INTERFACE_(IWineD3DDevice,IWineD3DBase)
 #define IWineD3DDevice_DrawPrimitiveUP(p,a,b,c,d)               (p)->lpVtbl->DrawPrimitiveUP(p,a,b,c,d)
 #define IWineD3DDevice_DrawIndexedPrimitiveUP(p,a,b,c,d,e,f,g,h) (p)->lpVtbl->DrawIndexedPrimitiveUP(p,a,b,c,d,e,f,g,h)
 #define IWineD3DDevice_DrawPrimitiveStrided(p,a,b,c)            (p)->lpVtbl->DrawPrimitiveStrided(p,a,b,c)
+#define IWineD3DDevice_DrawIndexedPrimitiveStrided(p,a,b,c,d,e,f) (p)->lpVtbl->DrawIndexedPrimitiveStrided(p,a,b,c,d,e,f)
 #define IWineD3DDevice_DrawRectPatch(p,a,b,c)                   (p)->lpVtbl->DrawRectPatch(p,a,b,c)
 #define IWineD3DDevice_DrawTriPatch(p,a,b,c)                    (p)->lpVtbl->DrawTriPatch(p,a,b,c)
 #define IWineD3DDevice_DeletePatch(p,a)                         (p)->lpVtbl->DeletePatch(p,a)
@@ -619,6 +626,7 @@ DECLARE_INTERFACE_(IWineD3DDevice,IWineD3DBase)
 #define IWineD3DDevice_UpdateSurface(p,a,b,c,d)                 (p)->lpVtbl->UpdateSurface(p,a,b,c,d)
 #define IWineD3DDevice_GetFrontBufferData(p,a,b)                (p)->lpVtbl->GetFrontBufferData(p,a,b)
 #define IWineD3DDevice_ResourceReleased(p,a)                    (p)->lpVtbl->ResourceReleased(p,a)
+#define IWineD3DDevice_EnumResources(p,a,b)                     (p)->lpVtbl->EnumResources(p,a,b)
 #endif
 
 /*****************************************************************************
@@ -641,6 +649,7 @@ DECLARE_INTERFACE_(IWineD3DResource,IWineD3DBase)
     STDMETHOD_(DWORD,SetPriority)(THIS_ DWORD  PriorityNew) PURE;
     STDMETHOD_(DWORD,GetPriority)(THIS) PURE;
     STDMETHOD_(void,PreLoad)(THIS) PURE;
+    STDMETHOD_(void,UnLoad)(THIS) PURE;
     STDMETHOD_(WINED3DRESOURCETYPE,GetType)(THIS) PURE;
 };
 #undef INTERFACE
@@ -660,6 +669,7 @@ DECLARE_INTERFACE_(IWineD3DResource,IWineD3DBase)
 #define IWineD3DResource_SetPriority(p,a)             (p)->lpVtbl->SetPriority(p,a)
 #define IWineD3DResource_GetPriority(p)               (p)->lpVtbl->GetPriority(p)
 #define IWineD3DResource_PreLoad(p)                   (p)->lpVtbl->PreLoad(p)
+#define IWineD3DResource_UnLoad(p)                    (p)->lpVtbl->UnLoad(p)
 #define IWineD3DResource_GetType(p)                   (p)->lpVtbl->GetType(p)
 #endif
 
@@ -683,6 +693,7 @@ DECLARE_INTERFACE_(IWineD3DVertexBuffer,IWineD3DResource)
     STDMETHOD_(DWORD,SetPriority)(THIS_ DWORD  PriorityNew) PURE;
     STDMETHOD_(DWORD,GetPriority)(THIS) PURE;
     STDMETHOD_(void,PreLoad)(THIS) PURE;
+    STDMETHOD_(void,UnLoad)(THIS) PURE;
     STDMETHOD_(WINED3DRESOURCETYPE,GetType)(THIS) PURE;
     /*** IWineD3DVertexBuffer methods ***/
     STDMETHOD(Lock)(THIS_ UINT  OffsetToLock, UINT  SizeToLock, BYTE ** ppbData, DWORD  Flags) PURE;
@@ -706,6 +717,7 @@ DECLARE_INTERFACE_(IWineD3DVertexBuffer,IWineD3DResource)
 #define IWineD3DVertexBuffer_SetPriority(p,a)             (p)->lpVtbl->SetPriority(p,a)
 #define IWineD3DVertexBuffer_GetPriority(p)               (p)->lpVtbl->GetPriority(p)
 #define IWineD3DVertexBuffer_PreLoad(p)                   (p)->lpVtbl->PreLoad(p)
+#define IWineD3DVertexBuffer_UnLoad(p)                    (p)->lpVtbl->UnLoad(p)
 #define IWineD3DVertexBuffer_GetType(p)                   (p)->lpVtbl->GetType(p)
 /*** IWineD3DVertexBuffer methods ***/
 #define IWineD3DVertexBuffer_Lock(p,a,b,c,d)              (p)->lpVtbl->Lock(p,a,b,c,d)
@@ -733,6 +745,7 @@ DECLARE_INTERFACE_(IWineD3DIndexBuffer,IWineD3DResource)
     STDMETHOD_(DWORD,SetPriority)(THIS_ DWORD  PriorityNew) PURE;
     STDMETHOD_(DWORD,GetPriority)(THIS) PURE;
     STDMETHOD_(void,PreLoad)(THIS) PURE;
+    STDMETHOD_(void,UnLoad)(THIS) PURE;
     STDMETHOD_(WINED3DRESOURCETYPE,GetType)(THIS) PURE;
     /*** IWineD3DIndexBuffer methods ***/
     STDMETHOD(Lock)(THIS_ UINT  OffsetToLock, UINT  SizeToLock, BYTE ** ppbData, DWORD  Flags) PURE;
@@ -756,6 +769,7 @@ DECLARE_INTERFACE_(IWineD3DIndexBuffer,IWineD3DResource)
 #define IWineD3DIndexBuffer_SetPriority(p,a)             (p)->lpVtbl->SetPriority(p,a)
 #define IWineD3DIndexBuffer_GetPriority(p)               (p)->lpVtbl->GetPriority(p)
 #define IWineD3DIndexBuffer_PreLoad(p)                   (p)->lpVtbl->PreLoad(p)
+#define IWineD3DIndexBuffer_UnLoad(p)                    (p)->lpVtbl->UnLoad(p)
 #define IWineD3DIndexBuffer_GetType(p)                   (p)->lpVtbl->GetType(p)
 /*** IWineD3DIndexBuffer methods ***/
 #define IWineD3DIndexBuffer_Lock(p,a,b,c,d)              (p)->lpVtbl->Lock(p,a,b,c,d)
@@ -785,6 +799,7 @@ DECLARE_INTERFACE_(IWineD3DBaseTexture,IWineD3DResource)
     STDMETHOD_(DWORD,SetPriority)(THIS_ DWORD  PriorityNew) PURE;
     STDMETHOD_(DWORD,GetPriority)(THIS) PURE;
     STDMETHOD_(void,PreLoad)(THIS) PURE;
+    STDMETHOD_(void,UnLoad)(THIS) PURE;
     STDMETHOD_(WINED3DRESOURCETYPE,GetType)(THIS) PURE;
     /*** IWineD3DBaseTexture methods ***/
     STDMETHOD_(DWORD, SetLOD)(THIS_ DWORD LODNew) PURE;
@@ -818,6 +833,7 @@ DECLARE_INTERFACE_(IWineD3DBaseTexture,IWineD3DResource)
 #define IWineD3DBaseTexture_SetPriority(p,a)           (p)->lpVtbl->SetPriority(p,a)
 #define IWineD3DBaseTexture_GetPriority(p)             (p)->lpVtbl->GetPriority(p)
 #define IWineD3DBaseTexture_PreLoad(p)                 (p)->lpVtbl->PreLoad(p)
+#define IWineD3DBaseTexture_UnLoad(p)                  (p)->lpVtbl->UnLoad(p)
 #define IWineD3DBaseTexture_GetType(p)                 (p)->lpVtbl->GetType(p)
 /*** IWineD3DBaseTexture methods ***/
 #define IWineD3DBaseTexture_SetLOD(p,a)                (p)->lpVtbl->SetLOD(p,a)
@@ -855,6 +871,7 @@ DECLARE_INTERFACE_(IWineD3DTexture,IWineD3DBaseTexture)
     STDMETHOD_(DWORD,SetPriority)(THIS_ DWORD  PriorityNew) PURE;
     STDMETHOD_(DWORD,GetPriority)(THIS) PURE;
     STDMETHOD_(void,PreLoad)(THIS) PURE;
+    STDMETHOD_(void,UnLoad)(THIS) PURE;
     STDMETHOD_(WINED3DRESOURCETYPE,GetType)(THIS) PURE;
     /*** IWineD3DBaseTexture methods ***/
     STDMETHOD_(DWORD, SetLOD)(THIS_ DWORD LODNew) PURE;
@@ -894,6 +911,7 @@ DECLARE_INTERFACE_(IWineD3DTexture,IWineD3DBaseTexture)
 #define IWineD3DTexture_SetPriority(p,a)           (p)->lpVtbl->SetPriority(p,a)
 #define IWineD3DTexture_GetPriority(p)             (p)->lpVtbl->GetPriority(p)
 #define IWineD3DTexture_PreLoad(p)                 (p)->lpVtbl->PreLoad(p)
+#define IWineD3DTexture_UnLoad(p)                  (p)->lpVtbl->UnLoad(p)
 #define IWineD3DTexture_GetType(p)                 (p)->lpVtbl->GetType(p)
 /*** IWineD3DTexture methods: IWineD3DBaseTexture ***/
 #define IWineD3DTexture_SetLOD(p,a)                (p)->lpVtbl->SetLOD(p,a)
@@ -937,6 +955,7 @@ DECLARE_INTERFACE_(IWineD3DCubeTexture,IWineD3DBaseTexture)
     STDMETHOD_(DWORD,SetPriority)(THIS_ DWORD  PriorityNew) PURE;
     STDMETHOD_(DWORD,GetPriority)(THIS) PURE;
     STDMETHOD_(void,PreLoad)(THIS) PURE;
+    STDMETHOD_(void,UnLoad)(THIS) PURE;
     STDMETHOD_(WINED3DRESOURCETYPE,GetType)(THIS) PURE;
     /*** IWineD3DBaseTexture methods ***/
     STDMETHOD_(DWORD, SetLOD)(THIS_ DWORD LODNew) PURE;
@@ -976,6 +995,7 @@ DECLARE_INTERFACE_(IWineD3DCubeTexture,IWineD3DBaseTexture)
 #define IWineD3DCubeTexture_SetPriority(p,a)           (p)->lpVtbl->SetPriority(p,a)
 #define IWineD3DCubeTexture_GetPriority(p)             (p)->lpVtbl->GetPriority(p)
 #define IWineD3DCubeTexture_PreLoad(p)                 (p)->lpVtbl->PreLoad(p)
+#define IWineD3DCubeTexture_UnLoad(p)                  (p)->lpVtbl->UnLoad(p)
 #define IWineD3DCubeTexture_GetType(p)                 (p)->lpVtbl->GetType(p)
 /*** IWineD3DCubeTexture methods: IWineD3DBaseTexture ***/
 #define IWineD3DCubeTexture_SetLOD(p,a)                (p)->lpVtbl->SetLOD(p,a)
@@ -1020,6 +1040,7 @@ DECLARE_INTERFACE_(IWineD3DVolumeTexture,IWineD3DBaseTexture)
     STDMETHOD_(DWORD,SetPriority)(THIS_ DWORD  PriorityNew) PURE;
     STDMETHOD_(DWORD,GetPriority)(THIS) PURE;
     STDMETHOD_(void,PreLoad)(THIS) PURE;
+    STDMETHOD_(void,UnLoad)(THIS) PURE;
     STDMETHOD_(WINED3DRESOURCETYPE,GetType)(THIS) PURE;
     /*** IWineD3DBaseTexture methods ***/
     STDMETHOD_(DWORD, SetLOD)(THIS_ DWORD LODNew) PURE;
@@ -1059,6 +1080,7 @@ DECLARE_INTERFACE_(IWineD3DVolumeTexture,IWineD3DBaseTexture)
 #define IWineD3DVolumeTexture_SetPriority(p,a)           (p)->lpVtbl->SetPriority(p,a)
 #define IWineD3DVolumeTexture_GetPriority(p)             (p)->lpVtbl->GetPriority(p)
 #define IWineD3DVolumeTexture_PreLoad(p)                 (p)->lpVtbl->PreLoad(p)
+#define IWineD3DVolumeTexture_UnLoad(p)                  (p)->lpVtbl->UnLoad(p)
 #define IWineD3DVolumeTexture_GetType(p)                 (p)->lpVtbl->GetType(p)
 /*** IWineD3DVolumeTexture methods: IWineD3DBaseTexture ***/
 #define IWineD3DVolumeTexture_SetLOD(p,a)                (p)->lpVtbl->SetLOD(p,a)
@@ -1102,6 +1124,7 @@ DECLARE_INTERFACE_(IWineD3DSurface,IWineD3DResource)
     STDMETHOD_(DWORD,SetPriority)(THIS_ DWORD  PriorityNew) PURE;
     STDMETHOD_(DWORD,GetPriority)(THIS) PURE;
     STDMETHOD_(void,PreLoad)(THIS) PURE;
+    STDMETHOD_(void,UnLoad)(THIS) PURE;
     STDMETHOD_(WINED3DRESOURCETYPE,GetType)(THIS) PURE;
     /*** IWineD3DSurface methods ***/
     STDMETHOD(GetContainer)(THIS_ REFIID  riid, void ** ppContainer) PURE;
@@ -1132,6 +1155,7 @@ DECLARE_INTERFACE_(IWineD3DSurface,IWineD3DResource)
     /* Internally used methods */
     STDMETHOD(AddDirtyRect)(THIS_ CONST RECT* pRect) PURE;
     STDMETHOD(LoadTexture)(THIS, BOOL srgb_mode) PURE;
+    STDMETHOD_(void, BindTexture)(THIS) PURE;
     STDMETHOD(SaveSnapshot)(THIS_ const char *filename) PURE;
     STDMETHOD(SetContainer)(THIS_ IWineD3DBase *container) PURE;
     STDMETHOD_(void,SetGlTextureDesc)(THIS_ UINT textureName, int target) PURE;
@@ -1139,6 +1163,9 @@ DECLARE_INTERFACE_(IWineD3DSurface,IWineD3DResource)
     STDMETHOD_(CONST void *, GetData)(THIS) PURE;
     STDMETHOD(SetFormat)(THIS_ WINED3DFORMAT format) PURE;
     STDMETHOD(PrivateSetup)(THIS) PURE;
+    STDMETHOD_(void,ModifyLocation)(THIS_ DWORD flag, BOOL persistent);
+    STDMETHOD(LoadLocation)(THIS_ DWORD flag, const RECT *rect);
+    STDMETHOD_(WINED3DSURFTYPE,GetImplType)(THIS);
 };
 #undef INTERFACE
 
@@ -1157,6 +1184,7 @@ DECLARE_INTERFACE_(IWineD3DSurface,IWineD3DResource)
 #define IWineD3DSurface_SetPriority(p,a)             (p)->lpVtbl->SetPriority(p,a)
 #define IWineD3DSurface_GetPriority(p)               (p)->lpVtbl->GetPriority(p)
 #define IWineD3DSurface_PreLoad(p)                   (p)->lpVtbl->PreLoad(p)
+#define IWineD3DSurface_UnLoad(p)                    (p)->lpVtbl->UnLoad(p)
 #define IWineD3DSurface_GetType(p)                   (p)->lpVtbl->GetType(p)
 /*** IWineD3DSurface methods ***/
 #define IWineD3DSurface_GetContainer(p,a,b)          (p)->lpVtbl->GetContainer(p,a,b)
@@ -1187,6 +1215,7 @@ DECLARE_INTERFACE_(IWineD3DSurface,IWineD3DResource)
 /*** IWineD3DSurface (Internal, no d3d mapping) methods ***/
 #define IWineD3DSurface_AddDirtyRect(p,a)            (p)->lpVtbl->AddDirtyRect(p,a)
 #define IWineD3DSurface_LoadTexture(p,a)             (p)->lpVtbl->LoadTexture(p,a)
+#define IWineD3DSurface_BindTexture(p)               (p)->lpVtbl->BindTexture(p)
 #define IWineD3DSurface_SaveSnapshot(p,a)            (p)->lpVtbl->SaveSnapshot(p,a)
 #define IWineD3DSurface_SetContainer(p,a)            (p)->lpVtbl->SetContainer(p,a)
 #define IWineD3DSurface_SetGlTextureDesc(p,a,b)      (p)->lpVtbl->SetGlTextureDesc(p,a,b)
@@ -1194,6 +1223,9 @@ DECLARE_INTERFACE_(IWineD3DSurface,IWineD3DResource)
 #define IWineD3DSurface_GetData(p)                   (p)->lpVtbl->GetData(p)
 #define IWineD3DSurface_SetFormat(p,a)               (p)->lpVtbl->SetFormat(p,a)
 #define IWineD3DSurface_PrivateSetup(p)              (p)->lpVtbl->PrivateSetup(p)
+#define IWineD3DSurface_ModifyLocation(p,a,b)        (p)->lpVtbl->ModifyLocation(p,a,b)
+#define IWineD3DSurface_LoadLocation(p,a,b)          (p)->lpVtbl->LoadLocation(p,a,b)
+#define IWineD3DSurface_GetImplType(p)               (p)->lpVtbl->GetImplType(p)
 #endif
 
 /*****************************************************************************
@@ -1216,7 +1248,8 @@ DECLARE_INTERFACE_(IWineD3DVolume,IWineD3DResource)
     STDMETHOD_(DWORD,SetPriority)(THIS_ DWORD  PriorityNew) PURE;
     STDMETHOD_(DWORD,GetPriority)(THIS) PURE;
     STDMETHOD_(void,PreLoad)(THIS) PURE;
-    STDMETHOD_(WINED3DRESOURCETYPE, GetType)(THIS) PURE;    
+    STDMETHOD_(void,UnLoad)(THIS) PURE;
+    STDMETHOD_(WINED3DRESOURCETYPE, GetType)(THIS) PURE;
     /*** IWineD3DVolume methods ***/    
     STDMETHOD(GetContainer)(THIS_ REFIID  riid, void ** ppContainer) PURE;
     STDMETHOD(GetDesc)(THIS_ WINED3DVOLUME_DESC * pDesc) PURE;
@@ -1244,6 +1277,7 @@ DECLARE_INTERFACE_(IWineD3DVolume,IWineD3DResource)
 #define IWineD3DVolume_SetPriority(p,a)           (p)->lpVtbl->SetPriority(p,a)
 #define IWineD3DVolume_GetPriority(p)             (p)->lpVtbl->GetPriority(p)
 #define IWineD3DVolume_PreLoad(p)                 (p)->lpVtbl->PreLoad(p)
+#define IWineD3DVolume_UnLoad(p)                  (p)->lpVtbl->UnLoad(p)
 #define IWineD3DVolume_GetType(p)                 (p)->lpVtbl->GetType(p)
 /*** IWineD3DVolume methods ***/
 #define IWineD3DVolume_GetContainer(p,a,b)        (p)->lpVtbl->GetContainer(p,a,b)
@@ -1270,8 +1304,8 @@ DECLARE_INTERFACE_(IWineD3DVertexDeclaration,IWineD3DBase)
     STDMETHOD(GetParent)(THIS_ IUnknown **pParent) PURE;
     /*** IWineD3DVertexDeclaration methods ***/
     STDMETHOD(GetDevice)(THIS_ IWineD3DDevice **ppDevice) PURE;
-    STDMETHOD(GetDeclaration)(THIS_ WINED3DVERTEXELEMENT *elements, size_t *elements_count) PURE;
-    STDMETHOD(SetDeclaration)(THIS_ const WINED3DVERTEXELEMENT *elements, size_t element_count) PURE;
+    STDMETHOD(GetDeclaration)(THIS_ WINED3DVERTEXELEMENT *elements, UINT *elements_count) PURE;
+    STDMETHOD(SetDeclaration)(THIS_ const WINED3DVERTEXELEMENT *elements, UINT element_count) PURE;
 };
 #undef INTERFACE
 

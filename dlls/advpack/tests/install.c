@@ -23,6 +23,7 @@
 #include <advpub.h>
 #include "wine/test.h"
 
+static HMODULE hAdvPack;
 /* function pointers */
 static HRESULT (WINAPI *pRunSetupCommand)(HWND, LPCSTR, LPCSTR, LPCSTR, LPCSTR, HANDLE*, DWORD, LPVOID);
 static HRESULT (WINAPI *pLaunchINFSection)(HWND, HINSTANCE, LPSTR, INT);
@@ -32,7 +33,7 @@ static char CURR_DIR[MAX_PATH];
 
 static BOOL init_function_pointers(void)
 {
-    HMODULE hAdvPack = LoadLibraryA("advpack.dll");
+    hAdvPack = LoadLibraryA("advpack.dll");
     if (!hAdvPack)
         return FALSE;
 
@@ -203,9 +204,15 @@ static void test_LaunchINFSection(void)
     char cmdline[MAX_PATH];
     static char file[] = "test.inf,DefaultInstall,4,0";
 
-    /* try an invalid cmdline */
-    hr = pLaunchINFSection(NULL, NULL, NULL, 0);
-    ok(hr == 1, "Expected 1, got %d\n", hr);
+    /* The 'No UI' flag seems to have no effect whatsoever on Windows.
+     * So only do this test in interactive mode.
+     */
+    if (winetest_interactive)
+    {
+        /* try an invalid cmdline */
+        hr = pLaunchINFSection(NULL, NULL, NULL, 0);
+        ok(hr == 1, "Expected 1, got %d\n", hr);
+    }
 
     CreateDirectoryA("one", NULL);
     create_inf_file("one\\test.inf");
@@ -243,10 +250,16 @@ static void test_LaunchINFSectionEx(void)
     hr = pLaunchINFSectionEx(NULL, NULL, cmdline, 0);
     ok(hr == 0, "Expected 0, got %d\n", hr);
 
-    /* try an invalid CAB filename with a relative INF name */
-    lstrcpy(cmdline, "test.inf,DefaultInstall,c:imacab.cab,4");
-    hr = pLaunchINFSectionEx(NULL, NULL, cmdline, 0);
-    ok(hr == E_INVALIDARG, "Expected E_INVALIDARG, got %d\n", hr);
+    /* The 'No UI' flag seems to have no effect whatsoever on Windows.
+     * So only do this test in interactive mode.
+     */
+    if (winetest_interactive)
+    {
+        /* try an invalid CAB filename with a relative INF name */
+        lstrcpy(cmdline, "test.inf,DefaultInstall,c:imacab.cab,4");
+        hr = pLaunchINFSectionEx(NULL, NULL, cmdline, 0);
+        ok(hr == E_INVALIDARG, "Expected E_INVALIDARG, got %d\n", hr);
+    }
 
     DeleteFileA("test.inf");
 }
@@ -261,4 +274,6 @@ START_TEST(install)
     test_RunSetupCommand();
     test_LaunchINFSection();
     test_LaunchINFSectionEx();
+
+    FreeLibrary(hAdvPack);
 }

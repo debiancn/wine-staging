@@ -24,6 +24,7 @@
 
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include "msvcrt.h"
 
 #include "wine/debug.h"
@@ -180,7 +181,7 @@ static void str_array_init(struct array* a)
  *		str_array_push
  * Adding a new string to an array
  */
-static void str_array_push(struct parsed_symbol* sym, const char* ptr, size_t len, 
+static void str_array_push(struct parsed_symbol* sym, const char* ptr, int len,
                            struct array* a)
 {
     assert(ptr);
@@ -289,6 +290,52 @@ static char* str_printf(struct parsed_symbol* sym, const char* format, ...)
 static BOOL demangle_datatype(struct parsed_symbol* sym, struct datatype_t* ct,
                               struct array* pmt, BOOL in_args);
 
+static const char* get_number(struct parsed_symbol* sym)
+{
+    char*       ptr;
+    BOOL        sgn = FALSE;
+
+    if (*sym->current == '?')
+    {
+        sgn = TRUE;
+        sym->current++;
+    }
+    if (*sym->current >= '0' && *sym->current <= '8')
+    {
+        ptr = und_alloc(sym, 3);
+        if (sgn) ptr[0] = '-';
+        ptr[sgn ? 1 : 0] = *sym->current + 1;
+        ptr[sgn ? 2 : 1] = '\0';
+        sym->current++;
+    }
+    else if (*sym->current == '9')
+    {
+        ptr = und_alloc(sym, 4);
+        if (sgn) ptr[0] = '-';
+        ptr[sgn ? 1 : 0] = '1';
+        ptr[sgn ? 2 : 1] = '0';
+        ptr[sgn ? 3 : 2] = '\0';
+        sym->current++;
+    }
+    else if (*sym->current >= 'A' && *sym->current <= 'P')
+    {
+        long    ret = 0;
+
+        while (*sym->current >= 'A' && *sym->current <= 'P')
+        {
+            ret *= 16;
+            ret += *sym->current++ - 'A';
+        }
+        if (*sym->current != '@') return NULL;
+
+        ptr = und_alloc(sym, 17);
+        sprintf(ptr, "%s%ld", sgn ? "-" : "", ret);
+        sym->current++;
+    }
+    else return NULL;
+    return ptr;
+}
+
 /******************************************************************
  *		get_args
  * Parses a list of function/method arguments, creates a string corresponding
@@ -316,12 +363,8 @@ static char* get_args(struct parsed_symbol* sym, struct array* pmt_ref, BOOL z_t
         }
         if (!demangle_datatype(sym, &ct, pmt_ref, TRUE))
             return NULL;
-        /* 'void' terminates an argument list */
-        if (!strcmp(ct.left, "void"))
-        {
-            if (!z_term && *sym->current == '@') sym->current++;
-            break;
-        }
+        /* 'void' terminates an argument list in a function */
+        if (z_term && !strcmp(ct.left, "void")) break;
         str_array_push(sym, str_printf(sym, "%s%s", ct.left, ct.right), -1, 
                        &arg_collect);
         if (!strcmp(ct.left, "...")) break;
@@ -366,10 +409,10 @@ static BOOL get_modifier(char ch, const char** ret)
     return TRUE;
 }
 
-static const char* get_modified_type(struct parsed_symbol* sym, char modif)
+static BOOL get_modified_type(struct datatype_t *ct, struct parsed_symbol* sym,
+                              struct array *pmt_ref, char modif, BOOL in_args)
 {
     const char* modifier;
-    const char* ret = NULL;
     const char* str_modif;
 
     switch (modif)
@@ -381,7 +424,7 @@ static const char* get_modified_type(struct parsed_symbol* sym, char modif)
     case 'R': str_modif = " * volatile"; break;
     case 'S': str_modif = " * const volatile"; break;
     case '?': str_modif = ""; break;
-    default: return NULL;
+    default: return FALSE;
     }
 
     if (get_modifier(*sym->current++, &modifier))
@@ -389,15 +432,47 @@ static const char* get_modified_type(struct parsed_symbol* sym, char modif)
         unsigned            mark = sym->stack.num;
         struct datatype_t   sub_ct;
 
+        /* multidimensional arrays */
+        if (*sym->current == 'Y')
+        {
+            const char* n1;
+            int num;
+
+            sym->current++;
+            if (!(n1 = get_number(sym))) return FALSE;
+            num = atoi(n1);
+
+            if (str_modif[0] == ' ' && !modifier)
+                str_modif++;
+
+            if (modifier)
+            {
+                str_modif = str_printf(sym, " (%s%s)", modifier, str_modif);
+                modifier = NULL;
+            }
+            else
+                str_modif = str_printf(sym, " (%s)", str_modif);
+
+            while (num--)
+                str_modif = str_printf(sym, "%s[%s]", str_modif, get_number(sym));
+        }
+
         /* Recurse to get the referred-to type */
-        if (!demangle_datatype(sym, &sub_ct, NULL, FALSE))
-            return NULL;
-        ret = str_printf(sym, "%s%s%s%s%s", 
-                         sub_ct.left, sub_ct.left && modifier ? " " : NULL, 
-                         modifier, sub_ct.right, str_modif);
+        if (!demangle_datatype(sym, &sub_ct, pmt_ref, FALSE))
+            return FALSE;
+        if (modifier)
+            ct->left = str_printf(sym, "%s %s%s", sub_ct.left, modifier, str_modif );
+        else
+        {
+            /* don't insert a space between duplicate '*' */
+            if (!in_args && str_modif[0] && str_modif[1] == '*' && sub_ct.left[strlen(sub_ct.left)-1] == '*')
+                str_modif++;
+            ct->left = str_printf(sym, "%s%s", sub_ct.left, str_modif );
+        }
+        ct->right = sub_ct.right;
         sym->stack.num = mark;
     }
-    return ret;
+    return TRUE;
 }
 
 /******************************************************************
@@ -442,11 +517,13 @@ static char* get_template_name(struct parsed_symbol* sym)
     unsigned num_mark = sym->names.num;
     unsigned start_mark = sym->names.start;
     unsigned stack_mark = sym->stack.num;
+    struct array array_pmt;
 
     sym->names.start = sym->names.num;
     if (!(name = get_literal_string(sym)))
         return FALSE;
-    args = get_args(sym, NULL, FALSE, '<', '>');
+    str_array_init(&array_pmt);
+    args = get_args(sym, &array_pmt, FALSE, '<', '>');
     if (args != NULL)
         name = str_printf(sym, "%s%s", name, args);
     sym->names.num = num_mark;
@@ -465,7 +542,7 @@ static char* get_template_name(struct parsed_symbol* sym)
  * template argument list). The class name components appear in the reverse
  * order in the mangled name, e.g aaa@bbb@ccc@@ will be demangled to
  * ccc::bbb::aaa
- * For each of this class name componets a string will be allocated in the
+ * For each of these class name components a string will be allocated in the
  * array.
  */
 static BOOL get_class(struct parsed_symbol* sym)
@@ -487,8 +564,8 @@ static BOOL get_class(struct parsed_symbol* sym)
             if (*++sym->current == '$') 
             {
                 sym->current++;
-                name = get_template_name(sym);
-                str_array_push(sym, name, -1, &sym->names);
+                if ((name = get_template_name(sym)))
+                    str_array_push(sym, name, -1, &sym->names);
             }
             break;
         default:
@@ -573,7 +650,8 @@ static BOOL get_calling_convention(char ch, const char** call_conv,
             case 'E': case 'F': *call_conv = "thiscall"; break;
             case 'G': case 'H': *call_conv = "stdcall"; break;
             case 'I': case 'J': *call_conv = "fastcall"; break;
-            case 'K': break;
+            case 'K': case 'L': break;
+            case 'M': *call_conv = "clrcall"; break;
             default: ERR("Unknown calling convention %c\n", ch); return FALSE;
             }
         }
@@ -587,7 +665,8 @@ static BOOL get_calling_convention(char ch, const char** call_conv,
             case 'E': case 'F': *call_conv = "__thiscall"; break;
             case 'G': case 'H': *call_conv = "__stdcall"; break;
             case 'I': case 'J': *call_conv = "__fastcall"; break;
-            case 'K': break;
+            case 'K': case 'L': break;
+            case 'M': *call_conv = "__clrcall"; break;
             default: ERR("Unknown calling convention %c\n", ch); return FALSE;
             }
         }
@@ -625,7 +704,7 @@ static const char* get_simple_type(char c)
 }
 
 /*******************************************************************
- *         get_extented_type
+ *         get_extended_type
  * Return a string containing an allocated string for a simple data type
  */
 static const char* get_extended_type(char c)
@@ -663,7 +742,6 @@ static BOOL demangle_datatype(struct parsed_symbol* sym, struct datatype_t* ct,
 {
     char                dt;
     BOOL                add_pmt = TRUE;
-    int                 num_args=0;
 
     assert(ct);
     ct->left = ct->right = NULL;
@@ -684,7 +762,8 @@ static BOOL demangle_datatype(struct parsed_symbol* sym, struct datatype_t* ct,
     case 'T': /* union */
     case 'U': /* struct */
     case 'V': /* class */
-        /* Class/struct/union */
+    case 'Y': /* cointerface */
+        /* Class/struct/union/cointerface */
         {
             const char* struct_name = NULL;
             const char* type_name = NULL;
@@ -698,6 +777,7 @@ static BOOL demangle_datatype(struct parsed_symbol* sym, struct datatype_t* ct,
                 case 'T': type_name = "union ";  break;
                 case 'U': type_name = "struct "; break;
                 case 'V': type_name = "class ";  break;
+                case 'Y': type_name = "cointerface "; break;
                 }
             }
             ct->left = str_printf(sym, "%s%s", type_name, struct_name);
@@ -705,16 +785,25 @@ static BOOL demangle_datatype(struct parsed_symbol* sym, struct datatype_t* ct,
         break;
     case '?':
         /* not all the time is seems */
-        if (!(ct->left = get_modified_type(sym, '?'))) goto done;
+        if (in_args)
+        {
+            const char*   ptr;
+            if (!(ptr = get_number(sym))) goto done;
+            ct->left = str_printf(sym, "`template-parameter-%s'", ptr);
+        }
+        else
+        {
+            if (!get_modified_type(ct, sym, pmt_ref, '?', in_args)) goto done;
+        }
         break;
     case 'A': /* reference */
     case 'B': /* volatile reference */
-        if (!(ct->left = get_modified_type(sym, dt))) goto done;
+        if (!get_modified_type(ct, sym, pmt_ref, dt, in_args)) goto done;
         break;
     case 'Q': /* const pointer */
     case 'R': /* volatile pointer */
     case 'S': /* const volatile pointer */
-        if (!(ct->left = get_modified_type(sym, in_args ? dt : 'P'))) goto done;
+        if (!get_modified_type(ct, sym, pmt_ref, in_args ? dt : 'P', in_args)) goto done;
         break;
     case 'P': /* Pointer */
         if (isdigit(*sym->current))
@@ -744,7 +833,7 @@ static BOOL demangle_datatype(struct parsed_symbol* sym, struct datatype_t* ct,
             }
             else goto done;
 	}
-	else if (!(ct->left = get_modified_type(sym, 'P'))) goto done;
+	else if (!get_modified_type(ct, sym, pmt_ref, 'P', in_args)) goto done;
         break;
     case 'W':
         if (*sym->current == '4')
@@ -763,47 +852,75 @@ static BOOL demangle_datatype(struct parsed_symbol* sym, struct datatype_t* ct,
     case '0': case '1': case '2': case '3': case '4':
     case '5': case '6': case '7': case '8': case '9':
         /* Referring back to previously parsed type */
-        ct->left = str_array_get_ref(pmt_ref, dt - '0');
+        /* left and right are pushed as two separate strings */
+        ct->left = str_array_get_ref(pmt_ref, (dt - '0') * 2);
+        ct->right = str_array_get_ref(pmt_ref, (dt - '0') * 2 + 1);
         if (!ct->left) goto done;
         add_pmt = FALSE;
         break;
     case '$':
-        if (sym->current[0] != '0') goto done;
-        if (sym->current[1] >= '0' && sym->current[1] <= '9')
+        switch (*sym->current++)
         {
-            char*       ptr;
-            ptr = und_alloc(sym, 2);
-            ptr[0] = sym->current[1] + 1;
-            ptr[1] = 0;
-            ct->left = ptr;
-            sym->current += 2;
-        }
-        else if (sym->current[1] >= 'A' && sym->current[1] <= 'P')
-        {
-            while (sym->current[1] >= 'A' && sym->current[1] <= 'P')
+        case '0':
+            if (!(ct->left = get_number(sym))) goto done;
+            break;
+        case 'D':
             {
-                num_args *= 16;
-		num_args += sym->current[1] - 'A';
-		sym->current += 1;
+                const char*   ptr;
+                if (!(ptr = get_number(sym))) goto done;
+                ct->left = str_printf(sym, "`template-parameter%s'", ptr);
             }
-            if(sym->current[1] == '@')
+            break;
+        case 'F':
             {
-                char *ptr;
-                ptr = und_alloc(sym, 17);
-                sprintf(ptr,"%d",num_args);
-                ct->left = ptr;
-                sym->current += 1;
+                const char*   p1;
+                const char*   p2;
+                if (!(p1 = get_number(sym))) goto done;
+                if (!(p2 = get_number(sym))) goto done;
+                ct->left = str_printf(sym, "{%s,%s}", p1, p2);
             }
+            break;
+        case 'G':
+            {
+                const char*   p1;
+                const char*   p2;
+                const char*   p3;
+                if (!(p1 = get_number(sym))) goto done;
+                if (!(p2 = get_number(sym))) goto done;
+                if (!(p3 = get_number(sym))) goto done;
+                ct->left = str_printf(sym, "{%s,%s,%s}", p1, p2, p3);
+            }
+            break;
+        case 'Q':
+            {
+                const char*   ptr;
+                if (!(ptr = get_number(sym))) goto done;
+                ct->left = str_printf(sym, "`non-type-template-parameter%s'", ptr);
+            }
+            break;
+        case '$':
+            if (*sym->current == 'C')
+            {
+                const char*   ptr;
+
+                sym->current++;
+                if (!get_modifier(*sym->current++, &ptr)) goto done;
+                if (!demangle_datatype(sym, ct, pmt_ref, in_args)) goto done;
+                ct->left = str_printf(sym, "%s %s", ct->left, ptr);
+            }
+            break;
         }
-        else goto done;
         break;
     default :
         ERR("Unknown type %c\n", dt);
         break;
     }
     if (add_pmt && pmt_ref && in_args)
-        str_array_push(sym, str_printf(sym, "%s%s", ct->left, ct->right), 
-                       -1, pmt_ref);
+    {
+        /* left and right are pushed as two separate strings */
+        str_array_push(sym, ct->left ? ct->left : "", -1, pmt_ref);
+        str_array_push(sym, ct->right ? ct->right : "", -1, pmt_ref);
+    }
 done:
     
     return ct->left != NULL;
@@ -822,7 +939,6 @@ static BOOL handle_data(struct parsed_symbol* sym)
     struct datatype_t   ct;
     char*               name = NULL;
     BOOL                ret = FALSE;
-    char                dt;
 
     /* 0 private static
      * 1 protected static
@@ -853,7 +969,7 @@ static BOOL handle_data(struct parsed_symbol* sym)
 
     name = get_class_string(sym, 0);
 
-    switch (dt = *sym->current++)
+    switch (*sym->current++)
     {
     case '0': case '1': case '2':
     case '3': case '4': case '5':
@@ -881,9 +997,14 @@ static BOOL handle_data(struct parsed_symbol* sym)
             ct.right = str_printf(sym, "{for `%s'}", cls);
         }
         break;
+    case '8':
+    case '9':
+        modifier = ct.left = ct.right = NULL;
+        break;
     default: goto done;
     }
     if (sym->flags & UNDNAME_NAME_ONLY) ct.left = ct.right = modifier = NULL;
+
     sym->result = str_printf(sym, "%s%s%s%s%s%s%s%s", access,
                              member_type, ct.left, 
                              modifier && ct.left ? " " : NULL, modifier, 
@@ -900,6 +1021,7 @@ done:
  */
 static BOOL handle_method(struct parsed_symbol* sym, BOOL cast_op)
 {
+    char                accmem;
     const char*         access = NULL;
     const char*         member_type = NULL;
     struct datatype_t   ct_ret;
@@ -940,10 +1062,12 @@ static BOOL handle_method(struct parsed_symbol* sym, BOOL cast_op)
      * 'Y'
      * 'Z'
      */
+    accmem = *sym->current++;
+    if (accmem < 'A' || accmem > 'Z') goto done;
 
     if (!(sym->flags & UNDNAME_NO_ACCESS_SPECIFIERS))
     {
-        switch ((*sym->current - 'A') / 8)
+        switch ((accmem - 'A') / 8)
         {
         case 0: access = "private: "; break;
         case 1: access = "protected: "; break;
@@ -952,31 +1076,36 @@ static BOOL handle_method(struct parsed_symbol* sym, BOOL cast_op)
     }
     if (!(sym->flags & UNDNAME_NO_MEMBER_TYPE))
     {
-        if (*sym->current >= 'A' && *sym->current <= 'X')
+        if (accmem <= 'X')
         {
-            switch ((*sym->current - 'A') % 8)
+            switch ((accmem - 'A') % 8)
             {
             case 2: case 3: member_type = "static "; break;
             case 4: case 5: member_type = "virtual "; break;
-            case 6: case 7: member_type = "thunk "; break;
+            case 6: case 7:
+                access = str_printf(sym, "[thunk]:%s", access);
+                member_type = "virtual ";
+                break;
             }
         }
     }
 
-    if (*sym->current >= 'A' && *sym->current <= 'X')
+    name = get_class_string(sym, 0);
+
+    if ((accmem - 'A') % 8 == 6 || (accmem - '8') % 8 == 7) /* a thunk */
+        name = str_printf(sym, "%s`adjustor{%s}' ", name, get_number(sym));
+
+    if (accmem <= 'X')
     {
-        if (!((*sym->current - 'A') & 2))
+        if (((accmem - 'A') % 8) != 2 && ((accmem - 'A') % 8) != 3)
         {
             /* Implicit 'this' pointer */
             /* If there is an implicit this pointer, const modifier follows */
-            if (!get_modifier(*++sym->current, &modifier)) goto done;
+            if (!get_modifier(*sym->current, &modifier)) goto done;
+            sym->current++;
         }
     }
-    else if (*sym->current < 'A' || *sym->current > 'Z') goto done;
-    sym->current++;
 
-    name = get_class_string(sym, 0);
-  
     if (!get_calling_convention(*sym->current++, &call_conv, &exported,
                                 sym->flags))
         goto done;
@@ -1020,6 +1149,22 @@ static BOOL handle_method(struct parsed_symbol* sym, BOOL cast_op)
     ret = TRUE;
 done:
     return ret;
+}
+
+/******************************************************************
+ *		handle_template
+ * Does the final parsing and handling for a name with templates
+ */
+static BOOL handle_template(struct parsed_symbol* sym)
+{
+    const char* name;
+    const char* args;
+
+    assert(*sym->current++ == '$');
+    if (!(name = get_literal_string(sym))) return FALSE;
+    if (!(args = get_args(sym, NULL, FALSE, '<', '>'))) return FALSE;
+    sym->result = str_printf(sym, "%s%s", name, args);
+    return TRUE;
 }
 
 /*******************************************************************
@@ -1123,6 +1268,44 @@ static BOOL symbol_demangle(struct parsed_symbol* sym)
             case 'M': function_name = "`eh vector destructor iterator'"; break;
             case 'N': function_name = "`eh vector vbase constructor iterator'"; break;
             case 'O': function_name = "`copy constructor closure'"; break;
+            case 'R':
+                sym->flags |= UNDNAME_NO_FUNCTION_RETURNS;
+                switch (*++sym->current)
+                {
+                case '0':
+                    {
+                        struct datatype_t       ct;
+                        struct array pmt;
+
+                        sym->current++;
+                        str_array_init(&pmt);
+                        demangle_datatype(sym, &ct, &pmt, FALSE);
+                        function_name = str_printf(sym, "%s%s `RTTI Type Descriptor'",
+                                                   ct.left, ct.right);
+                        sym->current--;
+                    }
+                    break;
+                case '1':
+                    {
+                        const char* n1, *n2, *n3, *n4;
+                        sym->current++;
+                        n1 = get_number(sym);
+                        n2 = get_number(sym);
+                        n3 = get_number(sym);
+                        n4 = get_number(sym);
+                        sym->current--;
+                        function_name = str_printf(sym, "`RTTI Base Class Descriptor at (%s,%s,%s,%s)'",
+                                                   n1, n2, n3, n4);
+                    }
+                    break;
+                case '2': function_name = "`RTTI Base Class Array'"; break;
+                case '3': function_name = "`RTTI Class Hierarchy Descriptor'"; break;
+                case '4': function_name = "`RTTI Complete Object Locator'"; break;
+                default:
+                    ERR("Unknown RTTI operator: _R%c\n", *sym->current);
+                    break;
+                }
+                break;
             case 'S': function_name = "`local vftable'"; break;
             case 'T': function_name = "`local vftable constructor closure'"; break;
             case 'U': function_name = "operator new[]"; break;
@@ -1154,25 +1337,28 @@ static BOOL symbol_demangle(struct parsed_symbol* sym)
             str_array_push(sym, function_name, -1, &sym->stack);
             break;
         }
-        sym->stack.start = 1;
     }
     else if (*sym->current == '$')
     {
         /* Strange construct, it's a name with a template argument list
            and that's all. */
         sym->current++;
-        sym->result = get_template_name(sym);
-        ret = TRUE;
+        ret = (sym->result = get_template_name(sym)) != NULL;
         goto done;
     }
+    else if (*sym->current == '?' && sym->current[1] == '$')
+        do_after = 5;
 
     /* Either a class name, or '@' if the symbol is not a class member */
-    if (*sym->current != '@')
+    switch (*sym->current)
     {
+    case '@': sym->current++; break;
+    case '$': break;
+    default:
         /* Class the function is associated with, terminated by '@@' */
         if (!get_class(sym)) goto done;
+        break;
     }
-    else sym->current++;
 
     switch (do_after)
     {
@@ -1190,13 +1376,18 @@ static BOOL symbol_demangle(struct parsed_symbol* sym)
     case 3:
         sym->flags &= ~UNDNAME_NO_FUNCTION_RETURNS;
         break;
+    case 5:
+        sym->names.start = 1;
+        break;
     }
 
     /* Function/Data type and access level */
-    if (*sym->current >= '0' && *sym->current <= '7')
+    if (*sym->current >= '0' && *sym->current <= '9')
         ret = handle_data(sym);
     else if (*sym->current >= 'A' && *sym->current <= 'Z')
         ret = handle_method(sym, do_after == 3);
+    else if (*sym->current == '$')
+        ret = handle_template(sym);
     else ret = FALSE;
 done:
     if (ret) assert(sym->result);

@@ -68,6 +68,12 @@ static SetThreadIdealProcessor_t pSetThreadIdealProcessor=NULL;
 typedef BOOL (WINAPI *SetThreadPriorityBoost_t)(HANDLE,BOOL);
 static SetThreadPriorityBoost_t pSetThreadPriorityBoost=NULL;
 
+typedef BOOL (WINAPI *RegisterWaitForSingleObject_t)(PHANDLE,HANDLE,WAITORTIMERCALLBACK,PVOID,ULONG,ULONG);
+static RegisterWaitForSingleObject_t pRegisterWaitForSingleObject=NULL;
+
+typedef BOOL (WINAPI *UnregisterWait_t)(HANDLE);
+static UnregisterWait_t pUnregisterWait=NULL;
+
 static HANDLE create_target_process(const char *arg)
 {
     char **argv;
@@ -303,7 +309,7 @@ cleanup:
     CloseHandle(hProcess);
 }
 
-/* Check basic funcationality of CreateThread and Tls* functions */
+/* Check basic functionality of CreateThread and Tls* functions */
 static VOID test_CreateThread_basic(void)
 {
    HANDLE thread[NUM_THREADS],event[NUM_THREADS];
@@ -325,7 +331,7 @@ static VOID test_CreateThread_basic(void)
 /* Create events for thread synchronization */
   for(i=0;i<NUM_THREADS;i++) {
     threadmem[i]=0;
-/* Note that it doesn't matter what type of event we chose here.  This
+/* Note that it doesn't matter what type of event we choose here.  This
    test isn't trying to thoroughly test events
 */
     event[i]=CreateEventA(NULL,TRUE,FALSE,NULL);
@@ -588,6 +594,32 @@ static VOID test_thread_priority(void)
        "GetThreadPriority Failed\n");
    ok(SetThreadPriority(curthread,0)!=0,"SetThreadPriority Failed\n");
 
+/* Check that the thread priority is not changed if SetThreadPriority
+   is called with a value outside of the max/min range */
+   SetThreadPriority(curthread,min_priority);
+   SetLastError(0xdeadbeef);
+   rc = SetThreadPriority(curthread,min_priority-1);
+
+   ok(rc == FALSE, "SetThreadPriority passed with a bad argument\n");
+   ok(GetLastError() == ERROR_INVALID_PARAMETER ||
+      GetLastError() == ERROR_INVALID_PRIORITY /* Win9x */,
+      "SetThreadPriority error %d, expected ERROR_INVALID_PARAMETER or ERROR_INVALID_PRIORITY\n",
+      GetLastError());
+   ok(GetThreadPriority(curthread)==min_priority,
+      "GetThreadPriority didn't return min_priority\n");
+
+   SetThreadPriority(curthread,max_priority);
+   SetLastError(0xdeadbeef);
+   rc = SetThreadPriority(curthread,max_priority+1);
+
+   ok(rc == FALSE, "SetThreadPriority passed with a bad argument\n");
+   ok(GetLastError() == ERROR_INVALID_PARAMETER ||
+      GetLastError() == ERROR_INVALID_PRIORITY /* Win9x */,
+      "SetThreadPriority error %d, expected ERROR_INVALID_PARAMETER or ERROR_INVALID_PRIORITY\n",
+      GetLastError());
+   ok(GetThreadPriority(curthread)==max_priority,
+      "GetThreadPriority didn't return max_priority\n");
+
 /* Check thread priority boost */
    if (!pGetThreadPriorityBoost || !pSetThreadPriorityBoost) 
      return; /* Win9x */
@@ -773,6 +805,7 @@ static void test_SetThreadContext(void)
     HANDLE thread;
     DWORD threadid;
     DWORD prevcount;
+    BOOL ret;
 
     SetLastError(0xdeadbeef);
     event = CreateEvent( NULL, TRUE, FALSE, NULL );
@@ -789,16 +822,20 @@ static void test_SetThreadContext(void)
 
     ctx.ContextFlags = CONTEXT_FULL;
     SetLastError(0xdeadbeef);
-    ok( GetThreadContext( thread, &ctx ), "GetThreadContext failed : (%d)\n", GetLastError() );
+    ret = GetThreadContext( thread, &ctx );
+    ok( ret, "GetThreadContext failed : (%u)\n", GetLastError() );
 
-    /* simulate a call to set_test_val(10) */
-    stack = (int *)ctx.Esp;
-    stack[-1] = 10;
-    stack[-2] = ctx.Eip;
-    ctx.Esp -= 2 * sizeof(int *);
-    ctx.Eip = (DWORD)set_test_val;
-    SetLastError(0xdeadbeef);
-    ok( SetThreadContext( thread, &ctx ), "SetThreadContext failed : (%d)\n", GetLastError() );
+    if (ret)
+    {
+        /* simulate a call to set_test_val(10) */
+        stack = (int *)ctx.Esp;
+        stack[-1] = 10;
+        stack[-2] = ctx.Eip;
+        ctx.Esp -= 2 * sizeof(int *);
+        ctx.Eip = (DWORD)set_test_val;
+        SetLastError(0xdeadbeef);
+        ok( SetThreadContext( thread, &ctx ), "SetThreadContext failed : (%d)\n", GetLastError() );
+    }
 
     SetLastError(0xdeadbeef);
     prevcount = ResumeThread( thread );
@@ -851,6 +888,71 @@ static void test_QueueUserWorkItem(void)
     ok(times_executed == 100, "didn't execute all of the work items\n");
 }
 
+static void CALLBACK signaled_function(PVOID p, BOOLEAN TimerOrWaitFired)
+{
+    HANDLE event = p;
+    SetEvent(event);
+    ok(!TimerOrWaitFired, "wait shouldn't have timed out\n");
+}
+
+static void CALLBACK timeout_function(PVOID p, BOOLEAN TimerOrWaitFired)
+{
+    HANDLE event = p;
+    SetEvent(event);
+    ok(TimerOrWaitFired, "wait should have timed out\n");
+}
+
+static void test_RegisterWaitForSingleObject(void)
+{
+    BOOL ret;
+    HANDLE wait_handle;
+    HANDLE handle;
+    HANDLE complete_event;
+
+    if (!pRegisterWaitForSingleObject || !pUnregisterWait)
+    {
+        skip("RegisterWaitForSingleObject or UnregisterWait not implemented\n");
+        return;
+    }
+
+    /* test signaled case */
+
+    handle = CreateEvent(NULL, TRUE, TRUE, NULL);
+    complete_event = CreateEvent(NULL, FALSE, FALSE, NULL);
+
+    ret = pRegisterWaitForSingleObject(&wait_handle, handle, signaled_function, complete_event, INFINITE, WT_EXECUTEONLYONCE);
+    ok(ret, "RegisterWaitForSingleObject failed with error %d\n", GetLastError());
+
+    WaitForSingleObject(complete_event, INFINITE);
+    /* give worker thread chance to complete */
+    Sleep(100);
+
+    ret = pUnregisterWait(wait_handle);
+    ok(ret, "UnregisterWait failed with error %d\n", GetLastError());
+
+    /* test cancel case */
+
+    ResetEvent(handle);
+
+    ret = pRegisterWaitForSingleObject(&wait_handle, handle, signaled_function, complete_event, INFINITE, WT_EXECUTEONLYONCE);
+    ok(ret, "RegisterWaitForSingleObject failed with error %d\n", GetLastError());
+
+    ret = pUnregisterWait(wait_handle);
+    ok(ret, "UnregisterWait failed with error %d\n", GetLastError());
+
+    /* test timeout case */
+
+    ret = pRegisterWaitForSingleObject(&wait_handle, handle, timeout_function, complete_event, 0, WT_EXECUTEONLYONCE);
+    ok(ret, "RegisterWaitForSingleObject failed with error %d\n", GetLastError());
+
+    WaitForSingleObject(complete_event, INFINITE);
+    /* give worker thread chance to complete */
+    Sleep(100);
+
+    ret = pUnregisterWait(wait_handle);
+    ok(ret, "UnregisterWait failed with error %d\n", GetLastError());
+}
+
 START_TEST(thread)
 {
    HINSTANCE lib;
@@ -867,6 +969,8 @@ START_TEST(thread)
    pQueueUserWorkItem=(QueueUserWorkItem_t)GetProcAddress(lib,"QueueUserWorkItem");
    pSetThreadIdealProcessor=(SetThreadIdealProcessor_t)GetProcAddress(lib,"SetThreadIdealProcessor");
    pSetThreadPriorityBoost=(SetThreadPriorityBoost_t)GetProcAddress(lib,"SetThreadPriorityBoost");
+   pRegisterWaitForSingleObject=(RegisterWaitForSingleObject_t)GetProcAddress(lib,"RegisterWaitForSingleObject");
+   pUnregisterWait=(UnregisterWait_t)GetProcAddress(lib,"UnregisterWait");
 
    if (argc >= 3)
    {
@@ -907,4 +1011,5 @@ START_TEST(thread)
    test_SetThreadContext();
 #endif
    test_QueueUserWorkItem();
+   test_RegisterWaitForSingleObject();
 }

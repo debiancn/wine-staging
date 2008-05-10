@@ -120,13 +120,12 @@ typedef struct
 } RGNOBJ;
 
 
-static HGDIOBJ REGION_SelectObject( HGDIOBJ handle, void *obj, HDC hdc );
+static HGDIOBJ REGION_SelectObject( HGDIOBJ handle, HDC hdc );
 static BOOL REGION_DeleteObject( HGDIOBJ handle, void *obj );
 
 static const struct gdi_obj_funcs region_funcs =
 {
     REGION_SelectObject,  /* pSelectObject */
-    NULL,                 /* pGetObject16 */
     NULL,                 /* pGetObjectA */
     NULL,                 /* pGetObjectW */
     NULL,                 /* pUnrealizeObject */
@@ -549,7 +548,7 @@ static BOOL REGION_DeleteObject( HGDIOBJ handle, void *obj )
 /***********************************************************************
  *           REGION_SelectObject
  */
-static HGDIOBJ REGION_SelectObject( HGDIOBJ handle, void *obj, HDC hdc )
+static HGDIOBJ REGION_SelectObject( HGDIOBJ handle, HDC hdc )
 {
     return ULongToHandle(SelectClipRgn( hdc, handle ));
 }
@@ -894,7 +893,7 @@ HRGN WINAPI CreateRoundRectRgn( INT left, INT top,
  *
  * NOTES
  *   This is a special case of CreateRoundRectRgn() where the width of the
- *   ellipse at each corner is equal to the width the the rectangle and
+ *   ellipse at each corner is equal to the width the rectangle and
  *   the same for the height.
  */
 HRGN WINAPI CreateEllipticRgn( INT left, INT top,
@@ -919,7 +918,7 @@ HRGN WINAPI CreateEllipticRgn( INT left, INT top,
  *
  * NOTES
  *   This is a special case of CreateRoundRectRgn() where the width of the
- *   ellipse at each corner is equal to the width the the rectangle and
+ *   ellipse at each corner is equal to the width the rectangle and
  *   the same for the height.
  */
 HRGN WINAPI CreateEllipticRgnIndirect( const RECT *rect )
@@ -986,6 +985,19 @@ DWORD WINAPI GetRegionData(HRGN hrgn, DWORD count, LPRGNDATA rgndata)
 }
 
 
+static void translate( POINT *pt, UINT count, const XFORM *xform )
+{
+    while (count--)
+    {
+        FLOAT x = pt->x;
+        FLOAT y = pt->y;
+        pt->x = floor( x * xform->eM11 + y * xform->eM21 + xform->eDx + 0.5 );
+        pt->y = floor( x * xform->eM12 + y * xform->eM22 + xform->eDy + 0.5 );
+        pt++;
+    }
+}
+
+
 /***********************************************************************
  *           ExtCreateRegion   (GDI32.@)
  *
@@ -994,7 +1006,7 @@ DWORD WINAPI GetRegionData(HRGN hrgn, DWORD count, LPRGNDATA rgndata)
  * PARAMS
  *   lpXform [I] World-space to logical-space transformation data.
  *   dwCount [I] Size of the data pointed to by rgndata, in bytes.
- *   rgndata [I] Data that specifes the region.
+ *   rgndata [I] Data that specifies the region.
  *
  * RETURNS
  *   Success: Handle to region.
@@ -1009,16 +1021,47 @@ HRGN WINAPI ExtCreateRegion( const XFORM* lpXform, DWORD dwCount, const RGNDATA*
 
     TRACE(" %p %d %p\n", lpXform, dwCount, rgndata );
 
-    if( lpXform )
-        WARN("(Xform not implemented - ignored)\n");
-
-    if( rgndata->rdh.iType != RDH_RECTANGLES )
+    if (!rgndata)
     {
-	/* FIXME: We can use CreatePolyPolygonRgn() here
-	 *        for trapezoidal data */
+        SetLastError( ERROR_INVALID_PARAMETER );
+        return 0;
+    }
 
+    if (rgndata->rdh.dwSize < sizeof(RGNDATAHEADER))
+        return 0;
+
+    /* XP doesn't care about the type */
+    if( rgndata->rdh.iType != RDH_RECTANGLES )
         WARN("(Unsupported region data type: %u)\n", rgndata->rdh.iType);
-	goto fail;
+
+    if (lpXform)
+    {
+        RECT *pCurRect, *pEndRect;
+
+        hrgn = CreateRectRgn( 0, 0, 0, 0 );
+
+        pEndRect = (RECT *)rgndata->Buffer + rgndata->rdh.nCount;
+        for (pCurRect = (RECT *)rgndata->Buffer; pCurRect < pEndRect; pCurRect++)
+        {
+            static const INT count = 4;
+            HRGN poly_hrgn;
+            POINT pt[4];
+
+            pt[0].x = pCurRect->left;
+            pt[0].y = pCurRect->top;
+            pt[1].x = pCurRect->right;
+            pt[1].y = pCurRect->top;
+            pt[2].x = pCurRect->right;
+            pt[2].y = pCurRect->bottom;
+            pt[3].x = pCurRect->left;
+            pt[3].y = pCurRect->bottom;
+
+            translate( pt, 4, lpXform );
+            poly_hrgn = CreatePolyPolygonRgn( pt, &count, 1, WINDING );
+            CombineRgn( hrgn, hrgn, poly_hrgn, RGN_OR );
+            DeleteObject( poly_hrgn );
+        }
+        return hrgn;
     }
 
     if( (hrgn = REGION_CreateRegion( rgndata->rdh.nCount )) )
@@ -1040,8 +1083,7 @@ HRGN WINAPI ExtCreateRegion( const XFORM* lpXform, DWORD dwCount, const RGNDATA*
         }
 	else ERR("Could not get pointer to newborn Region!\n");
     }
-fail:
-    WARN("Failed\n");
+
     return 0;
 }
 
@@ -1240,7 +1282,7 @@ BOOL REGION_FrameRgn( HRGN hDest, HRGN hSrc, INT x, INT y )
 /***********************************************************************
  *           CombineRgn   (GDI32.@)
  *
- * Combines two regions with the specifed operation and stores the result
+ * Combines two regions with the specified operation and stores the result
  * in the specified destination region.
  *
  * PARAMS
@@ -1683,7 +1725,7 @@ static void REGION_RegionOp(
 	    top = max(r1->top,ybot);
 	    bot = min(r1->bottom,r2->top);
 
-	    if ((top != bot) && (nonOverlap1Func != (void (*)())NULL))
+            if ((top != bot) && (nonOverlap1Func != NULL))
 	    {
 		(* nonOverlap1Func) (newReg, r1, r1BandEnd, top, bot);
 	    }
@@ -1695,7 +1737,7 @@ static void REGION_RegionOp(
 	    top = max(r2->top,ybot);
 	    bot = min(r2->bottom,r1->top);
 
-	    if ((top != bot) && (nonOverlap2Func != (void (*)())NULL))
+            if ((top != bot) && (nonOverlap2Func != NULL))
 	    {
 		(* nonOverlap2Func) (newReg, r2, r2BandEnd, top, bot);
 	    }
@@ -1755,7 +1797,7 @@ static void REGION_RegionOp(
     curBand = newReg->numRects;
     if (r1 != r1End)
     {
-	if (nonOverlap1Func != (void (*)())NULL)
+        if (nonOverlap1Func != NULL)
 	{
 	    do
 	    {
@@ -1770,7 +1812,7 @@ static void REGION_RegionOp(
 	    } while (r1 != r1End);
 	}
     }
-    else if ((r2 != r2End) && (nonOverlap2Func != (void (*)())NULL))
+    else if ((r2 != r2End) && (nonOverlap2Func != NULL))
     {
 	do
 	{
@@ -2743,6 +2785,8 @@ HRGN WINAPI CreatePolyPolygonRgn(const POINT *Pts, const INT *Count,
     POINTBLOCK *tmpPtBlock;
     int numFullPtBlocks = 0;
     INT poly, total;
+
+    TRACE("%p, count %d, polygons %d, mode %d\n", Pts, *Count, nbpolygons, mode);
 
     if(!(hrgn = REGION_CreateRegion(nbpolygons)))
         return 0;

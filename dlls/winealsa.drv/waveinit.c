@@ -81,6 +81,8 @@ static int ALSA_TestDeviceForWine(int card, int device,  snd_pcm_stream_t stream
     const char *reason = NULL;
     unsigned int rrate;
 
+    hwparams = HeapAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY, snd_pcm_hw_params_sizeof() );
+
     /* Note that the plug: device masks out a lot of info, we want to avoid that */
     sprintf(pcmname, "hw:%d,%d", card, device);
     retcode = snd_pcm_open(&pcm, pcmname, streamtype, SND_PCM_NONBLOCK);
@@ -91,8 +93,6 @@ static int ALSA_TestDeviceForWine(int card, int device,  snd_pcm_stream_t stream
             retcode = 0;
         goto exit;
     }
-
-    snd_pcm_hw_params_alloca(&hwparams);
 
     retcode = snd_pcm_hw_params_any(pcm, hwparams);
     if (retcode < 0)
@@ -136,6 +136,7 @@ static int ALSA_TestDeviceForWine(int card, int device,  snd_pcm_stream_t stream
 exit:
     if (pcm)
         snd_pcm_close(pcm);
+    HeapFree( GetProcessHeap(), 0, hwparams );
 
     if (retcode != 0 && retcode != (-1 * ENOENT))
         TRACE("Discarding card %d/device %d:  %s [%d(%s)]\n", card, device, reason, retcode, snd_strerror(retcode));
@@ -197,7 +198,7 @@ static int ALSA_RegGetBoolean(HKEY key, const char *value, BOOL *answer)
 }
 
 /*----------------------------------------------------------------------------
-** ALSA_RegGetBoolean
+** ALSA_RegGetInt
 **  Get a string and interpret it as a DWORD
 */
 static int ALSA_RegGetInt(HKEY key, const char *value, DWORD *answer)
@@ -252,21 +253,22 @@ static int ALSA_ComputeCaps(snd_ctl_t *ctl, snd_pcm_t *pcm,
     unsigned int ratemax = 0;
     unsigned int chmin = 0;
     unsigned int chmax = 0;
-    int dir = 0;
+    int rc, dir = 0;
 
-    snd_pcm_hw_params_alloca(&hw_params);
-    ALSA_RETURN_ONFAIL(snd_pcm_hw_params_any(pcm, hw_params));
+    hw_params = HeapAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY, snd_pcm_hw_params_sizeof() );
+    fmask = HeapAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY, snd_pcm_format_mask_sizeof() );
+    acmask = HeapAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY, snd_pcm_access_mask_sizeof() );
 
-    snd_pcm_format_mask_alloca(&fmask);
+    if ((rc = snd_pcm_hw_params_any(pcm, hw_params)) < 0) goto done;
+
     snd_pcm_hw_params_get_format_mask(hw_params, fmask);
 
-    snd_pcm_access_mask_alloca(&acmask);
-    ALSA_RETURN_ONFAIL(snd_pcm_hw_params_get_access_mask(hw_params, acmask));
+    if ((rc = snd_pcm_hw_params_get_access_mask(hw_params, acmask)) < 0) goto done;
 
-    ALSA_RETURN_ONFAIL(snd_pcm_hw_params_get_rate_min(hw_params, &ratemin, &dir));
-    ALSA_RETURN_ONFAIL(snd_pcm_hw_params_get_rate_max(hw_params, &ratemax, &dir));
-    ALSA_RETURN_ONFAIL(snd_pcm_hw_params_get_channels_min(hw_params, &chmin));
-    ALSA_RETURN_ONFAIL(snd_pcm_hw_params_get_channels_max(hw_params, &chmax));
+    if ((rc = snd_pcm_hw_params_get_rate_min(hw_params, &ratemin, &dir)) < 0) goto done;
+    if ((rc = snd_pcm_hw_params_get_rate_max(hw_params, &ratemax, &dir)) < 0) goto done;
+    if ((rc = snd_pcm_hw_params_get_channels_min(hw_params, &chmin)) < 0) goto done;
+    if ((rc = snd_pcm_hw_params_get_channels_max(hw_params, &chmax)) < 0) goto done;
 
 #define X(r,v) \
     if ( (r) >= ratemin && ( (r) <= ratemax || ratemax == -1) ) \
@@ -307,11 +309,27 @@ static int ALSA_ComputeCaps(snd_ctl_t *ctl, snd_pcm_t *pcm,
 
     /* check for volume control support */
     if (ctl) {
-        *supports |= WAVECAPS_VOLUME;
-
-        if (chmin <= 2 && 2 <= chmax)
-            *supports |= WAVECAPS_LRVOLUME;
+        if (snd_ctl_name(ctl))
+        {
+            snd_hctl_t *hctl;
+            if (snd_hctl_open(&hctl, snd_ctl_name(ctl), 0) >= 0)
+            {
+                snd_hctl_load(hctl);
+                if (!ALSA_CheckSetVolume( hctl, NULL, NULL, NULL, NULL, NULL, NULL, NULL ))
+                {
+                    *supports |= WAVECAPS_VOLUME;
+                    if (chmin <= 2 && 2 <= chmax)
+                        *supports |= WAVECAPS_LRVOLUME;
+                }
+                snd_hctl_free(hctl);
+                snd_hctl_close(hctl);
+            }
+        }
     }
+
+    *flags = DSCAPS_CERTIFIED | DSCAPS_CONTINUOUSRATE;
+    *flags |= DSCAPS_SECONDARYMONO | DSCAPS_SECONDARYSTEREO;
+    *flags |= DSCAPS_SECONDARY8BIT | DSCAPS_SECONDARY16BIT;
 
     if (*formats & (WAVE_FORMAT_1M08  | WAVE_FORMAT_2M08  |
                                WAVE_FORMAT_4M08  | WAVE_FORMAT_48M08 |
@@ -341,7 +359,14 @@ static int ALSA_ComputeCaps(snd_ctl_t *ctl, snd_pcm_t *pcm,
                                WAVE_FORMAT_48S16 | WAVE_FORMAT_96S16) )
         *flags |= DSCAPS_PRIMARY16BIT;
 
-    return(0);
+    rc = 0;
+
+done:
+    if (rc < 0) ERR("failed: %s(%d)\n", snd_strerror(rc), rc);
+    HeapFree( GetProcessHeap(), 0, hw_params );
+    HeapFree( GetProcessHeap(), 0, fmask );
+    HeapFree( GetProcessHeap(), 0, acmask );
+    return rc;
 }
 
 /*----------------------------------------------------------------------------
@@ -359,14 +384,22 @@ static int ALSA_ComputeCaps(snd_ctl_t *ctl, snd_pcm_t *pcm,
 static int ALSA_AddCommonDevice(snd_ctl_t *ctl, snd_pcm_t *pcm, const char *pcmname, WINE_WAVEDEV *ww)
 {
     snd_pcm_info_t *infop;
+    int rc;
 
-    snd_pcm_info_alloca(&infop);
-    ALSA_RETURN_ONFAIL(snd_pcm_info(pcm, infop));
+    infop = HeapAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY, snd_pcm_info_sizeof() );
+    if ((rc = snd_pcm_info(pcm, infop)) < 0)
+    {
+        HeapFree( GetProcessHeap(), 0, infop );
+        return rc;
+    }
 
     if (pcm && pcmname)
         ww->pcmname = ALSA_strdup(pcmname);
     else
+    {
+        HeapFree( GetProcessHeap(), 0, infop );
         return -1;
+    }
 
     if (ctl && snd_ctl_name(ctl))
         ww->ctlname = ALSA_strdup(snd_ctl_name(ctl));
@@ -385,6 +418,7 @@ static int ALSA_AddCommonDevice(snd_ctl_t *ctl, snd_pcm_t *pcm, const char *pcmn
     ww->ds_caps.dwMaxSecondarySampleRate = DSBFREQUENCY_MAX;
     ww->ds_caps.dwPrimaryBuffers = 1;
 
+    HeapFree( GetProcessHeap(), 0, infop );
     return 0;
 }
 
@@ -513,12 +547,6 @@ static int ALSA_AddCaptureDevice(snd_ctl_t *ctl, snd_pcm_t *pcm, const char *pcm
         return(rc);
     }
 
-    if (wwi.dwSupport & WAVECAPS_DIRECTSOUND)
-    {
-        FIXME("Add support for DSCapture\n");
-        wwi.dwSupport &= ~WAVECAPS_DIRECTSOUND;
-    }
-
     rc = ALSA_AddDeviceToArray(&wwi, &WInDev, &ALSA_WidNumDevs, &ALSA_WidNumMallocedDevs, isdefault);
     if (rc)
         ALSA_FreeDevice(&wwi);
@@ -531,7 +559,7 @@ static int ALSA_AddCaptureDevice(snd_ctl_t *ctl, snd_pcm_t *pcm, const char *pcm
 **      Given an Alsa style configuration node, scan its subitems
 **  for environment variable names, and use them to find an override,
 **  if appropriate.
-**      This is essentially a long and convolunted way of doing:
+**      This is essentially a long and convoluted way of doing:
 **          getenv("ALSA_CARD")
 **          getenv("ALSA_CTL_CARD")
 **          getenv("ALSA_PCM_CARD")
@@ -591,7 +619,7 @@ static void ALSA_CheckEnvironment(snd_config_t *node, int *outvalue)
 **                          environment variable, we'll set to the
 **                          device the user specified.
 **
-**  Returns:  0 on success, < 0 on failiure
+**  Returns:  0 on success, < 0 on failure
 */
 static int ALSA_DefaultDevices(int directhw,
             long *defctlcard,
@@ -661,7 +689,7 @@ static int ALSA_DefaultDevices(int directhw,
 **      fixedpcmdev     If not -1, then gives the value of ALSA_PCM_DEVICE
 **                          or equivalent environment variable
 **
-**  Returns:  0 on success, < 0 on failiure
+**  Returns:  0 on success, < 0 on failure
 */
 static int ALSA_ScanDevices(int directhw,
         long defctlcard, long defpcmcard, long defpcmdev,
@@ -687,13 +715,8 @@ static int ALSA_ScanDevices(int directhw,
         ** Try to open a ctl handle; Wine doesn't absolutely require one,
         **  but it does allow for volume control and for device scanning
         **------------------------------------------------------------------*/
-        sprintf(ctlname, "default:%d", fixedctlcard == -1 ? card : fixedctlcard);
+        sprintf(ctlname, "hw:%d", fixedctlcard == -1 ? card : fixedctlcard);
         rc = snd_ctl_open(&ctl, ctlname, SND_CTL_NONBLOCK);
-        if (rc < 0)
-        {
-            sprintf(ctlname, "hw:%d", fixedctlcard == -1 ? card : fixedctlcard);
-            rc = snd_ctl_open(&ctl, ctlname, SND_CTL_NONBLOCK);
-        }
         if (rc < 0)
         {
             ctl = NULL;
@@ -718,7 +741,7 @@ static int ALSA_ScanDevices(int directhw,
             char *pcmname = NULL;
             snd_pcm_t *pcm;
 
-            sprintf(defaultpcmname, "default:%d", card);
+            sprintf(defaultpcmname, "default");
             sprintf(plugpcmname,    "plughw:%d,%d", card, device);
             sprintf(hwpcmname,      "hw:%d,%d", card, device);
 

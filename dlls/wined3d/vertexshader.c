@@ -6,6 +6,7 @@
  * Copyright 2004 Christian Costa
  * Copyright 2005 Oliver Stieber
  * Copyright 2006 Ivan Gyurdiev
+ * Copyright 2007-2008 Stefan Dösinger for CodeWeavers
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -44,30 +45,6 @@ WINE_DEFAULT_DEBUG_CHANNEL(d3d_shader);
 #endif
 
 /**
- * DirectX9 SDK download
- *  http://msdn.microsoft.com/library/default.asp?url=/downloads/list/directx.asp
- *
- * Exploring D3DX
- *  http://msdn.microsoft.com/library/default.asp?url=/library/en-us/dndrive/html/directx07162002.asp
- *
- * Using Vertex Shaders
- *  http://msdn.microsoft.com/library/default.asp?url=/library/en-us/dndrive/html/directx02192001.asp
- *
- * Dx9 New
- *  http://msdn.microsoft.com/library/default.asp?url=/library/en-us/directx9_c/directx/graphics/whatsnew.asp
- *
- * Dx9 Shaders
- *  http://msdn.microsoft.com/library/default.asp?url=/library/en-us/directx9_c/directx/graphics/reference/Shaders/VertexShader2_0/VertexShader2_0.asp
- *  http://msdn.microsoft.com/library/default.asp?url=/library/en-us/directx9_c/directx/graphics/reference/Shaders/VertexShader2_0/Instructions/Instructions.asp
- *  http://msdn.microsoft.com/library/default.asp?url=/library/en-us/directx9_c/directx/graphics/programmingguide/GettingStarted/VertexDeclaration/VertexDeclaration.asp
- *  http://msdn.microsoft.com/library/default.asp?url=/library/en-us/directx9_c/directx/graphics/reference/Shaders/VertexShader3_0/VertexShader3_0.asp
- *
- * Dx9 D3DX
- *  http://msdn.microsoft.com/library/default.asp?url=/library/en-us/directx9_c/directx/graphics/programmingguide/advancedtopics/VertexPipe/matrixstack/matrixstack.asp
- *
- * FVF
- *  http://msdn.microsoft.com/library/en-us/directx9_c/directx/graphics/programmingguide/GettingStarted/VertexFormats/vformats.asp
- *
  * NVIDIA: DX8 Vertex Shader to NV Vertex Program
  *  http://developer.nvidia.com/view.asp?IO=vstovp
  *
@@ -75,8 +52,8 @@ WINE_DEFAULT_DEBUG_CHANNEL(d3d_shader);
  *  http://developer.nvidia.com/view.asp?IO=var_memory_management
  */
 
-/* TODO: Vertex and Pixel shaders are almost identicle, the only exception being the way that some of the data is looked up or the availablity of some of the data i.e. some instructions are only valid for pshaders and some for vshaders
-because of this the bulk of the software pipeline can be shared between pixel and vertex shaders... and it wouldn't supprise me if the programes can be cross compiled using a large body body shared code */
+/* TODO: Vertex and Pixel shaders are almost identical, the only exception being the way that some of the data is looked up or the availability of some of the data i.e. some instructions are only valid for pshaders and some for vshaders
+because of this the bulk of the software pipeline can be shared between pixel and vertex shaders... and it wouldn't surprise me if the program can be cross compiled using a large body of shared code */
 
 #define GLNAME_REQUIRE_GLSL  ((const char *)1)
 
@@ -108,30 +85,21 @@ CONST SHADER_OPCODE IWineD3DVertexShaderImpl_shader_ins[] = {
     {WINED3DSIO_DST,    "dst",  "DST", 1, 3, vshader_hw_map2gl,   shader_glsl_dst, 0, 0},
     {WINED3DSIO_LRP,    "lrp",  "LRP", 1, 4, NULL,                shader_glsl_lrp, 0, 0},
     {WINED3DSIO_FRC,    "frc",  "FRC", 1, 2, vshader_hw_map2gl,   shader_glsl_map2gl, 0, 0},
-    {WINED3DSIO_POW,    "pow",  "POW", 1, 3, NULL,                shader_glsl_pow, 0, 0},
-    {WINED3DSIO_CRS,    "crs",  "XPS", 1, 3, NULL,                shader_glsl_cross, 0, 0},
+    {WINED3DSIO_POW,    "pow",  "POW", 1, 3, vshader_hw_map2gl,   shader_glsl_pow, 0, 0},
+    {WINED3DSIO_CRS,    "crs",  "XPD", 1, 3, vshader_hw_map2gl,   shader_glsl_cross, 0, 0},
     /* TODO: sng can possibly be performed a  s
         RCP tmp, vec
         MUL out, tmp, vec*/
     {WINED3DSIO_SGN,  "sgn",  NULL,  1, 2, NULL,                shader_glsl_map2gl, 0, 0},
-    /* TODO: xyz normalise can be performed as VS_ARB using one temporary register,
-        DP3 tmp , vec, vec;
-        RSQ tmp, tmp.x;
-        MUL vec.xyz, vec, tmp;
-    but I think this is better because it accounts for w properly.
-        DP3 tmp , vec, vec;
-        RSQ tmp, tmp.x;
-        MUL vec, vec, tmp;
-    */
-    {WINED3DSIO_NRM,    "nrm",      NULL, 1, 2, NULL, shader_glsl_map2gl, 0, 0},
-    {WINED3DSIO_SINCOS, "sincos",   NULL, 1, 4, NULL, shader_glsl_sincos, WINED3DVS_VERSION(2,0), WINED3DVS_VERSION(2,1)},
-    {WINED3DSIO_SINCOS, "sincos",   NULL, 1, 2, NULL, shader_glsl_sincos, WINED3DVS_VERSION(3,0), -1},
+    {WINED3DSIO_NRM,    "nrm",      NULL, 1, 2, shader_hw_nrm, shader_glsl_map2gl, 0, 0},
+    {WINED3DSIO_SINCOS, "sincos",   NULL, 1, 4, shader_hw_sincos, shader_glsl_sincos, WINED3DVS_VERSION(2,0), WINED3DVS_VERSION(2,1)},
+    {WINED3DSIO_SINCOS, "sincos",  "SCS", 1, 2, shader_hw_sincos, shader_glsl_sincos, WINED3DVS_VERSION(3,0), -1},
     /* Matrix */
-    {WINED3DSIO_M4x4,   "m4x4", "undefined", 1, 3, vshader_hw_mnxn, shader_glsl_mnxn, 0, 0},
-    {WINED3DSIO_M4x3,   "m4x3", "undefined", 1, 3, vshader_hw_mnxn, shader_glsl_mnxn, 0, 0},
-    {WINED3DSIO_M3x4,   "m3x4", "undefined", 1, 3, vshader_hw_mnxn, shader_glsl_mnxn, 0, 0},
-    {WINED3DSIO_M3x3,   "m3x3", "undefined", 1, 3, vshader_hw_mnxn, shader_glsl_mnxn, 0, 0},
-    {WINED3DSIO_M3x2,   "m3x2", "undefined", 1, 3, vshader_hw_mnxn, shader_glsl_mnxn, 0, 0},
+    {WINED3DSIO_M4x4,   "m4x4", "undefined", 1, 3, shader_hw_mnxn, shader_glsl_mnxn, 0, 0},
+    {WINED3DSIO_M4x3,   "m4x3", "undefined", 1, 3, shader_hw_mnxn, shader_glsl_mnxn, 0, 0},
+    {WINED3DSIO_M3x4,   "m3x4", "undefined", 1, 3, shader_hw_mnxn, shader_glsl_mnxn, 0, 0},
+    {WINED3DSIO_M3x3,   "m3x3", "undefined", 1, 3, shader_hw_mnxn, shader_glsl_mnxn, 0, 0},
+    {WINED3DSIO_M3x2,   "m3x2", "undefined", 1, 3, shader_hw_mnxn, shader_glsl_mnxn, 0, 0},
     /* Declare registers */
     {WINED3DSIO_DCL,    "dcl",      NULL,                0, 2, NULL, NULL, 0, 0},
     /* Constant definitions */
@@ -272,29 +240,98 @@ BOOL vshader_input_is_color(
     unsigned int regnum) {
 
     IWineD3DVertexShaderImpl* This = (IWineD3DVertexShaderImpl*) iface;
-    IWineD3DDeviceImpl* deviceImpl = (IWineD3DDeviceImpl*) This->baseShader.device;
-    IWineD3DVertexDeclarationImpl *vertexDeclaration = (IWineD3DVertexDeclarationImpl *)deviceImpl->stateBlock->vertexDecl;
 
     DWORD usage_token = This->semantics_in[regnum].usage;
     DWORD usage = (usage_token & WINED3DSP_DCL_USAGE_MASK) >> WINED3DSP_DCL_USAGE_SHIFT;
     DWORD usage_idx = (usage_token & WINED3DSP_DCL_USAGEINDEX_MASK) >> WINED3DSP_DCL_USAGEINDEX_SHIFT;
 
-    if (vertexDeclaration) {
-        int i;
-        /* Find the declaration element that matches our register, then check
-         * if it has D3DCOLOR as it's type. This works for both d3d8 and d3d9. */
-        for (i = 0; i < vertexDeclaration->declarationWNumElements-1; ++i) {
-            WINED3DVERTEXELEMENT *element = vertexDeclaration->pDeclarationWine + i;
-            if (match_usage(element->Usage, element->UsageIndex, usage, usage_idx)) {
-                return element->Type == WINED3DDECLTYPE_D3DCOLOR;
+    int i;
+
+    for(i = 0; i < This->num_swizzled_attribs; i++) {
+        if(This->swizzled_attribs[i].usage == usage &&
+           This->swizzled_attribs[i].idx == usage_idx) {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+static inline void find_swizzled_attribs(IWineD3DVertexDeclaration *declaration, IWineD3DVertexShaderImpl *This) {
+    UINT num = 0, i, j;
+    UINT numoldswizzles = This->num_swizzled_attribs;
+    IWineD3DVertexDeclarationImpl *decl = (IWineD3DVertexDeclarationImpl *) declaration;
+
+    DWORD usage_token, usage, usage_idx;
+    BOOL found;
+
+    attrib_declaration oldswizzles[sizeof(This->swizzled_attribs) / sizeof(This->swizzled_attribs[0])];
+
+    /* Back up the old swizzles to keep attributes that are undefined in the current declaration */
+    memcpy(oldswizzles, This->swizzled_attribs, sizeof(oldswizzles));
+
+    memset(This->swizzled_attribs, 0, sizeof(This->swizzled_attribs[0]) * MAX_ATTRIBS);
+
+    for(i = 0; i < decl->num_swizzled_attribs; i++) {
+        for(j = 0; j < MAX_ATTRIBS; j++) {
+
+            if(!This->baseShader.reg_maps.attributes[j]) continue;
+
+            usage_token = This->semantics_in[j].usage;
+            usage = (usage_token & WINED3DSP_DCL_USAGE_MASK) >> WINED3DSP_DCL_USAGE_SHIFT;
+            usage_idx = (usage_token & WINED3DSP_DCL_USAGEINDEX_MASK) >> WINED3DSP_DCL_USAGEINDEX_SHIFT;
+
+            if(decl->swizzled_attribs[i].usage == usage &&
+               decl->swizzled_attribs[i].idx == usage_idx) {
+                This->swizzled_attribs[num].usage = usage;
+                This->swizzled_attribs[num].idx = usage_idx;
+                num++;
             }
         }
     }
 
-    ERR("Either no vertexdeclaration present, or register not matched. This should never happen.\n");
-    return FALSE;
-}
+    /* Add previously converted attributes back in if they are not defined in the current declaration */
+    for(i = 0; i < numoldswizzles; i++) {
 
+        found = FALSE;
+        for(j = 0; j < decl->declarationWNumElements; j++) {
+            if(oldswizzles[i].usage == decl->pDeclarationWine[j].Usage &&
+               oldswizzles[i].idx == decl->pDeclarationWine[j].UsageIndex) {
+                found = TRUE;
+            }
+        }
+        if(found) {
+            /* This previously converted attribute is declared in the current declaration. Either it is
+             * already in the new array, or it should not be there. Skip it
+             */
+            continue;
+        }
+        /* We have a previously swizzled attribute that is not defined by the current vertex declaration.
+         * Insert it into the new conversion array to keep it in the old defined state. Otherwise we end up
+         * recompiling if the old decl is used again because undefined attributes are reset to no swizzling.
+         * In the reverse way(attribute was not swizzled and is not declared in new declaration) the attrib
+         * stays unswizzled as well because it isn't found in the oldswizzles array
+         */
+        for(j = 0; j < num; j++) {
+            if(oldswizzles[i].usage > This->swizzled_attribs[j].usage || (
+               oldswizzles[i].usage == This->swizzled_attribs[j].usage &&
+               oldswizzles[i].idx > This->swizzled_attribs[j].idx)) {
+                memmove(&This->swizzled_attribs[j + 1], &This->swizzled_attribs[j],
+                         sizeof(This->swizzled_attribs) - (sizeof(This->swizzled_attribs[0]) * (j + 1)));
+                break;
+            }
+        }
+        This->swizzled_attribs[j].usage = oldswizzles[i].usage;
+        This->swizzled_attribs[j].idx = oldswizzles[i].idx;
+        num++;
+    }
+
+    TRACE("New swizzled attributes array\n");
+    for(i = 0; i < num; i++) {
+        TRACE("%d: %s(%d), %d\n", i, debug_d3ddeclusage(This->swizzled_attribs[i].usage),
+              This->swizzled_attribs[i].usage, This->swizzled_attribs[i].idx);
+    }
+    This->num_swizzled_attribs = num;
+}
 /** Generate a vertex shader string using either GL_VERTEX_PROGRAM_ARB
     or GLSL and send it to the card */
 static VOID IWineD3DVertexShaderImpl_GenerateShader(
@@ -303,7 +340,10 @@ static VOID IWineD3DVertexShaderImpl_GenerateShader(
     CONST DWORD *pFunction) {
 
     IWineD3DVertexShaderImpl *This = (IWineD3DVertexShaderImpl *)iface;
+    IWineD3DVertexDeclaration *decl = ((IWineD3DDeviceImpl *) This->baseShader.device)->stateBlock->vertexDecl;
     SHADER_BUFFER buffer;
+
+    find_swizzled_attribs(decl, This);
 
 #if 0 /* FIXME: Use the buffer that is held by the device, this is ok since fixups will be skipped for software shaders
         it also requires entering a critical section but cuts down the runtime footprint of wined3d and any memory fragmentation that may occur... */
@@ -321,108 +361,7 @@ static VOID IWineD3DVertexShaderImpl_GenerateShader(
     buffer.lineNo = 0;
     buffer.newline = TRUE;
 
-    if (This->baseShader.shader_mode == SHADER_GLSL) {
-
-        /* Create the hw GLSL shader program and assign it as the baseShader.prgId */
-        GLhandleARB shader_obj = GL_EXTCALL(glCreateShaderObjectARB(GL_VERTEX_SHADER_ARB));
-
-        /* Base Declarations */
-        shader_generate_glsl_declarations( (IWineD3DBaseShader*) This, reg_maps, &buffer, &GLINFO_LOCATION);
-
-        /* Base Shader Body */
-        shader_generate_main( (IWineD3DBaseShader*) This, &buffer, reg_maps, pFunction);
-
-        /* Unpack 3.0 outputs */
-        if (This->baseShader.hex_version >= WINED3DVS_VERSION(3,0))
-            vshader_glsl_output_unpack(&buffer, This->semantics_out);
-
-        /* If this shader doesn't use fog copy the z coord to the fog coord so that we can use table fog */
-        if (!reg_maps->fog)
-            shader_addline(&buffer, "gl_FogFragCoord = gl_Position.z;\n");
-        
-        /* Write the final position.
-         *
-         * OpenGL coordinates specify the center of the pixel while d3d coords specify
-         * the corner. The offsets are stored in z and w in the 2nd row of the projection
-         * matrix to avoid wasting a free shader constant. Add them to the w and z coord
-         * of the 2nd row
-         */
-        shader_addline(&buffer, "gl_Position.x = gl_Position.x + posFixup[2];\n");
-        shader_addline(&buffer, "gl_Position.y = gl_Position.y + posFixup[3];\n");
-        /* Account for any inverted textures (render to texture case) by reversing the y coordinate
-         *  (this is handled in drawPrim() when it sets the MODELVIEW and PROJECTION matrices)
-         */
-        shader_addline(&buffer, "gl_Position.y = gl_Position.y * posFixup[1];\n");
-
-        shader_addline(&buffer, "}\n");
-
-        TRACE("Compiling shader object %u\n", shader_obj);
-        GL_EXTCALL(glShaderSourceARB(shader_obj, 1, (const char**)&buffer.buffer, NULL));
-        GL_EXTCALL(glCompileShaderARB(shader_obj));
-        print_glsl_info_log(&GLINFO_LOCATION, shader_obj);
-
-        /* Store the shader object */
-        This->baseShader.prgId = shader_obj;
-
-    } else if (This->baseShader.shader_mode == SHADER_ARB) {
-
-        /*  Create the hw ARB shader */
-        shader_addline(&buffer, "!!ARBvp1.0\n");
-
-        /* Mesa supports only 95 constants */
-        if (GL_VEND(MESA) || GL_VEND(WINE))
-            This->baseShader.limits.constant_float = 
-                min(95, This->baseShader.limits.constant_float);
-
-        /* Base Declarations */
-        shader_generate_arb_declarations( (IWineD3DBaseShader*) This, reg_maps, &buffer, &GLINFO_LOCATION);
-
-        /* We need a constant to fixup the final position */
-        shader_addline(&buffer, "PARAM posFixup = program.env[%d];\n", ARB_SHADER_PRIVCONST_POS);
-
-        /* Base Shader Body */
-        shader_generate_main( (IWineD3DBaseShader*) This, &buffer, reg_maps, pFunction);
-
-        /* If this shader doesn't use fog copy the z coord to the fog coord so that we can use table fog */
-        if (!reg_maps->fog)
-            shader_addline(&buffer, "MOV result.fogcoord, TMP_OUT.z;\n");
-
-        /* Write the final position.
-         *
-         * OpenGL coordinates specify the center of the pixel while d3d coords specify
-         * the corner. The offsets are stored in the 2nd row of the projection matrix,
-         * the x offset in z and the y offset in w. Add them to the resulting position
-         */
-        shader_addline(&buffer, "ADD TMP_OUT.x, TMP_OUT.x, posFixup.z;\n");
-        shader_addline(&buffer, "ADD TMP_OUT.y, TMP_OUT.y, posFixup.w;\n");
-        /* Account for any inverted textures (render to texture case) by reversing the y coordinate
-         *  (this is handled in drawPrim() when it sets the MODELVIEW and PROJECTION matrices)
-         */
-        shader_addline(&buffer, "MUL TMP_OUT.y, TMP_OUT.y, posFixup.y;\n");
-
-        shader_addline(&buffer, "MOV result.position, TMP_OUT;\n");
-        
-        shader_addline(&buffer, "END\n"); 
-
-        /* TODO: change to resource.glObjectHandle or something like that */
-        GL_EXTCALL(glGenProgramsARB(1, &This->baseShader.prgId));
-
-        TRACE("Creating a hw vertex shader, prg=%d\n", This->baseShader.prgId);
-        GL_EXTCALL(glBindProgramARB(GL_VERTEX_PROGRAM_ARB, This->baseShader.prgId));
-
-        TRACE("Created hw vertex shader, prg=%d\n", This->baseShader.prgId);
-        /* Create the program and check for errors */
-        GL_EXTCALL(glProgramStringARB(GL_VERTEX_PROGRAM_ARB, GL_PROGRAM_FORMAT_ASCII_ARB,
-            buffer.bsize, buffer.buffer));
-
-        if (glGetError() == GL_INVALID_OPERATION) {
-            GLint errPos;
-            glGetIntegerv(GL_PROGRAM_ERROR_POSITION_ARB, &errPos);
-            FIXME("HW VertexShader Error at position %d: %s\n",
-                  errPos, debugstr_a((const char *)glGetString(GL_PROGRAM_ERROR_STRING_ARB)));
-            This->baseShader.prgId = -1;
-        }
-    }
+    ((IWineD3DDeviceImpl *)This->baseShader.device)->shader_backend->shader_generate_vshader(iface, &buffer);
 
 #if 1 /* if were using the data buffer of device then we don't need to free it */
   HeapFree(GetProcessHeap(), 0, buffer.buffer);
@@ -432,61 +371,16 @@ static VOID IWineD3DVertexShaderImpl_GenerateShader(
 /* *******************************************
    IWineD3DVertexShader IUnknown parts follow
    ******************************************* */
-static HRESULT WINAPI IWineD3DVertexShaderImpl_QueryInterface(IWineD3DVertexShader *iface, REFIID riid, LPVOID *ppobj)
-{
-    IWineD3DVertexShaderImpl *This = (IWineD3DVertexShaderImpl *)iface;
-    TRACE("(%p)->(%s,%p)\n",This,debugstr_guid(riid),ppobj);
-    if (IsEqualGUID(riid, &IID_IUnknown) 
-        || IsEqualGUID(riid, &IID_IWineD3DBase)
-        || IsEqualGUID(riid, &IID_IWineD3DBaseShader)
-        || IsEqualGUID(riid, &IID_IWineD3DVertexShader)) {
-        IUnknown_AddRef(iface);
-        *ppobj = This;
-        return S_OK;
-    }
-    *ppobj = NULL;
-    return E_NOINTERFACE;
+static HRESULT  WINAPI IWineD3DVertexShaderImpl_QueryInterface(IWineD3DVertexShader *iface, REFIID riid, LPVOID *ppobj) {
+    return IWineD3DBaseShaderImpl_QueryInterface((IWineD3DBaseShader *) iface, riid, ppobj);
 }
 
-static ULONG WINAPI IWineD3DVertexShaderImpl_AddRef(IWineD3DVertexShader *iface) {
-    IWineD3DVertexShaderImpl *This = (IWineD3DVertexShaderImpl *)iface;
-    TRACE("(%p) : AddRef increasing from %d\n", This, This->ref);
-    return InterlockedIncrement(&This->ref);
+static ULONG  WINAPI IWineD3DVertexShaderImpl_AddRef(IWineD3DVertexShader *iface) {
+    return IWineD3DBaseShaderImpl_AddRef((IWineD3DBaseShader *) iface);
 }
 
 static ULONG WINAPI IWineD3DVertexShaderImpl_Release(IWineD3DVertexShader *iface) {
-    IWineD3DVertexShaderImpl *This = (IWineD3DVertexShaderImpl *)iface;
-    ULONG ref;
-    TRACE("(%p) : Releasing from %d\n", This, This->ref);
-    ref = InterlockedDecrement(&This->ref);
-    if (ref == 0) {
-        if(iface == ((IWineD3DDeviceImpl *) This->baseShader.device)->stateBlock->vertexShader) {
-            /* See comment in PixelShader::Release */
-            IWineD3DDeviceImpl_MarkStateDirty((IWineD3DDeviceImpl *) This->baseShader.device, STATE_VSHADER);
-        }
-
-        if (This->baseShader.shader_mode == SHADER_GLSL && This->baseShader.prgId != 0) {
-            struct list *linked_programs = &This->baseShader.linked_programs;
-
-            TRACE("Deleting linked programs\n");
-            if (linked_programs->next) {
-                struct glsl_shader_prog_link *entry, *entry2;
-                LIST_FOR_EACH_ENTRY_SAFE(entry, entry2, linked_programs, struct glsl_shader_prog_link, vshader_entry) {
-                    delete_glsl_program_entry(This->baseShader.device, entry);
-                }
-            }
-
-            TRACE("Deleting shader object %u\n", This->baseShader.prgId);
-            GL_EXTCALL(glDeleteObjectARB(This->baseShader.prgId));
-            checkGLcall("glDeleteObjectARB");
-        }
-        shader_delete_constant_list(&This->baseShader.constantsF);
-        shader_delete_constant_list(&This->baseShader.constantsB);
-        shader_delete_constant_list(&This->baseShader.constantsI);
-        HeapFree(GetProcessHeap(), 0, This);
-
-    }
-    return ref;
+    return IWineD3DBaseShaderImpl_Release((IWineD3DBaseShader *) iface);
 }
 
 /* *******************************************
@@ -560,12 +454,32 @@ static HRESULT WINAPI IWineD3DVertexShaderImpl_SetFunction(IWineD3DVertexShader 
     list_init(&This->baseShader.constantsI);
 
     /* Second pass: figure out registers used, semantics, etc.. */
+    This->min_rel_offset = GL_LIMITS(vshader_constantsF);
+    This->max_rel_offset = 0;
     memset(reg_maps, 0, sizeof(shader_reg_maps));
     hr = shader_get_registers_used((IWineD3DBaseShader*) This, reg_maps,
        This->semantics_in, This->semantics_out, pFunction, NULL);
     if (hr != WINED3D_OK) return hr;
 
     This->baseShader.shader_mode = deviceImpl->vs_selected_mode;
+
+    if(deviceImpl->vs_selected_mode == SHADER_ARB &&
+       (GLINFO_LOCATION).arb_vs_offset_limit      &&
+       This->min_rel_offset <= This->max_rel_offset) {
+
+        if(This->max_rel_offset - This->min_rel_offset > 127) {
+            FIXME("The difference between the minimum and maximum relative offset is > 127\n");
+            FIXME("Which this OpenGL implementation does not support. Try using GLSL\n");
+            FIXME("Min: %d, Max: %d\n", This->min_rel_offset, This->max_rel_offset);
+        } else if(This->max_rel_offset - This->min_rel_offset > 63) {
+            This->rel_offset = This->min_rel_offset + 63;
+        } else if(This->max_rel_offset > 63) {
+            This->rel_offset = This->min_rel_offset;
+        } else {
+            This->rel_offset = 0;
+        }
+    }
+    This->baseShader.load_local_constsF = This->baseShader.reg_maps.usesrelconstF && !list_empty(&This->baseShader.constantsF);
 
     /* copy the function ... because it will certainly be released by application */
     if (NULL != pFunction) {
@@ -620,14 +534,90 @@ static HRESULT WINAPI IWIneD3DVertexShaderImpl_SetLocalConstantsF(IWineD3DVertex
     return WINED3D_OK;
 }
 
+static inline BOOL swizzled_attribs_differ(IWineD3DVertexShaderImpl *This, IWineD3DVertexDeclarationImpl *vdecl) {
+    UINT i, j, k;
+    BOOL found;
+
+    DWORD usage_token;
+    DWORD usage;
+    DWORD usage_idx;
+
+    for(i = 0; i < vdecl->declarationWNumElements; i++) {
+        /* Ignore tesselated streams and the termination entry(position0, stream 255, unused) */
+        if(vdecl->pDeclarationWine[i].Stream >= MAX_STREAMS ||
+           vdecl->pDeclarationWine[i].Type == WINED3DDECLTYPE_UNUSED) continue;
+
+        for(j = 0; j < MAX_ATTRIBS; j++) {
+            if(!This->baseShader.reg_maps.attributes[j]) continue;
+
+            usage_token = This->semantics_in[j].usage;
+            usage = (usage_token & WINED3DSP_DCL_USAGE_MASK) >> WINED3DSP_DCL_USAGE_SHIFT;
+            usage_idx = (usage_token & WINED3DSP_DCL_USAGEINDEX_MASK) >> WINED3DSP_DCL_USAGEINDEX_SHIFT;
+
+            if(vdecl->pDeclarationWine[i].Usage != usage ||
+               vdecl->pDeclarationWine[i].UsageIndex != usage_idx) {
+                continue;
+            }
+
+            found = FALSE;
+            for(k = 0; k < This->num_swizzled_attribs; k++) {
+                if(This->swizzled_attribs[k].usage == usage &&
+                    This->swizzled_attribs[k].idx == usage_idx) {
+                    found = TRUE;
+                }
+            }
+            if(!found && vdecl->pDeclarationWine[i].Type == WINED3DDECLTYPE_D3DCOLOR) {
+                TRACE("Attribute %s%d is D3DCOLOR now but wasn't before\n",
+                      debug_d3ddeclusage(usage), usage_idx);
+                return TRUE;
+            }
+            if( found && vdecl->pDeclarationWine[i].Type != WINED3DDECLTYPE_D3DCOLOR) {
+                TRACE("Attribute %s%d was D3DCOLOR before but is not any more\n",
+                      debug_d3ddeclusage(usage), usage_idx);
+                return TRUE;
+            }
+        }
+    }
+    return FALSE;
+}
+
 static HRESULT WINAPI IWineD3DVertexShaderImpl_CompileShader(IWineD3DVertexShader *iface) {
     IWineD3DVertexShaderImpl *This = (IWineD3DVertexShaderImpl *)iface;
+    IWineD3DVertexDeclarationImpl *vdecl;
     CONST DWORD *function = This->baseShader.function;
+    IWineD3DDeviceImpl *deviceImpl = (IWineD3DDeviceImpl *) This->baseShader.device;
 
     TRACE("(%p) : function %p\n", iface, function);
 
     /* We're already compiled. */
-    if (This->baseShader.is_compiled) return WINED3D_OK;
+    if (This->baseShader.is_compiled) {
+        vdecl = (IWineD3DVertexDeclarationImpl *) deviceImpl->stateBlock->vertexDecl;
+
+        if(This->num_swizzled_attribs != vdecl->num_swizzled_attribs ||
+           memcmp(This->swizzled_attribs, vdecl->swizzled_attribs, sizeof(vdecl->swizzled_attribs[0]) * This->num_swizzled_attribs) != 0) {
+
+            /* The swizzled attributes differ between shader and declaration. This doesn't necessarily mean
+             * we have to recompile, but we have to take a deeper look at see if the attribs that differ
+             * are declared in the decl and used in the shader
+             */
+            if(swizzled_attribs_differ(This, vdecl)) {
+                WARN("Recompiling vertex shader %p due to D3DCOLOR input changes\n", This);
+                goto recompile;
+            }
+            WARN("Swizzled attribute validation required an expensive comparison\n");
+        }
+
+        return WINED3D_OK;
+
+        recompile:
+        if(This->recompile_count < 50) {
+            This->recompile_count++;
+        } else {
+            FIXME("Vertexshader %p recompiled more than 50 times\n", This);
+        }
+
+        deviceImpl->shader_backend->shader_destroy((IWineD3DBaseShader *) iface);
+    }
 
     /* We don't need to compile */
     if (!function) {

@@ -83,6 +83,8 @@ extern ULONG WINAPI D3D7CB_DestroyDepthStencilSurface(IWineD3DSurface *pSurface)
 /* Global critical section */
 extern CRITICAL_SECTION ddraw_cs;
 
+extern DWORD force_refresh_rate;
+
 /*****************************************************************************
  * IDirectDraw implementation structure
  *****************************************************************************/
@@ -273,6 +275,7 @@ const IDirect3DTexture2Vtbl IDirect3DTexture2_Vtbl;
 const IDirect3DTextureVtbl IDirect3DTexture1_Vtbl;
 
 HRESULT WINAPI IDirectDrawSurfaceImpl_AddAttachedSurface(IDirectDrawSurfaceImpl *This, IDirectDrawSurfaceImpl *Surf);
+void IDirectDrawSurfaceImpl_Destroy(IDirectDrawSurfaceImpl *This);
 
 /* Get the number of bytes per pixel for a given surface */
 #define PFGET_BPP(pf) (pf.dwFlags&DDPF_PALETTEINDEXED8?1:((pf.dwRGBBitCount+7)/8))
@@ -332,6 +335,9 @@ struct IDirect3DDeviceImpl
     IDirect3DViewportImpl *viewport_list;
     IDirect3DViewportImpl *current_viewport;
     D3DVIEWPORT7 active_viewport;
+
+    /* Required to keep track which of two available texture blending modes in d3ddevice3 is used */
+    BOOL legacyTextureBlending;
 
     /* Light state */
     DWORD material;
@@ -537,7 +543,7 @@ struct IDirect3DViewportImpl
     } viewports;
 
     /* Activation function */
-    void                      (*activate)(IDirect3DViewportImpl*);
+    void                      (*activate)(IDirect3DViewportImpl*, BOOL);
 
     /* Field used to chain viewports together */
     IDirect3DViewportImpl     *next;
@@ -553,7 +559,7 @@ struct IDirect3DViewportImpl
 const IDirect3DViewport3Vtbl IDirect3DViewport3_Vtbl;
 
 /* Helper functions */
-void viewport_activate(IDirect3DViewportImpl* This);
+void viewport_activate(IDirect3DViewportImpl* This, BOOL ignore_lights);
 
 /*****************************************************************************
  * IDirect3DExecuteBuffer - Wraps to D3D7

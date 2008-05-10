@@ -1,4 +1,4 @@
-%{
+%{ /* -*-C-*- */
 /*
  * Help Viewer
  *
@@ -23,7 +23,13 @@
 %option nounput interactive 8bit
 %x quote
 %{
+#include "config.h"
 #include <assert.h>
+
+#ifndef HAVE_UNISTD_H
+#define YY_NO_UNISTD_H
+#endif
+
 #include "macro.h"
 
 #include "wine/debug.h"
@@ -169,7 +175,7 @@ static int MACRO_CheckArgs(void* pa[], unsigned max, const char* args)
             case 'I':
                 if (t != INTEGER)
                 {WINE_WARN("missing U\n");return -1;}   
-                pa[idx] = (void*)yylval.integer; 
+                pa[idx] = LongToPtr(yylval.integer);
                 break;
             case 'B':
                 if (t != BOOL_FUNCTION) 

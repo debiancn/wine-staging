@@ -49,7 +49,7 @@ BOOL MFDRV_BitBlt( PHYSDEV devDst, INT xDst, INT yDst, INT width, INT height,
 
 /***********************************************************************
  *           MFDRV_StretchBlt
- * this function contains TWO ways for procesing StretchBlt in metafiles,
+ * this function contains TWO ways for processing StretchBlt in metafiles,
  * decide between rdFunction values  META_STRETCHBLT or META_DIBSTRETCHBLT
  * via #define STRETCH_VIA_DIB
  */
@@ -101,7 +101,7 @@ BOOL MFDRV_StretchBlt( PHYSDEV devDst, INT xDst, INT yDst, INT widthDst,
 	  len,rop,lpBMI->biYPelsPerMeter,GetDeviceCaps(physDevSrc->hdc, LOGPIXELSY));
 
     if (GetDIBits(physDevSrc->hdc, hBitmap, 0, (UINT)lpBMI->biHeight,
-                  (LPSTR)lpBMI + DIB_BitmapInfoSize( (BITMAPINFO *)lpBMI,
+                  (LPSTR)lpBMI + bitmap_info_size( (BITMAPINFO *)lpBMI,
                                                      DIB_RGB_COLORS ),
                   (LPBITMAPINFO)lpBMI, DIB_RGB_COLORS))
 #else
@@ -149,7 +149,7 @@ INT MFDRV_StretchDIBits( PHYSDEV dev, INT xDst, INT yDst, INT widthDst,
     DWORD len, infosize, imagesize;
     METARECORD *mr;
 
-    infosize = DIB_BitmapInfoSize(info, wUsage);
+    infosize = bitmap_info_size(info, wUsage);
     imagesize = DIB_GetDIBImageBytes( info->bmiHeader.biWidth,
 				      info->bmiHeader.biHeight,
 				      info->bmiHeader.biBitCount );
@@ -191,7 +191,7 @@ INT MFDRV_SetDIBitsToDevice( PHYSDEV dev, INT xDst, INT yDst, DWORD cx,
     DWORD len, infosize, imagesize;
     METARECORD *mr;
 
-    infosize = DIB_BitmapInfoSize(info, coloruse);
+    infosize = bitmap_info_size(info, coloruse);
     imagesize = DIB_GetDIBImageBytes( info->bmiHeader.biWidth,
 				      info->bmiHeader.biHeight,
 				      info->bmiHeader.biBitCount );

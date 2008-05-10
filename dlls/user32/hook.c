@@ -144,7 +144,6 @@ static HHOOK set_windows_hook( INT id, HOOKPROC proc, HINSTANCE inst, DWORD tid,
         return 0;
     }
 
-    /* FIXME: what if the tid belongs to another process? */
     if (tid)  /* thread-local hook */
     {
         if (id == WH_JOURNALRECORD ||
@@ -157,16 +156,21 @@ static HHOOK set_windows_hook( INT id, HOOKPROC proc, HINSTANCE inst, DWORD tid,
             SetLastError( ERROR_INVALID_PARAMETER );
             return 0;
         }
-        inst = 0;
     }
     else  /* system-global hook */
     {
         if (id == WH_KEYBOARD_LL || id == WH_MOUSE_LL) inst = 0;
-        else if (!inst || !(len = GetModuleFileNameW( inst, module, MAX_PATH )) || len >= MAX_PATH)
+        else if (!inst)
         {
             SetLastError( ERROR_HOOK_NEEDS_HMOD );
             return 0;
         }
+    }
+
+    if (inst && (!(len = GetModuleFileNameW( inst, module, MAX_PATH )) || len >= MAX_PATH))
+    {
+        SetLastError( ERROR_INVALID_PARAMETER );
+        return 0;
     }
 
     SERVER_START_REQ( set_hook )
@@ -310,7 +314,7 @@ static LRESULT call_hook_proc( HOOKPROC proc, INT id, INT code, WPARAM wparam, L
  *
  * Retrieve the hook procedure real value for a module-relative proc
  */
-static void *get_hook_proc( void *proc, const WCHAR *module )
+void *get_hook_proc( void *proc, const WCHAR *module )
 {
     HMODULE mod;
 
@@ -514,8 +518,6 @@ BOOL WINAPI UnhookWindowsHookEx( HHOOK hhook )
 {
     BOOL ret;
 
-    TRACE( "%p\n", hhook );
-
     SERVER_START_REQ( remove_hook )
     {
         req->handle = hhook;
@@ -707,8 +709,6 @@ HWINEVENTHOOK WINAPI SetWinEventHook(DWORD event_min, DWORD event_max,
 BOOL WINAPI UnhookWinEvent(HWINEVENTHOOK hEventHook)
 {
     BOOL ret;
-
-    TRACE( "%p\n", hEventHook );
 
     SERVER_START_REQ( remove_hook )
     {

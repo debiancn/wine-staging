@@ -25,8 +25,7 @@
 
 struct fd;
 struct async_queue;
-
-typedef unsigned __int64 file_pos_t;
+struct completion;
 
 /* operations valid on file descriptor objects */
 struct fd_ops
@@ -66,7 +65,6 @@ extern int get_unix_fd( struct fd *fd );
 extern int is_same_file_fd( struct fd *fd1, struct fd *fd2 );
 extern int is_fd_removable( struct fd *fd );
 extern int fd_close_handle( struct object *obj, struct process *process, obj_handle_t handle );
-extern void fd_poll_event( struct fd *fd, int event );
 extern int check_fd_events( struct fd *fd, int events );
 extern void set_fd_events( struct fd *fd, int events );
 extern obj_handle_t lock_fd( struct fd *fd, file_pos_t offset, file_pos_t count, int shared, int wait );
@@ -74,6 +72,7 @@ extern void unlock_fd( struct fd *fd, file_pos_t offset, file_pos_t count );
 extern void set_fd_signaled( struct fd *fd, int signaled );
 
 extern int default_fd_signaled( struct object *obj, struct thread *thread );
+extern unsigned int default_fd_map_access( struct object *obj, unsigned int access );
 extern int default_fd_get_poll_events( struct fd *fd );
 extern void default_poll_event( struct fd *fd, int event );
 extern struct async *fd_queue_async( struct fd *fd, const async_data_t *data, int type, int count );
@@ -120,6 +119,11 @@ extern void do_change_notify( int unix_fd );
 extern void sigio_callback(void);
 extern struct object *create_dir_obj( struct fd *fd );
 
+/* completion */
+
+extern struct completion *get_completion_obj( struct process *process, obj_handle_t handle, unsigned int access );
+extern void add_completion( struct completion *completion, unsigned long ckey, unsigned long cvalue, unsigned int status, unsigned long information );
+
 /* serial port functions */
 
 extern int is_serial_fd( struct fd *fd );
@@ -131,10 +135,11 @@ extern void free_async_queue( struct async_queue *queue );
 extern struct async *create_async( struct thread *thread, struct async_queue *queue,
                                    const async_data_t *data );
 extern void async_set_timeout( struct async *async, timeout_t timeout, unsigned int status );
-extern void async_set_result( struct object *obj, unsigned int status );
+extern void async_set_result( struct object *obj, unsigned int status, unsigned long total );
 extern int async_waiting( struct async_queue *queue );
 extern void async_terminate( struct async *async, unsigned int status );
 extern void async_wake_up( struct async_queue *queue, unsigned int status );
+extern void fd_assign_completion( struct fd *fd, struct completion **p_port, unsigned long *p_key );
 
 /* access rights that require Unix read permission */
 #define FILE_UNIX_READ_ACCESS (FILE_READ_DATA|FILE_READ_ATTRIBUTES|FILE_READ_EA)

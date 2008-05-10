@@ -24,7 +24,6 @@
 #include "pin.h"
 
 #include "uuids.h"
-#include "vfwmsgs.h"
 #include "amvideo.h"
 #include "windef.h"
 #include "winbase.h"
@@ -71,7 +70,6 @@ static HRESULT AVIDec_ProcessBegin(TransformFilterImpl* pTransformFilter)
 static HRESULT AVIDec_ProcessSampleData(TransformFilterImpl* pTransformFilter, IMediaSample *pSample)
 {
     AVIDecImpl* This = (AVIDecImpl*)pTransformFilter;
-    VIDEOINFOHEADER* format;
     AM_MEDIA_TYPE amt;
     HRESULT hr;
     DWORD res;
@@ -97,7 +95,6 @@ static HRESULT AVIDec_ProcessSampleData(TransformFilterImpl* pTransformFilter, I
 	ERR("Unable to retrieve media type\n");
 	goto error;
     }
-    format = (VIDEOINFOHEADER*)amt.pbFormat;
 
     /* Update input size to match sample size */
     This->pBihIn->biSizeImage = cbSrcStream;
@@ -147,11 +144,14 @@ static HRESULT AVIDec_ProcessEnd(TransformFilterImpl* pTransformFilter)
 
     TRACE("(%p)->()\n", This);
 
+    if (!This->hvid)
+        return S_OK;
+
     result = ICDecompressEnd(This->hvid);
     if (result != ICERR_OK)
     {
         ERR("Cannot stop processing (%d)\n", result);
-	return E_FAIL;
+        return E_FAIL;
     }
     return S_OK;
 }
@@ -292,7 +292,7 @@ HRESULT AVIDec_create(IUnknown * pUnkOuter, LPVOID * ppv)
     This->pBihIn = NULL;
     This->pBihOut = NULL;
 
-    hr = TransformFilter_Create(&(This->tf), &CLSID_AVIDec, &AVIDec_FuncsTable);
+    hr = TransformFilter_Create(&(This->tf), &CLSID_AVIDec, &AVIDec_FuncsTable, NULL, NULL, NULL);
 
     if (FAILED(hr))
         return hr;

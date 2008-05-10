@@ -205,12 +205,15 @@ InterfaceIndexTable *getInterfaceIndexTable(void)
 
   if (indexes) {
     struct if_nameindex *p;
+    DWORD size = sizeof(InterfaceIndexTable);
 
     for (p = indexes, numInterfaces = 0; p && p->if_name; p++)
       numInterfaces++;
-    ret = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY,
-     sizeof(InterfaceIndexTable) + (numInterfaces - 1) * sizeof(DWORD));
+    if (numInterfaces > 1)
+      size += (numInterfaces - 1) * sizeof(DWORD);
+    ret = HeapAlloc(GetProcessHeap(), 0, size);
     if (ret) {
+      ret->numIndexes = 0;
       for (p = indexes; p && p->if_name; p++)
         ret->indexes[ret->numIndexes++] = p->if_index;
     }
@@ -232,13 +235,16 @@ InterfaceIndexTable *getNonLoopbackInterfaceIndexTable(void)
 
     if (indexes) {
       struct if_nameindex *p;
+      DWORD size = sizeof(InterfaceIndexTable);
 
       for (p = indexes, numInterfaces = 0; p && p->if_name; p++)
         if (!isLoopbackInterface(fd, p->if_name))
           numInterfaces++;
-      ret = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY,
-       sizeof(InterfaceIndexTable) + (numInterfaces - 1) * sizeof(DWORD));
+      if (numInterfaces > 1)
+        size += (numInterfaces - 1) * sizeof(DWORD);
+      ret = HeapAlloc(GetProcessHeap(), 0, size);
       if (ret) {
+        ret->numIndexes = 0;
         for (p = indexes; p && p->if_name; p++)
           if (!isLoopbackInterface(fd, p->if_name))
             ret->indexes[ret->numIndexes++] = p->if_index;
@@ -744,8 +750,11 @@ DWORD getIPAddrTable(PMIB_IPADDRTABLE *ppIpAddrTable, HANDLE heap, DWORD flags)
     ret = enumIPAddresses(&numAddresses, &ifc);
     if (!ret)
     {
-      *ppIpAddrTable = HeapAlloc(heap, flags, sizeof(MIB_IPADDRTABLE) +
-       (numAddresses - 1) * sizeof(MIB_IPADDRROW));
+      DWORD size = sizeof(MIB_IPADDRTABLE);
+
+      if (numAddresses > 1)
+        size += (numAddresses - 1) * sizeof(MIB_IPADDRROW);
+      *ppIpAddrTable = HeapAlloc(heap, flags, size);
       if (*ppIpAddrTable) {
         DWORD i = 0, bcast;
         caddr_t ifPtr;

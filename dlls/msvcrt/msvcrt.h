@@ -71,7 +71,7 @@ typedef void (*MSVCRT__beginthread_start_routine_t)(void *);
 typedef unsigned int (__stdcall *MSVCRT__beginthreadex_start_routine_t)(void *);
 typedef int (*MSVCRT__onexit_t)(void);
 
-typedef struct {long double x;} _LDOUBLE;
+typedef struct {long double x;} MSVCRT__LDOUBLE;
 
 struct MSVCRT_tm {
     int tm_sec;
@@ -115,17 +115,17 @@ extern thread_data_t *msvcrt_get_thread_data(void);
 extern int MSVCRT___lc_codepage;
 
 void   msvcrt_set_errno(int);
-char*  msvcrt_strndup(const char*,unsigned int);
-MSVCRT_wchar_t *msvcrt_wstrndup(const MSVCRT_wchar_t*, unsigned int);
 
 void   _purecall(void);
 void   _amsg_exit(int errnum);
 
-extern char **_environ;
+extern char **MSVCRT__environ;
 extern MSVCRT_wchar_t **_wenviron;
 
 extern char ** msvcrt_SnapshotOfEnvironmentA(char **);
 extern MSVCRT_wchar_t ** msvcrt_SnapshotOfEnvironmentW(MSVCRT_wchar_t **);
+
+MSVCRT_wchar_t *msvcrt_wstrdupa(const char *);
 
 /* FIXME: This should be declared in new.h but it's not an extern "C" so
  * it would not be much use anyway. Even for Winelib applications.
@@ -154,7 +154,7 @@ extern void msvcrt_free_args(void);
 extern void msvcrt_init_signals(void);
 extern void msvcrt_free_signals(void);
 
-extern unsigned msvcrt_create_io_inherit_block(STARTUPINFOA*);
+extern unsigned msvcrt_create_io_inherit_block(WORD*, BYTE**);
 
 /* run-time error codes */
 #define _RT_STACK       0
@@ -623,16 +623,20 @@ MSVCRT_clock_t MSVCRT_clock(void);
 double         MSVCRT_difftime(MSVCRT_time_t time1, MSVCRT_time_t time2);
 MSVCRT_time_t  MSVCRT_time(MSVCRT_time_t*);
 MSVCRT_FILE*   MSVCRT__fdopen(int, const char *);
+MSVCRT_FILE*   MSVCRT__wfdopen(int, const MSVCRT_wchar_t *);
 int            MSVCRT_vsnprintf(char *str, unsigned int len, const char *format, va_list valist);
 int            MSVCRT_vsnwprintf(MSVCRT_wchar_t *str, unsigned int len,
                                  const MSVCRT_wchar_t *format, va_list valist );
 int            MSVCRT_raise(int sig);
 
 #ifndef __WINE_MSVCRT_TEST
-int            _write(int,const void*,unsigned int);
+int            MSVCRT__write(int,const void*,unsigned int);
 int            _getch(void);
 int            _ismbstrail(const unsigned char* start, const unsigned char* str);
 MSVCRT_intptr_t _spawnve(int,const char*,const char* const *,const char* const *);
+MSVCRT_intptr_t _spawnvpe(int,const char*,const char* const *,const char* const *);
+MSVCRT_intptr_t _wspawnve(int,const MSVCRT_wchar_t*,const MSVCRT_wchar_t* const *,const MSVCRT_wchar_t* const *);
+MSVCRT_intptr_t _wspawnvpe(int,const MSVCRT_wchar_t*,const MSVCRT_wchar_t* const *,const MSVCRT_wchar_t* const *);
 void           _searchenv(const char*,const char*,char*);
 int            _getdrive(void);
 char*          _strdup(const char*);
@@ -649,10 +653,12 @@ MSVCRT_wchar_t*** __p__wenviron(void);
 char*         _strdate(char* date);
 char*         _strtime(char* date);
 void          _ftime(struct MSVCRT__timeb *buf);
-int           _close(int);
-int           _dup(int);
-int           _dup2(int, int);
-int           _pipe(int *, unsigned int, int);
+int           MSVCRT__close(int);
+int           MSVCRT__dup(int);
+int           MSVCRT__dup2(int, int);
+int           MSVCRT__pipe(int *, unsigned int, int);
+MSVCRT_wchar_t* _wgetenv(const MSVCRT_wchar_t*);
+void          _wsearchenv(const MSVCRT_wchar_t*, const MSVCRT_wchar_t*, MSVCRT_wchar_t*);
 #endif
 
 #endif /* __WINE_MSVCRT_H */

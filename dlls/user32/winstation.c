@@ -18,6 +18,9 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include "ntstatus.h"
+#define WIN32_NO_STATUS
+
 #include <stdarg.h>
 #include "windef.h"
 #include "winbase.h"
@@ -204,13 +207,36 @@ BOOL WINAPI EnumWindowStationsA( WINSTAENUMPROCA func, LPARAM lparam )
 
 
 /******************************************************************************
- *              EnumWindowStationsA  (USER32.@)
+ *              EnumWindowStationsW  (USER32.@)
  */
 BOOL WINAPI EnumWindowStationsW( WINSTAENUMPROCW func, LPARAM lparam )
 {
-    FIXME( "(%p,%lx): stub\n", func, lparam );
-    SetLastError( ERROR_CALL_NOT_IMPLEMENTED );
-    return FALSE;
+    unsigned int index = 0;
+    WCHAR name[MAX_PATH];
+    BOOL ret = TRUE;
+    NTSTATUS status;
+
+    while (ret)
+    {
+        SERVER_START_REQ( enum_winstation )
+        {
+            req->index = index;
+            wine_server_set_reply( req, name, sizeof(name) - sizeof(WCHAR) );
+            status = wine_server_call( req );
+            name[wine_server_reply_size(reply)/sizeof(WCHAR)] = 0;
+            index = reply->next;
+        }
+        SERVER_END_REQ;
+        if (status == STATUS_NO_MORE_ENTRIES)
+            break;
+        if (status)
+        {
+            SetLastError( RtlNtStatusToDosError( status ) );
+            return FALSE;
+        }
+        ret = func( name, lparam );
+    }
+    return ret;
 }
 
 
@@ -291,10 +317,7 @@ HDESK WINAPI OpenDesktopA( LPCSTR name, DWORD flags, BOOL inherit, ACCESS_MASK a
 }
 
 
-/******************************************************************************
- *              OpenDesktopW   (USER32.@)
- */
-HDESK WINAPI OpenDesktopW( LPCWSTR name, DWORD flags, BOOL inherit, ACCESS_MASK access )
+HDESK open_winstation_desktop( HWINSTA hwinsta, LPCWSTR name, DWORD flags, BOOL inherit, ACCESS_MASK access )
 {
     HANDLE ret = 0;
     DWORD len = name ? strlenW(name) : 0;
@@ -305,6 +328,7 @@ HDESK WINAPI OpenDesktopW( LPCWSTR name, DWORD flags, BOOL inherit, ACCESS_MASK 
     }
     SERVER_START_REQ( open_desktop )
     {
+        req->winsta     = hwinsta;
         req->flags      = flags;
         req->access     = access;
         req->attributes = OBJ_CASE_INSENSITIVE | (inherit ? OBJ_INHERIT : 0);
@@ -313,6 +337,15 @@ HDESK WINAPI OpenDesktopW( LPCWSTR name, DWORD flags, BOOL inherit, ACCESS_MASK 
     }
     SERVER_END_REQ;
     return ret;
+}
+
+
+/******************************************************************************
+ *              OpenDesktopW   (USER32.@)
+ */
+HDESK WINAPI OpenDesktopW( LPCWSTR name, DWORD flags, BOOL inherit, ACCESS_MASK access )
+{
+    return open_winstation_desktop( NULL, name, flags, inherit, access );
 }
 
 
@@ -384,9 +417,36 @@ BOOL WINAPI EnumDesktopsA( HWINSTA winsta, DESKTOPENUMPROCA func, LPARAM lparam 
  */
 BOOL WINAPI EnumDesktopsW( HWINSTA winsta, DESKTOPENUMPROCW func, LPARAM lparam )
 {
-    FIXME( "(%p,%p,%lx): stub\n", winsta, func, lparam );
-    SetLastError( ERROR_CALL_NOT_IMPLEMENTED );
-    return FALSE;
+    unsigned int index = 0;
+    WCHAR name[MAX_PATH];
+    BOOL ret = TRUE;
+    NTSTATUS status;
+
+    if (!winsta)
+        winsta = GetProcessWindowStation();
+
+    while (ret)
+    {
+        SERVER_START_REQ( enum_desktop )
+        {
+            req->winstation = winsta;
+            req->index      = index;
+            wine_server_set_reply( req, name, sizeof(name) - sizeof(WCHAR) );
+            status = wine_server_call( req );
+            name[wine_server_reply_size(reply)/sizeof(WCHAR)] = 0;
+            index = reply->next;
+        }
+        SERVER_END_REQ;
+        if (status == STATUS_NO_MORE_ENTRIES)
+            break;
+        if (status)
+        {
+            SetLastError( RtlNtStatusToDosError( status ) );
+            return FALSE;
+        }
+        ret = func(name, lparam);
+    }
+    return ret;
 }
 
 
@@ -398,16 +458,6 @@ HDESK WINAPI OpenInputDesktop( DWORD flags, BOOL inherit, ACCESS_MASK access )
     FIXME( "(%x,%i,%x): stub\n", flags, inherit, access );
     SetLastError( ERROR_CALL_NOT_IMPLEMENTED );
     return 0;
-}
-
-
-/***********************************************************************
- *              EnumDesktopWindows   (USER32.@)
- */
-BOOL WINAPI EnumDesktopWindows( HDESK desktop, WNDENUMPROC func, LPARAM lparam )
-{
-    FIXME( "(%p,%p,0x%lx): stub!\n", desktop, func, lparam );
-    return TRUE;
 }
 
 

@@ -3,8 +3,8 @@ TOPOBJDIR = ../..
 SRCDIR    = @srcdir@
 VPATH     = @srcdir@
 MODULE    = dwmapi.dll
-IMPORTLIB = libdwmapi.$(IMPLIBEXT)
-IMPORTS   = user32 kernel32
+IMPORTLIB = dwmapi
+IMPORTS   = kernel32
 
 C_SRCS = \
 	dwmapi_main.c

@@ -45,7 +45,7 @@ static LRESULT WINAPI IconTitleWndProc( HWND hWnd, UINT msg, WPARAM wParam, LPAR
  */
 const struct builtin_class_descr ICONTITLE_builtin_class =
 {
-    (LPCSTR)ICONTITLE_CLASS_ATOM, /* name */
+    (LPCWSTR)ICONTITLE_CLASS_ATOM, /* name */
     0,                    /* style */
     NULL,                 /* procA (winproc is Unicode only) */
     IconTitleWndProc,     /* procW */
@@ -181,7 +181,7 @@ static BOOL ICONTITLE_Paint( HWND hwnd, HWND owner, HDC hDC, BOOL bActive )
     {
 	WCHAR buffer[80];
 
-        INT length = GetWindowTextW( owner, buffer, sizeof(buffer) );
+        INT length = GetWindowTextW( owner, buffer, sizeof(buffer)/sizeof(buffer[0]) );
         SetTextColor( hDC, textColor );
         SetBkMode( hDC, TRANSPARENT );
 

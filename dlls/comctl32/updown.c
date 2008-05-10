@@ -137,7 +137,7 @@ static BOOL UPDOWN_InBounds(const UPDOWN_INFO *infoPtr, int val)
 /***********************************************************************
  *           UPDOWN_OffsetVal
  * Change the current value by delta.
- * It returns TRUE is the value was changed successfuly, or FALSE
+ * It returns TRUE is the value was changed successfully, or FALSE
  * if the value was not changed, as it would go out of bounds.
  */
 static BOOL UPDOWN_OffsetVal(UPDOWN_INFO *infoPtr, int delta)
@@ -174,7 +174,7 @@ static BOOL UPDOWN_HasBuddyBorder(const UPDOWN_INFO *infoPtr)
  * rect     - will hold the rectangle
  * arrow    - FLAG_INCR to get the "increment" rect (up or right)
  *            FLAG_DECR to get the "decrement" rect (down or left)
- *            If both flags are pressent, the envelope is returned.
+ *            If both flags are present, the envelope is returned.
  */
 static void UPDOWN_GetArrowRect (const UPDOWN_INFO* infoPtr, RECT *rect, int arrow)
 {
@@ -470,6 +470,28 @@ static LRESULT UPDOWN_KeyPressed(UPDOWN_INFO *infoPtr, int key)
 }
 
 /***********************************************************************
+ * UPDOWN_MouseWheel
+ *
+ * Handle mouse wheel scrolling
+ */
+static LRESULT UPDOWN_MouseWheel(UPDOWN_INFO *infoPtr, WPARAM wParam)
+{
+    int iWheelDelta = GET_WHEEL_DELTA_WPARAM(wParam) / WHEEL_DELTA;
+
+    if (wParam & (MK_SHIFT | MK_CONTROL))
+        return 0;
+
+    if (iWheelDelta != 0)
+    {
+        UPDOWN_GetBuddyInt(infoPtr);
+        UPDOWN_DoAction(infoPtr, abs(iWheelDelta), iWheelDelta > 0 ? FLAG_INCR : FLAG_DECR);
+    }
+
+    return 1;
+}
+
+
+/***********************************************************************
  * UPDOWN_Buddy_SubclassProc used to handle messages sent to the buddy
  *                           control.
  */
@@ -485,6 +507,11 @@ UPDOWN_Buddy_SubclassProc(HWND  hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         HWND upDownHwnd = GetPropW(hwnd, BUDDY_UPDOWN_HWND);
 
 	UPDOWN_KeyPressed(UPDOWN_GetInfoPtr(upDownHwnd), (int)wParam);
+    }
+    else if (uMsg == WM_MOUSEWHEEL) {
+        HWND upDownHwnd = GetPropW(hwnd, BUDDY_UPDOWN_HWND);
+
+       UPDOWN_MouseWheel(UPDOWN_GetInfoPtr(upDownHwnd), (int)wParam);
     }
 
     return CallWindowProcW( superClassWndProc, hwnd, uMsg, wParam, lParam);
@@ -627,7 +654,7 @@ static void UPDOWN_DoAction (UPDOWN_INFO *infoPtr, int delta, int action)
     ni.hdr.hwndFrom = infoPtr->Self;
     ni.hdr.idFrom   = GetWindowLongPtrW (infoPtr->Self, GWLP_ID);
     ni.hdr.code = UDN_DELTAPOS;
-    if (!SendMessageW(infoPtr->Notify, WM_NOTIFY, (WPARAM)ni.hdr.idFrom, (LPARAM)&ni)) {
+    if (!SendMessageW(infoPtr->Notify, WM_NOTIFY, ni.hdr.idFrom, (LPARAM)&ni)) {
         /* Parent said: OK to adjust */
 
         /* Now adjust value with (maybe new) delta */
@@ -928,6 +955,10 @@ static LRESULT WINAPI UpDownWindowProc(HWND hwnd, UINT message, WPARAM wParam, L
 	    if(UPDOWN_IsEnabled(infoPtr))
 		UPDOWN_HandleMouseEvent (infoPtr, message, (SHORT)LOWORD(lParam), (SHORT)HIWORD(lParam));
 	    break;
+
+        case WM_MOUSEWHEEL:
+            UPDOWN_MouseWheel(infoPtr, wParam);
+            break;
 
 	case WM_KEYDOWN:
 	    if((infoPtr->dwStyle & UDS_ARROWKEYS) && UPDOWN_IsEnabled(infoPtr))

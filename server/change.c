@@ -56,7 +56,7 @@
 #define DN_CREATE       0x00000004      /* File created */
 #define DN_DELETE       0x00000008      /* File removed */
 #define DN_RENAME       0x00000010      /* File renamed */
-#define DN_ATTRIB       0x00000020      /* File changed attibutes */
+#define DN_ATTRIB       0x00000020      /* File changed attributes */
 #define DN_MULTISHOT    0x80000000      /* Don't remove notifier */
 #endif
 #endif
@@ -157,7 +157,6 @@ struct dir
 };
 
 static struct fd *dir_get_fd( struct object *obj );
-static unsigned int dir_map_access( struct object *obj, unsigned int access );
 static void dir_dump( struct object *obj, int verbose );
 static void dir_destroy( struct object *obj );
 
@@ -165,13 +164,16 @@ static const struct object_ops dir_ops =
 {
     sizeof(struct dir),       /* size */
     dir_dump,                 /* dump */
+    no_get_type,              /* get_type */
     add_queue,                /* add_queue */
     remove_queue,             /* remove_queue */
     default_fd_signaled,      /* signaled */
     no_satisfied,             /* satisfied */
     no_signal,                /* signal */
     dir_get_fd,               /* get_fd */
-    dir_map_access,           /* map_access */
+    default_fd_map_access,    /* map_access */
+    default_get_sd,           /* get_sd */
+    default_set_sd,           /* set_sd */
     no_lookup_name,           /* lookup_name */
     no_open_file,             /* open_file */
     fd_close_handle,          /* close_handle */
@@ -287,15 +289,6 @@ static struct fd *dir_get_fd( struct object *obj )
     struct dir *dir = (struct dir *)obj;
     assert( obj->ops == &dir_ops );
     return (struct fd *)grab_object( dir->fd );
-}
-
-static unsigned int dir_map_access( struct object *obj, unsigned int access )
-{
-    if (access & GENERIC_READ)    access |= FILE_GENERIC_READ;
-    if (access & GENERIC_WRITE)   access |= FILE_GENERIC_WRITE;
-    if (access & GENERIC_EXECUTE) access |= FILE_GENERIC_EXECUTE;
-    if (access & GENERIC_ALL)     access |= FILE_ALL_ACCESS;
-    return access & ~(GENERIC_READ | GENERIC_WRITE | GENERIC_EXECUTE | GENERIC_ALL);
 }
 
 static struct change_record *get_first_change_record( struct dir *dir )
@@ -445,6 +438,7 @@ static void inode_set_name( struct inode *inode, const char *name )
 static void free_inode( struct inode *inode )
 {
     int subtree = 0, watches = 0;
+    struct inode *tmp, *next;
     struct dir *dir;
 
     LIST_FOR_EACH_ENTRY( dir, &inode->dirs, struct dir, in_entry )
@@ -455,7 +449,6 @@ static void free_inode( struct inode *inode )
 
     if (!subtree && !inode->parent)
     {
-        struct inode *tmp, *next;
         LIST_FOR_EACH_ENTRY_SAFE( tmp, next, &inode->children,
                                   struct inode, ch_entry )
         {
@@ -470,6 +463,13 @@ static void free_inode( struct inode *inode )
 
     if (inode->parent)
         list_remove( &inode->ch_entry );
+
+    /* disconnect remaining children from the parent */
+    LIST_FOR_EACH_ENTRY_SAFE( tmp, next, &inode->children, struct inode, ch_entry )
+    {
+        list_remove( &tmp->ch_entry );
+        tmp->parent = NULL;
+    }
 
     if (inode->wd != -1)
     {

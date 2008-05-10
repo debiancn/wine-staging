@@ -246,14 +246,13 @@ static DWORD VERSION_GetFileVersionInfo_PE( LPCWSTR filename, DWORD datasize, LP
 
     TRACE("%s\n", debugstr_w(filename));
 
-    hModule = GetModuleHandleW(filename);
-    if(!hModule)
+    if (!GetModuleHandleExW(0, filename, &hModule))
 	hModule = LoadLibraryExW(filename, 0, LOAD_LIBRARY_AS_DATAFILE);
-    else
-	hModule = LoadLibraryExW(filename, 0, 0);
+
     if(!hModule)
     {
 	WARN("Could not load %s\n", debugstr_w(filename));
+
 	return 0;
     }
     hRsrc = FindResourceW(hModule,
@@ -382,7 +381,10 @@ static DWORD VERSION_GetFileVersionInfo_16( LPCSTR filename, DWORD datasize, LPV
     if(hModule < 32)
     {
 	WARN("Could not load %s\n", debugstr_a(filename));
-	return 0;
+	if (hModule == ERROR_BAD_FORMAT)
+		return 0xFFFFFFFF;
+	else
+		return 0x0;
     }
     hRsrc = FindResource16(hModule,
 			  MAKEINTRESOURCEA(VS_VERSION_INFO),
@@ -762,7 +764,7 @@ static BOOL WINAPI VersionInfo32_QueryValue( const VS_VERSION_INFO_STRUCT32 *inf
  *           VerQueryValueA              [VERSION.@]
  */
 BOOL WINAPI VerQueryValueA( LPCVOID pBlock, LPCSTR lpSubBlock,
-                               LPVOID *lplpBuffer, UINT *puLen )
+                               LPVOID *lplpBuffer, PUINT puLen )
 {
     static const char rootA[] = "\\";
     static const char varfileinfoA[] = "\\VarFileInfo\\Translation";
@@ -770,6 +772,9 @@ BOOL WINAPI VerQueryValueA( LPCVOID pBlock, LPCSTR lpSubBlock,
 
     TRACE("(%p,%s,%p,%p)\n",
                 pBlock, debugstr_a(lpSubBlock), lplpBuffer, puLen );
+
+     if (!pBlock)
+        return FALSE;
 
     if ( !VersionInfoIs16( info ) )
     {
@@ -812,7 +817,7 @@ BOOL WINAPI VerQueryValueA( LPCVOID pBlock, LPCSTR lpSubBlock,
  *           VerQueryValueW              [VERSION.@]
  */
 BOOL WINAPI VerQueryValueW( LPCVOID pBlock, LPCWSTR lpSubBlock,
-                               LPVOID *lplpBuffer, UINT *puLen )
+                               LPVOID *lplpBuffer, PUINT puLen )
 {
     static const WCHAR rootW[] = { '\\', 0 };
     static const WCHAR varfileinfoW[] = { '\\','V','a','r','F','i','l','e','I','n','f','o',
@@ -822,6 +827,9 @@ BOOL WINAPI VerQueryValueW( LPCVOID pBlock, LPCWSTR lpSubBlock,
 
     TRACE("(%p,%s,%p,%p)\n",
                 pBlock, debugstr_w(lpSubBlock), lplpBuffer, puLen );
+
+    if (!pBlock)
+        return FALSE;
 
     if ( VersionInfoIs16( info ) )
     {

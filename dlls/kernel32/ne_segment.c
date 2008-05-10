@@ -463,7 +463,7 @@ BOOL NE_LoadSegment( NE_MODULE *pModule, WORD segnum )
 BOOL NE_LoadAllSegments( NE_MODULE *pModule )
 {
     int i;
-    SEGTABLEENTRY * pSegTable = (SEGTABLEENTRY *) NE_SEG_TABLE(pModule);
+    SEGTABLEENTRY * pSegTable = NE_SEG_TABLE(pModule);
 
     if (pModule->ne_flags & NE_FFLAGS_SELFLOAD)
     {
@@ -551,7 +551,7 @@ static void NE_FixupSegmentPrologs(NE_MODULE *pModule, WORD segnum)
             /*TRACE("entry: %p, entry->segnum: %d, entry->offs: %04x\n", entry, entry->segnum, entry->offs);*/
             if (entry->segnum == segnum)
             {
-                pFunc = ((BYTE *)pSeg+entry->offs);
+                pFunc = pSeg+entry->offs;
                 TRACE("pFunc: %p, *(DWORD *)pFunc: %08x, num_entries: %d\n", pFunc, *(DWORD *)pFunc, num_entries);
                 if (*(pFunc+2) == 0x90)
                 {
@@ -694,7 +694,7 @@ static BOOL NE_InitDLL( NE_MODULE *pModule )
     context.SegGs = wine_get_gs();
     context.SegCs = SEL(pSegTable[SELECTOROF(pModule->ne_csip)-1].hSeg);
     context.Eip   = OFFSETOF(pModule->ne_csip);
-    context.Ebp   = OFFSETOF(NtCurrentTeb()->WOW32Reserved) + (WORD)&((STACK16FRAME*)0)->bp;
+    context.Ebp   = OFFSETOF(NtCurrentTeb()->WOW32Reserved) + FIELD_OFFSET(STACK16FRAME,bp);
 
     pModule->ne_csip = 0;  /* Don't initialize it twice */
     TRACE_(dll)("Calling LibMain for %.*s, cs:ip=%04x:%04x ds=%04x di=%04x cx=%04x\n",
@@ -799,7 +799,7 @@ static void NE_CallDllEntryPoint( NE_MODULE *pModule, DWORD dwReason )
         context.SegGs = wine_get_gs();
         context.SegCs = HIWORD(entryPoint);
         context.Eip   = LOWORD(entryPoint);
-        context.Ebp   = OFFSETOF(NtCurrentTeb()->WOW32Reserved) + (WORD)&((STACK16FRAME*)0)->bp;
+        context.Ebp   = OFFSETOF(NtCurrentTeb()->WOW32Reserved) + FIELD_OFFSET(STACK16FRAME,bp);
 
         args[7] = HIWORD(dwReason);
         args[6] = LOWORD(dwReason);

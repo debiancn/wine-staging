@@ -70,6 +70,11 @@ static void dump_timeout( const timeout_t *time )
     fprintf( stderr, get_timeout_str(*time) );
 }
 
+static void dump_file_pos( const file_pos_t *pos )
+{
+    fprintf( stderr, "%x%08x", (unsigned int)(*pos >> 32), (unsigned int)*pos );
+}
+
 static void dump_rectangle( const rectangle_t *rect )
 {
     fprintf( stderr, "{%d,%d;%d,%d}",
@@ -153,8 +158,8 @@ static void dump_apc_call( const apc_call_t *call )
     case APC_MAP_VIEW:
         fprintf( stderr, "APC_MAP_VIEW,handle=%p,addr=%p,size=%lu,offset=%x%08x,zero_bits=%u,alloc_type=%x,prot=%x",
                  call->map_view.handle, call->map_view.addr, call->map_view.size,
-                 call->map_view.offset_high, call->map_view.offset_low, call->map_view.zero_bits,
-                 call->map_view.alloc_type, call->map_view.prot );
+                 (unsigned int)(call->map_view.offset >> 32), (unsigned int)call->map_view.offset,
+                 call->map_view.zero_bits, call->map_view.alloc_type, call->map_view.prot );
         break;
     case APC_UNMAP_VIEW:
         fprintf( stderr, "APC_UNMAP_VIEW,addr=%p", call->unmap_view.addr );
@@ -254,21 +259,30 @@ static void dump_luid( const luid_t *luid )
     fprintf( stderr, "%d.%u", luid->high_part, luid->low_part );
 }
 
-static void dump_context( const CONTEXT *context )
+static void dump_context( const CONTEXT *context, data_size_t size )
 {
+    CONTEXT ctx;
+
+    memset( &ctx, 0, sizeof(ctx) );
+    memcpy( &ctx, context, min( size, sizeof(CONTEXT) ));
 #ifdef __i386__
     fprintf( stderr, "{flags=%08x,eax=%08x,ebx=%08x,ecx=%08x,edx=%08x,esi=%08x,edi=%08x,"
              "ebp=%08x,eip=%08x,esp=%08x,eflags=%08x,cs=%04x,ds=%04x,es=%04x,"
              "fs=%04x,gs=%04x,dr0=%08x,dr1=%08x,dr2=%08x,dr3=%08x,dr6=%08x,dr7=%08x,",
-             context->ContextFlags, context->Eax, context->Ebx, context->Ecx, context->Edx,
-             context->Esi, context->Edi, context->Ebp, context->Eip, context->Esp, context->EFlags,
-             context->SegCs, context->SegDs, context->SegEs, context->SegFs, context->SegGs,
-             context->Dr0, context->Dr1, context->Dr2, context->Dr3, context->Dr6, context->Dr7 );
+             ctx.ContextFlags, ctx.Eax, ctx.Ebx, ctx.Ecx, ctx.Edx,
+             ctx.Esi, ctx.Edi, ctx.Ebp, ctx.Eip, ctx.Esp, ctx.EFlags,
+             ctx.SegCs, ctx.SegDs, ctx.SegEs, ctx.SegFs, ctx.SegGs,
+             ctx.Dr0, ctx.Dr1, ctx.Dr2, ctx.Dr3, ctx.Dr6, ctx.Dr7 );
     fprintf( stderr, "float=" );
-    dump_uints( (const int *)&context->FloatSave, sizeof(context->FloatSave) / sizeof(int) );
+    dump_uints( (const int *)&ctx.FloatSave, sizeof(ctx.FloatSave) / sizeof(int) );
+    if (size > FIELD_OFFSET( CONTEXT, ExtendedRegisters ))
+    {
+        fprintf( stderr, ",extended=" );
+        dump_uints( (const int *)&ctx.ExtendedRegisters, sizeof(ctx.ExtendedRegisters) / sizeof(int) );
+    }
     fprintf( stderr, "}" );
 #else
-    dump_uints( (const int *)context, sizeof(*context) / sizeof(int) );
+    dump_uints( (const int *)&ctx, sizeof(ctx) / sizeof(int) );
 #endif
 }
 
@@ -298,6 +312,18 @@ static void dump_varargs_ints( data_size_t size )
         if (--len) fputc( ',', stderr );
     }
     fputc( '}', stderr );
+    remove_data( size );
+}
+
+static void dump_varargs_apc_result( data_size_t size )
+{
+    const apc_result_t *result = cur_data;
+
+    if (size >= sizeof(*result))
+    {
+        dump_apc_result( result );
+        size = sizeof(*result);
+    }
     remove_data( size );
 }
 
@@ -367,8 +393,8 @@ static void dump_varargs_context( data_size_t size )
         fprintf( stderr, "{}" );
         return;
     }
-    dump_context( cur_data );
-    remove_data( size );
+    dump_context( cur_data, size );
+    remove_data( min( size, sizeof(CONTEXT) ));
 }
 
 static void dump_varargs_exc_event( data_size_t size )
@@ -381,9 +407,12 @@ static void dump_varargs_exc_event( data_size_t size )
         return;
     }
     fprintf( stderr, "{context=" );
-    dump_context( ptr );
-    fprintf( stderr, ",rec=" );
-    dump_exc_record( (const EXCEPTION_RECORD *)(ptr + 1) );
+    dump_context( ptr, size );
+    if (size > sizeof(CONTEXT))
+    {
+        fprintf( stderr, ",rec=" );
+        dump_exc_record( (const EXCEPTION_RECORD *)(ptr + 1) );
+    }
     fputc( '}', stderr );
     remove_data( size );
 }
@@ -694,12 +723,18 @@ static void dump_inline_security_descriptor( const struct security_descriptor *s
         fprintf( stderr, ",owner=" );
         if ((sd->owner_len > FIELD_OFFSET(SID, SubAuthority[255])) || (offset + sd->owner_len > size))
             return;
-        dump_inline_sid( (const SID *)((const char *)sd + offset), sd->owner_len );
+        if (sd->owner_len)
+            dump_inline_sid( (const SID *)((const char *)sd + offset), sd->owner_len );
+        else
+            fprintf( stderr, "<not present>" );
         offset += sd->owner_len;
         fprintf( stderr, ",group=" );
         if ((sd->group_len > FIELD_OFFSET(SID, SubAuthority[255])) || (offset + sd->group_len > size))
             return;
-        dump_inline_sid( (const SID *)((const char *)sd + offset), sd->group_len );
+        if (sd->group_len)
+            dump_inline_sid( (const SID *)((const char *)sd + offset), sd->group_len );
+        else
+            fprintf( stderr, "<not present>" );
         offset += sd->group_len;
         fprintf( stderr, ",sacl=" );
         if ((sd->sacl_len >= MAX_ACL_LEN) || (offset + sd->sacl_len > size))
@@ -755,6 +790,28 @@ static void dump_varargs_token_groups( data_size_t size )
             }
             fputc( ']', stderr );
         }
+    }
+    fputc( '}', stderr );
+}
+
+static void dump_varargs_object_attributes( data_size_t size )
+{
+    const struct object_attributes *objattr = cur_data;
+    fputc( '{', stderr );
+    if (size >= sizeof(struct object_attributes))
+    {
+        const WCHAR *str;
+        fprintf( stderr, "rootdir=%p,sd=", objattr->rootdir );
+        if (objattr->sd_len > size - sizeof(*objattr) ||
+            objattr->name_len > size - sizeof(*objattr) - objattr->sd_len)
+            return;
+        dump_inline_security_descriptor( (const struct security_descriptor *)(objattr + 1), objattr->sd_len );
+        str = (const WCHAR *)objattr + (sizeof(*objattr) + objattr->sd_len) / sizeof(WCHAR);
+        fprintf( stderr, ",name=L\"" );
+        dump_strW( str, objattr->name_len / sizeof(WCHAR), stderr, "\"\"" );
+        fputc( '\"', stderr );
+        remove_data( ((sizeof(*objattr) + objattr->sd_len) / sizeof(WCHAR)) * sizeof(WCHAR) +
+                     objattr->name_len );
     }
     fputc( '}', stderr );
 }
@@ -900,7 +957,7 @@ static void dump_get_process_info_reply( const struct get_process_info_reply *re
     fprintf( stderr, " ppid=%04x,", req->ppid );
     fprintf( stderr, " exit_code=%d,", req->exit_code );
     fprintf( stderr, " priority=%d,", req->priority );
-    fprintf( stderr, " affinity=%d,", req->affinity );
+    fprintf( stderr, " affinity=%08x,", req->affinity );
     fprintf( stderr, " peb=%p,", req->peb );
     fprintf( stderr, " start_time=" );
     dump_timeout( &req->start_time );
@@ -914,7 +971,7 @@ static void dump_set_process_info_request( const struct set_process_info_request
     fprintf( stderr, " handle=%p,", req->handle );
     fprintf( stderr, " mask=%d,", req->mask );
     fprintf( stderr, " priority=%d,", req->priority );
-    fprintf( stderr, " affinity=%d", req->affinity );
+    fprintf( stderr, " affinity=%08x", req->affinity );
 }
 
 static void dump_get_thread_info_request( const struct get_thread_info_request *req )
@@ -930,7 +987,7 @@ static void dump_get_thread_info_reply( const struct get_thread_info_reply *req 
     fprintf( stderr, " teb=%p,", req->teb );
     fprintf( stderr, " exit_code=%d,", req->exit_code );
     fprintf( stderr, " priority=%d,", req->priority );
-    fprintf( stderr, " affinity=%d,", req->affinity );
+    fprintf( stderr, " affinity=%08x,", req->affinity );
     fprintf( stderr, " creation_time=" );
     dump_timeout( &req->creation_time );
     fprintf( stderr, "," );
@@ -945,7 +1002,7 @@ static void dump_set_thread_info_request( const struct set_thread_info_request *
     fprintf( stderr, " handle=%p,", req->handle );
     fprintf( stderr, " mask=%d,", req->mask );
     fprintf( stderr, " priority=%d,", req->priority );
-    fprintf( stderr, " affinity=%d,", req->affinity );
+    fprintf( stderr, " affinity=%08x,", req->affinity );
     fprintf( stderr, " token=%p", req->token );
 }
 
@@ -959,6 +1016,7 @@ static void dump_get_dll_info_reply( const struct get_dll_info_reply *req )
 {
     fprintf( stderr, " size=%lu,", (unsigned long)req->size );
     fprintf( stderr, " entry_point=%p,", req->entry_point );
+    fprintf( stderr, " filename_len=%u,", req->filename_len );
     fprintf( stderr, " filename=" );
     dump_varargs_unicode_str( cur_size );
 }
@@ -1012,21 +1070,6 @@ static void dump_queue_apc_reply( const struct queue_apc_reply *req )
 {
     fprintf( stderr, " handle=%p,", req->handle );
     fprintf( stderr, " self=%d", req->self );
-}
-
-static void dump_get_apc_request( const struct get_apc_request *req )
-{
-    fprintf( stderr, " alertable=%d,", req->alertable );
-    fprintf( stderr, " prev=%p,", req->prev );
-    fprintf( stderr, " result=" );
-    dump_apc_result( &req->result );
-}
-
-static void dump_get_apc_reply( const struct get_apc_reply *req )
-{
-    fprintf( stderr, " handle=%p,", req->handle );
-    fprintf( stderr, " call=" );
-    dump_apc_call( &req->call );
 }
 
 static void dump_get_apc_result_request( const struct get_apc_result_request *req )
@@ -1103,28 +1146,35 @@ static void dump_select_request( const struct select_request *req )
     fprintf( stderr, " flags=%d,", req->flags );
     fprintf( stderr, " cookie=%p,", req->cookie );
     fprintf( stderr, " signal=%p,", req->signal );
+    fprintf( stderr, " prev_apc=%p,", req->prev_apc );
     fprintf( stderr, " timeout=" );
     dump_timeout( &req->timeout );
     fprintf( stderr, "," );
+    fprintf( stderr, " result=" );
+    dump_varargs_apc_result( cur_size );
+    fputc( ',', stderr );
     fprintf( stderr, " handles=" );
     dump_varargs_handles( cur_size );
 }
 
 static void dump_select_reply( const struct select_reply *req )
 {
+    fprintf( stderr, " apc_handle=%p,", req->apc_handle );
     fprintf( stderr, " timeout=" );
     dump_timeout( &req->timeout );
+    fprintf( stderr, "," );
+    fprintf( stderr, " call=" );
+    dump_apc_call( &req->call );
 }
 
 static void dump_create_event_request( const struct create_event_request *req )
 {
     fprintf( stderr, " access=%08x,", req->access );
     fprintf( stderr, " attributes=%08x,", req->attributes );
-    fprintf( stderr, " rootdir=%p,", req->rootdir );
     fprintf( stderr, " manual_reset=%d,", req->manual_reset );
     fprintf( stderr, " initial_state=%d,", req->initial_state );
-    fprintf( stderr, " name=" );
-    dump_varargs_unicode_str( cur_size );
+    fprintf( stderr, " objattr=" );
+    dump_varargs_object_attributes( cur_size );
 }
 
 static void dump_create_event_reply( const struct create_event_reply *req )
@@ -1156,10 +1206,9 @@ static void dump_create_mutex_request( const struct create_mutex_request *req )
 {
     fprintf( stderr, " access=%08x,", req->access );
     fprintf( stderr, " attributes=%08x,", req->attributes );
-    fprintf( stderr, " rootdir=%p,", req->rootdir );
     fprintf( stderr, " owned=%d,", req->owned );
-    fprintf( stderr, " name=" );
-    dump_varargs_unicode_str( cur_size );
+    fprintf( stderr, " objattr=" );
+    dump_varargs_object_attributes( cur_size );
 }
 
 static void dump_create_mutex_reply( const struct create_mutex_reply *req )
@@ -1195,11 +1244,10 @@ static void dump_create_semaphore_request( const struct create_semaphore_request
 {
     fprintf( stderr, " access=%08x,", req->access );
     fprintf( stderr, " attributes=%08x,", req->attributes );
-    fprintf( stderr, " rootdir=%p,", req->rootdir );
     fprintf( stderr, " initial=%08x,", req->initial );
     fprintf( stderr, " max=%08x,", req->max );
-    fprintf( stderr, " name=" );
-    dump_varargs_unicode_str( cur_size );
+    fprintf( stderr, " objattr=" );
+    dump_varargs_object_attributes( cur_size );
 }
 
 static void dump_create_semaphore_reply( const struct create_semaphore_reply *req )
@@ -1240,6 +1288,9 @@ static void dump_create_file_request( const struct create_file_request *req )
     fprintf( stderr, " create=%d,", req->create );
     fprintf( stderr, " options=%08x,", req->options );
     fprintf( stderr, " attrs=%08x,", req->attrs );
+    fprintf( stderr, " objattr=" );
+    dump_varargs_object_attributes( cur_size );
+    fputc( ',', stderr );
     fprintf( stderr, " filename=" );
     dump_varargs_string( cur_size );
 }
@@ -1303,10 +1354,12 @@ static void dump_flush_file_reply( const struct flush_file_reply *req )
 static void dump_lock_file_request( const struct lock_file_request *req )
 {
     fprintf( stderr, " handle=%p,", req->handle );
-    fprintf( stderr, " offset_low=%08x,", req->offset_low );
-    fprintf( stderr, " offset_high=%08x,", req->offset_high );
-    fprintf( stderr, " count_low=%08x,", req->count_low );
-    fprintf( stderr, " count_high=%08x,", req->count_high );
+    fprintf( stderr, " offset=" );
+    dump_file_pos( &req->offset );
+    fprintf( stderr, "," );
+    fprintf( stderr, " count=" );
+    dump_file_pos( &req->count );
+    fprintf( stderr, "," );
     fprintf( stderr, " shared=%d,", req->shared );
     fprintf( stderr, " wait=%d", req->wait );
 }
@@ -1320,10 +1373,11 @@ static void dump_lock_file_reply( const struct lock_file_reply *req )
 static void dump_unlock_file_request( const struct unlock_file_request *req )
 {
     fprintf( stderr, " handle=%p,", req->handle );
-    fprintf( stderr, " offset_low=%08x,", req->offset_low );
-    fprintf( stderr, " offset_high=%08x,", req->offset_high );
-    fprintf( stderr, " count_low=%08x,", req->count_low );
-    fprintf( stderr, " count_high=%08x", req->count_high );
+    fprintf( stderr, " offset=" );
+    dump_file_pos( &req->offset );
+    fprintf( stderr, "," );
+    fprintf( stderr, " count=" );
+    dump_file_pos( &req->count );
 }
 
 static void dump_create_socket_request( const struct create_socket_request *req )
@@ -1468,6 +1522,7 @@ static void dump_set_console_input_info_request( const struct set_console_input_
     fprintf( stderr, " edition_mode=%d,", req->edition_mode );
     fprintf( stderr, " input_cp=%d,", req->input_cp );
     fprintf( stderr, " output_cp=%d,", req->output_cp );
+    fprintf( stderr, " win=%p,", req->win );
     fprintf( stderr, " title=" );
     dump_varargs_unicode_str( cur_size );
 }
@@ -1485,6 +1540,7 @@ static void dump_get_console_input_info_reply( const struct get_console_input_in
     fprintf( stderr, " edition_mode=%d,", req->edition_mode );
     fprintf( stderr, " input_cp=%d,", req->input_cp );
     fprintf( stderr, " output_cp=%d,", req->output_cp );
+    fprintf( stderr, " win=%p,", req->win );
     fprintf( stderr, " title=" );
     dump_varargs_unicode_str( cur_size );
 }
@@ -1683,13 +1739,13 @@ static void dump_create_mapping_request( const struct create_mapping_request *re
 {
     fprintf( stderr, " access=%08x,", req->access );
     fprintf( stderr, " attributes=%08x,", req->attributes );
-    fprintf( stderr, " rootdir=%p,", req->rootdir );
-    fprintf( stderr, " size_high=%d,", req->size_high );
-    fprintf( stderr, " size_low=%d,", req->size_low );
+    fprintf( stderr, " size=" );
+    dump_file_pos( &req->size );
+    fprintf( stderr, "," );
     fprintf( stderr, " protect=%d,", req->protect );
     fprintf( stderr, " file_handle=%p,", req->file_handle );
-    fprintf( stderr, " name=" );
-    dump_varargs_unicode_str( cur_size );
+    fprintf( stderr, " objattr=" );
+    dump_varargs_object_attributes( cur_size );
 }
 
 static void dump_create_mapping_reply( const struct create_mapping_reply *req )
@@ -1718,14 +1774,14 @@ static void dump_get_mapping_info_request( const struct get_mapping_info_request
 
 static void dump_get_mapping_info_reply( const struct get_mapping_info_reply *req )
 {
-    fprintf( stderr, " size_high=%d,", req->size_high );
-    fprintf( stderr, " size_low=%d,", req->size_low );
+    fprintf( stderr, " size=" );
+    dump_file_pos( &req->size );
+    fprintf( stderr, "," );
     fprintf( stderr, " protect=%d,", req->protect );
     fprintf( stderr, " header_size=%d,", req->header_size );
     fprintf( stderr, " base=%p,", req->base );
     fprintf( stderr, " mapping=%p,", req->mapping );
-    fprintf( stderr, " shared_file=%p,", req->shared_file );
-    fprintf( stderr, " shared_size=%d", req->shared_size );
+    fprintf( stderr, " shared_file=%p", req->shared_file );
 }
 
 static void dump_create_snapshot_request( const struct create_snapshot_request *req )
@@ -2297,7 +2353,9 @@ static void dump_get_message_request( const struct get_message_request *req )
     fprintf( stderr, " get_win=%p,", req->get_win );
     fprintf( stderr, " get_first=%08x,", req->get_first );
     fprintf( stderr, " get_last=%08x,", req->get_last );
-    fprintf( stderr, " hw_id=%08x", req->hw_id );
+    fprintf( stderr, " hw_id=%08x,", req->hw_id );
+    fprintf( stderr, " wake_mask=%08x,", req->wake_mask );
+    fprintf( stderr, " changed_mask=%08x", req->changed_mask );
 }
 
 static void dump_get_message_reply( const struct get_message_reply *req )
@@ -2320,7 +2378,7 @@ static void dump_get_message_reply( const struct get_message_reply *req )
 
 static void dump_reply_message_request( const struct reply_message_request *req )
 {
-    fprintf( stderr, " result=%08x,", req->result );
+    fprintf( stderr, " result=%lx,", req->result );
     fprintf( stderr, " remove=%d,", req->remove );
     fprintf( stderr, " data=" );
     dump_varargs_bytes( cur_size );
@@ -2340,7 +2398,7 @@ static void dump_get_message_reply_request( const struct get_message_reply_reque
 
 static void dump_get_message_reply_reply( const struct get_message_reply_reply *req )
 {
-    fprintf( stderr, " result=%08x,", req->result );
+    fprintf( stderr, " result=%lx,", req->result );
     fprintf( stderr, " data=" );
     dump_varargs_bytes( cur_size );
 }
@@ -2364,6 +2422,16 @@ static void dump_kill_win_timer_request( const struct kill_win_timer_request *re
     fprintf( stderr, " win=%p,", req->win );
     fprintf( stderr, " msg=%08x,", req->msg );
     fprintf( stderr, " id=%lx", req->id );
+}
+
+static void dump_is_window_hung_request( const struct is_window_hung_request *req )
+{
+    fprintf( stderr, " win=%p", req->win );
+}
+
+static void dump_is_window_hung_reply( const struct is_window_hung_reply *req )
+{
+    fprintf( stderr, " is_hung=%d", req->is_hung );
 }
 
 static void dump_get_serial_info_request( const struct get_serial_info_request *req )
@@ -2481,7 +2549,9 @@ static void dump_create_window_request( const struct create_window_request *req 
     fprintf( stderr, " parent=%p,", req->parent );
     fprintf( stderr, " owner=%p,", req->owner );
     fprintf( stderr, " atom=%04x,", req->atom );
-    fprintf( stderr, " instance=%p", req->instance );
+    fprintf( stderr, " instance=%p,", req->instance );
+    fprintf( stderr, " class=" );
+    dump_varargs_unicode_str( cur_size );
 }
 
 static void dump_create_window_reply( const struct create_window_reply *req )
@@ -2586,9 +2656,12 @@ static void dump_get_window_parents_reply( const struct get_window_parents_reply
 
 static void dump_get_window_children_request( const struct get_window_children_request *req )
 {
+    fprintf( stderr, " desktop=%p,", req->desktop );
     fprintf( stderr, " parent=%p,", req->parent );
     fprintf( stderr, " atom=%04x,", req->atom );
-    fprintf( stderr, " tid=%04x", req->tid );
+    fprintf( stderr, " tid=%04x,", req->tid );
+    fprintf( stderr, " class=" );
+    dump_varargs_unicode_str( cur_size );
 }
 
 static void dump_get_window_children_reply( const struct get_window_children_reply *req )
@@ -2646,7 +2719,18 @@ static void dump_set_window_pos_request( const struct set_window_pos_request *re
 
 static void dump_set_window_pos_reply( const struct set_window_pos_reply *req )
 {
-    fprintf( stderr, " new_style=%08x", req->new_style );
+    fprintf( stderr, " new_style=%08x,", req->new_style );
+    fprintf( stderr, " new_ex_style=%08x,", req->new_ex_style );
+    fprintf( stderr, " visible=" );
+    dump_rectangle( &req->visible );
+}
+
+static void dump_set_window_visible_rect_request( const struct set_window_visible_rect_request *req )
+{
+    fprintf( stderr, " flags=%08x,", req->flags );
+    fprintf( stderr, " handle=%p,", req->handle );
+    fprintf( stderr, " visible=" );
+    dump_rectangle( &req->visible );
 }
 
 static void dump_get_window_rectangles_request( const struct get_window_rectangles_request *req )
@@ -2860,6 +2944,18 @@ static void dump_set_process_winstation_request( const struct set_process_winsta
     fprintf( stderr, " handle=%p", req->handle );
 }
 
+static void dump_enum_winstation_request( const struct enum_winstation_request *req )
+{
+    fprintf( stderr, " index=%08x", req->index );
+}
+
+static void dump_enum_winstation_reply( const struct enum_winstation_reply *req )
+{
+    fprintf( stderr, " next=%08x,", req->next );
+    fprintf( stderr, " name=" );
+    dump_varargs_unicode_str( cur_size );
+}
+
 static void dump_create_desktop_request( const struct create_desktop_request *req )
 {
     fprintf( stderr, " flags=%08x,", req->flags );
@@ -2876,6 +2972,7 @@ static void dump_create_desktop_reply( const struct create_desktop_reply *req )
 
 static void dump_open_desktop_request( const struct open_desktop_request *req )
 {
+    fprintf( stderr, " winsta=%p,", req->winsta );
     fprintf( stderr, " flags=%08x,", req->flags );
     fprintf( stderr, " access=%08x,", req->access );
     fprintf( stderr, " attributes=%08x,", req->attributes );
@@ -2906,6 +3003,19 @@ static void dump_get_thread_desktop_reply( const struct get_thread_desktop_reply
 static void dump_set_thread_desktop_request( const struct set_thread_desktop_request *req )
 {
     fprintf( stderr, " handle=%p", req->handle );
+}
+
+static void dump_enum_desktop_request( const struct enum_desktop_request *req )
+{
+    fprintf( stderr, " winstation=%p,", req->winstation );
+    fprintf( stderr, " index=%08x", req->index );
+}
+
+static void dump_enum_desktop_reply( const struct enum_desktop_reply *req )
+{
+    fprintf( stderr, " next=%08x,", req->next );
+    fprintf( stderr, " name=" );
+    dump_varargs_unicode_str( cur_size );
 }
 
 static void dump_set_user_object_info_request( const struct set_user_object_info_request *req )
@@ -3146,13 +3256,22 @@ static void dump_create_class_request( const struct create_class_request *req )
     fprintf( stderr, " instance=%p,", req->instance );
     fprintf( stderr, " extra=%d,", req->extra );
     fprintf( stderr, " win_extra=%d,", req->win_extra );
-    fprintf( stderr, " client_ptr=%p", req->client_ptr );
+    fprintf( stderr, " client_ptr=%p,", req->client_ptr );
+    fprintf( stderr, " name=" );
+    dump_varargs_unicode_str( cur_size );
+}
+
+static void dump_create_class_reply( const struct create_class_reply *req )
+{
+    fprintf( stderr, " atom=%04x", req->atom );
 }
 
 static void dump_destroy_class_request( const struct destroy_class_request *req )
 {
     fprintf( stderr, " atom=%04x,", req->atom );
-    fprintf( stderr, " instance=%p", req->instance );
+    fprintf( stderr, " instance=%p,", req->instance );
+    fprintf( stderr, " name=" );
+    dump_varargs_unicode_str( cur_size );
 }
 
 static void dump_destroy_class_reply( const struct destroy_class_reply *req )
@@ -3341,6 +3460,19 @@ static void dump_set_security_object_request( const struct set_security_object_r
     dump_varargs_security_descriptor( cur_size );
 }
 
+static void dump_get_security_object_request( const struct get_security_object_request *req )
+{
+    fprintf( stderr, " handle=%p,", req->handle );
+    fprintf( stderr, " security_info=%08x", req->security_info );
+}
+
+static void dump_get_security_object_reply( const struct get_security_object_reply *req )
+{
+    fprintf( stderr, " sd_len=%08x,", req->sd_len );
+    fprintf( stderr, " sd=" );
+    dump_varargs_security_descriptor( cur_size );
+}
+
 static void dump_create_mailslot_request( const struct create_mailslot_request *req )
 {
     fprintf( stderr, " access=%08x,", req->access );
@@ -3400,6 +3532,22 @@ static void dump_open_directory_request( const struct open_directory_request *re
 static void dump_open_directory_reply( const struct open_directory_reply *req )
 {
     fprintf( stderr, " handle=%p", req->handle );
+}
+
+static void dump_get_directory_entry_request( const struct get_directory_entry_request *req )
+{
+    fprintf( stderr, " handle=%p,", req->handle );
+    fprintf( stderr, " index=%08x", req->index );
+}
+
+static void dump_get_directory_entry_reply( const struct get_directory_entry_reply *req )
+{
+    fprintf( stderr, " name_len=%lu,", (unsigned long)req->name_len );
+    fprintf( stderr, " name=" );
+    dump_varargs_unicode_str( min(cur_size,req->name_len) );
+    fputc( ',', stderr );
+    fprintf( stderr, " type=" );
+    dump_varargs_unicode_str( cur_size );
 }
 
 static void dump_create_symlink_request( const struct create_symlink_request *req )
@@ -3539,6 +3687,101 @@ static void dump_make_process_system_reply( const struct make_process_system_rep
     fprintf( stderr, " event=%p", req->event );
 }
 
+static void dump_get_token_statistics_request( const struct get_token_statistics_request *req )
+{
+    fprintf( stderr, " handle=%p", req->handle );
+}
+
+static void dump_get_token_statistics_reply( const struct get_token_statistics_reply *req )
+{
+    fprintf( stderr, " token_id=" );
+    dump_luid( &req->token_id );
+    fprintf( stderr, "," );
+    fprintf( stderr, " modified_id=" );
+    dump_luid( &req->modified_id );
+    fprintf( stderr, "," );
+    fprintf( stderr, " primary=%d,", req->primary );
+    fprintf( stderr, " impersonation_level=%d,", req->impersonation_level );
+    fprintf( stderr, " group_count=%d,", req->group_count );
+    fprintf( stderr, " privilege_count=%d", req->privilege_count );
+}
+
+static void dump_create_completion_request( const struct create_completion_request *req )
+{
+    fprintf( stderr, " access=%08x,", req->access );
+    fprintf( stderr, " attributes=%08x,", req->attributes );
+    fprintf( stderr, " concurrent=%08x,", req->concurrent );
+    fprintf( stderr, " rootdir=%p,", req->rootdir );
+    fprintf( stderr, " filename=" );
+    dump_varargs_string( cur_size );
+}
+
+static void dump_create_completion_reply( const struct create_completion_reply *req )
+{
+    fprintf( stderr, " handle=%p", req->handle );
+}
+
+static void dump_open_completion_request( const struct open_completion_request *req )
+{
+    fprintf( stderr, " access=%08x,", req->access );
+    fprintf( stderr, " attributes=%08x,", req->attributes );
+    fprintf( stderr, " rootdir=%p,", req->rootdir );
+    fprintf( stderr, " filename=" );
+    dump_varargs_string( cur_size );
+}
+
+static void dump_open_completion_reply( const struct open_completion_reply *req )
+{
+    fprintf( stderr, " handle=%p", req->handle );
+}
+
+static void dump_add_completion_request( const struct add_completion_request *req )
+{
+    fprintf( stderr, " handle=%p,", req->handle );
+    fprintf( stderr, " ckey=%lx,", req->ckey );
+    fprintf( stderr, " cvalue=%lx,", req->cvalue );
+    fprintf( stderr, " information=%lx,", req->information );
+    fprintf( stderr, " status=%08x", req->status );
+}
+
+static void dump_remove_completion_request( const struct remove_completion_request *req )
+{
+    fprintf( stderr, " handle=%p", req->handle );
+}
+
+static void dump_remove_completion_reply( const struct remove_completion_reply *req )
+{
+    fprintf( stderr, " ckey=%lx,", req->ckey );
+    fprintf( stderr, " cvalue=%lx,", req->cvalue );
+    fprintf( stderr, " information=%lx,", req->information );
+    fprintf( stderr, " status=%08x", req->status );
+}
+
+static void dump_query_completion_request( const struct query_completion_request *req )
+{
+    fprintf( stderr, " handle=%p", req->handle );
+}
+
+static void dump_query_completion_reply( const struct query_completion_reply *req )
+{
+    fprintf( stderr, " depth=%08x", req->depth );
+}
+
+static void dump_set_completion_info_request( const struct set_completion_info_request *req )
+{
+    fprintf( stderr, " handle=%p,", req->handle );
+    fprintf( stderr, " chandle=%p,", req->chandle );
+    fprintf( stderr, " ckey=%lx", req->ckey );
+}
+
+static void dump_add_fd_completion_request( const struct add_fd_completion_request *req )
+{
+    fprintf( stderr, " handle=%p,", req->handle );
+    fprintf( stderr, " cvalue=%lx,", req->cvalue );
+    fprintf( stderr, " status=%08x,", req->status );
+    fprintf( stderr, " information=%lx", req->information );
+}
+
 static const dump_func req_dumpers[REQ_NB_REQUESTS] = {
     (dump_func)dump_new_process_request,
     (dump_func)dump_get_new_process_info_request,
@@ -3558,7 +3801,6 @@ static const dump_func req_dumpers[REQ_NB_REQUESTS] = {
     (dump_func)dump_load_dll_request,
     (dump_func)dump_unload_dll_request,
     (dump_func)dump_queue_apc_request,
-    (dump_func)dump_get_apc_request,
     (dump_func)dump_get_apc_result_request,
     (dump_func)dump_close_handle_request,
     (dump_func)dump_set_handle_info_request,
@@ -3670,6 +3912,7 @@ static const dump_func req_dumpers[REQ_NB_REQUESTS] = {
     (dump_func)dump_get_message_reply_request,
     (dump_func)dump_set_win_timer_request,
     (dump_func)dump_kill_win_timer_request,
+    (dump_func)dump_is_window_hung_request,
     (dump_func)dump_get_serial_info_request,
     (dump_func)dump_set_serial_info_request,
     (dump_func)dump_register_async_request,
@@ -3690,6 +3933,7 @@ static const dump_func req_dumpers[REQ_NB_REQUESTS] = {
     (dump_func)dump_get_window_children_from_point_request,
     (dump_func)dump_get_window_tree_request,
     (dump_func)dump_set_window_pos_request,
+    (dump_func)dump_set_window_visible_rect_request,
     (dump_func)dump_get_window_rectangles_request,
     (dump_func)dump_get_window_text_request,
     (dump_func)dump_set_window_text_request,
@@ -3709,11 +3953,13 @@ static const dump_func req_dumpers[REQ_NB_REQUESTS] = {
     (dump_func)dump_close_winstation_request,
     (dump_func)dump_get_process_winstation_request,
     (dump_func)dump_set_process_winstation_request,
+    (dump_func)dump_enum_winstation_request,
     (dump_func)dump_create_desktop_request,
     (dump_func)dump_open_desktop_request,
     (dump_func)dump_close_desktop_request,
     (dump_func)dump_get_thread_desktop_request,
     (dump_func)dump_set_thread_desktop_request,
+    (dump_func)dump_enum_desktop_request,
     (dump_func)dump_set_user_object_info_request,
     (dump_func)dump_attach_thread_input_request,
     (dump_func)dump_get_thread_input_request,
@@ -3745,10 +3991,12 @@ static const dump_func req_dumpers[REQ_NB_REQUESTS] = {
     (dump_func)dump_get_token_user_request,
     (dump_func)dump_get_token_groups_request,
     (dump_func)dump_set_security_object_request,
+    (dump_func)dump_get_security_object_request,
     (dump_func)dump_create_mailslot_request,
     (dump_func)dump_set_mailslot_info_request,
     (dump_func)dump_create_directory_request,
     (dump_func)dump_open_directory_request,
+    (dump_func)dump_get_directory_entry_request,
     (dump_func)dump_create_symlink_request,
     (dump_func)dump_open_symlink_request,
     (dump_func)dump_query_symlink_request,
@@ -3760,6 +4008,14 @@ static const dump_func req_dumpers[REQ_NB_REQUESTS] = {
     (dump_func)dump_delete_device_request,
     (dump_func)dump_get_next_device_request_request,
     (dump_func)dump_make_process_system_request,
+    (dump_func)dump_get_token_statistics_request,
+    (dump_func)dump_create_completion_request,
+    (dump_func)dump_open_completion_request,
+    (dump_func)dump_add_completion_request,
+    (dump_func)dump_remove_completion_request,
+    (dump_func)dump_query_completion_request,
+    (dump_func)dump_set_completion_info_request,
+    (dump_func)dump_add_fd_completion_request,
 };
 
 static const dump_func reply_dumpers[REQ_NB_REQUESTS] = {
@@ -3781,7 +4037,6 @@ static const dump_func reply_dumpers[REQ_NB_REQUESTS] = {
     (dump_func)0,
     (dump_func)0,
     (dump_func)dump_queue_apc_reply,
-    (dump_func)dump_get_apc_reply,
     (dump_func)dump_get_apc_result_reply,
     (dump_func)0,
     (dump_func)dump_set_handle_info_reply,
@@ -3893,6 +4148,7 @@ static const dump_func reply_dumpers[REQ_NB_REQUESTS] = {
     (dump_func)dump_get_message_reply_reply,
     (dump_func)dump_set_win_timer_reply,
     (dump_func)0,
+    (dump_func)dump_is_window_hung_reply,
     (dump_func)dump_get_serial_info_reply,
     (dump_func)0,
     (dump_func)0,
@@ -3913,6 +4169,7 @@ static const dump_func reply_dumpers[REQ_NB_REQUESTS] = {
     (dump_func)dump_get_window_children_from_point_reply,
     (dump_func)dump_get_window_tree_reply,
     (dump_func)dump_set_window_pos_reply,
+    (dump_func)0,
     (dump_func)dump_get_window_rectangles_reply,
     (dump_func)dump_get_window_text_reply,
     (dump_func)0,
@@ -3932,11 +4189,13 @@ static const dump_func reply_dumpers[REQ_NB_REQUESTS] = {
     (dump_func)0,
     (dump_func)dump_get_process_winstation_reply,
     (dump_func)0,
+    (dump_func)dump_enum_winstation_reply,
     (dump_func)dump_create_desktop_reply,
     (dump_func)dump_open_desktop_reply,
     (dump_func)0,
     (dump_func)dump_get_thread_desktop_reply,
     (dump_func)0,
+    (dump_func)dump_enum_desktop_reply,
     (dump_func)dump_set_user_object_info_reply,
     (dump_func)0,
     (dump_func)dump_get_thread_input_reply,
@@ -3954,7 +4213,7 @@ static const dump_func reply_dumpers[REQ_NB_REQUESTS] = {
     (dump_func)dump_start_hook_chain_reply,
     (dump_func)0,
     (dump_func)dump_get_hook_info_reply,
-    (dump_func)0,
+    (dump_func)dump_create_class_reply,
     (dump_func)dump_destroy_class_reply,
     (dump_func)dump_set_class_info_reply,
     (dump_func)dump_set_clipboard_info_reply,
@@ -3968,10 +4227,12 @@ static const dump_func reply_dumpers[REQ_NB_REQUESTS] = {
     (dump_func)dump_get_token_user_reply,
     (dump_func)dump_get_token_groups_reply,
     (dump_func)0,
+    (dump_func)dump_get_security_object_reply,
     (dump_func)dump_create_mailslot_reply,
     (dump_func)dump_set_mailslot_info_reply,
     (dump_func)dump_create_directory_reply,
     (dump_func)dump_open_directory_reply,
+    (dump_func)dump_get_directory_entry_reply,
     (dump_func)dump_create_symlink_reply,
     (dump_func)dump_open_symlink_reply,
     (dump_func)dump_query_symlink_reply,
@@ -3983,6 +4244,14 @@ static const dump_func reply_dumpers[REQ_NB_REQUESTS] = {
     (dump_func)0,
     (dump_func)dump_get_next_device_request_reply,
     (dump_func)dump_make_process_system_reply,
+    (dump_func)dump_get_token_statistics_reply,
+    (dump_func)dump_create_completion_reply,
+    (dump_func)dump_open_completion_reply,
+    (dump_func)0,
+    (dump_func)dump_remove_completion_reply,
+    (dump_func)dump_query_completion_reply,
+    (dump_func)0,
+    (dump_func)0,
 };
 
 static const char * const req_names[REQ_NB_REQUESTS] = {
@@ -4004,7 +4273,6 @@ static const char * const req_names[REQ_NB_REQUESTS] = {
     "load_dll",
     "unload_dll",
     "queue_apc",
-    "get_apc",
     "get_apc_result",
     "close_handle",
     "set_handle_info",
@@ -4116,6 +4384,7 @@ static const char * const req_names[REQ_NB_REQUESTS] = {
     "get_message_reply",
     "set_win_timer",
     "kill_win_timer",
+    "is_window_hung",
     "get_serial_info",
     "set_serial_info",
     "register_async",
@@ -4136,6 +4405,7 @@ static const char * const req_names[REQ_NB_REQUESTS] = {
     "get_window_children_from_point",
     "get_window_tree",
     "set_window_pos",
+    "set_window_visible_rect",
     "get_window_rectangles",
     "get_window_text",
     "set_window_text",
@@ -4155,11 +4425,13 @@ static const char * const req_names[REQ_NB_REQUESTS] = {
     "close_winstation",
     "get_process_winstation",
     "set_process_winstation",
+    "enum_winstation",
     "create_desktop",
     "open_desktop",
     "close_desktop",
     "get_thread_desktop",
     "set_thread_desktop",
+    "enum_desktop",
     "set_user_object_info",
     "attach_thread_input",
     "get_thread_input",
@@ -4191,10 +4463,12 @@ static const char * const req_names[REQ_NB_REQUESTS] = {
     "get_token_user",
     "get_token_groups",
     "set_security_object",
+    "get_security_object",
     "create_mailslot",
     "set_mailslot_info",
     "create_directory",
     "open_directory",
+    "get_directory_entry",
     "create_symlink",
     "open_symlink",
     "query_symlink",
@@ -4206,6 +4480,14 @@ static const char * const req_names[REQ_NB_REQUESTS] = {
     "delete_device",
     "get_next_device_request",
     "make_process_system",
+    "get_token_statistics",
+    "create_completion",
+    "open_completion",
+    "add_completion",
+    "remove_completion",
+    "query_completion",
+    "set_completion_info",
+    "add_fd_completion",
 };
 
 static const struct
@@ -4227,6 +4509,7 @@ static const struct
     { "CANCELLED",                   STATUS_CANCELLED },
     { "CANT_OPEN_ANONYMOUS",         STATUS_CANT_OPEN_ANONYMOUS },
     { "CHILD_MUST_BE_VOLATILE",      STATUS_CHILD_MUST_BE_VOLATILE },
+    { "DEBUGGER_INACTIVE",           STATUS_DEBUGGER_INACTIVE },
     { "DEVICE_BUSY",                 STATUS_DEVICE_BUSY },
     { "DIRECTORY_NOT_EMPTY",         STATUS_DIRECTORY_NOT_EMPTY },
     { "DISK_FULL",                   STATUS_DISK_FULL },
@@ -4290,6 +4573,7 @@ static const struct
     { "SECTION_TOO_BIG",             STATUS_SECTION_TOO_BIG },
     { "SEMAPHORE_LIMIT_EXCEEDED",    STATUS_SEMAPHORE_LIMIT_EXCEEDED },
     { "SHARING_VIOLATION",           STATUS_SHARING_VIOLATION },
+    { "SHUTDOWN_IN_PROGRESS",        STATUS_SHUTDOWN_IN_PROGRESS },
     { "SUSPEND_COUNT_EXCEEDED",      STATUS_SUSPEND_COUNT_EXCEEDED },
     { "THREAD_IS_TERMINATING",       STATUS_THREAD_IS_TERMINATING },
     { "TIMEOUT",                     STATUS_TIMEOUT },

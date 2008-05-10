@@ -1010,7 +1010,7 @@ static void test_hdm_filterMessages(HWND hParent)
     flush_sequences(sequences, NUM_MSG_SEQUENCES);
     todo_wine
     {
-     /* msdn incorrecly states that return value
+     /* msdn incorrectly states that return value
       * is the index of the filter control being
       * modified. The sendMessage here should
       * return previous filter timeout value
@@ -1156,7 +1156,7 @@ static void test_hdm_index_messages(HWND hParent)
 
     ok_sequence(sequences, HEADER_SEQ_INDEX, orderArray_seq, "set_get_orderArray sequence testing", FALSE);
 
-    /* check if the array order is set correctly and the size of the array is corret. */
+    /* check if the array order is set correctly and the size of the array is correct. */
     expect(2, iSize);
     expect(lpiarray[0], lpiarrayReceived[0]);
     expect(lpiarray[1], lpiarrayReceived[1]);
@@ -1309,7 +1309,7 @@ static void test_customdraw(void)
     GetClientRect(hWndHeader, &rect);
     ok(rect.right - rect.left == 670 && rect.bottom - rect.top == 18,
         "Tests will fail as header size is %dx%d instead of 670x18\n",
-        rect.right - rect.left == 670, rect.bottom - rect.top == 18);
+        rect.right - rect.left, rect.bottom - rect.top);
 
     for (i = 0; i < 3; i++)
     {
@@ -1480,20 +1480,31 @@ static LRESULT CALLBACK HeaderTestWndProc(HWND hWnd, UINT msg, WPARAM wParam, LP
     return 0L;
 }
 
-static void init(void) {
+static int init(void)
+{
+    HMODULE hComctl32;
+    BOOL (WINAPI *pInitCommonControlsEx)(const INITCOMMONCONTROLSEX*);
     WNDCLASSA wc;
-    INITCOMMONCONTROLSEX icex;
+    INITCOMMONCONTROLSEX iccex;
 
-    icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
-    icex.dwICC  = ICC_USEREX_CLASSES;
-    InitCommonControlsEx(&icex);
+    hComctl32 = GetModuleHandleA("comctl32.dll");
+    pInitCommonControlsEx = (void*)GetProcAddress(hComctl32, "InitCommonControlsEx");
+    if (!pInitCommonControlsEx)
+    {
+        skip("InitCommonControlsEx() is missing. Skipping the tests\n");
+        return 0;
+    }
+
+    iccex.dwSize = sizeof(iccex);
+    iccex.dwICC  = ICC_USEREX_CLASSES;
+    pInitCommonControlsEx(&iccex);
 
     wc.style = CS_HREDRAW | CS_VREDRAW;
     wc.cbClsExtra = 0;
     wc.cbWndExtra = 0;
     wc.hInstance = GetModuleHandleA(NULL);
     wc.hIcon = NULL;
-    wc.hCursor = LoadCursorA(NULL, MAKEINTRESOURCEA(IDC_ARROW));
+    wc.hCursor = LoadCursorA(NULL, IDC_ARROW);
     wc.hbrBackground = GetSysColorBrush(COLOR_WINDOW);
     wc.lpszMenuName = NULL;
     wc.lpszClassName = "HeaderTestClass";
@@ -1506,13 +1517,15 @@ static void init(void) {
       NULL, NULL, GetModuleHandleA(NULL), 0);
     assert(hHeaderParentWnd != NULL);
     ShowWindow(hHeaderParentWnd, SW_SHOW);
+    return 1;
 }
 
 START_TEST(header)
 {
     HWND parent_hwnd;
 
-    init();
+    if (!init())
+        return;
 
     test_header_control();
     test_header_order();

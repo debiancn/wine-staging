@@ -122,14 +122,14 @@ static int testFileExistenceW( const WCHAR *path, const WCHAR *file, BOOL excl )
  *         Reimplementation of VerFindFile from original stub.
  */
 DWORD WINAPI VerFindFileA(
-    UINT flags,
-    LPSTR lpszFilename,
-    LPSTR lpszWinDir,
-    LPSTR lpszAppDir,
+    DWORD flags,
+    LPCSTR lpszFilename,
+    LPCSTR lpszWinDir,
+    LPCSTR lpszAppDir,
     LPSTR lpszCurDir,
-    UINT *lpuCurDirLen,
+    PUINT lpuCurDirLen,
     LPSTR lpszDestDir,
-    UINT *lpuDestDirLen )
+    PUINT lpuDestDirLen )
 {
     DWORD  retval = 0;
     const char *curDir;
@@ -220,9 +220,9 @@ DWORD WINAPI VerFindFileA(
 /*****************************************************************************
  * VerFindFileW						[VERSION.@]
  */
-DWORD WINAPI VerFindFileW( UINT flags,LPWSTR lpszFilename,LPWSTR lpszWinDir,
-                           LPWSTR lpszAppDir, LPWSTR lpszCurDir,UINT *lpuCurDirLen,
-                           LPWSTR lpszDestDir,UINT *lpuDestDirLen )
+DWORD WINAPI VerFindFileW( DWORD flags,LPCWSTR lpszFilename,LPCWSTR lpszWinDir,
+                           LPCWSTR lpszAppDir, LPWSTR lpszCurDir,PUINT lpuCurDirLen,
+                           LPWSTR lpszDestDir,PUINT lpuDestDirLen )
 {
     static const WCHAR emptyW;
     DWORD retval = 0;
@@ -361,13 +361,14 @@ _error2vif(DWORD error) {
  * VerInstallFileA [VERSION.@]
  */
 DWORD WINAPI VerInstallFileA(
-	UINT flags,LPSTR srcfilename,LPSTR destfilename,LPSTR srcdir,
- 	LPSTR destdir,LPSTR curdir,LPSTR tmpfile,UINT *tmpfilelen )
+	DWORD flags,LPCSTR srcfilename,LPCSTR destfilename,LPCSTR srcdir,
+	LPCSTR destdir,LPCSTR curdir,LPSTR tmpfile,PUINT tmpfilelen )
 {
     LPCSTR pdest;
     char	destfn[260],tmpfn[260],srcfn[260];
     HFILE	hfsrc,hfdst;
-    DWORD	attr,ret,xret,tmplast;
+    DWORD	attr,xret,tmplast;
+    LONG	ret;
     LPBYTE	buf1,buf2;
     OFSTRUCT	ofs;
 
@@ -419,30 +420,31 @@ DWORD WINAPI VerInstallFileA(
 	}
 	ret = LZCopy(hfsrc,hfdst);
 	_lclose(hfdst);
-	if (((LONG)ret) < 0) {
+	if (ret < 0) {
 	    /* translate LZ errors into VIF_xxx */
 	    switch (ret) {
 	    case LZERROR_BADINHANDLE:
 	    case LZERROR_READ:
 	    case LZERROR_BADVALUE:
 	    case LZERROR_UNKNOWNALG:
-		ret = VIF_CANNOTREADSRC;
+		xret = VIF_CANNOTREADSRC;
 		break;
 	    case LZERROR_BADOUTHANDLE:
 	    case LZERROR_WRITE:
-		ret = VIF_OUTOFSPACE;
+		xret = VIF_OUTOFSPACE;
 		break;
 	    case LZERROR_GLOBALLOC:
 	    case LZERROR_GLOBLOCK:
-		ret = VIF_OUTOFMEMORY;
+		xret = VIF_OUTOFMEMORY;
 		break;
 	    default: /* unknown error, should not happen */
-		ret = 0;
+		FIXME("Unknown LZCopy error %d, ignoring.\n", ret);
+		xret = 0;
 		break;
 	    }
-	    if (ret) {
+	    if (xret) {
 		LZClose(hfsrc);
-		return ret;
+		return xret;
 	    }
 	}
     }
@@ -529,8 +531,8 @@ DWORD WINAPI VerInstallFileA(
  * VerInstallFileW				[VERSION.@]
  */
 DWORD WINAPI VerInstallFileW(
-	UINT flags,LPWSTR srcfilename,LPWSTR destfilename,LPWSTR srcdir,
-	LPWSTR destdir,LPWSTR curdir,LPWSTR tmpfile,UINT *tmpfilelen )
+	DWORD flags,LPCWSTR srcfilename,LPCWSTR destfilename,LPCWSTR srcdir,
+	LPCWSTR destdir,LPCWSTR curdir,LPWSTR tmpfile,PUINT tmpfilelen )
 {
     LPSTR wsrcf = NULL, wsrcd = NULL, wdestf = NULL, wdestd = NULL, wtmpf = NULL, wcurd = NULL;
     DWORD ret;

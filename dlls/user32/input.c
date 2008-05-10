@@ -76,6 +76,40 @@ static WORD get_key_state(void)
 }
 
 
+/**********************************************************************
+ *		set_capture_window
+ */
+BOOL set_capture_window( HWND hwnd, UINT gui_flags, HWND *prev_ret )
+{
+    HWND previous = 0;
+    UINT flags = 0;
+    BOOL ret;
+
+    if (gui_flags & GUI_INMENUMODE) flags |= CAPTURE_MENU;
+    if (gui_flags & GUI_INMOVESIZE) flags |= CAPTURE_MOVESIZE;
+
+    SERVER_START_REQ( set_capture_window )
+    {
+        req->handle = hwnd;
+        req->flags  = flags;
+        if ((ret = !wine_server_call_err( req )))
+        {
+            previous = reply->previous;
+            hwnd = reply->full_handle;
+        }
+    }
+    SERVER_END_REQ;
+
+    USER_Driver->pSetCapture( hwnd, gui_flags );
+
+    if (previous && previous != hwnd)
+        SendMessageW( previous, WM_CAPTURECHANGED, 0, (LPARAM)hwnd );
+
+    if (prev_ret) *prev_ret = previous;
+    return ret;
+}
+
+
 /***********************************************************************
  *		SendInput  (USER32.@)
  */
@@ -191,22 +225,9 @@ BOOL WINAPI SetCursorPos( INT x, INT y )
  */
 HWND WINAPI SetCapture( HWND hwnd )
 {
-    HWND previous = 0;
+    HWND previous;
 
-    SERVER_START_REQ( set_capture_window )
-    {
-        req->handle = hwnd;
-        req->flags  = 0;
-        if (!wine_server_call_err( req ))
-        {
-            previous = reply->previous;
-            hwnd = reply->full_handle;
-        }
-    }
-    SERVER_END_REQ;
-
-    if (previous && previous != hwnd)
-        SendMessageW( previous, WM_CAPTURECHANGED, 0, (LPARAM)hwnd );
+    set_capture_window( hwnd, 0, &previous );
     return previous;
 }
 
@@ -216,18 +237,7 @@ HWND WINAPI SetCapture( HWND hwnd )
  */
 BOOL WINAPI ReleaseCapture(void)
 {
-    BOOL ret;
-    HWND previous = 0;
-
-    SERVER_START_REQ( set_capture_window )
-    {
-        req->handle = 0;
-        req->flags  = 0;
-        if ((ret = !wine_server_call_err( req ))) previous = reply->previous;
-    }
-    SERVER_END_REQ;
-
-    if (previous) SendMessageW( previous, WM_CAPTURECHANGED, 0, 0 );
+    BOOL ret = set_capture_window( 0, 0, NULL );
 
     /* Somebody may have missed some mouse movements */
     mouse_event( MOUSEEVENTF_MOVE, 0, 0, 0, 0 );
@@ -340,6 +350,98 @@ BOOL WINAPI GetLastInputInfo(PLASTINPUTINFO plii)
 }
 
 
+/******************************************************************
+*		GetRawInputDeviceList (USER32.@)
+*/
+UINT WINAPI GetRawInputDeviceList(PRAWINPUTDEVICELIST pRawInputDeviceList, PUINT puiNumDevices, UINT cbSize)
+{
+    FIXME("(pRawInputDeviceList=%p, puiNumDevices=%p, cbSize=%d) stub!\n", pRawInputDeviceList, puiNumDevices, cbSize);
+
+    if(pRawInputDeviceList)
+        memset(pRawInputDeviceList, 0, sizeof *pRawInputDeviceList);
+    *puiNumDevices = 0;
+    return 0;
+}
+
+
+/******************************************************************
+*		RegisterRawInputDevices (USER32.@)
+*/
+BOOL WINAPI RegisterRawInputDevices(PRAWINPUTDEVICE pRawInputDevices, UINT uiNumDevices, UINT cbSize)
+{
+    FIXME("(pRawInputDevices=%p, uiNumDevices=%d, cbSize=%d) stub!\n", pRawInputDevices, uiNumDevices, cbSize);
+
+    return TRUE;
+}
+
+
+/******************************************************************
+*		GetRawInputData (USER32.@)
+*/
+UINT WINAPI GetRawInputData(HRAWINPUT hRawInput, UINT uiCommand, LPVOID pData, PUINT pcbSize, UINT cbSizeHeader)
+{
+    FIXME("(hRawInput=%p, uiCommand=%d, pData=%p, pcbSize=%p, cbSizeHeader=%d) stub!\n",
+            hRawInput, uiCommand, pData, pcbSize, cbSizeHeader);
+
+    return 0;
+}
+
+
+/******************************************************************
+*		GetRawInputBuffer (USER32.@)
+*/
+UINT WINAPI GetRawInputBuffer(PRAWINPUT pData, PUINT pcbSize, UINT cbSizeHeader)
+{
+    FIXME("(pData=%p, pcbSize=%p, cbSizeHeader=%d) stub!\n", pData, pcbSize, cbSizeHeader);
+
+    return 0;
+}
+
+
+/******************************************************************
+*		GetRawInputDeviceInfoA (USER32.@)
+*/
+UINT WINAPI GetRawInputDeviceInfoA(HANDLE hDevice, UINT uiCommand, LPVOID pData, PUINT pcbSize)
+{
+    FIXME("(hDevice=%p, uiCommand=%d, pData=%p, pcbSize=%p) stub!\n", hDevice, uiCommand, pData, pcbSize);
+
+    return 0;
+}
+
+
+/******************************************************************
+*		GetRawInputDeviceInfoW (USER32.@)
+*/
+UINT WINAPI GetRawInputDeviceInfoW(HANDLE hDevice, UINT uiCommand, LPVOID pData, PUINT pcbSize)
+{
+    FIXME("(hDevice=%p, uiCommand=%d, pData=%p, pcbSize=%p) stub!\n", hDevice, uiCommand, pData, pcbSize);
+
+    return 0;
+}
+
+
+/******************************************************************
+*		GetRegisteredRawInputDevices (USER32.@)
+*/
+UINT WINAPI GetRegisteredRawInputDevices(PRAWINPUTDEVICE pRawInputDevices, PUINT puiNumDevices, UINT cbSize)
+{
+    FIXME("(pRawInputDevices=%p, puiNumDevices=%p, cbSize=%d) stub!\n", pRawInputDevices, puiNumDevices, cbSize);
+
+    return 0;
+}
+
+
+/******************************************************************
+*		DefRawInputProc (USER32.@)
+*/
+LRESULT WINAPI DefRawInputProc(PRAWINPUT *paRawInput, INT nInput, UINT cbSizeHeader)
+{
+    FIXME("(paRawInput=%p, nInput=%d, cbSizeHeader=%d) stub!\n", *paRawInput, nInput, cbSizeHeader);
+
+    return 0;
+}
+
+
 /**********************************************************************
  *		AttachThreadInput (USER32.@)
  *
@@ -414,8 +516,6 @@ BOOL WINAPI SetKeyboardState( LPBYTE state )
 {
     BOOL ret;
 
-    TRACE("(%p)\n", state);
-
     SERVER_START_REQ( set_key_state )
     {
         req->tid = GetCurrentThreadId();
@@ -488,7 +588,6 @@ WORD WINAPI VkKeyScanExW(WCHAR cChar, HKL dwhkl)
  */
 DWORD WINAPI OemKeyScan(WORD wOemChar)
 {
-    TRACE("(%d)\n", wOemChar);
     return wOemChar;
 }
 
@@ -533,7 +632,18 @@ UINT WINAPI MapVirtualKeyW(UINT code, UINT maptype)
  */
 UINT WINAPI MapVirtualKeyExA(UINT code, UINT maptype, HKL hkl)
 {
-    return MapVirtualKeyExW(code, maptype, hkl);
+    UINT ret;
+
+    ret = MapVirtualKeyExW( code, maptype, hkl );
+    if (maptype == MAPVK_VK_TO_CHAR)
+    {
+        BYTE ch = 0;
+        WCHAR wch = ret;
+
+        WideCharToMultiByte( CP_ACP, 0, &wch, 1, (LPSTR)&ch, 1, NULL, NULL );
+        ret = ch;
+    }
+    return ret;
 }
 
 /******************************************************************************
@@ -699,7 +809,8 @@ UINT WINAPI GetKeyboardLayoutList(INT nBuff, HKL *layouts)
  */
 BOOL WINAPI RegisterHotKey(HWND hwnd,INT id,UINT modifiers,UINT vk)
 {
-    FIXME_(keyboard)("(%p,%d,0x%08x,%d): stub\n",hwnd,id,modifiers,vk);
+    static int once;
+    if (!once++) FIXME_(keyboard)("(%p,%d,0x%08x,%d): stub\n",hwnd,id,modifiers,vk);
     return TRUE;
 }
 
@@ -708,7 +819,8 @@ BOOL WINAPI RegisterHotKey(HWND hwnd,INT id,UINT modifiers,UINT vk)
  */
 BOOL WINAPI UnregisterHotKey(HWND hwnd,INT id)
 {
-    FIXME_(keyboard)("(%p,%d): stub\n",hwnd,id);
+    static int once;
+    if (!once++) FIXME_(keyboard)("(%p,%d): stub\n",hwnd,id);
     return TRUE;
 }
 
@@ -984,4 +1096,29 @@ TrackMouseEvent (TRACKMOUSEEVENT *ptme)
     }
 
     return TRUE;
+}
+
+/***********************************************************************
+ * GetMouseMovePointsEx [USER32]
+ *
+ * RETURNS
+ *     Success: count of point set in the buffer
+ *     Failure: -1
+ */
+int WINAPI GetMouseMovePointsEx(UINT size, LPMOUSEMOVEPOINT ptin, LPMOUSEMOVEPOINT ptout, int count, DWORD res) {
+
+    if((size != sizeof(MOUSEMOVEPOINT)) || (count < 0) || (count > 64)) {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return -1;
+    }
+
+    if(!ptin || !ptout) {
+        SetLastError(ERROR_NOACCESS);
+        return -1;
+    }
+
+    FIXME("(%d %p %p %d %d) stub\n", size, ptin, ptout, count, res);
+
+    SetLastError(ERROR_POINT_NOT_FOUND);
+    return -1;
 }

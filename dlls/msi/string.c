@@ -205,7 +205,7 @@ static int msi_addstring( string_table *st, UINT n, const CHAR *data, int len, U
             return n;
         }
         n = st_find_free_entry( st );
-        if( n < 0 )
+        if( n == -1 )
             return -1;
     }
 
@@ -257,7 +257,7 @@ int msi_addstringW( string_table *st, UINT n, const WCHAR *data, int len, UINT r
             return n;
         }
         n = st_find_free_entry( st );
-        if( n < 0 )
+        if( n == -1 )
             return -1;
     }
 
@@ -457,20 +457,22 @@ UINT msi_strcmp( const string_table *st, UINT lval, UINT rval, UINT *res )
 
 static void string_totalsize( const string_table *st, UINT *datasize, UINT *poolsize )
 {
-    UINT i, len, max, holesize;
+    UINT i, len, holesize;
 
     if( st->strings[0].str || st->strings[0].persistent_refcount || st->strings[0].nonpersistent_refcount)
         ERR("oops. element 0 has a string\n");
 
     *poolsize = 4;
     *datasize = 0;
-    max = 1;
     holesize = 0;
     for( i=1; i<st->maxcount; i++ )
     {
         if( !st->strings[i].persistent_refcount )
-            continue;
-        if( st->strings[i].str )
+        {
+            TRACE("[%u] nonpersistent = %s\n", i, debugstr_w(st->strings[i].str));
+            (*poolsize) += 4;
+        }
+        else if( st->strings[i].str )
         {
             TRACE("[%u] = %s\n", i, debugstr_w(st->strings[i].str));
             len = WideCharToMultiByte( st->codepage, 0,
@@ -480,7 +482,6 @@ static void string_totalsize( const string_table *st, UINT *datasize, UINT *pool
             (*datasize) += len;
             if (len>0xffff)
                 (*poolsize) += 4;
-            max = i + 1;
             (*poolsize) += holesize + 4;
             holesize = 0;
         }
@@ -521,10 +522,10 @@ string_table *msi_load_string_table( IStorage *stg, UINT *bytes_per_strref )
     UINT r, datasize = 0, poolsize = 0, codepage;
     DWORD i, count, offset, len, n, refs;
 
-    r = read_stream_data( stg, szStringPool, (BYTE **)&pool, &poolsize );
+    r = read_stream_data( stg, szStringPool, TRUE, (BYTE **)&pool, &poolsize );
     if( r != ERROR_SUCCESS)
         goto end;
-    r = read_stream_data( stg, szStringData, (BYTE **)&data, &datasize );
+    r = read_stream_data( stg, szStringData, TRUE, (BYTE **)&data, &datasize );
     if( r != ERROR_SUCCESS)
         goto end;
 
@@ -634,7 +635,13 @@ UINT msi_save_string_table( const string_table *st, IStorage *storage )
     for( i=1; i<st->maxcount; i++ )
     {
         if( !st->strings[i].persistent_refcount )
+        {
+            pool[ n*2 ] = 0;
+            pool[ n*2 + 1] = 0;
+            n++;
             continue;
+        }
+
         sz = datasize - used;
         r = msi_id2stringA( st, i, data+used, &sz );
         if( r != ERROR_SUCCESS )

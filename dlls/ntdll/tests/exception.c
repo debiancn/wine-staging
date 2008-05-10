@@ -105,7 +105,7 @@ static const struct exception
 
     /* test loading an invalid selector */
     { { 0xb8, 0xef, 0xbe, 0x00, 0x00, 0x8e, 0xe8, 0xc3 },  /* mov $beef,%ax; mov %ax,%gs; ret */
-      5, 2, STATUS_ACCESS_VIOLATION, 2, { 0, 0xbee8 } },
+      5, 2, STATUS_ACCESS_VIOLATION, 2, { 0, 0xbee8 } }, /* 0xbee8 or 0xffffffff */
 
     /* test accessing a zero selector */
     { { 0x06, 0x31, 0xc0, 0x8e, 0xc0, 0x26, 0xa1, 0, 0, 0, 0, 0x07, 0xc3 },
@@ -358,6 +358,14 @@ static DWORD handler( EXCEPTION_RECORD *rec, EXCEPTION_REGISTRATION_RECORD *fram
             goto skip_params;
     }
 
+    /* Seems that both 0xbee8 and 0xfffffffff can be returned in windows */
+    if (except->nb_params == 2 && rec->NumberParameters == 2
+        && except->params[1] == 0xbee8 && rec->ExceptionInformation[1] == 0xffffffff
+        && except->params[0] == rec->ExceptionInformation[0])
+    {
+        goto skip_params;
+    }
+
     for (i = 0; i < rec->NumberParameters; i++)
         ok( rec->ExceptionInformation[i] == except->params[i],
             "%u: Wrong parameter %d: %lx/%x\n",
@@ -469,6 +477,31 @@ static DWORD align_check_handler( EXCEPTION_RECORD *rec, EXCEPTION_REGISTRATION_
     return ExceptionContinueExecution;
 }
 
+/* Test the direction flag handling. */
+static const BYTE direction_flag_code[] = {
+    0x55,                  	/* push   %ebp */
+    0x89,0xe5,             	/* mov    %esp,%ebp */
+    0xfd,                  	/* std */
+    0xfa,                  	/* cli - cause exception */
+    0x5d,                  	/* pop    %ebp */
+    0xc3,                  	/* ret     */
+};
+
+static DWORD direction_flag_handler( EXCEPTION_RECORD *rec, EXCEPTION_REGISTRATION_RECORD *frame,
+                                     CONTEXT *context, EXCEPTION_REGISTRATION_RECORD **dispatcher )
+{
+#ifdef __GNUC__
+    unsigned int flags;
+    __asm__("pushfl; popl %0" : "=r" (flags) );
+    /* older windows versions don't clear DF properly so don't test */
+    if (flags & 0x400) trace( "eflags has DF bit set\n" );
+#endif
+    ok( context->EFlags & 0x400, "context eflags has DF bit cleared\n" );
+    got_exception++;
+    context->Eip++;  /* skip cli */
+    return ExceptionContinueExecution;
+}
+
 /* test single stepping over hardware breakpoint */
 static DWORD bpx_handler( EXCEPTION_RECORD *rec, EXCEPTION_REGISTRATION_RECORD *frame,
                           CONTEXT *context, EXCEPTION_REGISTRATION_RECORD **dispatcher )
@@ -489,7 +522,7 @@ static DWORD bpx_handler( EXCEPTION_RECORD *rec, EXCEPTION_REGISTRATION_RECORD *
         /* single step exception on second nop */
         ok( context->Eip == (DWORD)code_mem + 1, "eip is wrong: %x instead of %x\n",
                                                  context->Eip, (DWORD)code_mem + 1);
-        todo_wine{ ok( (context->Dr6 & 0x4000), "BS flag is not set in Dr6\n"); };
+        ok( (context->Dr6 & 0x4000), "BS flag is not set in Dr6\n");
        /* depending on the win version the B0 bit is already set here as well
         ok( (context->Dr6 & 0xf) == 0, "B0...3 flags in Dr6 shouldn't be set\n"); */
         context->EFlags |= 0x100;
@@ -497,7 +530,7 @@ static DWORD bpx_handler( EXCEPTION_RECORD *rec, EXCEPTION_REGISTRATION_RECORD *
         /* hw bp exception on second nop */
         ok( context->Eip == (DWORD)code_mem + 1, "eip is wrong: %x instead of %x\n",
                                                  context->Eip, (DWORD)code_mem + 1);
-        todo_wine{ ok( (context->Dr6 & 0xf) == 1, "B0 flag is not set in Dr6\n"); };
+        ok( (context->Dr6 & 0xf) == 1, "B0 flag is not set in Dr6\n");
         ok( !(context->Dr6 & 0x4000), "BS flag is set in Dr6\n");
         context->Dr0 = 0;       /* clear breakpoint */
         context->EFlags |= 0x100;
@@ -506,7 +539,7 @@ static DWORD bpx_handler( EXCEPTION_RECORD *rec, EXCEPTION_REGISTRATION_RECORD *
         ok( context->Eip == (DWORD)code_mem + 2, "eip is wrong: %x instead of %x\n",
                                                  context->Eip, (DWORD)code_mem + 2);
         ok( (context->Dr6 & 0xf) == 0, "B0...3 flags in Dr6 shouldn't be set\n");
-        todo_wine{ ok( (context->Dr6 & 0x4000), "BS flag is not set in Dr6\n"); };
+        ok( (context->Dr6 & 0x4000), "BS flag is not set in Dr6\n");
     }
 
     context->Dr6 = 0;  /* clear status register */
@@ -537,7 +570,7 @@ static void test_exceptions(void)
 
     if (!pNtGetContextThread || !pNtSetContextThread)
     {
-        trace( "NtGetContextThread/NtSetContextThread not found, skipping tests\n" );
+        skip( "NtGetContextThread/NtSetContextThread not found\n" );
         return;
     }
 
@@ -559,6 +592,11 @@ static void test_exceptions(void)
     got_exception = 0;
     run_exception_test(align_check_handler, NULL, align_check_code, sizeof(align_check_code));
     ok(got_exception == 0, "got %d alignment faults, expected 0\n", got_exception);
+
+    /* test direction flag */
+    got_exception = 0;
+    run_exception_test(direction_flag_handler, NULL, direction_flag_code, sizeof(direction_flag_code));
+    ok(got_exception == 1, "got %d exceptions, expected 1\n", got_exception);
 
     /* test single stepping over hardware breakpoint */
     memset(&ctx, 0, sizeof(ctx));
@@ -596,7 +634,7 @@ static void test_debugger(void)
         return;
     }
 
-    sprintf(cmdline, "%s %s %s", my_argv[0], my_argv[1], "debuggee");
+    sprintf(cmdline, "%s %s %s %p", my_argv[0], my_argv[1], "debuggee", &test_stage);
     ret = CreateProcess(NULL, cmdline, NULL, NULL, FALSE, DEBUG_PROCESS, NULL, NULL, &si, &pi);
     ok(ret, "could not create child process error: %u\n", GetLastError());
     if (!ret)
@@ -619,7 +657,7 @@ static void test_debugger(void)
             if(de.u.CreateProcessInfo.lpBaseOfImage != pNtCurrentTeb()->Peb->ImageBaseAddress)
             {
                 skip("child process loaded at different address, terminating it\n");
-                pNtTerminateProcess(pi.hProcess, 1);
+                pNtTerminateProcess(pi.hProcess, 0);
             }
         }
         else if (de.dwDebugEventCode == EXCEPTION_DEBUG_EVENT)
@@ -699,7 +737,7 @@ static void test_debugger(void)
                     }
                 }
                 else
-                    ok(FALSE, "unexpected stage %d\n", stage);
+                    ok(FALSE, "unexpected stage %x\n", stage);
 
                 status = pNtSetContextThread(pi.hThread, &ctx);
                 ok(!status, "NtSetContextThread failed with 0x%x\n", status);
@@ -710,6 +748,7 @@ static void test_debugger(void)
 
     } while (de.dwDebugEventCode != EXIT_PROCESS_DEBUG_EVENT);
 
+    winetest_wait_child_process( pi.hProcess );
     ok(CloseHandle(pi.hThread) != 0, "error %u\n", GetLastError());
     ok(CloseHandle(pi.hProcess) != 0, "error %u\n", GetLastError());
 
@@ -797,19 +836,21 @@ static void test_simd_exceptions(void)
 START_TEST(exception)
 {
 #ifdef __i386__
-    pNtCurrentTeb = (void *)GetProcAddress( GetModuleHandleA("ntdll.dll"), "NtCurrentTeb" );
-    pNtGetContextThread  = (void *)GetProcAddress( GetModuleHandleA("ntdll.dll"), "NtGetContextThread" );
-    pNtSetContextThread  = (void *)GetProcAddress( GetModuleHandleA("ntdll.dll"), "NtSetContextThread" );
-    pNtReadVirtualMemory = (void *)GetProcAddress( GetModuleHandleA("ntdll.dll"), "NtReadVirtualMemory" );
-    pRtlRaiseException   = (void *)GetProcAddress( GetModuleHandleA("ntdll.dll"), "RtlRaiseException" );
-    pNtTerminateProcess  = (void *)GetProcAddress( GetModuleHandleA("ntdll.dll"), "NtTerminateProcess" );
-    pRtlAddVectoredExceptionHandler    = (void *)GetProcAddress( GetModuleHandleA("ntdll.dll"),
+    HMODULE hntdll = GetModuleHandleA("ntdll.dll");
+
+    pNtCurrentTeb        = (void *)GetProcAddress( hntdll, "NtCurrentTeb" );
+    pNtGetContextThread  = (void *)GetProcAddress( hntdll, "NtGetContextThread" );
+    pNtSetContextThread  = (void *)GetProcAddress( hntdll, "NtSetContextThread" );
+    pNtReadVirtualMemory = (void *)GetProcAddress( hntdll, "NtReadVirtualMemory" );
+    pRtlRaiseException   = (void *)GetProcAddress( hntdll, "RtlRaiseException" );
+    pNtTerminateProcess  = (void *)GetProcAddress( hntdll, "NtTerminateProcess" );
+    pRtlAddVectoredExceptionHandler    = (void *)GetProcAddress( hntdll,
                                                                  "RtlAddVectoredExceptionHandler" );
-    pRtlRemoveVectoredExceptionHandler = (void *)GetProcAddress( GetModuleHandleA("ntdll.dll"),
+    pRtlRemoveVectoredExceptionHandler = (void *)GetProcAddress( hntdll,
                                                                  "RtlRemoveVectoredExceptionHandler" );
     if (!pNtCurrentTeb)
     {
-        trace( "NtCurrentTeb not found, skipping tests\n" );
+        skip( "NtCurrentTeb not found\n" );
         return;
     }
 
@@ -826,8 +867,17 @@ START_TEST(exception)
     }
 
     my_argc = winetest_get_mainargs( &my_argv );
-    if (my_argc >= 3)
+    if (my_argc >= 4)
     {
+        void *addr;
+        sscanf( my_argv[3], "%p", &addr );
+
+        if (addr != &test_stage)
+        {
+            skip( "child process not mapped at same address (%p/%p)\n", &test_stage, addr);
+            return;
+        }
+
         /* child must be run under a debugger */
         if (!pNtCurrentTeb()->Peb->BeingDebugged)
         {

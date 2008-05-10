@@ -155,7 +155,7 @@ BOOL SCSI_GetDeviceName( int h, int c, int t, int d, LPSTR devstr, LPDWORD lpcbD
     snprintf(buffer, sizeof(buffer), KEYNAME_SCSI, h, c, t, d);
     if( RegOpenKeyExA(HKEY_LOCAL_MACHINE, buffer, 0, KEY_ALL_ACCESS, &hkeyScsi ) != ERROR_SUCCESS )
     {
-        ERR("Could not open HKLM\\%s\n", buffer);
+        TRACE("Could not open HKLM\\%s; device does not exist\n", buffer);
         return FALSE;
     }
 
@@ -181,7 +181,8 @@ DWORD ASPI_GetHCforController( int controller )
     HKEY hkeyScsi, hkeyPort;
     DWORD i = 0, numPorts;
     int num_ha = controller + 1;
-    WCHAR wPortName[11];
+    WCHAR wPortName[15];
+    WCHAR wBusName[15];
 
     if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, wDevicemapScsi, 0,
         KEY_QUERY_VALUE | KEY_ENUMERATE_SUB_KEYS, &hkeyScsi) != ERROR_SUCCESS )
@@ -212,7 +213,7 @@ DWORD ASPI_GetHCforController( int controller )
         return 0xFFFFFFFF;
     }
 
-    if (RegEnumKeyW(hkeyPort, -num_ha, wPortName, sizeof(wPortName)) != ERROR_SUCCESS)
+    if (RegEnumKeyW(hkeyPort, -num_ha, wBusName, sizeof(wBusName)) != ERROR_SUCCESS)
     {
         ERR("Failed to enumerate keys\n");
         RegCloseKey(hkeyPort);
@@ -220,7 +221,7 @@ DWORD ASPI_GetHCforController( int controller )
     }
     RegCloseKey(hkeyPort);
 
-    return ((--i) << 16) + atoiW(&wPortName[9]);
+    return (atoiW(&wPortName[9]) << 16) + atoiW(&wBusName[9]);
 }
 
 int SCSI_OpenDevice( int h, int c, int t, int d )
@@ -237,6 +238,10 @@ int SCSI_OpenDevice( int h, int c, int t, int d )
 
     TRACE("Opening device %s mode O_RDWR\n",devstr);
     fd = open(devstr, O_RDWR);
+    if (fd == -1) {
+        char *errstring = strerror(errno);
+        ERR("Failed to open device %s: %s\n", devstr, errstring);
+    }
 
     return fd;
 }

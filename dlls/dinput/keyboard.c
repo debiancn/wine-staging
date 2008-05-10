@@ -64,7 +64,9 @@ static void KeyboardCallback( LPDIRECTINPUTDEVICE8A iface, WPARAM wparam, LPARAM
     TRACE("(%p) %ld,%ld\n", iface, wparam, lparam);
 
     dik_code = hook->scanCode & 0xff;
-    if (hook->flags & LLKHF_EXTENDED) dik_code |= 0x80;
+    /* R-Shift is special - it is an extended key with separate scan code */
+    if (hook->flags & LLKHF_EXTENDED && dik_code != 0x36)
+        dik_code |= 0x80;
 
     new_diks = hook->flags & LLKHF_UP ? 0 : 0x80;
 
@@ -288,7 +290,7 @@ static HRESULT WINAPI SysKeyboardAImpl_GetDeviceState(
 }
 
 /******************************************************************************
-  *     GetCapabilities : get the device capablitites
+  *     GetCapabilities : get the device capabilities
   */
 static HRESULT WINAPI SysKeyboardAImpl_GetCapabilities(
 	LPDIRECTINPUTDEVICE8A iface,
@@ -361,7 +363,8 @@ static HRESULT WINAPI SysKeyboardWImpl_GetObjectInfo(LPDIRECTINPUTDEVICE8W iface
 
     if (!GetKeyNameTextW((DIDFT_GETINSTANCE(pdidoi->dwType) & 0x80) << 17 |
                          (DIDFT_GETINSTANCE(pdidoi->dwType) & 0x7f) << 16,
-                         pdidoi->tszName, sizeof(pdidoi->tszName)))
+                         pdidoi->tszName,
+                         sizeof(pdidoi->tszName)/sizeof(pdidoi->tszName[0])))
         return DIERR_OBJECTNOTFOUND;
 
     _dump_OBJECTINSTANCEW(pdidoi);

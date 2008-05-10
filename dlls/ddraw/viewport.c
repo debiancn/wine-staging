@@ -54,16 +54,18 @@ WINE_DEFAULT_DEBUG_CHANNEL(d3d7);
  * activates the viewport using IDirect3DDevice7::SetViewport
  *
  *****************************************************************************/
-void viewport_activate(IDirect3DViewportImpl* This) {
+void viewport_activate(IDirect3DViewportImpl* This, BOOL ignore_lights) {
     IDirect3DLightImpl* light;
     D3DVIEWPORT7 vp;
-    
-    /* Activate all the lights associated with this context */
-    light = This->lights;
 
-    while (light != NULL) {
-        light->activate(light);
-	light = light->next;
+    if (!ignore_lights) {
+        /* Activate all the lights associated with this context */
+        light = This->lights;
+
+        while (light != NULL) {
+            light->activate(light);
+            light = light->next;
+        }
     }
 
     /* And copy the values in the structure used by the device */
@@ -310,10 +312,12 @@ IDirect3DViewportImpl_SetViewport(IDirect3DViewport3 *iface,
     This->viewports.vp1.dvMaxZ = 1.0;
 
     if (This->active_device) {
-      IDirect3DDevice3_GetCurrentViewport(ICOM_INTERFACE(This->active_device, IDirect3DDevice3), &current_viewport);
-      if (ICOM_OBJECT(IDirect3DViewportImpl, IDirect3DViewport3, current_viewport) == This)
-          This->activate(This);
-      if(current_viewport) IDirect3DViewport3_Release(current_viewport);
+        IDirect3DDevice3_GetCurrentViewport(ICOM_INTERFACE(This->active_device, IDirect3DDevice3), &current_viewport);
+        if (current_viewport) {
+            if (ICOM_OBJECT(IDirect3DViewportImpl, IDirect3DViewport3, current_viewport) == This)
+                This->activate(This, FALSE);
+            IDirect3DViewport3_Release(current_viewport);
+        }
     }
     LeaveCriticalSection(&ddraw_cs);
 
@@ -325,12 +329,12 @@ IDirect3DViewportImpl_SetViewport(IDirect3DViewport3 *iface,
  *
  * Transforms vertices by the transformation matrix.
  *
- * This function is pretty simmilar to IDirect3DVertexBuffer7::ProcessVertices,
- * so its tempting to forward it to ProcessVertices. However, there are some
+ * This function is pretty similar to IDirect3DVertexBuffer7::ProcessVertices,
+ * so it's tempting to forward it to there. However, there are some
  * tiny differences. First, the lpOffscreen flag that is reported back,
- * then there is the homogenous vertex that is generated. Also there's a lack
+ * then there is the homogeneous vertex that is generated. Also there's a lack
  * of FVFs, but still a custom stride. Last, the d3d1 - d3d3 viewport has some
- * settings(scale) that d3d7 and wined3d do not have. All in all wrapping to
+ * settings (scale) that d3d7 and wined3d do not have. All in all wrapping to
  * ProcessVertices doesn't pay of in terms of wrapper code needed and code
  * reused.
  *
@@ -431,7 +435,7 @@ IDirect3DViewportImpl_TransformVertices(IDirect3DViewport3 *iface,
                 /* Looks like native just drops the vertex, leaves whatever data
                  * it has in the output buffer and goes on with the next vertex.
                  * The exact scheme hasn't been figured out yet, but windows
-                 * definitly writes something there.
+                 * definitely writes something there.
                  */
                 out[0] = x;
                 out[1] = y;
@@ -515,7 +519,7 @@ IDirect3DViewportImpl_SetBackground(IDirect3DViewport3 *iface,
                                     D3DMATERIALHANDLE hMat)
 {
     ICOM_THIS_FROM(IDirect3DViewportImpl, IDirect3DViewport3, iface);
-    TRACE("(%p)->(%d)\n", This, (DWORD) hMat);
+    TRACE("(%p)->(%d)\n", This, hMat);
 
     EnterCriticalSection(&ddraw_cs);
     if(hMat && hMat > This->ddraw->d3ddevice->numHandles)
@@ -620,7 +624,7 @@ IDirect3DViewportImpl_SetBackgroundDepth(IDirect3DViewport3 *iface,
  *
  * Params:
  *  lplpDDSurface: Address to store the interface pointer
- *  lpValid: Set to TRUE if a depth is asigned, FALSE otherwise
+ *  lpValid: Set to TRUE if a depth is assigned, FALSE otherwise
  *
  * Returns:
  *  D3D_OK, because it's a stub
@@ -663,6 +667,7 @@ IDirect3DViewportImpl_Clear(IDirect3DViewport3 *iface,
     ICOM_THIS_FROM(IDirect3DViewportImpl, IDirect3DViewport3, iface);
     DWORD color = 0x00000000;
     HRESULT hr;
+    LPDIRECT3DVIEWPORT3 current_viewport;
 
     TRACE("(%p/%p)->(%08x,%p,%08x)\n", This, iface, dwCount, lpRects, dwFlags);
     if (This->active_device == NULL) {
@@ -683,6 +688,10 @@ IDirect3DViewportImpl_Clear(IDirect3DViewport3 *iface,
 	}
     }
 
+    /* Need to temporarily activate viewport to clear it. Previously active one will be restored
+        afterwards. */
+    This->activate(This, TRUE);
+
     hr = IDirect3DDevice7_Clear(ICOM_INTERFACE(This->active_device, IDirect3DDevice7),
                                 dwCount,
                                 lpRects,
@@ -690,6 +699,14 @@ IDirect3DViewportImpl_Clear(IDirect3DViewport3 *iface,
                                 color,
                                 1.0,
                                 0x00000000);
+
+    IDirect3DDevice3_GetCurrentViewport(ICOM_INTERFACE(This->active_device, IDirect3DDevice3), &current_viewport);
+    if(current_viewport) {
+        IDirect3DViewportImpl *vp = ICOM_OBJECT(IDirect3DViewportImpl, IDirect3DViewport3, current_viewport);
+        vp->activate(vp, TRUE);
+        IDirect3DViewport3_Release(current_viewport);
+    }
+
     LeaveCriticalSection(&ddraw_cs);
     return hr;
 }
@@ -898,10 +915,12 @@ IDirect3DViewportImpl_SetViewport2(IDirect3DViewport3 *iface,
     memcpy(&(This->viewports.vp2), lpData, lpData->dwSize);
 
     if (This->active_device) {
-      IDirect3DDevice3_GetCurrentViewport(ICOM_INTERFACE(This->active_device, IDirect3DDevice3), &current_viewport);
-      if (ICOM_OBJECT(IDirect3DViewportImpl, IDirect3DViewport3, current_viewport) == This)
-        This->activate(This);
-      IDirect3DViewport3_Release(current_viewport);
+        IDirect3DDevice3_GetCurrentViewport(ICOM_INTERFACE(This->active_device, IDirect3DDevice3), &current_viewport);
+        if (current_viewport) {
+            if (ICOM_OBJECT(IDirect3DViewportImpl, IDirect3DViewport3, current_viewport) == This)
+                This->activate(This, FALSE);
+            IDirect3DViewport3_Release(current_viewport);
+        }
     }
     LeaveCriticalSection(&ddraw_cs);
 
@@ -983,6 +1002,7 @@ IDirect3DViewportImpl_Clear2(IDirect3DViewport3 *iface,
 {
     ICOM_THIS_FROM(IDirect3DViewportImpl, IDirect3DViewport3, iface);
     HRESULT hr;
+    LPDIRECT3DVIEWPORT3 current_viewport;
     TRACE("(%p)->(%08x,%p,%08x,%08x,%f,%08x)\n", This, dwCount, lpRects, dwFlags, dwColor, dvZ, dwStencil);
 
     EnterCriticalSection(&ddraw_cs);
@@ -991,6 +1011,10 @@ IDirect3DViewportImpl_Clear2(IDirect3DViewport3 *iface,
         LeaveCriticalSection(&ddraw_cs);
         return D3DERR_VIEWPORTHASNODEVICE;
     }
+    /* Need to temporarily activate viewport to clear it. Previously active one will be restored
+        afterwards. */
+    This->activate(This, TRUE);
+
     hr = IDirect3DDevice7_Clear(ICOM_INTERFACE(This->active_device, IDirect3DDevice7),
                                 dwCount,
                                 lpRects,
@@ -998,6 +1022,12 @@ IDirect3DViewportImpl_Clear2(IDirect3DViewport3 *iface,
                                 dwColor,
                                 dvZ,
                                 dwStencil);
+    IDirect3DDevice3_GetCurrentViewport(ICOM_INTERFACE(This->active_device, IDirect3DDevice3), &current_viewport);
+    if(current_viewport) {
+        IDirect3DViewportImpl *vp = ICOM_OBJECT(IDirect3DViewportImpl, IDirect3DViewport3, current_viewport);
+        vp->activate(vp, TRUE);
+        IDirect3DViewport3_Release(current_viewport);
+    }
     LeaveCriticalSection(&ddraw_cs);
     return hr;
 }

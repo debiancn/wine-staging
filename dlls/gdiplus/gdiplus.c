@@ -23,10 +23,31 @@
 #include "winbase.h"
 #include "winerror.h"
 #include "wine/debug.h"
+#include "wingdi.h"
+
+#include "objbase.h"
+
+#include "winreg.h"
+#include "shlwapi.h"
+
 #include "gdiplus.h"
 #include "gdiplus_private.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(gdiplus);
+
+static Status WINAPI NotificationHook(ULONG_PTR *token)
+{
+    TRACE("%p\n", token);
+    if(!token)
+        return InvalidParameter;
+
+    return Ok;
+}
+
+static void WINAPI NotificationUnhook(ULONG_PTR token)
+{
+    TRACE("%ld\n", token);
+}
 
 /*****************************************************
  *      DllMain
@@ -53,19 +74,26 @@ BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID reserved)
 Status WINAPI GdiplusStartup(ULONG_PTR *token, const struct GdiplusStartupInput *input,
                              struct GdiplusStartupOutput *output)
 {
-    if(!token)
+    if(!token || !input)
         return InvalidParameter;
 
-    if(input->GdiplusVersion != 1) {
+    TRACE("%p %p %p\n", token, input, output);
+    TRACE("GdiplusStartupInput %d %p %d %d\n", input->GdiplusVersion,
+          input->DebugEventCallback, input->SuppressBackgroundThread,
+          input->SuppressExternalCodecs);
+
+    if(input->GdiplusVersion != 1)
         return UnsupportedGdiplusVersion;
-    } else if ((input->DebugEventCallback) ||
-        (input->SuppressBackgroundThread) || (input->SuppressExternalCodecs)){
-        FIXME("Unimplemented for non-default GdiplusStartupInput\n");
-        return NotImplemented;
-    } else if(output) {
-        FIXME("Unimplemented for non-null GdiplusStartupOutput\n");
-        return NotImplemented;
+
+    if(input->SuppressBackgroundThread){
+        if(!output)
+            return InvalidParameter;
+
+        output->NotificationHook = NotificationHook;
+        output->NotificationUnhook = NotificationUnhook;
     }
+
+    /* FIXME: DebugEventCallback ignored */
 
     return Ok;
 }
@@ -151,10 +179,10 @@ static void unstretch_angle(REAL * angle, REAL rad_x, REAL rad_y)
 
     *angle = deg2rad(*angle);
 
-    if(cos(*angle) == 0 || sin(*angle) == 0)
+    if(fabs(cos(*angle)) < 0.00001 || fabs(sin(*angle)) < 0.00001)
         return;
 
-    stretched = atan2(sin(*angle) / rad_y, cos(*angle) / rad_x);
+    stretched = gdiplus_atan2(sin(*angle) / fabs(rad_y), cos(*angle) / fabs(rad_x));
     revs_off = roundr(*angle / (2.0 * M_PI)) - roundr(stretched / (2.0 * M_PI));
     stretched += ((REAL)revs_off) * M_PI * 2.0;
     *angle = stretched;
@@ -207,8 +235,53 @@ COLORREF ARGB2COLORREF(ARGB color)
     ARGB:       aarrggbb
     FIXME:doesn't handle alpha channel
     */
-    return (COLORREF)
-        ((color & 0x0000ff) << 16) +
-         (color & 0x00ff00) +
-        ((color & 0xff0000) >> 16);
+    return ((color & 0x0000ff) << 16) +
+           (color & 0x00ff00) +
+           ((color & 0xff0000) >> 16);
+}
+
+/* Like atan2, but puts angle in correct quadrant if dx is 0. */
+REAL gdiplus_atan2(REAL dy, REAL dx)
+{
+    if((dx == 0.0) && (dy != 0.0))
+        return dy > 0.0 ? M_PI_2 : -M_PI_2;
+
+    return atan2(dy, dx);
+}
+
+GpStatus hresult_to_status(HRESULT res)
+{
+    switch(res){
+        case S_OK:
+            return Ok;
+        case E_OUTOFMEMORY:
+            return OutOfMemory;
+        case E_INVALIDARG:
+            return InvalidParameter;
+        default:
+            return GenericError;
+    }
+}
+
+/* converts a given unit to its value in pixels */
+REAL convert_unit(HDC hdc, GpUnit unit)
+{
+    switch(unit)
+    {
+        case UnitInch:
+            return (REAL) GetDeviceCaps(hdc, LOGPIXELSX);
+        case UnitPoint:
+            return ((REAL)GetDeviceCaps(hdc, LOGPIXELSX)) / 72.0;
+        case UnitDocument:
+            return ((REAL)GetDeviceCaps(hdc, LOGPIXELSX)) / 300.0;
+        case UnitMillimeter:
+            return ((REAL)GetDeviceCaps(hdc, LOGPIXELSX)) / 25.4;
+        case UnitWorld:
+            ERR("cannot convert UnitWorld\n");
+            return 0.0;
+        case UnitPixel:
+        case UnitDisplay:
+        default:
+            return 1.0;
+    }
 }

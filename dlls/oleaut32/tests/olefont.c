@@ -141,7 +141,7 @@ static void test_QueryInterface(void)
         ok(hres == S_OK,"IFont_QI does not return S_OK, but 0x%08x\n", hres);
         ok(pvObj != NULL,"IFont_QI does return NULL, instead of a ptr\n");
 
-        /* Orignial ref and QueryInterface ref both have to be released */
+        /* Original ref and QueryInterface ref both have to be released */
         IFont_Release(font);
         IFont_Release(font);
 }
@@ -171,6 +171,7 @@ static void test_type_info(void)
 	ok(hres == S_OK, "GetNames returned 0x%08x instead of S_OK.\n", hres);
 	ok(n == 1, "GetNames returned %d names instead of 1.\n", n);
 	ok(!lstrcmpiW(names[0],name_Name), "DISPID_FONT_NAME doesn't get 'Names'.\n");
+	SysFreeString(names[0]);
 
 	ITypeInfo_Release(pTInfo);
 
@@ -798,10 +799,13 @@ static void test_AddRefHfont(void)
 
 START_TEST(olefont)
 {
-	hOleaut32 = LoadLibraryA("oleaut32.dll");    
+	hOleaut32 = GetModuleHandleA("oleaut32.dll");
 	pOleCreateFontIndirect = (void*)GetProcAddress(hOleaut32, "OleCreateFontIndirect");
 	if (!pOleCreateFontIndirect)
+	{
+	    skip("OleCreateFontIndirect not available\n");
 	    return;
+	}
 
 	test_QueryInterface();
 	test_type_info();

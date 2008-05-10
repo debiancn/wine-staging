@@ -43,6 +43,7 @@ UINT         WINAPI SHAddFromPropSheetExtArray(HPSXA,LPFNADDPROPSHEETPAGE,LPARAM
 LPVOID       WINAPI SHAlloc(ULONG);
 HRESULT      WINAPI SHCoCreateInstance(LPCWSTR,const CLSID*,IUnknown*,REFIID,LPVOID*);
 HPSXA        WINAPI SHCreatePropSheetExtArray(HKEY,LPCWSTR,UINT);
+HPSXA        WINAPI SHCreatePropSheetExtArrayEx(HKEY,LPCWSTR,UINT,IDataObject*);
 DWORD        WINAPI SHCLSIDFromStringA(LPCSTR,CLSID*);
 DWORD        WINAPI SHCLSIDFromStringW(LPCWSTR,CLSID*);
 #define             SHCLSIDFromString WINELIB_NAME_AW(SHCLSIDFromString)
@@ -53,12 +54,18 @@ DWORD        WINAPI SHFormatDrive(HWND,UINT,UINT,UINT);
 void         WINAPI SHFree(LPVOID);
 BOOL         WINAPI GetFileNameFromBrowse(HWND,LPSTR,DWORD,LPCSTR,LPCSTR,LPCSTR,LPCSTR);
 HRESULT      WINAPI SHGetInstanceExplorer(IUnknown**);
+HRESULT      WINAPI SHGetFolderPathAndSubDirA(HWND,int,HANDLE,DWORD,LPCSTR,LPSTR);
+HRESULT      WINAPI SHGetFolderPathAndSubDirW(HWND,int,HANDLE,DWORD,LPCWSTR,LPWSTR);
+#define             SHGetFolderPathAndSubDir WINELIB_NAME_AW(SHGetFolderPathAndSubDir);
 BOOL         WINAPI SHGetPathFromIDListA(LPCITEMIDLIST,LPSTR);
 BOOL         WINAPI SHGetPathFromIDListW(LPCITEMIDLIST,LPWSTR);
 #define             SHGetPathFromIDList WINELIB_NAME_AW(SHGetPathFromIDList)
 INT          WINAPI SHHandleUpdateImage(LPCITEMIDLIST);
 HRESULT      WINAPI SHILCreateFromPath(LPCWSTR,LPITEMIDLIST*,DWORD*);
 HRESULT      WINAPI SHLoadOLE(LPARAM);
+HRESULT      WINAPI SHPathPrepareForWriteA(HWND,IUnknown*,LPCSTR,DWORD);
+HRESULT      WINAPI SHPathPrepareForWriteW(HWND,IUnknown*,LPCWSTR,DWORD);
+#define             SHPathPrepareForWrite WINELIB_NAME_AW(SHPathPrepareForWrite);
 UINT         WINAPI SHReplaceFromPropSheetExtArray(HPSXA,UINT,LPFNADDPROPSHEETPAGE,LPARAM);
 LPITEMIDLIST WINAPI SHSimpleIDListFromPath(LPCWSTR);
 int          WINAPI SHMapPIDLToSystemImageListIndex(IShellFolder*,LPCITEMIDLIST,int*);
@@ -69,14 +76,23 @@ VOID         WINAPI SHUpdateImageW(LPCWSTR,INT,UINT,INT);
 int          WINAPI RestartDialog(HWND,LPCWSTR,DWORD);
 int          WINAPI RestartDialogEx(HWND,LPCWSTR,DWORD,DWORD);
 
-#define SHFMT_ERROR     0xFFFFFFFFL  /* Error on last format, drive may be formatable */
-#define SHFMT_CANCEL    0xFFFFFFFEL  /* Last format was canceled */
-#define SHFMT_NOFORMAT  0xFFFFFFFDL  /* Drive is not formatable */
+#define SHFMT_ERROR     0xFFFFFFFFL  /* Error on last format, drive may be formattable */
+#define SHFMT_CANCEL    0xFFFFFFFEL  /* Last format was cancelled */
+#define SHFMT_NOFORMAT  0xFFFFFFFDL  /* Drive is not formattable */
 
 /* SHFormatDrive flags */
 #define SHFMT_ID_DEFAULT	0xFFFF
 #define SHFMT_OPT_FULL		1
 #define SHFMT_OPT_SYSONLY	2
+
+/* SHPathPrepareForWrite flags */
+#define SHPPFW_NONE             0x00000000
+#define SHPPFW_DIRCREATE        0x00000001
+#define SHPPFW_DEFAULT          SHPPFW_DIRCREATE
+#define SHPPFW_ASKDIRCREATE     0x00000002
+#define SHPPFW_IGNOREFILENAME   0x00000004
+#define SHPPFW_NOWRITECHECK     0x00000008
+#define SHPPFW_MEDIACHECKONLY   0x00000010
 
 /* SHObjectProperties flags */
 #define SHOP_PRINTERNAME 0x01
@@ -137,7 +153,6 @@ typedef struct
 */
 
 typedef GUID SHELLVIEWID;
-#define SV_CLASS_NAME   ("SHELLDLL_DefView")
 
 #define FCIDM_SHVIEWFIRST       0x0000
 /* undocumented */
@@ -345,6 +360,59 @@ DECLARE_INTERFACE_(IACList,IUnknown)
 #define IACList_Release(p)             (p)->lpVtbl->Release(p)
 /*** IACList methods ***/
 #define IACList_Expand(p,a)             (p)->lpVtbl->Expand(p,a)
+#endif
+
+/* IProgressDialog interface */
+#define PROGDLG_NORMAL           0x00000000
+#define PROGDLG_MODAL            0x00000001
+#define PROGDLG_AUTOTIME         0x00000002
+#define PROGDLG_NOTIME           0x00000004
+#define PROGDLG_NOMINIMIZE       0x00000008
+#define PROGDLG_NOPROGRESSBAR    0x00000010
+#define PROGDLG_MARQUEEPROGRESS  0x00000020
+#define PROGDLG_NOCANCEL         0x00000040
+
+#define PDTIMER_RESET            0x00000001
+#define PDTIMER_PAUSE            0x00000002
+#define PDTIMER_RESUME           0x00000003
+
+#define INTERFACE IProgressDialog
+DECLARE_INTERFACE_(IProgressDialog,IUnknown)
+{
+    /*** IUnknown methods ***/
+    STDMETHOD_(HRESULT,QueryInterface) (THIS_ REFIID riid, void** ppvObject) PURE;
+    STDMETHOD_(ULONG,AddRef) (THIS) PURE;
+    STDMETHOD_(ULONG,Release) (THIS) PURE;
+    /*** IProgressDialog methods ***/
+    STDMETHOD(StartProgressDialog)(THIS_ HWND hwndParent, IUnknown *punkEnableModeless, DWORD dwFlags, LPCVOID reserved) PURE;
+    STDMETHOD(StopProgressDialog)(THIS) PURE;
+    STDMETHOD(SetTitle)(THIS_ LPCWSTR pwzTitle) PURE;
+    STDMETHOD(SetAnimation)(THIS_ HINSTANCE hInstance, UINT uiResourceId) PURE;
+    STDMETHOD_(BOOL,HasUserCancelled)(THIS) PURE;
+    STDMETHOD(SetProgress)(THIS_ DWORD dwCompleted, DWORD dwTotal) PURE;
+    STDMETHOD(SetProgress64)(THIS_ ULONGLONG ullCompleted, ULONGLONG ullTotal) PURE;
+    STDMETHOD(SetLine)(THIS_ DWORD dwLineNum, LPCWSTR pwzString, BOOL bPath, LPCVOID reserved) PURE;
+    STDMETHOD(SetCancelMsg)(THIS_ LPCWSTR pwzCancelMsg, LPCVOID reserved) PURE;
+    STDMETHOD(Timer)(THIS_ DWORD dwTimerAction, LPCVOID reserved) PURE;
+};
+#undef INTERFACE
+
+#if !defined(__cplusplus) || defined(CINTERFACE)
+/*** IUnknown methods ***/
+#define IProgressDialog_QueryInterface(p,a,b)  (p)->lpVtbl->QueryInterface(p,a,b)
+#define IProgressDialog_AddRef(p)              (p)->lpVtbl->AddRef(p)
+#define IProgressDialog_Release(p)             (p)->lpVtbl->Release(p)
+/*** IProgressDialog methods ***/
+#define IProgressDialog_StartProgressDialog(p,a,b,c,d)    (p)->lpVtbl->StartProgressDialog(p,a,b,c,d)
+#define IProgressDialog_StopProgressDialog(p)             (p)->lpVtbl->StopProgressDialog(p)
+#define IProgressDialog_SetTitle(p,a)                     (p)->lpVtbl->SetTitle(p,a)
+#define IProgressDialog_SetAnimation(p,a,b)               (p)->lpVtbl->SetAnimation(p,a,b)
+#define IProgressDialog_HasUserCancelled(p)               (p)->lpVtbl->HasUserCancelled(p)
+#define IProgressDialog_SetProgress(p,a,b)                (p)->lpVtbl->SetProgress(p,a,b)
+#define IProgressDialog_SetProgress64(p,a,b)              (p)->lpVtbl->SetProgress64(p,a,b)
+#define IProgressDialog_SetLine(p,a,b,c,d)                (p)->lpVtbl->SetLine(p,a,b,c,d)
+#define IProgressDialog_SetCancelMsg(p,a,b)               (p)->lpVtbl->SetCancelMsg(p,a,b)
+#define IProgressDialog_Timer(p,a,b)                      (p)->lpVtbl->Timer(p,a,b)
 #endif
 
 
@@ -968,6 +1036,10 @@ typedef enum {
     SLDF_NO_PIDL_ALIAS = 0x00008000,
     SLDF_FORCE_UNCNAME = 0x00010000,
     SLDF_RUN_WITH_SHIMLAYER = 0x00020000,
+    SLDF_FORCE_NO_LINKTRACK = 0x00040000,
+    SLDF_ENABLE_TARGET_METADATA = 0x00080000,
+    SLDF_DISABLE_KNOWNFOLDER_RELATIVE_TRACKING = 0x00200000,
+    SLDF_VALID = 0x003ff7ff,
     SLDF_RESERVED = 0x80000000,
 } SHELL_LINK_DATA_FLAGS;
 
@@ -997,13 +1069,20 @@ typedef struct {
     DWORD cbOffset;
 } EXP_SPECIAL_FOLDER, *LPEXP_SPECIAL_FOLDER;
 
+typedef struct {
+    DWORD cbSize;
+    DWORD dwSignature;
+    BYTE abPropertyStorage[1];
+} EXP_PROPERTYSTORAGE;
+
 #define EXP_SZ_LINK_SIG         0xa0000001
 #define NT_CONSOLE_PROPS_SIG    0xa0000002
 #define NT_FE_CONSOLE_PROPS_SIG 0xa0000004
 #define EXP_SPECIAL_FOLDER_SIG  0xa0000005
 #define EXP_DARWIN_ID_SIG       0xa0000006
-#define EXP_LOGO3_ID_SIG        0xa0000007
 #define EXP_SZ_ICON_SIG         0xa0000007
+#define EXP_LOGO3_ID_SIG        EXP_SZ_ICON_SIG /* Old SDKs only */
+#define EXP_PROPERTYSTORAGE_SIG 0xa0000009
 
 typedef struct _SHChangeDWORDAsIDList {
     USHORT   cb;
@@ -1064,7 +1143,7 @@ HRESULT WINAPI SHGetFolderPathW(HWND hwnd, int nFolder, HANDLE hToken, DWORD dwF
 #define CSIDL_SENDTO		0x0009
 #define CSIDL_BITBUCKET		0x000a
 #define CSIDL_STARTMENU		0x000b
-#define CSIDL_MYDOCUMENTS	0x000c
+#define CSIDL_MYDOCUMENTS	CSIDL_PERSONAL
 #define CSIDL_MYMUSIC		0x000d
 #define CSIDL_MYVIDEO		0x000e
 #define CSIDL_DESKTOPDIRECTORY	0x0010
@@ -1227,8 +1306,26 @@ BOOL WINAPI WriteCabinetState(CABINETSTATE *);
 /****************************************************************************
  * Path Manipulation Routines
  */
+
+/* PathProcessCommand flags */
+#define PPCF_ADDQUOTES        0x01
+#define PPCF_INCLUDEARGS      0x02
+#define PPCF_ADDARGUMENTS     0x03
+#define PPCF_NODIRECTORIES    0x10
+#define PPCF_DONTRESOLVE      0x20
+#define PPCF_FORCEQUALIFY     0x40
+#define PPCF_LONGESTPOSSIBLE  0x80
+
+/* PathResolve flags */
+#define PRF_VERIFYEXISTS         0x01
+#define PRF_EXECUTABLE           0x02
+#define PRF_TRYPROGRAMEXTENSIONS 0x03
+#define PRF_FIRSTDIRDEF          0x04
+#define PRF_DONTFINDLINK         0x08
+
 VOID WINAPI PathGetShortPath(LPWSTR pszPath);
 LONG WINAPI PathProcessCommand(LPCWSTR, LPWSTR, int, DWORD);
+BOOL WINAPI PathYetAnotherMakeUniqueName(LPWSTR, LPCWSTR, LPCWSTR, LPCWSTR);
 
 /****************************************************************************
  * Drag And Drop Routines

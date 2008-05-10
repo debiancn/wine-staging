@@ -600,6 +600,7 @@ static IWidget *Widget_Create(void)
             ok_ole_success(hr, CreateStdDispatch);
             ITypeInfo_Release(pTypeInfo);
         }
+        ITypeLib_Release(pTypeLib);
     }
 
     if (SUCCEEDED(hr))
@@ -784,6 +785,7 @@ static void test_typelibmarshal(void)
     hr = CreateStreamOnHGlobal(NULL, TRUE, &pStream);
     ok_ole_success(hr, CreateStreamOnHGlobal);
     tid = start_host_object(pStream, &IID_IKindaEnumWidget, (IUnknown *)pKEW, MSHLFLAGS_NORMAL, &thread);
+    IKindaEnumWidget_Release(pKEW);
 
     IStream_Seek(pStream, ullZero, STREAM_SEEK_SET, NULL);
     hr = CoUnmarshalInterface(pStream, &IID_IKindaEnumWidget, (void **)&pKEW);
@@ -1160,6 +1162,9 @@ static void test_DispCallFunc(void)
     hr = DispCallFunc(pWidget, 36, CC_STDCALL, VT_UI4, 4, rgvt, rgpvarg, &varresult);
     ok_ole_success(hr, DispCallFunc);
     VariantClear(&varresult);
+    VariantClear(&vararg[1]);
+    VariantClear(&vararg[2]);
+    IWidget_Release(pWidget);
 }
 
 START_TEST(tmarshal)

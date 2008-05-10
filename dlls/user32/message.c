@@ -2,6 +2,7 @@
  * Window messaging support
  *
  * Copyright 2001 Alexandre Julliard
+ * Copyright 2008 Maarten Lankhorst
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -34,12 +35,13 @@
 #include "winnls.h"
 #include "dbt.h"
 #include "dde.h"
+#include "imm.h"
+#include "ddk/imm.h"
 #include "wine/unicode.h"
 #include "wine/server.h"
 #include "user_private.h"
 #include "win.h"
 #include "controls.h"
-#include "winproc.h"
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(msg);
@@ -83,6 +85,7 @@ struct send_message_info
     UINT              timeout;    /* timeout for SendMessageTimeout */
     SENDASYNCPROC     callback;   /* callback function for SendMessageCallback */
     ULONG_PTR         data;       /* callback data */
+    enum wm_char_mapping wm_char;
 };
 
 
@@ -303,10 +306,22 @@ static inline BOOL is_mouse_message( UINT message )
 /* check whether message matches the specified hwnd filter */
 static inline BOOL check_hwnd_filter( const MSG *msg, HWND hwnd_filter )
 {
-    if (!hwnd_filter) return TRUE;
+    if (!hwnd_filter || hwnd_filter == GetDesktopWindow()) return TRUE;
     return (msg->hwnd == hwnd_filter || IsChild( hwnd_filter, msg->hwnd ));
 }
 
+/* check for pending WM_CHAR message with DBCS trailing byte */
+static inline BOOL get_pending_wmchar( MSG *msg, UINT first, UINT last, BOOL remove )
+{
+    struct wm_char_mapping_data *data = get_user_thread_info()->wmchar_data;
+
+    if (!data || !data->get_msg.message) return FALSE;
+    if ((first || last) && (first > WM_CHAR || last < WM_CHAR)) return FALSE;
+    if (!msg) return FALSE;
+    *msg = data->get_msg;
+    if (remove) data->get_msg.message = 0;
+    return TRUE;
+}
 
 /***********************************************************************
  *		broadcast_message_callback
@@ -350,39 +365,83 @@ static BOOL CALLBACK broadcast_message_callback( HWND hwnd, LPARAM lparam )
  *
  * Convert the wparam of an ASCII message to Unicode.
  */
-static WPARAM map_wparam_AtoW( UINT message, WPARAM wparam )
+BOOL map_wparam_AtoW( UINT message, WPARAM *wparam, enum wm_char_mapping mapping )
 {
+    char ch[2];
+    WCHAR wch[2];
+
+    wch[0] = wch[1] = 0;
     switch(message)
     {
+    case WM_CHAR:
+        /* WM_CHAR is magic: a DBCS char can be sent/posted as two consecutive WM_CHAR
+         * messages, in which case the first char is stored, and the conversion
+         * to Unicode only takes place once the second char is sent/posted.
+         */
+        if (mapping != WMCHAR_MAP_NOMAPPING)
+        {
+            struct wm_char_mapping_data *data = get_user_thread_info()->wmchar_data;
+            BYTE low = LOBYTE(*wparam);
+
+            if (HIBYTE(*wparam))
+            {
+                ch[0] = low;
+                ch[1] = HIBYTE(*wparam);
+                RtlMultiByteToUnicodeN( wch, sizeof(wch), NULL, ch, 2 );
+                TRACE( "map %02x,%02x -> %04x mapping %u\n", (BYTE)ch[0], (BYTE)ch[1], wch[0], mapping );
+                if (data) data->lead_byte[mapping] = 0;
+            }
+            else if (data && data->lead_byte[mapping])
+            {
+                ch[0] = data->lead_byte[mapping];
+                ch[1] = low;
+                RtlMultiByteToUnicodeN( wch, sizeof(wch), NULL, ch, 2 );
+                TRACE( "map stored %02x,%02x -> %04x mapping %u\n", (BYTE)ch[0], (BYTE)ch[1], wch[0], mapping );
+                data->lead_byte[mapping] = 0;
+            }
+            else if (!IsDBCSLeadByte( low ))
+            {
+                ch[0] = low;
+                RtlMultiByteToUnicodeN( wch, sizeof(wch), NULL, ch, 1 );
+                TRACE( "map %02x -> %04x\n", (BYTE)ch[0], wch[0] );
+                if (data) data->lead_byte[mapping] = 0;
+            }
+            else  /* store it and wait for trail byte */
+            {
+                if (!data)
+                {
+                    if (!(data = HeapAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*data) )))
+                        return FALSE;
+                    get_user_thread_info()->wmchar_data = data;
+                }
+                TRACE( "storing lead byte %02x mapping %u\n", low, mapping );
+                data->lead_byte[mapping] = low;
+                return FALSE;
+            }
+            *wparam = MAKEWPARAM(wch[0], wch[1]);
+            break;
+        }
+        /* else fall through */
     case WM_CHARTOITEM:
     case EM_SETPASSWORDCHAR:
-    case WM_CHAR:
     case WM_DEADCHAR:
     case WM_SYSCHAR:
     case WM_SYSDEADCHAR:
     case WM_MENUCHAR:
-        {
-            char ch[2];
-            WCHAR wch[2];
-            ch[0] = (wparam & 0xff);
-            ch[1] = (wparam >> 8);
-            MultiByteToWideChar(CP_ACP, 0, ch, 2, wch, 2);
-            wparam = MAKEWPARAM(wch[0], wch[1]);
-        }
+        ch[0] = LOBYTE(*wparam);
+        ch[1] = HIBYTE(*wparam);
+        RtlMultiByteToUnicodeN( wch, sizeof(wch), NULL, ch, 2 );
+        *wparam = MAKEWPARAM(wch[0], wch[1]);
         break;
     case WM_IME_CHAR:
-        {
-            char ch[2];
-            WCHAR wch;
-            ch[0] = (wparam >> 8);
-            ch[1] = (wparam & 0xff);
-            if (ch[0]) MultiByteToWideChar(CP_ACP, 0, ch, 2, &wch, 1);
-            else MultiByteToWideChar(CP_ACP, 0, &ch[1], 1, &wch, 1);
-            wparam = MAKEWPARAM( wch, HIWORD(wparam) );
-        }
+        ch[0] = HIBYTE(*wparam);
+        ch[1] = LOBYTE(*wparam);
+        if (ch[0]) RtlMultiByteToUnicodeN( wch, sizeof(wch[0]), NULL, ch, 2 );
+        else RtlMultiByteToUnicodeN( wch, sizeof(wch[0]), NULL, ch + 1, 1 );
+        *wparam = MAKEWPARAM(wch[0], HIWORD(*wparam));
         break;
     }
-    return wparam;
+    return TRUE;
 }
 
 
@@ -391,39 +450,60 @@ static WPARAM map_wparam_AtoW( UINT message, WPARAM wparam )
  *
  * Convert the wparam of a Unicode message to ASCII.
  */
-static WPARAM map_wparam_WtoA( UINT message, WPARAM wparam )
+static void map_wparam_WtoA( MSG *msg, BOOL remove )
 {
-    switch(message)
+    BYTE ch[2];
+    WCHAR wch[2];
+    DWORD len;
+
+    switch(msg->message)
     {
+    case WM_CHAR:
+        if (!HIWORD(msg->wParam))
+        {
+            wch[0] = LOWORD(msg->wParam);
+            ch[0] = ch[1] = 0;
+            RtlUnicodeToMultiByteN( (LPSTR)ch, 2, &len, wch, sizeof(wch[0]) );
+            if (len == 2)  /* DBCS char */
+            {
+                struct wm_char_mapping_data *data = get_user_thread_info()->wmchar_data;
+                if (!data)
+                {
+                    if (!(data = HeapAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*data) ))) return;
+                    get_user_thread_info()->wmchar_data = data;
+                }
+                if (remove)
+                {
+                    data->get_msg = *msg;
+                    data->get_msg.wParam = ch[1];
+                }
+                msg->wParam = ch[0];
+                return;
+            }
+        }
+        /* else fall through */
     case WM_CHARTOITEM:
     case EM_SETPASSWORDCHAR:
-    case WM_CHAR:
     case WM_DEADCHAR:
     case WM_SYSCHAR:
     case WM_SYSDEADCHAR:
     case WM_MENUCHAR:
-        {
-            WCHAR wch[2];
-            BYTE ch[2];
-            wch[0] = LOWORD(wparam);
-            wch[1] = HIWORD(wparam);
-            WideCharToMultiByte( CP_ACP, 0, wch, 2, (LPSTR)ch, 2, NULL, NULL );
-            wparam = MAKEWPARAM( ch[0] | (ch[1] << 8), 0 );
-        }
+        wch[0] = LOWORD(msg->wParam);
+        wch[1] = HIWORD(msg->wParam);
+        ch[0] = ch[1] = 0;
+        RtlUnicodeToMultiByteN( (LPSTR)ch, 2, NULL, wch, sizeof(wch) );
+        msg->wParam = MAKEWPARAM( ch[0] | (ch[1] << 8), 0 );
         break;
     case WM_IME_CHAR:
-        {
-            WCHAR wch = LOWORD(wparam);
-            BYTE ch[2];
-
-            if (WideCharToMultiByte( CP_ACP, 0, &wch, 1, (LPSTR)ch, 2, NULL, NULL ) == 2)
-                wparam = MAKEWPARAM( (ch[0] << 8) | ch[1], HIWORD(wparam) );
-            else
-                wparam = MAKEWPARAM( ch[0], HIWORD(wparam) );
-        }
+        wch[0] = LOWORD(msg->wParam);
+        ch[0] = ch[1] = 0;
+        RtlUnicodeToMultiByteN( (LPSTR)ch, 2, &len, wch, sizeof(wch[0]) );
+        if (len == 2)
+            msg->wParam = MAKEWPARAM( (ch[0] << 8) | ch[1], HIWORD(msg->wParam) );
+        else
+            msg->wParam = MAKEWPARAM( ch[0], HIWORD(msg->wParam) );
         break;
     }
-    return wparam;
 }
 
 
@@ -1510,11 +1590,10 @@ static BOOL unpack_dde_message( HWND hwnd, UINT message, WPARAM *wparam, LPARAM 
  * Call a window procedure and the corresponding hooks.
  */
 static LRESULT call_window_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
-                                 BOOL unicode, BOOL same_thread )
+                                 BOOL unicode, BOOL same_thread, enum wm_char_mapping mapping )
 {
     struct user_thread_info *thread_info = get_user_thread_info();
     LRESULT result = 0;
-    WNDPROC winproc;
     CWPSTRUCT cwp;
     CWPRETSTRUCT cwpret;
 
@@ -1536,16 +1615,7 @@ static LRESULT call_window_proc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
     HOOK_CallHooks( WH_CALLWNDPROC, HC_ACTION, same_thread, (LPARAM)&cwp, unicode );
 
     /* now call the window procedure */
-    if (unicode)
-    {
-        if (!(winproc = (WNDPROC)GetWindowLongPtrW( hwnd, GWLP_WNDPROC ))) goto done;
-        result = CallWindowProcW( winproc, hwnd, msg, wparam, lparam );
-    }
-    else
-    {
-        if (!(winproc = (WNDPROC)GetWindowLongPtrA( hwnd, GWLP_WNDPROC ))) goto done;
-        result = CallWindowProcA( winproc, hwnd, msg, wparam, lparam );
-    }
+    if (!WINPROC_call_window( hwnd, msg, wparam, lparam, &result, unicode, mapping )) goto done;
 
     /* and finally the WH_CALLWNDPROCRET hook */
     cwpret.lResult = result;
@@ -1616,6 +1686,21 @@ static BOOL process_keyboard_message( MSG *msg, UINT hw_id, HWND hwnd_filter,
 {
     EVENTMSG event;
 
+    if (msg->message == WM_KEYDOWN || msg->message == WM_SYSKEYDOWN ||
+        msg->message == WM_KEYUP || msg->message == WM_SYSKEYUP)
+        switch (msg->wParam)
+        {
+            case VK_LSHIFT: case VK_RSHIFT:
+                msg->wParam = VK_SHIFT;
+                break;
+            case VK_LCONTROL: case VK_RCONTROL:
+                msg->wParam = VK_CONTROL;
+                break;
+            case VK_LMENU: case VK_RMENU:
+                msg->wParam = VK_MENU;
+                break;
+        }
+
     /* FIXME: is this really the right place for this hook? */
     event.message = msg->message;
     event.hwnd    = msg->hwnd;
@@ -1635,17 +1720,9 @@ static BOOL process_keyboard_message( MSG *msg, UINT hw_id, HWND hwnd_filter,
            (msg->hwnd != GetDesktopWindow()))
         {
             /* Handle F1 key by sending out WM_HELP message */
-            if(msg->wParam == VK_F1 &&
-               !MENU_IsMenuActive())
+            if (msg->wParam == VK_F1)
             {
-                HELPINFO hi;
-                hi.cbSize = sizeof(HELPINFO);
-                hi.iContextType = HELPINFO_WINDOW;
-                hi.iCtrlId = GetWindowLongPtrA( msg->hwnd, GWLP_ID );
-                hi.hItemHandle = msg->hwnd;
-                hi.dwContextId = GetWindowContextHelpId( msg->hwnd );
-                hi.MousePos = msg->pt;
-                SendMessageW( msg->hwnd, WM_HELP, 0, (LPARAM)&hi );
+                PostMessageW( msg->hwnd, WM_KEYF1, 0, 0 );
             }
             else if(msg->wParam >= VK_BROWSER_BACK &&
                     msg->wParam <= VK_LAUNCH_APP2)
@@ -1671,6 +1748,11 @@ static BOOL process_keyboard_message( MSG *msg, UINT hw_id, HWND hwnd_filter,
         return FALSE;
     }
     accept_hardware_message( hw_id, remove, 0 );
+
+    if ( msg->message == WM_KEYDOWN || msg->message == WM_KEYUP )
+        if ( ImmProcessKey(msg->hwnd, GetKeyboardLayout(0), msg->wParam, msg->lParam, 0) )
+            msg->wParam = VK_PROCESSKEY;
+
     return TRUE;
 }
 
@@ -1920,25 +2002,6 @@ static inline void call_sendmsg_callback( SENDASYNCPROC callback, HWND hwnd, UIN
 
 
 /***********************************************************************
- *		get_hook_proc
- *
- * Retrieve the hook procedure real value for a module-relative proc
- */
-static void *get_hook_proc( void *proc, const WCHAR *module )
-{
-    HMODULE mod;
-
-    if (!(mod = GetModuleHandleW(module)))
-    {
-        TRACE( "loading %s\n", debugstr_w(module) );
-        /* FIXME: the library will never be freed */
-        if (!(mod = LoadLibraryW(module))) return NULL;
-    }
-    return (char *)mod + (ULONG_PTR)proc;
-}
-
-
-/***********************************************************************
  *           peek_message
  *
  * Peek for a message matching the given parameters. Return FALSE if none available.
@@ -1950,9 +2013,12 @@ static BOOL peek_message( MSG *msg, HWND hwnd, UINT first, UINT last, UINT flags
     ULONG_PTR extra_info = 0;
     struct user_thread_info *thread_info = get_user_thread_info();
     struct received_message_info info, *old_info;
+    unsigned int wake_mask, changed_mask = HIWORD(flags);
     unsigned int hw_id = 0;  /* id of previous hardware message */
 
     if (!first && !last) last = ~0;
+    if (!changed_mask) changed_mask = QS_ALLINPUT;
+    wake_mask = changed_mask & (QS_SENDMESSAGE | QS_SMRESULT);
 
     for (;;)
     {
@@ -1971,6 +2037,8 @@ static BOOL peek_message( MSG *msg, HWND hwnd, UINT first, UINT last, UINT flags
                 req->get_first = first;
                 req->get_last  = last;
                 req->hw_id     = hw_id;
+                req->wake_mask = wake_mask;
+                req->changed_mask = changed_mask;
                 if (buffer_size) wine_server_set_reply( req, buffer, buffer_size );
                 if (!(res = wine_server_call( req )))
                 {
@@ -2097,14 +2165,15 @@ static BOOL peek_message( MSG *msg, HWND hwnd, UINT first, UINT last, UINT flags
         old_info = thread_info->receive_info;
         thread_info->receive_info = &info;
         result = call_window_proc( info.msg.hwnd, info.msg.message, info.msg.wParam,
-                                   info.msg.lParam, (info.type != MSG_ASCII), FALSE );
+                                   info.msg.lParam, (info.type != MSG_ASCII), FALSE,
+                                   WMCHAR_MAP_RECVMESSAGE );
         reply_message( &info, result, TRUE );
         thread_info->receive_info = old_info;
-    next:
-        HeapFree( GetProcessHeap(), 0, buffer );
 
         /* if some PM_QS* flags were specified, only handle sent messages from now on */
         if (HIWORD(flags)) flags = PM_QS_SENDMESSAGE | LOWORD(flags);
+    next:
+        HeapFree( GetProcessHeap(), 0, buffer );
     }
 }
 
@@ -2157,7 +2226,7 @@ static void wait_message_reply( UINT flags )
 
     for (;;)
     {
-        unsigned int wake_bits = 0, changed_bits = 0;
+        unsigned int wake_bits = 0;
         DWORD dwlc, res;
 
         SERVER_START_REQ( set_queue_mask )
@@ -2166,10 +2235,7 @@ static void wait_message_reply( UINT flags )
             req->changed_mask = req->wake_mask;
             req->skip_wait    = 1;
             if (!wine_server_call( req ))
-            {
-                wake_bits    = reply->wake_bits;
-                changed_bits = reply->changed_bits;
-            }
+                wake_bits = reply->wake_bits;
         }
         SERVER_END_REQ;
 
@@ -2333,6 +2399,73 @@ static LRESULT send_inter_thread_message( const struct send_message_info *info, 
 
 
 /***********************************************************************
+ *		send_inter_thread_callback
+ */
+static LRESULT send_inter_thread_callback( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
+                                           LRESULT *result, void *arg )
+{
+    struct send_message_info *info = arg;
+    info->hwnd   = hwnd;
+    info->msg    = msg;
+    info->wparam = wp;
+    info->lparam = lp;
+    return send_inter_thread_message( info, result );
+}
+
+
+/***********************************************************************
+ *		send_message
+ *
+ * Backend implementation of the various SendMessage functions.
+ */
+static BOOL send_message( struct send_message_info *info, DWORD_PTR *res_ptr, BOOL unicode )
+{
+    DWORD dest_pid;
+    BOOL ret;
+    LRESULT result;
+
+    if (is_broadcast(info->hwnd))
+    {
+        EnumWindows( broadcast_message_callback, (LPARAM)info );
+        if (res_ptr) *res_ptr = 1;
+        return TRUE;
+    }
+
+    if (!(info->dest_tid = GetWindowThreadProcessId( info->hwnd, &dest_pid ))) return FALSE;
+
+    if (USER_IsExitingThread( info->dest_tid )) return FALSE;
+
+    SPY_EnterMessage( SPY_SENDMESSAGE, info->hwnd, info->msg, info->wparam, info->lparam );
+
+    if (info->dest_tid == GetCurrentThreadId())
+    {
+        result = call_window_proc( info->hwnd, info->msg, info->wparam, info->lparam,
+                                   unicode, TRUE, info->wm_char );
+        if (info->type == MSG_CALLBACK)
+            call_sendmsg_callback( info->callback, info->hwnd, info->msg, info->data, result );
+        ret = TRUE;
+    }
+    else
+    {
+        if (dest_pid != GetCurrentProcessId() && (info->type == MSG_ASCII || info->type == MSG_UNICODE))
+            info->type = MSG_OTHER_PROCESS;
+
+        /* MSG_ASCII can be sent unconverted except for WM_CHAR; everything else needs to be Unicode */
+        if (!unicode && is_unicode_message( info->msg ) &&
+            (info->type != MSG_ASCII || info->msg == WM_CHAR))
+            ret = WINPROC_CallProcAtoW( send_inter_thread_callback, info->hwnd, info->msg,
+                                        info->wparam, info->lparam, &result, info, info->wm_char );
+        else
+            ret = send_inter_thread_message( info, &result );
+    }
+
+    SPY_ExitMessage( SPY_RESULT_OK, info->hwnd, info->msg, result, info->wparam, info->lparam );
+    if (ret && res_ptr) *res_ptr = result;
+    return ret;
+}
+
+
+/***********************************************************************
  *		MSG_SendInternalMessageTimeout
  *
  * Same as SendMessageTimeoutW but sends the message to a specific thread
@@ -2380,8 +2513,6 @@ LRESULT WINAPI SendMessageTimeoutW( HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
                                     UINT flags, UINT timeout, PDWORD_PTR res_ptr )
 {
     struct send_message_info info;
-    DWORD dest_pid;
-    LRESULT ret, result;
 
     info.type    = MSG_UNICODE;
     info.hwnd    = hwnd;
@@ -2391,44 +2522,7 @@ LRESULT WINAPI SendMessageTimeoutW( HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
     info.flags   = flags;
     info.timeout = timeout;
 
-    if (is_broadcast(hwnd))
-    {
-        EnumWindows( broadcast_message_callback, (LPARAM)&info );
-        if (res_ptr) *res_ptr = 1;
-        return 1;
-    }
-
-    if (!(info.dest_tid = GetWindowThreadProcessId( hwnd, &dest_pid ))) return 0;
-
-    if (USER_IsExitingThread( info.dest_tid )) return 0;
-
-    SPY_EnterMessage( SPY_SENDMESSAGE, hwnd, msg, wparam, lparam );
-
-    if (info.dest_tid == GetCurrentThreadId())
-    {
-        result = call_window_proc( hwnd, msg, wparam, lparam, TRUE, TRUE );
-        ret = 1;
-    }
-    else
-    {
-        if (dest_pid != GetCurrentProcessId()) info.type = MSG_OTHER_PROCESS;
-        ret = send_inter_thread_message( &info, &result );
-    }
-
-    SPY_ExitMessage( SPY_RESULT_OK, hwnd, msg, result, wparam, lparam );
-    if (ret && res_ptr) *res_ptr = result;
-    return ret;
-}
-
-static LRESULT send_inter_thread_callback( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
-                                           LRESULT *result, void *arg )
-{
-    struct send_message_info *info = arg;
-    info->hwnd   = hwnd;
-    info->msg    = msg;
-    info->wparam = wp;
-    info->lparam = lp;
-    return send_inter_thread_message( info, result );
+    return send_message( &info, res_ptr, TRUE );
 }
 
 /***********************************************************************
@@ -2438,8 +2532,6 @@ LRESULT WINAPI SendMessageTimeoutA( HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
                                     UINT flags, UINT timeout, PDWORD_PTR res_ptr )
 {
     struct send_message_info info;
-    DWORD dest_pid;
-    LRESULT ret, result;
 
     info.type    = MSG_ASCII;
     info.hwnd    = hwnd;
@@ -2448,41 +2540,9 @@ LRESULT WINAPI SendMessageTimeoutA( HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
     info.lparam  = lparam;
     info.flags   = flags;
     info.timeout = timeout;
+    info.wm_char  = WMCHAR_MAP_SENDMESSAGETIMEOUT;
 
-    if (is_broadcast(hwnd))
-    {
-        EnumWindows( broadcast_message_callback, (LPARAM)&info );
-        if (res_ptr) *res_ptr = 1;
-        return 1;
-    }
-
-    if (!(info.dest_tid = GetWindowThreadProcessId( hwnd, &dest_pid ))) return 0;
-
-    if (USER_IsExitingThread( info.dest_tid )) return 0;
-
-    SPY_EnterMessage( SPY_SENDMESSAGE, hwnd, msg, wparam, lparam );
-
-    if (info.dest_tid == GetCurrentThreadId())
-    {
-        result = call_window_proc( hwnd, msg, wparam, lparam, FALSE, TRUE );
-        ret = 1;
-    }
-    else if (dest_pid == GetCurrentProcessId())
-    {
-        ret = send_inter_thread_message( &info, &result );
-    }
-    else
-    {
-        /* inter-process message: need to map to Unicode */
-        info.type = MSG_OTHER_PROCESS;
-        if (is_unicode_message( info.msg ))
-            ret = WINPROC_CallProcAtoW( send_inter_thread_callback, info.hwnd, info.msg,
-                                        info.wparam, info.lparam, &result, &info );
-        else ret = send_inter_thread_message( &info, &result );
-    }
-    SPY_ExitMessage( SPY_RESULT_OK, hwnd, msg, result, wparam, lparam );
-    if (ret && res_ptr) *res_ptr = result;
-    return ret;
+    return send_message( &info, res_ptr, FALSE );
 }
 
 
@@ -2492,7 +2552,17 @@ LRESULT WINAPI SendMessageTimeoutA( HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
 LRESULT WINAPI SendMessageW( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam )
 {
     DWORD_PTR res = 0;
-    SendMessageTimeoutW( hwnd, msg, wparam, lparam, SMTO_NORMAL, 0, &res );
+    struct send_message_info info;
+
+    info.type    = MSG_UNICODE;
+    info.hwnd    = hwnd;
+    info.msg     = msg;
+    info.wparam  = wparam;
+    info.lparam  = lparam;
+    info.flags   = SMTO_NORMAL;
+    info.timeout = 0;
+
+    send_message( &info, &res, TRUE );
     return res;
 }
 
@@ -2503,7 +2573,18 @@ LRESULT WINAPI SendMessageW( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam )
 LRESULT WINAPI SendMessageA( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam )
 {
     DWORD_PTR res = 0;
-    SendMessageTimeoutA( hwnd, msg, wparam, lparam, SMTO_NORMAL, 0, &res );
+    struct send_message_info info;
+
+    info.type    = MSG_ASCII;
+    info.hwnd    = hwnd;
+    info.msg     = msg;
+    info.wparam  = wparam;
+    info.lparam  = lparam;
+    info.flags   = SMTO_NORMAL;
+    info.timeout = 0;
+    info.wm_char  = WMCHAR_MAP_SENDMESSAGE;
+
+    send_message( &info, &res, FALSE );
     return res;
 }
 
@@ -2513,7 +2594,23 @@ LRESULT WINAPI SendMessageA( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam )
  */
 BOOL WINAPI SendNotifyMessageA( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam )
 {
-    return SendNotifyMessageW( hwnd, msg, map_wparam_AtoW( msg, wparam ), lparam );
+    struct send_message_info info;
+
+    if (is_pointer_message(msg))
+    {
+        SetLastError( ERROR_MESSAGE_SYNC_ONLY );
+        return FALSE;
+    }
+
+    info.type    = MSG_NOTIFY;
+    info.hwnd    = hwnd;
+    info.msg     = msg;
+    info.wparam  = wparam;
+    info.lparam  = lparam;
+    info.flags   = 0;
+    info.wm_char = WMCHAR_MAP_SENDMESSAGETIMEOUT;
+
+    return send_message( &info, NULL, FALSE );
 }
 
 
@@ -2523,7 +2620,6 @@ BOOL WINAPI SendNotifyMessageA( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
 BOOL WINAPI SendNotifyMessageW( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam )
 {
     struct send_message_info info;
-    LRESULT result;
 
     if (is_pointer_message(msg))
     {
@@ -2538,22 +2634,7 @@ BOOL WINAPI SendNotifyMessageW( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
     info.lparam  = lparam;
     info.flags   = 0;
 
-    if (is_broadcast(hwnd))
-    {
-        EnumWindows( broadcast_message_callback, (LPARAM)&info );
-        return TRUE;
-    }
-
-    if (!(info.dest_tid = GetWindowThreadProcessId( hwnd, NULL ))) return FALSE;
-
-    if (USER_IsExitingThread( info.dest_tid )) return TRUE;
-
-    if (info.dest_tid == GetCurrentThreadId())
-    {
-        call_window_proc( hwnd, msg, wparam, lparam, TRUE, TRUE );
-        return TRUE;
-    }
-    return send_inter_thread_message( &info, &result );
+    return send_message( &info, NULL, TRUE );
 }
 
 
@@ -2563,8 +2644,25 @@ BOOL WINAPI SendNotifyMessageW( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
 BOOL WINAPI SendMessageCallbackA( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam,
                                   SENDASYNCPROC callback, ULONG_PTR data )
 {
-    return SendMessageCallbackW( hwnd, msg, map_wparam_AtoW( msg, wparam ),
-                                 lparam, callback, data );
+    struct send_message_info info;
+
+    if (is_pointer_message(msg))
+    {
+        SetLastError( ERROR_MESSAGE_SYNC_ONLY );
+        return FALSE;
+    }
+
+    info.type     = MSG_CALLBACK;
+    info.hwnd     = hwnd;
+    info.msg      = msg;
+    info.wparam   = wparam;
+    info.lparam   = lparam;
+    info.callback = callback;
+    info.data     = data;
+    info.flags    = 0;
+    info.wm_char  = WMCHAR_MAP_SENDMESSAGETIMEOUT;
+
+    return send_message( &info, NULL, FALSE );
 }
 
 
@@ -2575,7 +2673,6 @@ BOOL WINAPI SendMessageCallbackW( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
                                   SENDASYNCPROC callback, ULONG_PTR data )
 {
     struct send_message_info info;
-    LRESULT result;
 
     if (is_pointer_message(msg))
     {
@@ -2592,23 +2689,7 @@ BOOL WINAPI SendMessageCallbackW( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
     info.data     = data;
     info.flags    = 0;
 
-    if (is_broadcast(hwnd))
-    {
-        EnumWindows( broadcast_message_callback, (LPARAM)&info );
-        return TRUE;
-    }
-
-    if (!(info.dest_tid = GetWindowThreadProcessId( hwnd, NULL ))) return FALSE;
-
-    if (USER_IsExitingThread( info.dest_tid )) return TRUE;
-
-    if (info.dest_tid == GetCurrentThreadId())
-    {
-        result = call_window_proc( hwnd, msg, wparam, lparam, TRUE, TRUE );
-        call_sendmsg_callback( callback, hwnd, msg, data, result );
-        return TRUE;
-    }
-    return send_inter_thread_message( &info, &result );
+    return send_message( &info, NULL, TRUE );
 }
 
 
@@ -2651,7 +2732,8 @@ DWORD WINAPI InSendMessageEx( LPVOID reserved )
  */
 BOOL WINAPI PostMessageA( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam )
 {
-    return PostMessageW( hwnd, msg, map_wparam_AtoW( msg, wparam ), lparam );
+    if (!map_wparam_AtoW( msg, &wparam, WMCHAR_MAP_POSTMESSAGE )) return TRUE;
+    return PostMessageW( hwnd, msg, wparam, lparam );
 }
 
 
@@ -2699,7 +2781,8 @@ BOOL WINAPI PostMessageW( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam )
  */
 BOOL WINAPI PostThreadMessageA( DWORD thread, UINT msg, WPARAM wparam, LPARAM lparam )
 {
-    return PostThreadMessageW( thread, msg, map_wparam_AtoW( msg, wparam ), lparam );
+    if (!map_wparam_AtoW( msg, &wparam, WMCHAR_MAP_POSTMESSAGE )) return TRUE;
+    return PostThreadMessageW( thread, msg, wparam, lparam );
 }
 
 
@@ -2824,9 +2907,10 @@ BOOL WINAPI PeekMessageW( MSG *msg_out, HWND hwnd, UINT first, UINT last, UINT f
  */
 BOOL WINAPI PeekMessageA( MSG *msg, HWND hwnd, UINT first, UINT last, UINT flags )
 {
-    BOOL ret = PeekMessageW( msg, hwnd, first, last, flags );
-    if (ret) msg->wParam = map_wparam_WtoA( msg->message, msg->wParam );
-    return ret;
+    if (get_pending_wmchar( msg, first, last, (flags & PM_REMOVE) )) return TRUE;
+    if (!PeekMessageW( msg, hwnd, first, last, flags )) return FALSE;
+    map_wparam_WtoA( msg, (flags & PM_REMOVE) );
+    return TRUE;
 }
 
 
@@ -2847,35 +2931,14 @@ BOOL WINAPI GetMessageW( MSG *msg, HWND hwnd, UINT first, UINT last )
         if ((first <= WM_SYSTIMER) && (last >= WM_SYSTIMER)) mask |= QS_TIMER;
         if ((first <= WM_PAINT) && (last >= WM_PAINT)) mask |= QS_PAINT;
     }
-    else mask |= QS_MOUSE | QS_KEY | QS_TIMER | QS_PAINT;
+    else mask = QS_ALLINPUT;
 
-    while (!PeekMessageW( msg, hwnd, first, last, PM_REMOVE ))
+    while (!PeekMessageW( msg, hwnd, first, last, PM_REMOVE | PM_NOYIELD | (mask << 16) ))
     {
-        /* wait until one of the bits is set */
-        unsigned int wake_bits = 0, changed_bits = 0;
         DWORD dwlc;
 
-        SERVER_START_REQ( set_queue_mask )
-        {
-            req->wake_mask    = QS_SENDMESSAGE;
-            req->changed_mask = mask;
-            req->skip_wait    = 1;
-            if (!wine_server_call( req ))
-            {
-                wake_bits    = reply->wake_bits;
-                changed_bits = reply->changed_bits;
-            }
-        }
-        SERVER_END_REQ;
-
-        if (changed_bits & mask) continue;
-        if (wake_bits & QS_SENDMESSAGE) continue;
-
-        TRACE( "(%04x) mask=%08x, bits=%08x, changed=%08x, waiting\n",
-               GetCurrentThreadId(), mask, wake_bits, changed_bits );
-
         ReleaseThunkLock( &dwlc );
-        USER_Driver->pMsgWaitForMultipleObjectsEx( 1, &server_queue, INFINITE, QS_ALLINPUT, 0 );
+        USER_Driver->pMsgWaitForMultipleObjectsEx( 1, &server_queue, INFINITE, mask, 0 );
         if (dwlc) RestoreThunkLock( dwlc );
     }
 
@@ -2888,8 +2951,9 @@ BOOL WINAPI GetMessageW( MSG *msg, HWND hwnd, UINT first, UINT last )
  */
 BOOL WINAPI GetMessageA( MSG *msg, HWND hwnd, UINT first, UINT last )
 {
+    if (get_pending_wmchar( msg, first, last, TRUE )) return TRUE;
     GetMessageW( msg, hwnd, first, last );
-    msg->wParam = map_wparam_WtoA( msg->message, msg->wParam );
+    map_wparam_WtoA( msg, TRUE );
     return (msg->message != WM_QUIT);
 }
 
@@ -2901,7 +2965,7 @@ BOOL WINAPI GetMessageA( MSG *msg, HWND hwnd, UINT first, UINT last )
 BOOL WINAPI IsDialogMessageA( HWND hwndDlg, LPMSG pmsg )
 {
     MSG msg = *pmsg;
-    msg.wParam = map_wparam_AtoW( msg.message, msg.wParam );
+    map_wparam_AtoW( msg.message, &msg.wParam, WMCHAR_MAP_NOMAPPING );
     return IsDialogMessageW( hwndDlg, &msg );
 }
 
@@ -2934,6 +2998,9 @@ BOOL WINAPI TranslateMessage( const MSG *msg )
     TRACE_(key)("Translating key %s (%04lx), scancode %02x\n",
                  SPY_GetVKeyName(msg->wParam), msg->wParam, LOBYTE(HIWORD(msg->lParam)));
 
+    if ( msg->wParam == VK_PROCESSKEY )
+        return ImmTranslateMessage(msg->hwnd, msg->message, msg->wParam, msg->lParam);
+
     GetKeyboardState( state );
     /* FIXME : should handle ToUnicode yielding 2 */
     switch (ToUnicode(msg->wParam, HIWORD(msg->lParam), state, wp, 2, 0))
@@ -2961,11 +3028,9 @@ BOOL WINAPI TranslateMessage( const MSG *msg )
  *
  * See DispatchMessageW.
  */
-LONG WINAPI DispatchMessageA( const MSG* msg )
+LRESULT WINAPI DispatchMessageA( const MSG* msg )
 {
-    WND * wndPtr;
-    LONG retval;
-    WNDPROC winproc;
+    LRESULT retval;
 
       /* Process timer messages */
     if ((msg->message == WM_TIMER) || (msg->message == WM_SYSTIMER))
@@ -2973,31 +3038,19 @@ LONG WINAPI DispatchMessageA( const MSG* msg )
         if (msg->lParam) return CallWindowProcA( (WNDPROC)msg->lParam, msg->hwnd,
                                                  msg->message, msg->wParam, GetTickCount() );
     }
-
-    if (!(wndPtr = WIN_GetPtr( msg->hwnd )))
-    {
-        if (msg->hwnd) SetLastError( ERROR_INVALID_WINDOW_HANDLE );
-        return 0;
-    }
-    if (wndPtr == WND_OTHER_PROCESS || wndPtr == WND_DESKTOP)
-    {
-        if (IsWindow( msg->hwnd )) SetLastError( ERROR_MESSAGE_SYNC_ONLY );
-        else SetLastError( ERROR_INVALID_WINDOW_HANDLE );
-        return 0;
-    }
-    if (wndPtr->tid != GetCurrentThreadId())
-    {
-        SetLastError( ERROR_MESSAGE_SYNC_ONLY );
-        WIN_ReleasePtr( wndPtr );
-        return 0;
-    }
-    winproc = wndPtr->winproc;
-    WIN_ReleasePtr( wndPtr );
+    if (!msg->hwnd) return 0;
 
     SPY_EnterMessage( SPY_DISPATCHMESSAGE, msg->hwnd, msg->message,
                       msg->wParam, msg->lParam );
-    retval = CallWindowProcA( winproc, msg->hwnd, msg->message,
-                              msg->wParam, msg->lParam );
+
+    if (!WINPROC_call_window( msg->hwnd, msg->message, msg->wParam, msg->lParam,
+                              &retval, FALSE, WMCHAR_MAP_DISPATCHMESSAGE ))
+    {
+        if (!IsWindow( msg->hwnd )) SetLastError( ERROR_INVALID_WINDOW_HANDLE );
+        else SetLastError( ERROR_MESSAGE_SYNC_ONLY );
+        retval = 0;
+    }
+
     SPY_ExitMessage( SPY_RESULT_OK, msg->hwnd, msg->message, retval,
                      msg->wParam, msg->lParam );
 
@@ -3033,11 +3086,9 @@ LONG WINAPI DispatchMessageA( const MSG* msg )
  *   ECMA-234, Win32
  *
  */
-LONG WINAPI DispatchMessageW( const MSG* msg )
+LRESULT WINAPI DispatchMessageW( const MSG* msg )
 {
-    WND * wndPtr;
-    LONG retval;
-    WNDPROC winproc;
+    LRESULT retval;
 
       /* Process timer messages */
     if ((msg->message == WM_TIMER) || (msg->message == WM_SYSTIMER))
@@ -3045,31 +3096,19 @@ LONG WINAPI DispatchMessageW( const MSG* msg )
         if (msg->lParam) return CallWindowProcW( (WNDPROC)msg->lParam, msg->hwnd,
                                                  msg->message, msg->wParam, GetTickCount() );
     }
-
-    if (!(wndPtr = WIN_GetPtr( msg->hwnd )))
-    {
-        if (msg->hwnd) SetLastError( ERROR_INVALID_WINDOW_HANDLE );
-        return 0;
-    }
-    if (wndPtr == WND_OTHER_PROCESS || wndPtr == WND_DESKTOP)
-    {
-        if (IsWindow( msg->hwnd )) SetLastError( ERROR_MESSAGE_SYNC_ONLY );
-        else SetLastError( ERROR_INVALID_WINDOW_HANDLE );
-        return 0;
-    }
-    if (wndPtr->tid != GetCurrentThreadId())
-    {
-        SetLastError( ERROR_MESSAGE_SYNC_ONLY );
-        WIN_ReleasePtr( wndPtr );
-        return 0;
-    }
-    winproc = wndPtr->winproc;
-    WIN_ReleasePtr( wndPtr );
+    if (!msg->hwnd) return 0;
 
     SPY_EnterMessage( SPY_DISPATCHMESSAGE, msg->hwnd, msg->message,
                       msg->wParam, msg->lParam );
-    retval = CallWindowProcW( winproc, msg->hwnd, msg->message,
-                              msg->wParam, msg->lParam );
+
+    if (!WINPROC_call_window( msg->hwnd, msg->message, msg->wParam, msg->lParam,
+                              &retval, TRUE, WMCHAR_MAP_DISPATCHMESSAGE ))
+    {
+        if (!IsWindow( msg->hwnd )) SetLastError( ERROR_INVALID_WINDOW_HANDLE );
+        else SetLastError( ERROR_MESSAGE_SYNC_ONLY );
+        retval = 0;
+    }
+
     SPY_ExitMessage( SPY_RESULT_OK, msg->hwnd, msg->message, retval,
                      msg->wParam, msg->lParam );
 
@@ -3312,6 +3351,105 @@ UINT WINAPI RegisterWindowMessageW( LPCWSTR str )
     return ret;
 }
 
+typedef struct BroadcastParm
+{
+    DWORD flags;
+    LPDWORD recipients;
+    UINT msg;
+    WPARAM wp;
+    LPARAM lp;
+    DWORD success;
+    HWINSTA winsta;
+} BroadcastParm;
+
+static BOOL CALLBACK bcast_childwindow( HWND hw, LPARAM lp )
+{
+    BroadcastParm *parm = (BroadcastParm*)lp;
+    DWORD_PTR retval = 0;
+    LRESULT lresult;
+
+    if (parm->flags & BSF_IGNORECURRENTTASK && WIN_IsCurrentProcess(hw))
+    {
+        TRACE("Not telling myself %p\n", hw);
+        return TRUE;
+    }
+
+    /* I don't know 100% for sure if this is what Windows does, but it fits the tests */
+    if (parm->flags & BSF_QUERY)
+    {
+        TRACE("Telling window %p using SendMessageTimeout\n", hw);
+
+        /* Not tested for conflicting flags */
+        if (parm->flags & BSF_FORCEIFHUNG || parm->flags & BSF_NOHANG)
+            lresult = SendMessageTimeoutW( hw, parm->msg, parm->wp, parm->lp, SMTO_ABORTIFHUNG, 2000, &retval );
+        else if (parm->flags & BSF_NOTIMEOUTIFNOTHUNG)
+            lresult = SendMessageTimeoutW( hw, parm->msg, parm->wp, parm->lp, SMTO_NOTIMEOUTIFNOTHUNG, 2000, &retval );
+        else
+            lresult = SendMessageTimeoutW( hw, parm->msg, parm->wp, parm->lp, SMTO_NORMAL, 2000, &retval );
+
+        if (!lresult && GetLastError() == ERROR_TIMEOUT)
+        {
+            WARN("Timed out!\n");
+            if (!(parm->flags & BSF_FORCEIFHUNG))
+                goto fail;
+        }
+        if (retval == BROADCAST_QUERY_DENY)
+            goto fail;
+
+        return TRUE;
+
+fail:
+        parm->success = 0;
+        return FALSE;
+    }
+    else if (parm->flags & BSF_POSTMESSAGE)
+    {
+        TRACE("Telling window %p using PostMessage\n", hw);
+        PostMessageW( hw, parm->msg, parm->wp, parm->lp );
+    }
+    else
+    {
+        TRACE("Telling window %p using SendNotifyMessage\n", hw);
+        SendNotifyMessageW( hw, parm->msg, parm->wp, parm->lp );
+    }
+
+    return TRUE;
+}
+
+static BOOL CALLBACK bcast_desktop( LPWSTR desktop, LPARAM lp )
+{
+    BOOL ret;
+    HDESK hdesktop;
+    BroadcastParm *parm = (BroadcastParm*)lp;
+
+    TRACE("desktop: %s\n", debugstr_w( desktop ));
+
+    hdesktop = open_winstation_desktop( parm->winsta, desktop, 0, FALSE, DESKTOP_ENUMERATE|DESKTOP_WRITEOBJECTS|STANDARD_RIGHTS_WRITE );
+    if (!hdesktop)
+    {
+        FIXME("Could not open desktop %s\n", debugstr_w(desktop));
+        return TRUE;
+    }
+
+    ret = EnumDesktopWindows( hdesktop, bcast_childwindow, lp );
+    CloseDesktop(hdesktop);
+    TRACE("-->%d\n", ret);
+    return parm->success;
+}
+
+static BOOL CALLBACK bcast_winsta( LPWSTR winsta, LPARAM lp )
+{
+    BOOL ret;
+    HWINSTA hwinsta = OpenWindowStationW( winsta, FALSE, WINSTA_ENUMDESKTOPS );
+    TRACE("hwinsta: %p/%s/%08x\n", hwinsta, debugstr_w( winsta ), GetLastError());
+    if (!hwinsta)
+        return TRUE;
+    ((BroadcastParm *)lp)->winsta = hwinsta;
+    ret = EnumDesktopsW( hwinsta, bcast_desktop, lp );
+    CloseWindowStation( hwinsta );
+    TRACE("-->%d\n", ret);
+    return ret;
+}
 
 /***********************************************************************
  *		BroadcastSystemMessageA (USER32.@)
@@ -3319,17 +3457,7 @@ UINT WINAPI RegisterWindowMessageW( LPCWSTR str )
  */
 LONG WINAPI BroadcastSystemMessageA( DWORD flags, LPDWORD recipients, UINT msg, WPARAM wp, LPARAM lp )
 {
-    if ((*recipients & BSM_APPLICATIONS) || (*recipients == BSM_ALLCOMPONENTS))
-    {
-        FIXME( "(%08x,%08x,%08x,%08lx,%08lx): semi-stub!\n", flags, *recipients, msg, wp, lp );
-        PostMessageA( HWND_BROADCAST, msg, wp, lp );
-        return 1;
-    }
-    else
-    {
-        FIXME( "(%08x,%08x,%08x,%08lx,%08lx): stub!\n", flags, *recipients, msg, wp, lp);
-        return -1;
-    }
+    return BroadcastSystemMessageExA( flags, recipients, msg, wp, lp, NULL );
 }
 
 
@@ -3338,19 +3466,65 @@ LONG WINAPI BroadcastSystemMessageA( DWORD flags, LPDWORD recipients, UINT msg, 
  */
 LONG WINAPI BroadcastSystemMessageW( DWORD flags, LPDWORD recipients, UINT msg, WPARAM wp, LPARAM lp )
 {
-    if ((*recipients & BSM_APPLICATIONS) || (*recipients == BSM_ALLCOMPONENTS))
-    {
-        FIXME( "(%08x,%08x,%08x,%08lx,%08lx): semi-stub!\n", flags, *recipients, msg, wp, lp );
-        PostMessageW( HWND_BROADCAST, msg, wp, lp );
-        return 1;
-    }
-    else
-    {
-        FIXME( "(%08x,%08x,%08x,%08lx,%08lx): stub!\n", flags, *recipients, msg, wp, lp );
-        return -1;
-    }
+    return BroadcastSystemMessageExW( flags, recipients, msg, wp, lp, NULL );
 }
 
+/***********************************************************************
+ *              BroadcastSystemMessageExA (USER32.@)
+ */
+LONG WINAPI BroadcastSystemMessageExA( DWORD flags, LPDWORD recipients, UINT msg, WPARAM wp, LPARAM lp, PBSMINFO pinfo )
+{
+    map_wparam_AtoW( msg, &wp, WMCHAR_MAP_NOMAPPING );
+    return BroadcastSystemMessageExW( flags, recipients, msg, wp, lp, NULL );
+}
+
+
+/***********************************************************************
+ *              BroadcastSystemMessageExW (USER32.@)
+ */
+LONG WINAPI BroadcastSystemMessageExW( DWORD flags, LPDWORD recipients, UINT msg, WPARAM wp, LPARAM lp, PBSMINFO pinfo )
+{
+    BroadcastParm parm;
+    DWORD recips = BSM_ALLCOMPONENTS;
+    BOOL ret = TRUE;
+    static const DWORD all_flags = ( BSF_QUERY | BSF_IGNORECURRENTTASK | BSF_FLUSHDISK | BSF_NOHANG
+                                   | BSF_POSTMESSAGE | BSF_FORCEIFHUNG | BSF_NOTIMEOUTIFNOTHUNG
+                                   | BSF_ALLOWSFW | BSF_SENDNOTIFYMESSAGE | BSF_RETURNHDESK | BSF_LUID );
+
+    TRACE("Flags: %08x, recipients: %p(0x%x), msg: %04x, wparam: %08lx, lparam: %08lx\n", flags, recipients,
+         (recipients ? *recipients : recips), msg, wp, lp);
+
+    if (flags & ~all_flags)
+    {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return 0;
+    }
+
+    if (!recipients)
+        recipients = &recips;
+
+    if ( pinfo && flags & BSF_QUERY )
+        FIXME("Not returning PBSMINFO information yet\n");
+
+    parm.flags = flags;
+    parm.recipients = recipients;
+    parm.msg = msg;
+    parm.wp = wp;
+    parm.lp = lp;
+    parm.success = TRUE;
+
+    if (*recipients & BSM_ALLDESKTOPS || *recipients == BSM_ALLCOMPONENTS)
+        ret = EnumWindowStationsW(bcast_winsta, (LONG_PTR)&parm);
+    else if (*recipients & BSM_APPLICATIONS)
+    {
+        EnumWindows(bcast_childwindow, (LONG_PTR)&parm);
+        ret = parm.success;
+    }
+    else
+        FIXME("Recipients %08x not supported!\n", *recipients);
+
+    return ret;
+}
 
 /***********************************************************************
  *		SetMessageQueue (USER32.@)
@@ -3443,8 +3617,6 @@ BOOL WINAPI KillTimer( HWND hwnd, UINT_PTR id )
 {
     BOOL ret;
 
-    TRACE("%p %ld\n", hwnd, id );
-
     SERVER_START_REQ( kill_win_timer )
     {
         req->win = hwnd;
@@ -3463,8 +3635,6 @@ BOOL WINAPI KillTimer( HWND hwnd, UINT_PTR id )
 BOOL WINAPI KillSystemTimer( HWND hwnd, UINT_PTR id )
 {
     BOOL ret;
-
-    TRACE("%p %ld\n", hwnd, id );
 
     SERVER_START_REQ( kill_win_timer )
     {
@@ -3517,6 +3687,13 @@ BOOL WINAPI GetGUIThreadInfo( DWORD id, GUITHREADINFO *info )
  */
 BOOL WINAPI IsHungAppWindow( HWND hWnd )
 {
-    DWORD_PTR dwResult;
-    return !SendMessageTimeoutA(hWnd, WM_NULL, 0, 0, SMTO_ABORTIFHUNG, 5000, &dwResult);
+    BOOL ret;
+
+    SERVER_START_REQ( is_window_hung )
+    {
+        req->win = hWnd;
+        ret = !wine_server_call_err( req ) && reply->is_hung;
+    }
+    SERVER_END_REQ;
+    return ret;
 }

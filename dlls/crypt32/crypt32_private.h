@@ -67,22 +67,39 @@ BOOL WINAPI CRYPT_AsnEncodeConstructed(DWORD dwCertEncodingType,
 BOOL WINAPI CRYPT_AsnEncodeOid(DWORD dwCertEncodingType,
  LPCSTR lpszStructType, const void *pvStructInfo, DWORD dwFlags,
  PCRYPT_ENCODE_PARA pEncodePara, BYTE *pbEncoded, DWORD *pcbEncoded);
-BOOL WINAPI CRYPT_AsnEncodeInt(DWORD dwCertEncodingType,
- LPCSTR lpszStructType, const void *pvStructInfo, DWORD dwFlags,
- PCRYPT_ENCODE_PARA pEncodePara, BYTE *pbEncoded, DWORD *pcbEncoded);
-/* Like CRYPT_AsnEncodeAlgorithmId, but encodes parameters as an asn.1 NULL
- * if they are empty.
- */
-BOOL WINAPI CRYPT_AsnEncodeAlgorithmIdWithNullParams(DWORD dwCertEncodingType,
- LPCSTR lpszStructType, const void *pvStructInfo, DWORD dwFlags,
- PCRYPT_ENCODE_PARA pEncodePara, BYTE *pbEncoded, DWORD *pcbEncoded);
-/* Like CRYPT_AsnEncodePKCSContentInfo, but allows the OID to be NULL */
-BOOL WINAPI CRYPT_AsnEncodePKCSContentInfoInternal(DWORD dwCertEncodingType,
- LPCSTR lpszStructType, const void *pvStructInfo, DWORD dwFlags,
- PCRYPT_ENCODE_PARA pEncodePara, BYTE *pbEncoded, DWORD *pcbEncoded);
 BOOL WINAPI CRYPT_AsnEncodeOctets(DWORD dwCertEncodingType,
  LPCSTR lpszStructType, const void *pvStructInfo, DWORD dwFlags,
  PCRYPT_ENCODE_PARA pEncodePara, BYTE *pbEncoded, DWORD *pcbEncoded);
+
+typedef struct _CRYPT_DIGESTED_DATA
+{
+    DWORD                      version;
+    CRYPT_ALGORITHM_IDENTIFIER DigestAlgorithm;
+    CRYPT_CONTENT_INFO         ContentInfo;
+    CRYPT_HASH_BLOB            hash;
+} CRYPT_DIGESTED_DATA;
+
+BOOL CRYPT_AsnEncodePKCSDigestedData(CRYPT_DIGESTED_DATA *digestedData,
+ void *pvData, DWORD *pcbData);
+
+typedef struct _CRYPT_SIGNED_INFO
+{
+    DWORD              version;
+    DWORD              cCertEncoded;
+    PCERT_BLOB         rgCertEncoded;
+    DWORD              cCrlEncoded;
+    PCRL_BLOB          rgCrlEncoded;
+    CRYPT_CONTENT_INFO content;
+    DWORD              cSignerInfo;
+    PCMSG_SIGNER_INFO  rgSignerInfo;
+} CRYPT_SIGNED_INFO;
+
+BOOL CRYPT_AsnEncodePKCSSignedInfo(CRYPT_SIGNED_INFO *, void *pvData,
+ DWORD *pcbData);
+
+BOOL CRYPT_AsnDecodePKCSSignedInfo(const BYTE *pbEncoded, DWORD cbEncoded,
+ DWORD dwFlags, PCRYPT_DECODE_PARA pDecodePara,
+ CRYPT_SIGNED_INFO *signedInfo, DWORD *pcbSignedInfo);
 
 /* Helper function to check *pcbEncoded, set it to the required size, and
  * optionally to allocate memory.  Assumes pbEncoded is not NULL.
@@ -91,6 +108,10 @@ BOOL WINAPI CRYPT_AsnEncodeOctets(DWORD dwCertEncodingType,
  */
 BOOL CRYPT_EncodeEnsureSpace(DWORD dwFlags, PCRYPT_ENCODE_PARA pEncodePara,
  BYTE *pbEncoded, DWORD *pcbEncoded, DWORD bytesNeeded);
+
+BOOL CRYPT_AsnDecodePKCSDigestedData(const BYTE *pbEncoded, DWORD cbEncoded,
+ DWORD dwFlags, PCRYPT_DECODE_PARA pDecodePara,
+ CRYPT_DIGESTED_DATA *digestedData, DWORD *pcbDigestedData);
 
 /* The following aren't defined in wincrypt.h, as they're "reserved" */
 #define CERT_CERT_PROP_ID 32
@@ -105,6 +126,8 @@ HCRYPTPROV CRYPT_GetDefaultProvider(void);
 void crypt_oid_init(HINSTANCE hinst);
 void crypt_oid_free(void);
 void crypt_sip_free(void);
+void root_store_free(void);
+void default_chain_engine_free(void);
 
 /* Some typedefs that make it easier to abstract which type of context we're
  * working with.
@@ -150,6 +173,94 @@ extern PCWINE_CONTEXT_INTERFACE pCertInterface;
 extern PCWINE_CONTEXT_INTERFACE pCRLInterface;
 extern PCWINE_CONTEXT_INTERFACE pCTLInterface;
 
+/* (Internal) certificate store types and functions */
+struct WINE_CRYPTCERTSTORE;
+
+typedef struct WINE_CRYPTCERTSTORE * (*StoreOpenFunc)(HCRYPTPROV hCryptProv,
+ DWORD dwFlags, const void *pvPara);
+
+/* Called to enumerate the next context in a store. */
+typedef void * (*EnumFunc)(struct WINE_CRYPTCERTSTORE *store, void *pPrev);
+
+/* Called to add a context to a store.  If toReplace is not NULL,
+ * context replaces toReplace in the store, and access checks should not be
+ * performed.  Otherwise context is a new context, and it should only be
+ * added if the store allows it.  If ppStoreContext is not NULL, the added
+ * context should be returned in *ppStoreContext.
+ */
+typedef BOOL (*AddFunc)(struct WINE_CRYPTCERTSTORE *store, void *context,
+ void *toReplace, const void **ppStoreContext);
+
+typedef BOOL (*DeleteFunc)(struct WINE_CRYPTCERTSTORE *store, void *context);
+
+typedef struct _CONTEXT_FUNCS
+{
+    AddFunc    addContext;
+    EnumFunc   enumContext;
+    DeleteFunc deleteContext;
+} CONTEXT_FUNCS, *PCONTEXT_FUNCS;
+
+typedef enum _CertStoreType {
+    StoreTypeMem,
+    StoreTypeCollection,
+    StoreTypeProvider,
+} CertStoreType;
+
+struct _CONTEXT_PROPERTY_LIST;
+typedef struct _CONTEXT_PROPERTY_LIST *PCONTEXT_PROPERTY_LIST;
+
+#define WINE_CRYPTCERTSTORE_MAGIC 0x74726563
+
+/* A cert store is polymorphic through the use of function pointers.  A type
+ * is still needed to distinguish collection stores from other types.
+ * On the function pointers:
+ * - closeStore is called when the store's ref count becomes 0
+ * - control is optional, but should be implemented by any store that supports
+ *   persistence
+ */
+typedef struct WINE_CRYPTCERTSTORE
+{
+    DWORD                       dwMagic;
+    LONG                        ref;
+    DWORD                       dwOpenFlags;
+    CertStoreType               type;
+    PFN_CERT_STORE_PROV_CLOSE   closeStore;
+    CONTEXT_FUNCS               certs;
+    CONTEXT_FUNCS               crls;
+    PFN_CERT_STORE_PROV_CONTROL control; /* optional */
+    PCONTEXT_PROPERTY_LIST      properties;
+} WINECRYPT_CERTSTORE, *PWINECRYPT_CERTSTORE;
+
+void CRYPT_InitStore(WINECRYPT_CERTSTORE *store, DWORD dwFlags,
+ CertStoreType type);
+void CRYPT_FreeStore(PWINECRYPT_CERTSTORE store);
+BOOL WINAPI I_CertUpdateStore(HCERTSTORE store1, HCERTSTORE store2, DWORD unk0,
+ DWORD unk1);
+
+PWINECRYPT_CERTSTORE CRYPT_CollectionOpenStore(HCRYPTPROV hCryptProv,
+ DWORD dwFlags, const void *pvPara);
+PWINECRYPT_CERTSTORE CRYPT_ProvCreateStore(DWORD dwFlags,
+ PWINECRYPT_CERTSTORE memStore, const CERT_STORE_PROV_INFO *pProvInfo);
+PWINECRYPT_CERTSTORE CRYPT_ProvOpenStore(LPCSTR lpszStoreProvider,
+ DWORD dwEncodingType, HCRYPTPROV hCryptProv, DWORD dwFlags,
+ const void *pvPara);
+PWINECRYPT_CERTSTORE CRYPT_RegOpenStore(HCRYPTPROV hCryptProv, DWORD dwFlags,
+ const void *pvPara);
+PWINECRYPT_CERTSTORE CRYPT_FileOpenStore(HCRYPTPROV hCryptProv, DWORD dwFlags,
+ const void *pvPara);
+PWINECRYPT_CERTSTORE CRYPT_FileNameOpenStoreA(HCRYPTPROV hCryptProv,
+ DWORD dwFlags, const void *pvPara);
+PWINECRYPT_CERTSTORE CRYPT_FileNameOpenStoreW(HCRYPTPROV hCryptProv,
+ DWORD dwFlags, const void *pvPara);
+PWINECRYPT_CERTSTORE CRYPT_RootOpenStore(HCRYPTPROV hCryptProv, DWORD dwFlags);
+
+/* Allocates and initializes a certificate chain engine, but without creating
+ * the root store.  Instead, it uses root, and assumes the caller has done any
+ * checking necessary.
+ */
+HCERTCHAINENGINE CRYPT_CreateChainEngine(HCERTSTORE root,
+ PCERT_CHAIN_ENGINE_CONFIG pConfig);
+
 /* Helper function for store reading functions and
  * CertAddSerializedElementToStore.  Returns a context of the appropriate type
  * if it can, or NULL otherwise.  Doesn't validate any of the properties in
@@ -159,15 +270,12 @@ extern PCWINE_CONTEXT_INTERFACE pCTLInterface;
 const void *CRYPT_ReadSerializedElement(const BYTE *pbElement,
  DWORD cbElement, DWORD dwContextTypeFlags, DWORD *pdwContentType);
 
-/* Writes contexts from the memory store to the file. */
-BOOL CRYPT_WriteSerializedFile(HANDLE file, HCERTSTORE store);
-
 /* Reads contexts serialized in the file into the memory store.  Returns FALSE
  * if the file is not of the expected format.
  */
-BOOL CRYPT_ReadSerializedFile(HANDLE file, HCERTSTORE store);
+BOOL CRYPT_ReadSerializedStoreFromFile(HANDLE file, HCERTSTORE store);
 
-/* Fixes up the the pointers in info, where info is assumed to be a
+/* Fixes up the pointers in info, where info is assumed to be a
  * CRYPT_KEY_PROV_INFO, followed by its container name, provider name, and any
  * provider parameters, in a contiguous buffer, but where info's pointers are
  * assumed to be invalid.  Upon return, info's pointers point to the
@@ -206,13 +314,10 @@ void *Context_GetLinkedContext(void *context, size_t contextSize);
 void Context_CopyProperties(const void *to, const void *from,
  size_t contextSize);
 
-struct _CONTEXT_PROPERTY_LIST;
-typedef struct _CONTEXT_PROPERTY_LIST *PCONTEXT_PROPERTY_LIST;
-
 /* Returns context's properties, or the linked context's properties if context
  * is a link context.
  */
-PCONTEXT_PROPERTY_LIST Context_GetProperties(void *context, size_t contextSize);
+PCONTEXT_PROPERTY_LIST Context_GetProperties(const void *context, size_t contextSize);
 
 void Context_AddRef(void *context, size_t contextSize);
 

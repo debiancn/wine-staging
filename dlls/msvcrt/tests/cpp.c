@@ -187,7 +187,7 @@ static void InitFunctionPtrs(void)
   hMsvcrt = GetModuleHandleA("msvcrt.dll");
   if (!hMsvcrt)
     hMsvcrt = GetModuleHandleA("msvcrtd.dll");
-  ok(hMsvcrt != 0, "LoadLibraryA failed\n");
+  ok(hMsvcrt != 0, "GetModuleHandleA failed\n");
   if (hMsvcrt)
   {
     SETNOFAIL(poperator_new, "??_U@YAPAXI@Z");
@@ -873,7 +873,7 @@ static int strcmp_space(const char *s1, const char *s2)
 
 static void test_demangle(void)
 {
-    static struct {const char* in; const char* out;} test[] = {
+    static struct {const char* in; const char* out; unsigned int flags;} test[] = {
 {"??0bad_alloc@std@@QAE@ABV01@@Z", "public: __thiscall std::bad_alloc::bad_alloc(class std::bad_alloc const &)"},
 {"??0bad_alloc@std@@QAE@PBD@Z", "public: __thiscall std::bad_alloc::bad_alloc(char const *)"},
 {"??0bad_cast@@AAE@PBQBD@Z", "private: __thiscall bad_cast::bad_cast(char const * const *)"},
@@ -976,17 +976,30 @@ static void test_demangle(void)
 {"??2?$aaa@AAUbbb@@AAUccc@@AAU2@@ddd@1eee@2@QAEHXZ", "public: int __thiscall eee::eee::ddd::ddd::aaa<struct bbb &,struct ccc &,struct ccc &>::operator new(void)"},
 {"?pSW@@3P6GHKPAX0PAU_tagSTACKFRAME@@0P6GH0K0KPAK@ZP6GPAX0K@ZP6GK0K@ZP6GK00PAU_tagADDRESS@@@Z@ZA", "int (__stdcall* pSW)(unsigned long,void *,void *,struct _tagSTACKFRAME *,void *,int (__stdcall*)(void *,unsigned long,void *,unsigned long,unsigned long *),void * (__stdcall*)(void *,unsigned long),unsigned long (__stdcall*)(void *,unsigned long),unsigned long (__stdcall*)(void *,void *,struct _tagADDRESS *))"},
 {"?$_aaa@Vbbb@@", "_aaa<class bbb>"},
-{"??$_aaa@Vbbb@@", "??$_aaa@Vbbb@@"},
 {"?$aaa@Vbbb@ccc@@Vddd@2@", "aaa<class ccc::bbb,class ccc::ddd>"},
+{ "??0?$Foo@P6GHPAX0@Z@@QAE@PAD@Z", "public: __thiscall Foo<int (__stdcall*)(void *,void *)>::Foo<int (__stdcall*)(void *,void *)>(char *)"},
+{ "??0?$Foo@P6GHPAX0@Z@@QAE@PAD@Z", "__thiscall Foo<int (__stdcall*)(void *,void *)>::Foo<int (__stdcall*)(void *,void *)>(char *)", 0x880},
+{ "?Qux@Bar@@0PAP6AHPAV1@AAH1PAH@ZA", "private: static int (__cdecl** Bar::Qux)(class Bar *,int &,int &,int *)" },
+{ "?Qux@Bar@@0PAP6AHPAV1@AAH1PAH@ZA", "Bar::Qux", 0x1800},
+{"?$AAA@$DBAB@", "AAA<`template-parameter257'>"},
+{"?$AAA@?C@", "AAA<`template-parameter-2'>"},
+{"?$AAA@PAUBBB@@", "AAA<struct BBB *>"},
+{"??$ccccc@PAVaaa@@@bar@bb@foo@@DGPAV0@PAV0@PAVee@@IPAPAVaaa@@1@Z", "private: static class bar * __stdcall foo::bb::bar::ccccc<class aaa *>(class bar *,class ee *,unsigned int,class aaa * *,class ee *)"},
+{"?f@T@@QAEHQCY1BE@BO@D@Z", "public: int __thiscall T::f(char (volatile * const)[20][30])"},
+{"?f@T@@QAEHQAY2BE@BO@CI@D@Z", "public: int __thiscall T::f(char (* const)[20][30][40])"},
+{"?f@T@@QAEHQAY1BE@BO@$$CBD@Z", "public: int __thiscall T::f(char const (* const)[20][30])"},
+
     };
     int i, num_test = (sizeof(test)/sizeof(test[0]));
     char* name;
 
     for (i = 0; i < num_test; i++)
     {
-	name = p__unDName(0, test[i].in, 0, pmalloc, pfree, 0);
+	name = p__unDName(0, test[i].in, 0, pmalloc, pfree, test[i].flags);
         ok(name != NULL && !strcmp_space(test[i].out, name),
-                "Got name \"%s\" for %d\n", name, i);
+           "Got name \"%s\" for %d\n", name, i );
+        ok(name != NULL && !strcmp_space(test[i].out, name),
+           "Expected \"%s\"\n", test[i].out );
         pfree(name);
     }
 }
@@ -1003,8 +1016,5 @@ START_TEST(cpp)
   test_rtti();
   test_demangle_datatype();
   test_demangle();
-
-  if (hMsvcrt)
-    FreeLibrary(hMsvcrt);
 }
 #endif /* __i386__ */

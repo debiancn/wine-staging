@@ -23,9 +23,7 @@
 #define DS_TIME_RES 2  /* Resolution of multimedia timer */
 #define DS_TIME_DEL 10  /* Delay of multimedia timer callback, and duration of HEL fragment */
 
-#define DS_HEL_BUFLEN 0x8000 /* HEL: The buffer length of the emulated buffer */
-#define DS_HEL_FRAGS 0x10 /* HEL only: number of waveOut fragments in primary buffer
-			 * (changing this won't help you) */
+#include "wine/list.h"
 
 /* direct sound hardware acceleration levels */
 #define DS_HW_ACCEL_FULL        0	/* default on Windows 98 */
@@ -34,7 +32,10 @@
 #define DS_HW_ACCEL_EMULATION   3
 
 extern int ds_emuldriver;
+extern int ds_hel_buflen;
 extern int ds_snd_queue_max;
+extern int ds_snd_queue_min;
+extern int ds_snd_shadow_maxsize;
 extern int ds_hw_accel;
 extern int ds_default_playback;
 extern int ds_default_capture;
@@ -69,6 +70,14 @@ typedef struct SecondaryBufferImpl           SecondaryBufferImpl;
 typedef struct DirectSoundDevice             DirectSoundDevice;
 typedef struct DirectSoundCaptureDevice      DirectSoundCaptureDevice;
 
+/* dsound_convert.h */
+typedef void (*bitsconvertfunc)(const void *, void *);
+extern const bitsconvertfunc convertbpp[4][4];
+typedef void (*mixfunc)(const void *, void *, unsigned);
+extern const mixfunc mixfunctions[4];
+typedef void (*normfunc)(const void *, void *, unsigned);
+extern const normfunc normfunctions[4];
+
 /*****************************************************************************
  * IDirectSoundDevice implementation structure
  */
@@ -83,8 +92,8 @@ struct DirectSoundDevice
     DWORD                       priolevel;
     PWAVEFORMATEX               pwfx;
     HWAVEOUT                    hwo;
-    LPWAVEHDR                   pwave[DS_HEL_FRAGS];
-    UINT                        timerID, pwplay, pwwrite, pwqueue, prebuf, precount;
+    LPWAVEHDR                   pwave;
+    UINT                        timerID, pwplay, pwqueue, prebuf, helfrags;
     DWORD                       fraglen;
     PIDSDRIVERBUFFER            hwbuf;
     LPBYTE                      buffer;
@@ -96,8 +105,11 @@ struct DirectSoundDevice
     PrimaryBufferImpl*          primary;
     DSBUFFERDESC                dsbd;
     DWORD                       speaker_config;
-    LPBYTE                      tmp_buffer;
-    DWORD                       tmp_buffer_len;
+    LPBYTE                      tmp_buffer, mix_buffer;
+    DWORD                       tmp_buffer_len, mix_buffer_len;
+
+    mixfunc mixfunction;
+    normfunc normfunction;
 
     /* DirectSound3DListener fields */
     IDirectSound3DListenerImpl*	listener;
@@ -110,6 +122,7 @@ typedef struct BufferMemory
 {
     LONG                        ref;
     LPBYTE                      memory;
+    struct list buffers;
 } BufferMemory;
 
 ULONG DirectSoundDevice_Release(DirectSoundDevice * device);
@@ -157,20 +170,21 @@ struct IDirectSoundBufferImpl
     /* IDirectSoundBufferImpl fields */
     SecondaryBufferImpl*        secondary;
     DirectSoundDevice*          device;
-    CRITICAL_SECTION            lock;
+    RTL_RWLOCK                  lock;
     PIDSDRIVERBUFFER            hwbuf;
     PWAVEFORMATEX               pwfx;
     BufferMemory*               buffer;
+    LPBYTE                      tmp_buffer;
     DWORD                       playflags,state,leadin;
-    DWORD                       startpos,writelead,buflen;
+    DWORD                       writelead,buflen;
     DWORD                       nAvgBytesPerSec;
-    DWORD                       freq;
+    DWORD                       freq, tmp_buffer_len, max_buffer_len;
     DSVOLUMEPAN                 volpan;
     DSBUFFERDESC                dsbd;
     /* used for frequency conversion (PerfectPitch) */
-    ULONG                       freqAdjust, freqAcc;
-    /* used for intelligent (well, sort of) prebuffering */
-    DWORD                       primary_mixpos, buf_mixpos;
+    ULONG                       freqneeded, freqAdjust, freqAcc, freqAccNext, resampleinmixer;
+    /* used for mixing */
+    DWORD                       primary_mixpos, buf_mixpos, sec_mixpos;
 
     /* IDirectSoundNotifyImpl fields */
     IDirectSoundNotifyImpl*     notify;
@@ -186,6 +200,8 @@ struct IDirectSoundBufferImpl
 
     /* IKsPropertySet fields */
     IKsBufferPropertySetImpl*   iks;
+    bitsconvertfunc convert;
+    struct list entry;
 };
 
 HRESULT IDirectSoundBufferImpl_Create(
@@ -249,7 +265,6 @@ struct DirectSoundCaptureDevice
     /* more stuff */
     LPBYTE                             buffer;
     DWORD                              buflen;
-    DWORD                              read_position;
 
     PWAVEFORMATEX                      pwfx;
 
@@ -416,23 +431,28 @@ HRESULT DSOUND_Create8(REFIID riid, LPDIRECTSOUND8 *ppDS);
 
 /* primary.c */
 
+DWORD DSOUND_fraglen(DWORD nSamplesPerSec, DWORD nBlockAlign);
 HRESULT DSOUND_PrimaryCreate(DirectSoundDevice *device);
 HRESULT DSOUND_PrimaryDestroy(DirectSoundDevice *device);
 HRESULT DSOUND_PrimaryPlay(DirectSoundDevice *device);
 HRESULT DSOUND_PrimaryStop(DirectSoundDevice *device);
 HRESULT DSOUND_PrimaryGetPosition(DirectSoundDevice *device, LPDWORD playpos, LPDWORD writepos);
-HRESULT DSOUND_PrimarySetFormat(DirectSoundDevice *device, LPCWAVEFORMATEX wfex);
+HRESULT DSOUND_PrimarySetFormat(DirectSoundDevice *device, LPCWAVEFORMATEX wfex, BOOL forced);
+HRESULT DSOUND_ReopenDevice(DirectSoundDevice *device, BOOL forcewave);
 
 /* duplex.c */
  
 HRESULT DSOUND_FullDuplexCreate(REFIID riid, LPDIRECTSOUNDFULLDUPLEX* ppDSFD);
 
 /* mixer.c */
-
-void DSOUND_CheckEvent(IDirectSoundBufferImpl *dsb, DWORD playpos, int len);
+DWORD DSOUND_bufpos_to_mixpos(const DirectSoundDevice* device, DWORD pos);
+void DSOUND_CheckEvent(const IDirectSoundBufferImpl *dsb, DWORD playpos, int len);
 void DSOUND_RecalcVolPan(PDSVOLUMEPAN volpan);
 void DSOUND_AmpFactorToVolPan(PDSVOLUMEPAN volpan);
 void DSOUND_RecalcFormat(IDirectSoundBufferImpl *dsb);
+void DSOUND_MixToTemporary(const IDirectSoundBufferImpl *dsb, DWORD writepos, DWORD mixlen, BOOL inmixer);
+DWORD DSOUND_secpos_to_bufpos(const IDirectSoundBufferImpl *dsb, DWORD secpos, DWORD secmixpos, DWORD* overshot);
+
 void CALLBACK DSOUND_timer(UINT timerID, UINT msg, DWORD_PTR dwUser, DWORD_PTR dw1, DWORD_PTR dw2);
 void CALLBACK DSOUND_callback(HWAVEOUT hwo, UINT msg, DWORD dwUser, DWORD dw1, DWORD dw2);
 
@@ -462,7 +482,7 @@ HRESULT WINAPI IDirectSoundCaptureImpl_Initialize(
 #define STATE_CAPTURING 2
 #define STATE_STOPPING  3
 
-#define DSOUND_FREQSHIFT (14)
+#define DSOUND_FREQSHIFT (20)
 
 extern DirectSoundDevice* DSOUND_renderer[MAXWAVEDRIVERS];
 extern GUID DSOUND_renderer_guids[MAXWAVEDRIVERS];

@@ -134,7 +134,7 @@ static void update_empty_exe( void )
     CloseHandle( test );
 
     r = EndUpdateResource( res, FALSE );
-    ok( r == FALSE, "EndUpdateResouce failed\n");
+    ok( r == FALSE, "EndUpdateResource failed\n");
 
     res = BeginUpdateResource( filename, FALSE );
     ok( res == NULL, "BeginUpdateResource failed\n");
@@ -149,7 +149,7 @@ static void update_resources_none( void )
     ok( res != NULL, "BeginUpdateResource failed\n");
 
     r = EndUpdateResource( res, FALSE );
-    ok( r, "EndUpdateResouce failed\n");
+    ok( r, "EndUpdateResource failed\n");
 }
 
 static void update_resources_delete( void )
@@ -161,7 +161,7 @@ static void update_resources_delete( void )
     ok( res != NULL, "BeginUpdateResource failed\n");
 
     r = EndUpdateResource( res, FALSE );
-    ok( r, "EndUpdateResouce failed\n");
+    ok( r, "EndUpdateResource failed\n");
 }
 
 static void update_resources_version(void)
@@ -178,17 +178,17 @@ static void update_resources_version(void)
                         MAKEINTRESOURCE(0x4567),
                         0xabcd,
                         NULL, 0 );
-    ok( r == FALSE, "UpdateResouce failed\n");
+    ok( r == FALSE, "UpdateResource failed\n");
 
     r = UpdateResource( res,
                         MAKEINTRESOURCE(0x1230),
                         MAKEINTRESOURCE(0x4567),
                         0xabcd,
                         foo, sizeof foo );
-    ok( r == TRUE, "UpdateResouce failed\n");
+    ok( r == TRUE, "UpdateResource failed\n");
 
     r = EndUpdateResource( res, FALSE );
-    ok( r, "EndUpdateResouce failed\n");
+    ok( r, "EndUpdateResource failed\n");
 }
 
 
@@ -263,6 +263,42 @@ end:
     CloseHandle( file );
 }
 
+static void test_find_resource(void)
+{
+    HRSRC rsrc;
+
+    rsrc = FindResourceW( GetModuleHandle(0), (LPCWSTR)MAKEINTRESOURCE(1), (LPCWSTR)RT_MENU );
+    ok( rsrc != 0, "resource not found\n" );
+    rsrc = FindResourceExW( GetModuleHandle(0), (LPCWSTR)RT_MENU, (LPCWSTR)MAKEINTRESOURCE(1),
+                            MAKELANGID( LANG_NEUTRAL, SUBLANG_NEUTRAL ));
+    ok( rsrc != 0, "resource not found\n" );
+    rsrc = FindResourceExW( GetModuleHandle(0), (LPCWSTR)RT_MENU, (LPCWSTR)MAKEINTRESOURCE(1),
+                            MAKELANGID( LANG_GERMAN, SUBLANG_DEFAULT ));
+    ok( rsrc != 0, "resource not found\n" );
+
+    SetLastError( 0xdeadbeef );
+    rsrc = FindResourceW( GetModuleHandle(0), (LPCWSTR)MAKEINTRESOURCE(1), (LPCWSTR)RT_DIALOG );
+    ok( !rsrc, "resource found\n" );
+    ok( GetLastError() == ERROR_RESOURCE_TYPE_NOT_FOUND, "wrong error %u\n", GetLastError() );
+
+    SetLastError( 0xdeadbeef );
+    rsrc = FindResourceW( GetModuleHandle(0), (LPCWSTR)MAKEINTRESOURCE(2), (LPCWSTR)RT_MENU );
+    ok( !rsrc, "resource found\n" );
+    ok( GetLastError() == ERROR_RESOURCE_NAME_NOT_FOUND, "wrong error %u\n", GetLastError() );
+
+    SetLastError( 0xdeadbeef );
+    rsrc = FindResourceExW( GetModuleHandle(0), (LPCWSTR)RT_MENU, (LPCWSTR)MAKEINTRESOURCE(1),
+                            MAKELANGID( LANG_ENGLISH, SUBLANG_DEFAULT ) );
+    ok( !rsrc, "resource found\n" );
+    ok( GetLastError() == ERROR_RESOURCE_LANG_NOT_FOUND, "wrong error %u\n", GetLastError() );
+
+    SetLastError( 0xdeadbeef );
+    rsrc = FindResourceExW( GetModuleHandle(0), (LPCWSTR)RT_MENU, (LPCWSTR)MAKEINTRESOURCE(1),
+                            MAKELANGID( LANG_FRENCH, SUBLANG_DEFAULT ) );
+    ok( !rsrc, "resource found\n" );
+    ok( GetLastError() == ERROR_RESOURCE_LANG_NOT_FOUND, "wrong error %u\n", GetLastError() );
+}
+
 START_TEST(resource)
 {
     DeleteFile( filename );
@@ -283,4 +319,5 @@ START_TEST(resource)
     update_resources_version();
     check_exe( check_not_empty );
     DeleteFile( filename );
+    test_find_resource();
 }

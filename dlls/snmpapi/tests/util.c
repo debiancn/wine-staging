@@ -23,6 +23,32 @@
 #include <windef.h>
 #include <snmp.h>
 
+static INT  (WINAPI *pSnmpUtilAsnAnyCpy)(AsnAny*, AsnAny*);
+static VOID (WINAPI *pSnmpUtilAsnAnyFree)(AsnAny*);
+static INT  (WINAPI *pSnmpUtilOctetsCmp)(AsnOctetString*, AsnOctetString*);
+static INT  (WINAPI *pSnmpUtilOctetsCpy)(AsnOctetString*, AsnOctetString*);
+static VOID (WINAPI *pSnmpUtilOctetsFree)(AsnOctetString*);
+static INT  (WINAPI *pSnmpUtilOctetsNCmp)(AsnOctetString*, AsnOctetString*, UINT);
+
+static void InitFunctionPtrs(void)
+{
+    HMODULE hSnmpapi = GetModuleHandle("snmpapi.dll");
+
+#define SNMPAPI_GET_PROC(func) \
+    p ## func = (void*)GetProcAddress(hSnmpapi, #func); \
+    if(!p ## func) \
+      trace("GetProcAddress(%s) failed\n", #func);
+
+    SNMPAPI_GET_PROC(SnmpUtilAsnAnyCpy)
+    SNMPAPI_GET_PROC(SnmpUtilAsnAnyFree)
+    SNMPAPI_GET_PROC(SnmpUtilOctetsCmp)
+    SNMPAPI_GET_PROC(SnmpUtilOctetsCpy)
+    SNMPAPI_GET_PROC(SnmpUtilOctetsFree)
+    SNMPAPI_GET_PROC(SnmpUtilOctetsNCmp)
+
+#undef SNMPAPI_GET_PROC
+}
+
 static void test_SnmpUtilOidToA(void)
 {
     LPSTR ret;
@@ -108,24 +134,24 @@ static void test_SnmpUtilAsnAnyCpyFree(void)
     static AsnAny dst, src = { ASN_INTEGER, { 1 } };
 
     if (0) { /* these crash on XP */
-    ret = SnmpUtilAsnAnyCpy(NULL, NULL);
+    ret = pSnmpUtilAsnAnyCpy(NULL, NULL);
     ok(!ret, "SnmpUtilAsnAnyCpy succeeded\n");
 
-    ret = SnmpUtilAsnAnyCpy(&dst, NULL);
+    ret = pSnmpUtilAsnAnyCpy(&dst, NULL);
     ok(!ret, "SnmpUtilAsnAnyCpy succeeded\n");
 
-    ret = SnmpUtilAsnAnyCpy(NULL, &src);
+    ret = pSnmpUtilAsnAnyCpy(NULL, &src);
     ok(!ret, "SnmpUtilAsnAnyCpy succeeded\n");
     }
 
-    ret = SnmpUtilAsnAnyCpy(&dst, &src);
+    ret = pSnmpUtilAsnAnyCpy(&dst, &src);
     ok(ret, "SnmpUtilAsnAnyCpy failed\n");
     ok(!memcmp(&src, &dst, sizeof(AsnAny)), "SnmpUtilAsnAnyCpy failed\n");
 
     if (0) { /* crashes on XP */
-    SnmpUtilAsnAnyFree(NULL);
+    pSnmpUtilAsnAnyFree(NULL);
     }
-    SnmpUtilAsnAnyFree(&dst);
+    pSnmpUtilAsnAnyFree(&dst);
     ok(dst.asnType == ASN_NULL, "SnmpUtilAsnAnyFree failed\n");
     ok(dst.asnValue.number == 1, "SnmpUtilAsnAnyFree failed\n");
 }
@@ -136,28 +162,28 @@ static void test_SnmpUtilOctetsCpyFree(void)
     static BYTE stream[] = { '1', '2', '3', '4' };
     static AsnOctetString dst, src = { stream, 4, TRUE };
 
-    ret = SnmpUtilOctetsCpy(NULL, NULL);
+    ret = pSnmpUtilOctetsCpy(NULL, NULL);
     ok(!ret, "SnmpUtilOctetsCpy succeeded\n");
 
     memset(&dst, 1, sizeof(AsnOctetString));
-    ret = SnmpUtilOctetsCpy(&dst, NULL);
+    ret = pSnmpUtilOctetsCpy(&dst, NULL);
     ok(ret, "SnmpUtilOctetsCpy failed\n");
     ok(dst.length == 0, "SnmpUtilOctetsCpy failed\n");
     ok(dst.stream == NULL, "SnmpUtilOctetsCpy failed\n");
     ok(dst.dynamic == FALSE, "SnmpUtilOctetsCpy failed\n");
 
-    ret = SnmpUtilOctetsCpy(NULL, &src);
+    ret = pSnmpUtilOctetsCpy(NULL, &src);
     ok(!ret, "SnmpUtilOctetsCpy succeeded\n");
 
     memset(&dst, 0, sizeof(AsnOctetString));
-    ret = SnmpUtilOctetsCpy(&dst, &src);
+    ret = pSnmpUtilOctetsCpy(&dst, &src);
     ok(ret, "SnmpUtilOctetsCpy failed\n");
     ok(src.length == dst.length, "SnmpUtilOctetsCpy failed\n");
     ok(!memcmp(src.stream, dst.stream, dst.length), "SnmpUtilOctetsCpy failed\n");
     ok(dst.dynamic == TRUE, "SnmpUtilOctetsCpy failed\n");
 
-    SnmpUtilOctetsFree(NULL);
-    SnmpUtilOctetsFree(&dst);
+    pSnmpUtilOctetsFree(NULL);
+    pSnmpUtilOctetsFree(&dst);
     ok(dst.stream == NULL, "SnmpUtilOctetsFree failed\n");
     ok(dst.length == 0, "SnmpUtilOctetsFree failed\n");
     ok(dst.dynamic == FALSE, "SnmpUtilOctetsFree failed\n");
@@ -201,34 +227,34 @@ static void test_SnmpUtilOctetsNCmp(void)
     static AsnOctetString octets1 = { stream1, 4, FALSE };
     static AsnOctetString octets2 = { stream2, 4, FALSE };
 
-    ret = SnmpUtilOctetsNCmp(NULL, NULL, 0);
+    ret = pSnmpUtilOctetsNCmp(NULL, NULL, 0);
     ok(!ret, "SnmpUtilOctetsNCmp succeeded\n");
 
-    ret = SnmpUtilOctetsNCmp(NULL, NULL, 1);
+    ret = pSnmpUtilOctetsNCmp(NULL, NULL, 1);
     ok(!ret, "SnmpUtilOctetsNCmp succeeded\n");
 
-    ret = SnmpUtilOctetsNCmp(&octets1, NULL, 0);
+    ret = pSnmpUtilOctetsNCmp(&octets1, NULL, 0);
     ok(!ret, "SnmpUtilOctetsNCmp succeeded\n");
 
-    ret = SnmpUtilOctetsNCmp(&octets1, NULL, 1);
+    ret = pSnmpUtilOctetsNCmp(&octets1, NULL, 1);
     ok(!ret, "SnmpUtilOctetsNCmp succeeded\n");
 
-    ret = SnmpUtilOctetsNCmp(NULL, &octets2, 0);
+    ret = pSnmpUtilOctetsNCmp(NULL, &octets2, 0);
     ok(!ret, "SnmpUtilOctetsNCmp succeeded\n");
 
-    ret = SnmpUtilOctetsNCmp(NULL, &octets2, 1);
+    ret = pSnmpUtilOctetsNCmp(NULL, &octets2, 1);
     ok(!ret, "SnmpUtilOctetsNCmp succeeded\n");
 
-    ret = SnmpUtilOctetsNCmp(&octets1, &octets1, 0);
+    ret = pSnmpUtilOctetsNCmp(&octets1, &octets1, 0);
     ok(!ret, "SnmpUtilOctetsNCmp failed\n");
 
-    ret = SnmpUtilOctetsNCmp(&octets1, &octets1, 4);
+    ret = pSnmpUtilOctetsNCmp(&octets1, &octets1, 4);
     ok(!ret, "SnmpUtilOctetsNCmp failed\n");
 
-    ret = SnmpUtilOctetsNCmp(&octets1, &octets2, 4);
+    ret = pSnmpUtilOctetsNCmp(&octets1, &octets2, 4);
     ok(ret == -4, "SnmpUtilOctetsNCmp failed\n");
 
-    ret = SnmpUtilOctetsNCmp(&octets2, &octets1, 4);
+    ret = pSnmpUtilOctetsNCmp(&octets2, &octets1, 4);
     ok(ret == 4, "SnmpUtilOctetsNCmp failed\n");
 }
 
@@ -241,20 +267,20 @@ static void test_SnmpUtilOctetsCmp(void)
     static AsnOctetString octets2 = { stream2, 4, FALSE };
 
     if (0) { /* these crash on XP */
-    ret = SnmpUtilOctetsCmp(NULL, NULL);
+    ret = pSnmpUtilOctetsCmp(NULL, NULL);
     ok(!ret, "SnmpUtilOctetsCmp succeeded\n");
 
-    ret = SnmpUtilOctetsCmp(&octets1, NULL);
+    ret = pSnmpUtilOctetsCmp(&octets1, NULL);
     ok(!ret, "SnmpUtilOctetsCmp succeeded\n");
 
-    ret = SnmpUtilOctetsCmp(NULL, &octets2);
+    ret = pSnmpUtilOctetsCmp(NULL, &octets2);
     ok(!ret, "SnmpUtilOctetsCmp succeeded\n");
     }
 
-    ret = SnmpUtilOctetsCmp(&octets2, &octets1);
+    ret = pSnmpUtilOctetsCmp(&octets2, &octets1);
     ok(ret == 1, "SnmpUtilOctetsCmp failed\n");
 
-    ret = SnmpUtilOctetsCmp(&octets1, &octets2);
+    ret = pSnmpUtilOctetsCmp(&octets1, &octets2);
     ok(ret == -1, "SnmpUtilOctetsCmp failed\n");
 }
 
@@ -326,10 +352,18 @@ static void test_SnmpUtilOidCmp(void)
 static void test_SnmpUtilOidAppend(void)
 {
     INT ret;
-    static UINT ids1[] = { 1, 2, 3 };
+    UINT *ids1;
     static UINT ids2[] = { 4, 5, 6 };
-    static AsnObjectIdentifier oid1 = { 3, ids1 };
+    static AsnObjectIdentifier oid1;
     static AsnObjectIdentifier oid2 = { 3, ids2 };
+
+    ids1 = HeapAlloc(GetProcessHeap(), 0, 3 * sizeof(UINT));
+    ids1[0] = 1;
+    ids1[1] = 2;
+    ids1[2] = 3;
+
+    oid1.idLength = 3;
+    oid1.ids = ids1;
 
     ret = SnmpUtilOidAppend(NULL, NULL);
     ok(!ret, "SnmpUtilOidAppend succeeded\n");
@@ -345,6 +379,8 @@ static void test_SnmpUtilOidAppend(void)
     ok(oid1.idLength == 6, "SnmpUtilOidAppend failed\n");
     ok(!memcmp(&oid1.ids[3], ids2, 3 * sizeof(UINT)),
        "SnmpUtilOidAppend failed\n");
+
+    HeapFree(GetProcessHeap(), 0, ids1);
 }
 
 static void test_SnmpUtilVarBindCpyFree(void)
@@ -426,12 +462,32 @@ static void test_SnmpUtilVarBindListCpyFree(void)
 
 START_TEST(util)
 {
+    InitFunctionPtrs();
+
     test_SnmpUtilOidToA();
-    test_SnmpUtilAsnAnyCpyFree();
-    test_SnmpUtilOctetsCpyFree();
+
+    if (!pSnmpUtilAsnAnyCpy || !pSnmpUtilAsnAnyFree)
+        skip("SnmpUtilAsnAnyCpy and/or SnmpUtilAsnAnyFree not available\n");
+    else
+        test_SnmpUtilAsnAnyCpyFree();
+
+    if (!pSnmpUtilOctetsCpy || !pSnmpUtilOctetsFree)
+        skip("SnmpUtilOctetsCpy and/or SnmpUtilOctetsFree not available\n");
+    else
+        test_SnmpUtilOctetsCpyFree();
+
     test_SnmpUtilOidCpyFree();
-    test_SnmpUtilOctetsNCmp();
-    test_SnmpUtilOctetsCmp();
+
+    if (!pSnmpUtilOctetsNCmp)
+        skip("SnmpUtilOctetsNCmp not available\n");
+    else
+        test_SnmpUtilOctetsNCmp();
+
+    if (!pSnmpUtilOctetsCmp)
+        skip("SnmpUtilOctetsCmp not available\n");
+    else
+        test_SnmpUtilOctetsCmp();
+
     test_SnmpUtilOidCmp();
     test_SnmpUtilOidNCmp();
     test_SnmpUtilOidAppend();

@@ -326,7 +326,7 @@ static	LRESULT ADPCM_DriverDetails(PACMDRIVERDETAILSW add)
     add->cFormatTags = 2; /* PCM, MS ADPCM */
     add->cFilterTags = 0;
     add->hicon = NULL;
-    MultiByteToWideChar( CP_ACP, 0, "WINE-MS ADPCM", -1,
+    MultiByteToWideChar( CP_ACP, 0, "MS-ADPCM", -1,
                          add->szShortName, sizeof(add->szShortName)/sizeof(WCHAR) );
     MultiByteToWideChar( CP_ACP, 0, "Wine MS ADPCM converter", -1,
                          add->szLongName, sizeof(add->szLongName)/sizeof(WCHAR) );
@@ -548,7 +548,7 @@ static	LRESULT	ADPCM_StreamOpen(PACMDRVSTREAMINSTANCE adsi)
 
             /* we check that in a block, after the header, samples are present on
              * 4-sample packet pattern
-             * we also check that the block alignement is bigger than the expected size
+             * we also check that the block alignment is bigger than the expected size
              */
             if (((nspb - 1) & 3) != 0) goto theEnd;
             if ((((nspb - 1) / 2) + 4) * adsi->pwfxSrc->nChannels < adsi->pwfxSrc->nBlockAlign)
@@ -575,7 +575,7 @@ static	LRESULT	ADPCM_StreamOpen(PACMDRVSTREAMINSTANCE adsi)
 
         /* we check that in a block, after the header, samples are present on
          * 4-sample packet pattern
-         * we also check that the block alignement is bigger than the expected size
+         * we also check that the block alignment is bigger than the expected size
          */
         if (((nspb - 1) & 3) != 0) goto theEnd;
         if ((((nspb - 1) / 2) + 4) * adsi->pwfxDst->nChannels < adsi->pwfxDst->nBlockAlign)

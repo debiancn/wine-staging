@@ -5,7 +5,7 @@
  * Copyright 2000 Martin Fuchs
  * Copyright 2002 Steven Edwards
  * Copyright 2002 Alexandre Julliard
- * Copyright 2005 YunSong Hwang
+ * Copyright 2005,2007 YunSong Hwang
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -142,9 +142,6 @@ IDM_WINEFILE MENU FIXED IMPURE
         MENUITEM "도움말 사용법(&U)\tF1",             ID_HELP_USING
         MENUITEM SEPARATOR
         MENUITEM "Winefile 관련 정보(&I)...",     ID_ABOUT
-#ifdef __WINE__
-        MENUITEM "&Wine 관련 정보...",         ID_ABOUT_WINE
-#endif
     }
 }
 
@@ -193,7 +190,7 @@ BEGIN
     CONTROL         "다른 파일(&O)",IDC_VIEW_TYPE_OTHERS,"Button",
                     BS_AUTOCHECKBOX | WS_TABSTOP,13,65,70,10
     CONTROL         "숨김/시스템 파일 보여주기(&S)",IDC_VIEW_TYPE_HIDDEN,
-                    "버튼",BS_AUTOCHECKBOX | WS_TABSTOP,7,81,106,9
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,81,106,9
     DEFPUSHBUTTON   "확인",IDOK,104,7,50,14
     PUSHBUTTON      "취소",IDCANCEL,104,24,50,14
 END
@@ -206,6 +203,7 @@ BEGIN
     DEFPUSHBUTTON   "확인",IDOK,191,7,50,14
     PUSHBUTTON      "취소",IDCANCEL,191,29,50,14
     LTEXT           "파일 이름(&F):",-1,7,7,59,9
+
     EDITTEXT        IDC_STATIC_PROP_FILENAME,71,7,120,9,ES_READONLY | NOT WS_BORDER | WS_TABSTOP
     LTEXT           "완전한 경로(&P):",-1,7,18,59,9
     EDITTEXT        IDC_STATIC_PROP_PATH,71,18,120,9, ES_READONLY | NOT WS_BORDER | WS_TABSTOP
@@ -244,8 +242,7 @@ STRINGTABLE
     IDS_DESKTOP             "데스크탑"
     IDS_SHELL               "셀"
     IDS_TITLEFMT            "%s - %s"
-    IDS_NO_IMPL             "미구현"
-    IDS_WINE                "WINE"
+    IDS_NO_IMPL             "아직 구현안됨"
     IDS_WINE_FILE           "Wine 파일"
 }
 
@@ -262,29 +259,4 @@ STRINGTABLE
     IDS_COL_SEC             "보안"
 
     IDS_FREE_SPACE_FMT      "%s of %s 사용가능"
-}
-
-
-STRINGTABLE
-{
-IDS_LICENSE_CAPTION,            "라이센"
-IDS_LICENSE,
-"This library is free software; you can redistribute it and/or \
-modify it under the terms of the GNU Lesser General Public \
-License as published by the Free Software Foundation; either \
-version 2.1 of the License, or (at your option) any later version.\n\
-This library is distributed in the hope that it will be useful, \
-but WITHOUT ANY WARRANTY; without even the implied warranty of \
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU \
-Lesser General Public License for more details.\n\
-You should have received a copy of the GNU Lesser General Public \
-License along with this library; if not, write to the Free Software \
-Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA"
-
-IDS_WARRANTY_CAPTION, "보증 없음"
-IDS_WARRANTY,
-"This library is distributed in the hope that it will be useful, \
-but WITHOUT ANY WARRANTY; without even the implied warranty of \
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU \
-Lesser General Public License for more details."
 }

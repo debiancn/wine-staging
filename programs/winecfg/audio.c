@@ -82,12 +82,12 @@ static const char* DSound_Bits[] = {
 
 static const AUDIO_DRIVER sAudioDrivers[] = {
   {IDS_DRIVER_ALSA,      "alsa"},
-  {IDS_DRIVER_ESOUND,    "esd"},
   {IDS_DRIVER_OSS,       "oss"},
+  {IDS_DRIVER_COREAUDIO, "coreaudio"},
   {IDS_DRIVER_JACK,      "jack"},
   {IDS_DRIVER_NAS,       "nas"},
+  {IDS_DRIVER_ESOUND,    "esd"},
   {IDS_DRIVER_AUDIOIO,   "audioio"},
-  {IDS_DRIVER_COREAUDIO, "coreaudio"},
   {0, ""}
 };
 
@@ -541,10 +541,8 @@ static void findAudioDrivers(void)
     if (numFound) {
         loadedAudioDrv = HeapReAlloc(GetProcessHeap(), 0, loadedAudioDrv, (numFound + 1) * sizeof(AUDIO_DRIVER));
         CopyMemory(&loadedAudioDrv[numFound], pAudioDrv, sizeof(AUDIO_DRIVER));
-    } else {
-        loadedAudioDrv = HeapAlloc(GetProcessHeap(), 0, sizeof(AUDIO_DRIVER));
-        ZeroMemory(&loadedAudioDrv[0], sizeof(AUDIO_DRIVER));
-    }
+    } else
+        loadedAudioDrv = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(AUDIO_DRIVER));
 }
 
 /* check local copy of registry string for unloadable drivers */
@@ -623,41 +621,13 @@ static void initAudioDlg (HWND hDlg)
     buf = get_reg_key(config_key, "Drivers", "Audio", NULL);
 
     /* check for first time install and set a default driver
-     * select in this order: oss, alsa, first available driver, none
+     * select first available driver, and if that fails: none
      */
     if (buf == NULL)
     {
-        const AUDIO_DRIVER *pAudioDrv = NULL;
-
-        /* select oss if available */
-        for (pAudioDrv = loadedAudioDrv; pAudioDrv->nameID; pAudioDrv++)
-        {
-            if (strcmp(pAudioDrv->szDriver, "oss") == 0)
-            {
-                selectDriver(hDlg, "oss");
-                break;
-            }
-        }
-
-        if (strlen(curAudioDriver) == 0)
-        {
-            /* select alsa if available */
-            for (pAudioDrv = loadedAudioDrv; pAudioDrv->nameID; pAudioDrv++)
-            {
-                if (strcmp(pAudioDrv->szDriver, "alsa") == 0)
-                {
-                    selectDriver(hDlg, "alsa");
-                    break;
-                }
-            }
-        }
-
-        if (strlen(curAudioDriver) == 0)
-        {
-            /* select first available driver */
-            if (*loadedAudioDrv->szDriver)
-                selectDriver(hDlg, loadedAudioDrv->szDriver);
-        }
+        /* select first available driver */
+        if (*loadedAudioDrv->szDriver)
+            selectDriver(hDlg, loadedAudioDrv->szDriver);
     }
     else /* make a local copy of the current registry setting */
         strcpy(curAudioDriver, buf);
@@ -692,7 +662,7 @@ static void initAudioDlg (HWND hDlg)
     for (i = 0; NULL != DSound_Rates[i]; ++i) {
       SendDlgItemMessage(hDlg, IDC_DSOUND_RATES, CB_ADDSTRING, 0, (LPARAM) DSound_Rates[i]);
     }
-    buf = get_reg_key(config_key, keypath("DirectSound"), "DefaultSampleRate", "22050");
+    buf = get_reg_key(config_key, keypath("DirectSound"), "DefaultSampleRate", "44100");
     for (i = 0; NULL != DSound_Rates[i]; ++i) {
       if (strcmp(buf, DSound_Rates[i]) == 0) {
 	SendDlgItemMessage(hDlg, IDC_DSOUND_RATES, CB_SETCURSEL, i, 0);
@@ -704,7 +674,7 @@ static void initAudioDlg (HWND hDlg)
     for (i = 0; NULL != DSound_Bits[i]; ++i) {
       SendDlgItemMessage(hDlg, IDC_DSOUND_BITS, CB_ADDSTRING, 0, (LPARAM) DSound_Bits[i]);
     }
-    buf = get_reg_key(config_key, keypath("DirectSound"), "DefaultBitsPerSample", "8");
+    buf = get_reg_key(config_key, keypath("DirectSound"), "DefaultBitsPerSample", "16");
     for (i = 0; NULL != DSound_Bits[i]; ++i) {
       if (strcmp(buf, DSound_Bits[i]) == 0) {
 	SendDlgItemMessage(hDlg, IDC_DSOUND_BITS, CB_SETCURSEL, i, 0);
@@ -730,7 +700,8 @@ AudioDlgProc (HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 	     configureAudioDriver(hDlg);
 	     break;
           case IDC_AUDIO_TEST:
-             MessageBox(NULL, "Audio Test not implemented yet!", "Fixme", MB_OK | MB_ICONERROR);
+	     if(!PlaySound(MAKEINTRESOURCE(IDW_TESTSOUND), NULL, SND_RESOURCE | SND_SYNC))
+                MessageBox(NULL, "Audio test failed!", "Error", MB_OK | MB_ICONERROR);
              break;
           case IDC_AUDIO_CONTROL_PANEL:
 	     MessageBox(NULL, "Launching audio control panel not implemented yet!", "Fixme", MB_OK | MB_ICONERROR);

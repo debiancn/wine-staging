@@ -51,6 +51,11 @@ extern WCHAR* current_app; /* NULL means editing global settings  */
    be copied, so free them too when necessary.
  */
 
+void set_reg_keyW(HKEY root, const WCHAR *path, const WCHAR *name, const WCHAR *value);
+void set_reg_key_dwordW(HKEY root, const WCHAR *path, const WCHAR *name, DWORD value);
+WCHAR *get_reg_keyW(HKEY root, const WCHAR *path, const WCHAR *name, const WCHAR *def);
+WCHAR **enumerate_valuesW(HKEY root, WCHAR *path);
+
 void set_reg_key(HKEY root, const char *path, const char *name, const char *value);
 void set_reg_key_dword(HKEY root, const char *path, const char *name, DWORD value);
 char *get_reg_key(HKEY root, const char *path, const char *name, const char *def);
@@ -66,7 +71,8 @@ WCHAR* load_string (UINT id);
  
    no explicit free is needed of the string returned by this function
  */
-char *keypath(const char *section); 
+char *keypath(const char *section);
+WCHAR *keypathW(const WCHAR *section);
 
 int initialize(HINSTANCE hInstance);
 extern HKEY config_key;
@@ -104,7 +110,7 @@ long drive_available_mask(char letter);
 BOOL add_drive(const char letter, const char *targetpath, const char *label, const char *serial, unsigned int type);
 void delete_drive(struct drive *pDrive);
 void apply_drive_changes(void);
-BOOL browse_for_unix_folder(HWND dialog, char *pszPath);
+BOOL browse_for_unix_folder(HWND dialog, WCHAR *pszPath);
 extern struct drive drives[26]; /* one for each drive letter */
 
 BOOL gui_mode;
@@ -136,12 +142,27 @@ static inline char *get_text(HWND dialog, WORD id)
     return result;
 }
 
+static inline WCHAR *get_textW(HWND dialog, WORD id)
+{
+    HWND item = GetDlgItem(dialog, id);
+    int len = GetWindowTextLengthW(item) + 1;
+    WCHAR *result = len ? HeapAlloc(GetProcessHeap(), 0, len * sizeof(WCHAR)) : NULL;
+    if (!result || GetWindowTextW(item, result, len) == 0) return NULL;
+    return result;
+}
+
 static inline void set_text(HWND dialog, WORD id, const char *text)
 {
     SetWindowText(GetDlgItem(dialog, id), text);
 }
 
+static inline void set_textW(HWND dialog, WORD id, const WCHAR *text)
+{
+    SetWindowTextW(GetDlgItem(dialog, id), text);
+}
+
 #define WINE_KEY_ROOT "Software\\Wine"
+#define MAXBUFLEN 256
 
 extern HMENU     hPopupMenus;
 

@@ -26,10 +26,25 @@ import "oaidl.idl";
 cpp_quote("#if 0")
 typedef unsigned long MSIHANDLE;
 typedef int INSTALLMESSAGE;
+typedef int MSICONDITION;
 typedef int MSIRUNMODE;
 typedef int INSTALLSTATE;
 typedef WORD LANGID;
 cpp_quote("#endif")
+
+[
+    uuid(7BDE2046-D03B-4ffc-B84C-A098F38CFF0B),
+    oleautomation,
+    object
+]
+interface IWineMsiRemoteDatabase : IUnknown
+{
+    HRESULT IsTablePersistent( [in] BSTR table, [out] MSICONDITION *persistent );
+    HRESULT GetPrimaryKeys( [in] BSTR table, [out] MSIHANDLE *keys );
+    HRESULT GetSummaryInformation( [in] UINT updatecount, [out] MSIHANDLE *suminfo );
+    HRESULT OpenView( [in] BSTR query, [out] MSIHANDLE *view );
+    HRESULT SetMsiHandle( [in] MSIHANDLE handle );
+}
 
 [
     uuid(902B3592-9D08-4dfd-A593-D07C52546421),
@@ -55,7 +70,7 @@ interface IWineMsiRemotePackage : IUnknown
     HRESULT SetComponentState( [in] BSTR component, [in] INSTALLSTATE state );
     HRESULT GetLanguage( [out] LANGID *language );
     HRESULT SetInstallLevel( [in] int level );
-    HRESULT FormatRecord( [in] MSIHANDLE record, [out] BSTR value, [out] DWORD *size );
+    HRESULT FormatRecord( [in] MSIHANDLE record, [out] BSTR *value );
     HRESULT EvaluateCondition( [in] BSTR condition );
 }
 
@@ -111,10 +126,25 @@ library WindowsInstaller
         msiOpenDatabaseModePatchFile = 32
     } MsiOpenDatabaseMode;
 
+    typedef enum {
+        msiUILevelNoChange = 0,
+        msiUILevelDefault = 1,
+        msiUILevelNone = 2,
+        msiUILevelBasic = 3,
+        msiUILevelReduced = 4,
+        msiUILevelFull = 5,
+        msiUILevelHideCancel = 32,
+        msiUILevelProgressOnly = 64,
+        msiUILevelEndDialog = 128,
+        msiUILevelSourceResOnly = 256
+    } MsiUILevel;
+
     [ uuid(000C1090-0000-0000-C000-000000000046) ]
     dispinterface Installer
     {
     properties:
+        [id(DISPID_INSTALLER_UILEVEL)]
+            MsiUILevel UILevel;
     methods:
         [id(DISPID_INSTALLER_CREATERECORD)]
             Record *CreateRecord([in] long Count);
@@ -130,6 +160,8 @@ library WindowsInstaller
             void InstallProduct(
                 [in] BSTR PackagePath,
                 [in, optional, defaultvalue("0")] BSTR PropertyValues);
+        [id(DISPID_INSTALLER_VERSION)]
+            BSTR Version();
         [id(DISPID_INSTALLER_REGISTRYVALUE), propget]
             BSTR RegistryValue(
                 [in] VARIANT Root,

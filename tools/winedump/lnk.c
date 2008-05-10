@@ -38,16 +38,41 @@
 
 #include "pshpack1.h"
 
-#define SCF_PIDL 1
-#define SCF_LOCATION 2
-#define SCF_DESCRIPTION 4
-#define SCF_RELATIVE 8
-#define SCF_WORKDIR 0x10
-#define SCF_ARGS 0x20
-#define SCF_CUSTOMICON 0x40
-#define SCF_UNICODE 0x80
-#define SCF_PRODUCT 0x800
-#define SCF_COMPONENT 0x1000
+typedef enum {
+    SLDF_HAS_ID_LIST = 0x00000001,
+    SLDF_HAS_LINK_INFO = 0x00000002,
+    SLDF_HAS_NAME = 0x00000004,
+    SLDF_HAS_RELPATH = 0x00000008,
+    SLDF_HAS_WORKINGDIR = 0x00000010,
+    SLDF_HAS_ARGS = 0x00000020,
+    SLDF_HAS_ICONLOCATION = 0x00000040,
+    SLDF_UNICODE = 0x00000080,
+    SLDF_FORCE_NO_LINKINFO = 0x00000100,
+    SLDF_HAS_EXP_SZ = 0x00000200,
+    SLDF_RUN_IN_SEPARATE = 0x00000400,
+    SLDF_HAS_LOGO3ID = 0x00000800,
+    SLDF_HAS_DARWINID = 0x00001000,
+    SLDF_RUNAS_USER = 0x00002000,
+    SLDF_HAS_EXP_ICON_SZ = 0x00004000,
+    SLDF_NO_PIDL_ALIAS = 0x00008000,
+    SLDF_FORCE_UNCNAME = 0x00010000,
+    SLDF_RUN_WITH_SHIMLAYER = 0x00020000,
+    SLDF_FORCE_NO_LINKTRACK = 0x00040000,
+    SLDF_ENABLE_TARGET_METADATA = 0x00080000,
+    SLDF_DISABLE_KNOWNFOLDER_RELATIVE_TRACKING = 0x00200000,
+    SLDF_RESERVED = 0x80000000,
+} SHELL_LINK_DATA_FLAGS;
+
+#define EXP_SZ_LINK_SIG         0xa0000001
+#define EXP_SPECIAL_FOLDER_SIG  0xa0000005
+#define EXP_DARWIN_ID_SIG       0xa0000006
+#define EXP_SZ_ICON_SIG         0xa0000007
+
+typedef struct tagDATABLOCKHEADER
+{
+    DWORD cbSize;
+    DWORD dwSignature;
+} DATABLOCK_HEADER;
 
 typedef struct _LINK_HEADER
 {
@@ -66,13 +91,13 @@ typedef struct _LINK_HEADER
     DWORD   Unknown6;       /* 0x48 */
 } LINK_HEADER, * PLINK_HEADER;
 
-typedef struct tagLINK_ADVERTISEINFO
+typedef struct tagLINK_SZ_BLOCK
 {
     DWORD size;
     DWORD magic;
     CHAR  bufA[MAX_PATH];
     WCHAR bufW[MAX_PATH];
-} LINK_ADVERTISEINFO;
+} LINK_SZ_BLOCK;
 
 typedef struct _LOCATION_INFO
 {
@@ -92,6 +117,14 @@ typedef struct _LOCAL_VOLUME_INFO
     DWORD dwVolSerial;
     DWORD dwVolLabelOfs;
 } LOCAL_VOLUME_INFO;
+
+typedef struct
+{
+    DWORD cbSize;
+    DWORD dwSignature;
+    DWORD idSpecialFolder;
+    DWORD cbOffset;
+} EXP_SPECIAL_FOLDER;
 
 typedef struct lnk_string_tag
 {
@@ -265,55 +298,110 @@ static int base85_to_guid( const char *str, LPGUID guid )
     return 1;
 }
 
-static int dump_advertise_info(const char *type)
+static int dump_special_folder_block(const DATABLOCK_HEADER* bhdr)
 {
-    const LINK_ADVERTISEINFO *avt;
+    const EXP_SPECIAL_FOLDER *sfb = (const EXP_SPECIAL_FOLDER*)bhdr;
+    printf("Special folder block\n");
+    printf("--------------------\n\n");
+    printf("folder  = 0x%04x\n", sfb->idSpecialFolder);
+    printf("offset  = %d\n", sfb->cbOffset);
+    printf("\n");
+    return 0;
+}
 
-    avt = fetch_block();
-    if (!avt)
-        return -1;
+static int dump_sz_block(const DATABLOCK_HEADER* bhdr, const char* label)
+{
+    const LINK_SZ_BLOCK *szp = (const LINK_SZ_BLOCK*)bhdr;
+    printf("String block\n");
+    printf("-----------\n\n");
+    printf("magic   = %x\n", szp->magic);
+    printf("%s    = %s\n", label, szp->bufA);
+    printf("\n");
+    return 0;
+}
+
+static int dump_darwin_id(const DATABLOCK_HEADER* bhdr)
+{
+    const LINK_SZ_BLOCK *szp = (const LINK_SZ_BLOCK*)bhdr;
+    char comp_str[40];
+    const char *feat, *comp, *prod_str, *feat_str;
+    GUID guid;
 
     printf("Advertise Info\n");
     printf("--------------\n\n");
-    printf("magic   = %x\n", avt->magic);
-    printf("%s = %s\n", type, avt->bufA);
-    if (avt->magic == 0xa0000006)
+    printf("msi string = %s\n", szp->bufA);
+
+    if (base85_to_guid(szp->bufA, &guid))
+        prod_str = get_guid_str(&guid);
+    else
+        prod_str = "?";
+
+    comp = &szp->bufA[20];
+    feat = strchr(comp, '>');
+    if (!feat)
+        feat = strchr(comp, '<');
+    if (feat)
     {
-        char comp_str[40];
-        const char *feat, *comp, *prod_str, *feat_str;
-        GUID guid;
-
-        if (base85_to_guid(avt->bufA, &guid))
-            prod_str = get_guid_str( &guid );
-        else
-            prod_str = "?";
-
-        comp = &avt->bufA[20];
-        feat = strchr(comp,'>');
-        if (!feat)
-            feat = strchr(comp,'<');
-        if (feat)
-        {
-            memcpy( comp_str, comp, feat - comp );
-            comp_str[feat-comp] = 0;
-        }
-        else
-        {
-            strcpy( comp_str, "?" );
-        }
-
-        if (feat && feat[0] == '>' && base85_to_guid( &feat[1], &guid ))
-            feat_str = get_guid_str( &guid );
-        else
-            feat_str = "";
-
-        printf("  product:   %s\n", prod_str);
-        printf("  component: %s\n", comp_str );
-        printf("  feature:   %s\n", feat_str);
+        memcpy(comp_str, comp, feat - comp);
+        comp_str[feat-comp] = 0;
     }
+    else
+    {
+        strcpy(comp_str, "?");
+    }
+
+    if (feat && feat[0] == '>' && base85_to_guid( &feat[1], &guid ))
+        feat_str = get_guid_str( &guid );
+    else
+        feat_str = "";
+
+    printf("  product:   %s\n", prod_str);
+    printf("  component: %s\n", comp_str );
+    printf("  feature:   %s\n", feat_str);
     printf("\n");
 
     return 0;
+}
+
+static int dump_raw_block(const DATABLOCK_HEADER* bhdr)
+{
+    int data_size;
+
+    printf("Raw Block\n");
+    printf("---------\n\n");
+    printf("size    = %d\n", bhdr->cbSize);
+    printf("magic   = %x\n", bhdr->dwSignature);
+
+    data_size=bhdr->cbSize-sizeof(*bhdr);
+    if (data_size > 0)
+    {
+        unsigned int i;
+        const unsigned char *data;
+
+        printf("data    = ");
+        data=(const unsigned char*)bhdr+sizeof(*bhdr);
+        while (data_size > 0)
+        {
+            for (i=0; i < 16; i++)
+            {
+                if (i < data_size)
+                    printf("%02x ", data[i]);
+                else
+                    printf("   ");
+            }
+            for (i=0; i < data_size && i < 16; i++)
+                printf("%c", (data[i] >= 32 && data[i] < 128 ? data[i] : '.'));
+            printf("\n");
+            data_size-=16;
+            if (data_size <= 0)
+                break;
+            data+=16;
+            printf("          ");
+        }
+    }
+    printf("\n");
+
+    return 1;
 }
 
 static const GUID CLSID_ShellLink = {0x00021401L, 0, 0, {0xC0,0,0,0,0,0,0,0x46}};
@@ -332,9 +420,13 @@ enum FileSig get_kind_lnk(void)
 void lnk_dump(void)
 {
     const LINK_HEADER*        hdr;
+    const DATABLOCK_HEADER*   bhdr;
+    DWORD dwFlags;
 
     offset = 0;
     hdr = fetch_block();
+    if (!hdr)
+        return;
 
     printf("Header\n");
     printf("------\n\n");
@@ -351,39 +443,82 @@ void lnk_dump(void)
 
     /* dump out all the flags */
     printf("Flags:   %04x ( ", hdr->dwFlags);
-#define FLAG(x) if(hdr->dwFlags & SCF_##x) printf("%s ",#x);
-    FLAG(PIDL)
-    FLAG(LOCATION)
-    FLAG(DESCRIPTION)
-    FLAG(RELATIVE)
-    FLAG(WORKDIR)
-    FLAG(ARGS)
-    FLAG(CUSTOMICON)
-    FLAG(UNICODE)
-    FLAG(PRODUCT)
-    FLAG(COMPONENT)
+    dwFlags=hdr->dwFlags;
+#define FLAG(x) do \
+                { \
+                    if (dwFlags & SLDF_##x) \
+                    { \
+                        printf("%s ", #x); \
+                        dwFlags&=~SLDF_##x; \
+                    } \
+                } while (0)
+    FLAG(HAS_ID_LIST);
+    FLAG(HAS_LINK_INFO);
+    FLAG(HAS_NAME);
+    FLAG(HAS_RELPATH);
+    FLAG(HAS_WORKINGDIR);
+    FLAG(HAS_ARGS);
+    FLAG(HAS_ICONLOCATION);
+    FLAG(UNICODE);
+    FLAG(FORCE_NO_LINKINFO);
+    FLAG(HAS_EXP_SZ);
+    FLAG(RUN_IN_SEPARATE);
+    FLAG(HAS_LOGO3ID);
+    FLAG(HAS_DARWINID);
+    FLAG(RUNAS_USER);
+    FLAG(HAS_EXP_ICON_SZ);
+    FLAG(NO_PIDL_ALIAS);
+    FLAG(FORCE_UNCNAME);
+    FLAG(RUN_WITH_SHIMLAYER);
+    FLAG(FORCE_NO_LINKTRACK);
+    FLAG(ENABLE_TARGET_METADATA);
+    FLAG(DISABLE_KNOWNFOLDER_RELATIVE_TRACKING);
+    FLAG(RESERVED);
 #undef FLAG
+    if (dwFlags)
+        printf("+%04x", dwFlags);
     printf(")\n");
 
     printf("Length:  %04x\n", hdr->dwFileLength);
     printf("\n");
 
-    if (hdr->dwFlags & SCF_PIDL)
+    if (hdr->dwFlags & SLDF_HAS_ID_LIST)
         dump_pidl();
-    if (hdr->dwFlags & SCF_LOCATION)
+    if (hdr->dwFlags & SLDF_HAS_LINK_INFO)
         dump_location();
-    if (hdr->dwFlags & SCF_DESCRIPTION)
-        dump_string("Description", hdr->dwFlags & SCF_UNICODE);
-    if (hdr->dwFlags & SCF_RELATIVE)
-        dump_string("Relative path", hdr->dwFlags & SCF_UNICODE);
-    if (hdr->dwFlags & SCF_WORKDIR)
-        dump_string("Working directory", hdr->dwFlags & SCF_UNICODE);
-    if (hdr->dwFlags & SCF_ARGS)
-        dump_string("Arguments", hdr->dwFlags & SCF_UNICODE);
-    if (hdr->dwFlags & SCF_CUSTOMICON)
-        dump_string("Icon path", hdr->dwFlags & SCF_UNICODE);
-    if (hdr->dwFlags & SCF_PRODUCT)
-        dump_advertise_info("product");
-    if (hdr->dwFlags & SCF_COMPONENT)
-        dump_advertise_info("msi string");
+    if (hdr->dwFlags & SLDF_HAS_NAME)
+        dump_string("Description", hdr->dwFlags & SLDF_UNICODE);
+    if (hdr->dwFlags & SLDF_HAS_RELPATH)
+        dump_string("Relative path", hdr->dwFlags & SLDF_UNICODE);
+    if (hdr->dwFlags & SLDF_HAS_WORKINGDIR)
+        dump_string("Working directory", hdr->dwFlags & SLDF_UNICODE);
+    if (hdr->dwFlags & SLDF_HAS_ARGS)
+        dump_string("Arguments", hdr->dwFlags & SLDF_UNICODE);
+    if (hdr->dwFlags & SLDF_HAS_ICONLOCATION)
+        dump_string("Icon path", hdr->dwFlags & SLDF_UNICODE);
+
+    bhdr=fetch_block();
+    while (bhdr)
+    {
+        if (!bhdr->cbSize)
+            break;
+        switch (bhdr->dwSignature)
+        {
+        case EXP_SZ_LINK_SIG:
+            dump_sz_block(bhdr, "exp.link");
+            break;
+        case EXP_SPECIAL_FOLDER_SIG:
+            dump_special_folder_block(bhdr);
+            break;
+        case EXP_SZ_ICON_SIG:
+            dump_sz_block(bhdr, "icon");
+            break;
+        case EXP_DARWIN_ID_SIG:
+            dump_darwin_id(bhdr);
+            break;
+        default:
+            dump_raw_block(bhdr);
+        }
+        bhdr=fetch_block();
+    }
 }

@@ -25,6 +25,7 @@
 #include "wintrust.h"
 #include "mscat.h"
 #include "mssip.h"
+#include "imagehlp.h"
 
 #include "wine/debug.h"
 
@@ -50,15 +51,22 @@ BOOL WINAPI CryptCATAdminAcquireContext(HCATADMIN* catAdmin,
 {
     FIXME("%p %s %x\n", catAdmin, debugstr_guid(sysSystem), dwFlags);
 
-    if (catAdmin) *catAdmin = (HCATADMIN)0xdeadbeef;
+    if (!catAdmin)
+    {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+
+    *catAdmin = (HCATADMIN)0xdeadbeef;
+
     return TRUE;
 }
 
 /***********************************************************************
  *             CryptCATAdminAddCatalog (WINTRUST.@)
  */
-BOOL WINAPI CryptCATAdminAddCatalog(HCATADMIN catAdmin, WCHAR *catalogFile,
-                                    WCHAR *selectBaseName, DWORD flags)
+BOOL WINAPI CryptCATAdminAddCatalog(HCATADMIN catAdmin, PWSTR catalogFile,
+                                    PWSTR selectBaseName, DWORD flags)
 {
     FIXME("%p %s %s %d\n", catAdmin, debugstr_w(catalogFile),
           debugstr_w(selectBaseName), flags);
@@ -106,7 +114,7 @@ HCATINFO WINAPI CryptCATAdminEnumCatalogFromHash(HCATADMIN hCatAdmin,
  *
  */
 BOOL WINAPI CryptCATAdminReleaseCatalogContext(HCATADMIN hCatAdmin,
-                                               HCATADMIN hCatInfo,
+                                               HCATINFO hCatInfo,
                                                DWORD dwFlags)
 {
     FIXME("%p %p %x\n", hCatAdmin, hCatInfo, dwFlags);
@@ -200,10 +208,67 @@ BOOL WINAPI CryptSIPCreateIndirectData(SIP_SUBJECTINFO* pSubjectInfo, DWORD* pcb
 BOOL WINAPI CryptSIPGetSignedDataMsg(SIP_SUBJECTINFO* pSubjectInfo, DWORD* pdwEncodingType,
                                        DWORD dwIndex, DWORD* pcbSignedDataMsg, BYTE* pbSignedDataMsg)
 {
-    FIXME("(%p %p %d %p %p) stub\n", pSubjectInfo, pdwEncodingType, dwIndex,
+    BOOL ret;
+    WIN_CERTIFICATE *pCert = NULL;
+
+    TRACE("(%p %p %d %p %p)\n", pSubjectInfo, pdwEncodingType, dwIndex,
           pcbSignedDataMsg, pbSignedDataMsg);
  
-    return FALSE;
+    if (!pbSignedDataMsg)
+    {
+        WIN_CERTIFICATE cert;
+
+        /* app hasn't passed buffer, just get the length */
+        ret = ImageGetCertificateHeader(pSubjectInfo->hFile, dwIndex, &cert);
+        if (ret)
+            *pcbSignedDataMsg = cert.dwLength;
+    }
+    else
+    {
+        DWORD len = 0;
+
+        ret = ImageGetCertificateData(pSubjectInfo->hFile, dwIndex, NULL, &len);
+        if (GetLastError() != ERROR_INSUFFICIENT_BUFFER)
+            goto error;
+        pCert = HeapAlloc(GetProcessHeap(), 0, len);
+        if (!pCert)
+        {
+            ret = FALSE;
+            goto error;
+        }
+        ret = ImageGetCertificateData(pSubjectInfo->hFile, dwIndex, pCert,
+         &len);
+        if (!ret)
+            goto error;
+        if (*pcbSignedDataMsg < pCert->dwLength)
+        {
+            *pcbSignedDataMsg = pCert->dwLength;
+            SetLastError(ERROR_INSUFFICIENT_BUFFER);
+            ret = FALSE;
+        }
+        else
+        {
+            memcpy(pbSignedDataMsg, pCert->bCertificate, pCert->dwLength);
+            switch (pCert->wCertificateType)
+            {
+            case WIN_CERT_TYPE_X509:
+                *pdwEncodingType = X509_ASN_ENCODING;
+                break;
+            case WIN_CERT_TYPE_PKCS_SIGNED_DATA:
+                *pdwEncodingType = X509_ASN_ENCODING | PKCS_7_ASN_ENCODING;
+                break;
+            default:
+                FIXME("don't know what to do for encoding type %d\n",
+                 pCert->wCertificateType);
+                *pdwEncodingType = 0;
+            }
+        }
+    }
+
+error:
+    HeapFree(GetProcessHeap(), 0, pCert);
+    TRACE("returning %d\n", ret);
+    return ret;
 }
 
 /***********************************************************************

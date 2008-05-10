@@ -70,12 +70,12 @@ void write_resfile(char *outname, resource_t *top)
 		put_word(res, 0);		/* Memory options */
 		put_word(res, 0);		/* Language */
 		put_dword(res, 0);		/* Version */
-		put_dword(res, 0);		/* Charateristics */
+		put_dword(res, 0);		/* Characteristics */
 		ret = fwrite(res->data, 1, res->size, fo);
 		if(ret != res->size)
 		{
 			fclose(fo);
-			error("Error writing %s", outname);
+			error("Error writing %s\n", outname);
 		}
 		free(res);
 	}
@@ -89,7 +89,7 @@ void write_resfile(char *outname, resource_t *top)
 		if(ret != top->binres->size)
 		{
 			fclose(fo);
-			error("Error writing %s", outname);
+			error("Error writing %s\n", outname);
 		}
 		if(win32 && (top->binres->size & 0x03))
 		{
@@ -98,7 +98,7 @@ void write_resfile(char *outname, resource_t *top)
 			if(ret != 4 - (top->binres->size & 0x03))
 			{
 				fclose(fo);
-				error("Error writing %s", outname);
+				error("Error writing %s\n", outname);
 			}
 		}
 	}

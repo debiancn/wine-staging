@@ -14,7 +14,7 @@
 @ stub AddPrinterW
 @ stdcall AllocSplStr(wstr)
 @ stub AppendPrinterNotifyInfoData
-@ stub BuildOtherNamesFromMachineName
+@ stdcall BuildOtherNamesFromMachineName(ptr ptr)
 @ stub CallDrvDevModeConversion
 @ stub CallRouterFindFirstPrinterChangeNotification
 @ stub ClosePrinter
@@ -72,7 +72,7 @@
 @ stub GetPrinterDriverExW
 @ stub GetPrinterDriverW
 @ stub GetPrinterW
-@ stub ImpersonatePrinterClient
+@ stdcall ImpersonatePrinterClient(long)
 @ stub InitializeRouter
 @ stub IsLocalCall
 @ stub IsNamedPipeRpcCall
@@ -121,8 +121,8 @@
 @ stub SplCommitSpoolData
 @ stub SplDriverUnloadComplete
 @ stub SplGetSpoolFileInfo
-@ stub SplInitializeWinSpoolDrv
-@ stub SplIsUpgrade
+@ stdcall SplInitializeWinSpoolDrv(ptr)
+@ stdcall SplIsUpgrade()
 @ stub SplProcessPnPEvent
 @ stub SplReadPrinter
 @ stub SplRegisterForDeviceEvents
@@ -132,8 +132,8 @@
 @ stub SpoolerFindFirstPrinterChangeNotification
 @ stub SpoolerFindNextPrinterChangeNotification
 @ stub SpoolerFreePrinterNotifyInfo
-@ stub SpoolerHasInitialized
-@ stub SpoolerInit
+@ stdcall SpoolerHasInitialized()
+@ stdcall SpoolerInit()
 @ stub StartDocPrinterW
 @ stub StartPagePrinter
 @ stub UnloadDriver

@@ -27,6 +27,7 @@
 #include "wine/test.h"
 
 #define NUM_THREADS 4
+#define MAPPING_SIZE 0x100000
 
 static HINSTANCE hkernel32;
 static LPVOID (WINAPI *pVirtualAllocEx)(HANDLE, LPVOID, SIZE_T, DWORD, DWORD);
@@ -270,54 +271,67 @@ static void test_MapViewOfFile(void)
 {
     static const char testfile[] = "testfile.xxx";
     HANDLE file, mapping;
-    void *ptr;
+    void *ptr, *ptr2;
+    MEMORY_BASIC_INFORMATION info;
+    BOOL ret;
 
+    SetLastError(0xdeadbeef);
     file = CreateFileA( testfile, GENERIC_READ|GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, 0 );
-    ok( file != INVALID_HANDLE_VALUE, "Failed to create test file\n" );
+    ok( file != INVALID_HANDLE_VALUE, "CreateFile error %u\n", GetLastError() );
     SetFilePointer( file, 4096, NULL, FILE_BEGIN );
     SetEndOfFile( file );
 
     /* read/write mapping */
 
+    SetLastError(0xdeadbeef);
     mapping = CreateFileMappingA( file, NULL, PAGE_READWRITE, 0, 4096, NULL );
-    ok( mapping != 0, "CreateFileMapping failed\n" );
+    ok( mapping != 0, "CreateFileMapping error %u\n", GetLastError() );
 
+    SetLastError(0xdeadbeef);
     ptr = MapViewOfFile( mapping, FILE_MAP_READ, 0, 0, 4096 );
-    ok( ptr != NULL, "MapViewOfFile FILE_MAPE_READ failed\n" );
+    ok( ptr != NULL, "MapViewOfFile FILE_MAPE_READ error %u\n", GetLastError() );
     UnmapViewOfFile( ptr );
 
     /* this fails on win9x but succeeds on NT */
+    SetLastError(0xdeadbeef);
     ptr = MapViewOfFile( mapping, FILE_MAP_COPY, 0, 0, 4096 );
     if (ptr) UnmapViewOfFile( ptr );
     else ok( GetLastError() == ERROR_INVALID_PARAMETER, "Wrong error %d\n", GetLastError() );
 
+    SetLastError(0xdeadbeef);
     ptr = MapViewOfFile( mapping, 0, 0, 0, 4096 );
-    ok( ptr != NULL, "MapViewOfFile 0 failed\n" );
+    ok( ptr != NULL, "MapViewOfFile 0 error %u\n", GetLastError() );
     UnmapViewOfFile( ptr );
 
+    SetLastError(0xdeadbeef);
     ptr = MapViewOfFile( mapping, FILE_MAP_WRITE, 0, 0, 4096 );
-    ok( ptr != NULL, "MapViewOfFile FILE_MAP_WRITE failed\n" );
+    ok( ptr != NULL, "MapViewOfFile FILE_MAP_WRITE error %u\n", GetLastError() );
     UnmapViewOfFile( ptr );
     CloseHandle( mapping );
 
     /* read-only mapping */
 
+    SetLastError(0xdeadbeef);
     mapping = CreateFileMappingA( file, NULL, PAGE_READONLY, 0, 4096, NULL );
-    ok( mapping != 0, "CreateFileMapping failed\n" );
+    ok( mapping != 0, "CreateFileMapping error %u\n", GetLastError() );
 
+    SetLastError(0xdeadbeef);
     ptr = MapViewOfFile( mapping, FILE_MAP_READ, 0, 0, 4096 );
-    ok( ptr != NULL, "MapViewOfFile FILE_MAP_READ failed\n" );
+    ok( ptr != NULL, "MapViewOfFile FILE_MAP_READ error %u\n", GetLastError() );
     UnmapViewOfFile( ptr );
 
     /* this fails on win9x but succeeds on NT */
+    SetLastError(0xdeadbeef);
     ptr = MapViewOfFile( mapping, FILE_MAP_COPY, 0, 0, 4096 );
     if (ptr) UnmapViewOfFile( ptr );
     else ok( GetLastError() == ERROR_INVALID_PARAMETER, "Wrong error %d\n", GetLastError() );
 
+    SetLastError(0xdeadbeef);
     ptr = MapViewOfFile( mapping, 0, 0, 0, 4096 );
-    ok( ptr != NULL, "MapViewOfFile 0 failed\n" );
+    ok( ptr != NULL, "MapViewOfFile 0 error %u\n", GetLastError() );
     UnmapViewOfFile( ptr );
 
+    SetLastError(0xdeadbeef);
     ptr = MapViewOfFile( mapping, FILE_MAP_WRITE, 0, 0, 4096 );
     ok( !ptr, "MapViewOfFile FILE_MAP_WRITE succeeded\n" );
     ok( GetLastError() == ERROR_INVALID_PARAMETER ||
@@ -326,21 +340,26 @@ static void test_MapViewOfFile(void)
 
     /* copy-on-write mapping */
 
+    SetLastError(0xdeadbeef);
     mapping = CreateFileMappingA( file, NULL, PAGE_WRITECOPY, 0, 4096, NULL );
-    ok( mapping != 0, "CreateFileMapping failed\n" );
+    ok( mapping != 0, "CreateFileMapping error %u\n", GetLastError() );
 
+    SetLastError(0xdeadbeef);
     ptr = MapViewOfFile( mapping, FILE_MAP_READ, 0, 0, 4096 );
-    ok( ptr != NULL, "MapViewOfFile FILE_MAP_READ failed\n" );
+    ok( ptr != NULL, "MapViewOfFile FILE_MAP_READ error %u\n", GetLastError() );
     UnmapViewOfFile( ptr );
 
+    SetLastError(0xdeadbeef);
     ptr = MapViewOfFile( mapping, FILE_MAP_COPY, 0, 0, 4096 );
-    ok( ptr != NULL, "MapViewOfFile FILE_MAP_COPY failed\n" );
+    ok( ptr != NULL, "MapViewOfFile FILE_MAP_COPY error %u\n", GetLastError() );
     UnmapViewOfFile( ptr );
 
+    SetLastError(0xdeadbeef);
     ptr = MapViewOfFile( mapping, 0, 0, 0, 4096 );
-    ok( ptr != NULL, "MapViewOfFile 0 failed\n" );
+    ok( ptr != NULL, "MapViewOfFile 0 error %u\n", GetLastError() );
     UnmapViewOfFile( ptr );
 
+    SetLastError(0xdeadbeef);
     ptr = MapViewOfFile( mapping, FILE_MAP_WRITE, 0, 0, 4096 );
     ok( !ptr, "MapViewOfFile FILE_MAP_WRITE succeeded\n" );
     ok( GetLastError() == ERROR_INVALID_PARAMETER ||
@@ -349,23 +368,28 @@ static void test_MapViewOfFile(void)
 
     /* no access mapping */
 
+    SetLastError(0xdeadbeef);
     mapping = CreateFileMappingA( file, NULL, PAGE_NOACCESS, 0, 4096, NULL );
     /* fails on NT but succeeds on win9x */
     if (!mapping) ok( GetLastError() == ERROR_INVALID_PARAMETER, "Wrong error %d\n", GetLastError() );
     else
     {
+        SetLastError(0xdeadbeef);
         ptr = MapViewOfFile( mapping, FILE_MAP_READ, 0, 0, 4096 );
-        ok( ptr != NULL, "MapViewOfFile FILE_MAP_READ failed\n" );
+        ok( ptr != NULL, "MapViewOfFile FILE_MAP_READ error %u\n", GetLastError() );
         UnmapViewOfFile( ptr );
 
+        SetLastError(0xdeadbeef);
         ptr = MapViewOfFile( mapping, FILE_MAP_COPY, 0, 0, 4096 );
         ok( !ptr, "MapViewOfFile FILE_MAP_COPY succeeded\n" );
         ok( GetLastError() == ERROR_INVALID_PARAMETER, "Wrong error %d\n", GetLastError() );
 
+        SetLastError(0xdeadbeef);
         ptr = MapViewOfFile( mapping, 0, 0, 0, 4096 );
-        ok( ptr != NULL, "MapViewOfFile 0 failed\n" );
+        ok( ptr != NULL, "MapViewOfFile 0 error %u\n", GetLastError() );
         UnmapViewOfFile( ptr );
 
+        SetLastError(0xdeadbeef);
         ptr = MapViewOfFile( mapping, FILE_MAP_WRITE, 0, 0, 4096 );
         ok( !ptr, "MapViewOfFile FILE_MAP_WRITE succeeded\n" );
         ok( GetLastError() == ERROR_INVALID_PARAMETER, "Wrong error %d\n", GetLastError() );
@@ -377,38 +401,46 @@ static void test_MapViewOfFile(void)
 
     /* now try read-only file */
 
+    SetLastError(0xdeadbeef);
     file = CreateFileA( testfile, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, 0 );
-    ok( file != INVALID_HANDLE_VALUE, "Failed to create test file\n" );
+    ok( file != INVALID_HANDLE_VALUE, "CreateFile error %u\n", GetLastError() );
 
+    SetLastError(0xdeadbeef);
     mapping = CreateFileMappingA( file, NULL, PAGE_READWRITE, 0, 4096, NULL );
     ok( !mapping, "CreateFileMapping PAGE_READWRITE succeeded\n" );
     ok( GetLastError() == ERROR_INVALID_PARAMETER ||
         GetLastError() == ERROR_ACCESS_DENIED, "Wrong error %d\n", GetLastError() );
 
+    SetLastError(0xdeadbeef);
     mapping = CreateFileMappingA( file, NULL, PAGE_WRITECOPY, 0, 4096, NULL );
-    ok( mapping != 0, "CreateFileMapping PAGE_WRITECOPY failed\n" );
+    ok( mapping != 0, "CreateFileMapping PAGE_WRITECOPY error %u\n", GetLastError() );
     CloseHandle( mapping );
 
+    SetLastError(0xdeadbeef);
     mapping = CreateFileMappingA( file, NULL, PAGE_READONLY, 0, 4096, NULL );
-    ok( mapping != 0, "CreateFileMapping PAGE_READONLY failed\n" );
+    ok( mapping != 0, "CreateFileMapping PAGE_READONLY error %u\n", GetLastError() );
     CloseHandle( mapping );
     CloseHandle( file );
 
     /* now try no access file */
 
+    SetLastError(0xdeadbeef);
     file = CreateFileA( testfile, 0, 0, NULL, OPEN_EXISTING, 0, 0 );
-    ok( file != INVALID_HANDLE_VALUE, "Failed to create test file\n" );
+    ok( file != INVALID_HANDLE_VALUE, "CreateFile error %u\n", GetLastError() );
 
+    SetLastError(0xdeadbeef);
     mapping = CreateFileMappingA( file, NULL, PAGE_READWRITE, 0, 4096, NULL );
     ok( !mapping, "CreateFileMapping PAGE_READWRITE succeeded\n" );
     ok( GetLastError() == ERROR_INVALID_PARAMETER ||
         GetLastError() == ERROR_ACCESS_DENIED, "Wrong error %d\n", GetLastError() );
 
+    SetLastError(0xdeadbeef);
     mapping = CreateFileMappingA( file, NULL, PAGE_WRITECOPY, 0, 4096, NULL );
     ok( !mapping, "CreateFileMapping PAGE_WRITECOPY succeeded\n" );
     ok( GetLastError() == ERROR_INVALID_PARAMETER ||
         GetLastError() == ERROR_ACCESS_DENIED, "Wrong error %d\n", GetLastError() );
 
+    SetLastError(0xdeadbeef);
     mapping = CreateFileMappingA( file, NULL, PAGE_READONLY, 0, 4096, NULL );
     ok( !mapping, "CreateFileMapping PAGE_READONLY succeeded\n" );
     ok( GetLastError() == ERROR_INVALID_PARAMETER ||
@@ -416,6 +448,114 @@ static void test_MapViewOfFile(void)
 
     CloseHandle( file );
     DeleteFileA( testfile );
+
+    SetLastError(0xdeadbeef);
+    file = CreateFileMapping( INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, 4096, "Global\\Foo");
+    ok( file != 0, "CreateFileMapping PAGE_READWRITE error %u\n", GetLastError() );
+
+    SetLastError(0xdeadbeef);
+    mapping = OpenFileMapping( FILE_MAP_READ, FALSE, "Global\\Foo" );
+    ok( mapping != 0, "OpenFileMapping FILE_MAP_READ error %u\n", GetLastError() );
+    SetLastError(0xdeadbeef);
+    ptr = MapViewOfFile( mapping, FILE_MAP_WRITE, 0, 0, 0 );
+todo_wine ok( !ptr, "MapViewOfFile FILE_MAP_WRITE should fail\n" );
+todo_wine ok( GetLastError() == ERROR_ACCESS_DENIED, "Wrong error %d\n", GetLastError() );
+    SetLastError(0xdeadbeef);
+    ptr = MapViewOfFile( mapping, FILE_MAP_READ, 0, 0, 0 );
+    ok( ptr != NULL, "MapViewOfFile FILE_MAP_READ error %u\n", GetLastError() );
+    SetLastError(0xdeadbeef);
+    ok( VirtualQuery( ptr, &info, sizeof(info) ) == sizeof(info),
+        "VirtualQuery error %u\n", GetLastError() );
+    ok( info.BaseAddress == ptr, "%p != %p\n", info.BaseAddress, ptr );
+    ok( info.AllocationBase == ptr, "%p != %p\n", info.AllocationBase, ptr );
+todo_wine ok( info.AllocationProtect == PAGE_READONLY, "%x != PAGE_READONLY\n", info.AllocationProtect );
+    ok( info.RegionSize == 4096, "%lx != 4096\n", info.RegionSize );
+    ok( info.State == MEM_COMMIT, "%x != MEM_COMMIT\n", info.State );
+todo_wine ok( info.Protect == PAGE_READONLY, "%x != PAGE_READONLY\n", info.Protect );
+    UnmapViewOfFile( ptr );
+    CloseHandle( mapping );
+
+    SetLastError(0xdeadbeef);
+    mapping = OpenFileMapping( FILE_MAP_WRITE, FALSE, "Global\\Foo" );
+    ok( mapping != 0, "OpenFileMapping FILE_MAP_WRITE error %u\n", GetLastError() );
+    SetLastError(0xdeadbeef);
+    ptr = MapViewOfFile( mapping, FILE_MAP_READ, 0, 0, 0 );
+todo_wine ok( !ptr, "MapViewOfFile FILE_MAP_READ should fail\n" );
+todo_wine ok( GetLastError() == ERROR_ACCESS_DENIED, "Wrong error %d\n", GetLastError() );
+    SetLastError(0xdeadbeef);
+    ptr = MapViewOfFile( mapping, FILE_MAP_WRITE, 0, 0, 0 );
+    ok( ptr != NULL, "MapViewOfFile FILE_MAP_WRITE error %u\n", GetLastError() );
+    SetLastError(0xdeadbeef);
+    ok( VirtualQuery( ptr, &info, sizeof(info) ) == sizeof(info),
+        "VirtualQuery error %u\n", GetLastError() );
+    ok( info.BaseAddress == ptr, "%p != %p\n", info.BaseAddress, ptr );
+    ok( info.AllocationBase == ptr, "%p != %p\n", info.AllocationBase, ptr );
+    ok( info.AllocationProtect == PAGE_READWRITE, "%x != PAGE_READWRITE\n", info.AllocationProtect );
+    ok( info.RegionSize == 4096, "%lx != 4096\n", info.RegionSize );
+    ok( info.State == MEM_COMMIT, "%x != MEM_COMMIT\n", info.State );
+    ok( info.Protect == PAGE_READWRITE, "%x != PAGE_READWRITE\n", info.Protect );
+    UnmapViewOfFile( ptr );
+    CloseHandle( mapping );
+
+    CloseHandle( file );
+
+    /* read/write mapping with SEC_RESERVE */
+    mapping = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE | SEC_RESERVE, 0, MAPPING_SIZE, NULL);
+    ok(mapping != INVALID_HANDLE_VALUE, "CreateFileMappingA failed with error %d\n", GetLastError());
+
+    ptr = MapViewOfFile(mapping, FILE_MAP_WRITE, 0, 0, 0);
+    ok(ptr != NULL, "MapViewOfFile failed with error %d\n", GetLastError());
+
+    ret = VirtualQuery(ptr, &info, sizeof(info));
+    ok(ret, "VirtualQuery failed with error %d\n", GetLastError());
+    ok(info.BaseAddress == ptr, "BaseAddress should have been %p but was %p instead\n", ptr, info.BaseAddress);
+    ok(info.AllocationBase == ptr, "AllocationBase should have been %p but was %p instead\n", ptr, info.AllocationBase);
+    ok(info.AllocationProtect == PAGE_READWRITE, "AllocationProtect should have been PAGE_READWRITE but was 0x%x\n", info.AllocationProtect);
+    ok(info.RegionSize == MAPPING_SIZE, "RegionSize should have been 0x%x but was 0x%x\n", MAPPING_SIZE, (unsigned int)info.RegionSize);
+todo_wine
+    ok(info.State == MEM_RESERVE, "State should have been MEM_RESERVE instead of 0x%x\n", info.State);
+todo_wine
+    ok(info.Protect == 0, "Protect should have been 0 instead of 0x%x\n", info.Protect);
+    ok(info.Type == MEM_MAPPED, "Type should have been MEM_MAPPED instead of 0x%x\n", info.Type);
+
+    ptr = VirtualAlloc(ptr, 0x10000, MEM_COMMIT, PAGE_READWRITE);
+    ok(ptr != NULL, "VirtualAlloc failed with error %d\n", GetLastError());
+
+    ret = VirtualQuery(ptr, &info, sizeof(info));
+    ok(ret, "VirtualQuery failed with error %d\n", GetLastError());
+    ok(info.BaseAddress == ptr, "BaseAddress should have been %p but was %p instead\n", ptr, info.BaseAddress);
+    ok(info.AllocationBase == ptr, "AllocationBase should have been %p but was %p instead\n", ptr, info.AllocationBase);
+    ok(info.AllocationProtect == PAGE_READWRITE, "AllocationProtect should have been PAGE_READWRITE but was 0x%x\n", info.AllocationProtect);
+todo_wine
+    ok(info.RegionSize == 0x10000, "RegionSize should have been 0x10000 but was 0x%x\n", (unsigned int)info.RegionSize);
+    ok(info.State == MEM_COMMIT, "State should have been MEM_RESERVE instead of 0x%x\n", info.State);
+    ok(info.Protect == PAGE_READWRITE, "Protect should have been 0 instead of 0x%x\n", info.Protect);
+    ok(info.Type == MEM_MAPPED, "Type should have been MEM_MAPPED instead of 0x%x\n", info.Type);
+
+    ptr2 = MapViewOfFile(mapping, FILE_MAP_WRITE, 0, 0, 0);
+    /* on NT ptr != ptr2 but on Win9x ptr == ptr2 */
+    ok(ptr2 != NULL, "MapViewOfFile failed with error %d\n", GetLastError());
+    trace("mapping same section resulted in views %p and %p\n", ptr, ptr2);
+
+    /* shows that the VirtualAlloc above affects the mapping, not just the
+     * virtual memory in this process - it also affects all other processes
+     * with a view of the mapping, but that isn't tested here */
+    ret = VirtualQuery(ptr2, &info, sizeof(info));
+    ok(ret, "VirtualQuery failed with error %d\n", GetLastError());
+    ok(info.BaseAddress == ptr2, "BaseAddress should have been %p but was %p instead\n", ptr2, info.BaseAddress);
+    ok(info.AllocationBase == ptr2, "AllocationBase should have been %p but was %p instead\n", ptr2, info.AllocationBase);
+    ok(info.AllocationProtect == PAGE_READWRITE, "AllocationProtect should have been PAGE_READWRITE but was 0x%x\n", info.AllocationProtect);
+todo_wine
+    ok(info.RegionSize == 0x10000, "RegionSize should have been 0x10000 but was 0x%x\n", (unsigned int)info.RegionSize);
+    ok(info.State == MEM_COMMIT, "State should have been MEM_RESERVE instead of 0x%x\n", info.State);
+    ok(info.Protect == PAGE_READWRITE, "Protect should have been 0 instead of 0x%x\n", info.Protect);
+    ok(info.Type == MEM_MAPPED, "Type should have been MEM_MAPPED instead of 0x%x\n", info.Type);
+
+    ret = UnmapViewOfFile(ptr2);
+    ok(ret, "UnmapViewOfFile failed with error %d\n", GetLastError());
+    ret = UnmapViewOfFile(ptr);
+    ok(ret, "UnmapViewOfFile failed with error %d\n", GetLastError());
+    CloseHandle(mapping);
 }
 
 static DWORD (WINAPI *pNtMapViewOfSection)( HANDLE handle, HANDLE process, PVOID *addr_ptr,
@@ -477,6 +617,18 @@ static void test_NtMapViewOfSection(void)
     CloseHandle( mapping );
     CloseHandle( file );
     DeleteFileA( testfile );
+
+    TerminateProcess(hProcess, 0);
+    CloseHandle(hProcess);
+}
+
+static void test_BadPtr(void)
+{
+    void *ptr = (void*)1;
+    /* We assume address 1 is not mapped. */
+    ok(IsBadReadPtr(ptr,1),"IsBadReadPtr(1) failed.\n");
+    ok(IsBadWritePtr(ptr,1),"IsBadWritePtr(1) failed.\n");
+    ok(IsBadCodePtr(ptr),"IsBadCodePtr(1) failed.\n");
 }
 
 START_TEST(virtual)
@@ -515,4 +667,5 @@ START_TEST(virtual)
     test_VirtualAlloc();
     test_MapViewOfFile();
     test_NtMapViewOfSection();
+    test_BadPtr();
 }

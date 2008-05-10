@@ -35,7 +35,6 @@
 #include "ntstatus.h"
 #define WIN32_NO_STATUS
 #include "windef.h"
-#include "winternl.h"
 #include "winnt.h"
 #include "winternl.h"
 #include "wine/list.h"
@@ -44,10 +43,9 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(heap);
 
-/* Note: the heap data structures are based on what Pietrek describes in his
- * book 'Windows 95 System Programming Secrets'. The layout is not exactly
- * the same, but could be easily adapted if it turns out some programs
- * require it.
+/* Note: the heap data structures are loosely based on what Pietrek describes in his
+ * book 'Windows 95 System Programming Secrets', with some adaptations for
+ * better compatibility with NT.
  */
 
 /* FIXME: use SIZE_T for 'size' structure members, but we need to make sure
@@ -105,11 +103,12 @@ struct tagHEAP;
 
 typedef struct tagSUBHEAP
 {
-    DWORD               size;       /* Size of the whole sub-heap */
-    DWORD               commitSize; /* Committed size of the sub-heap */
-    DWORD               headerSize; /* Size of the heap header */
-    struct tagSUBHEAP  *next;       /* Next sub-heap */
+    void               *base;       /* Base address of the sub-heap memory block */
+    SIZE_T              size;       /* Size of the whole sub-heap */
+    SIZE_T              commitSize; /* Committed size of the sub-heap */
+    struct list         entry;      /* Entry in sub-heap list */
     struct tagHEAP     *heap;       /* Main heap structure */
+    DWORD               headerSize; /* Size of the heap header */
     DWORD               magic;      /* Magic number */
 } SUBHEAP;
 
@@ -117,12 +116,15 @@ typedef struct tagSUBHEAP
 
 typedef struct tagHEAP
 {
+    DWORD            unknown[3];
+    DWORD            flags;         /* Heap flags */
+    DWORD            force_flags;   /* Forced heap flags for debugging */
     SUBHEAP          subheap;       /* First sub-heap */
     struct list      entry;         /* Entry in process heap list */
+    struct list      subheap_list;  /* Sub-heap list */
+    DWORD            magic;         /* Magic number */
     RTL_CRITICAL_SECTION critSection; /* Critical section for serialization */
     FREE_LIST_ENTRY  freeList[HEAP_NB_FREE_LISTS];  /* Free lists */
-    DWORD            flags;         /* Heap flags */
-    DWORD            magic;         /* Magic number */
 } HEAP;
 
 #define HEAP_MAGIC       ((DWORD)('H' | ('E'<<8) | ('A'<<16) | ('P'<<24)))
@@ -137,8 +139,10 @@ static BOOL HEAP_IsRealArena( HEAP *heapPtr, DWORD flags, LPCVOID block, BOOL qu
 /* mark a block of memory as free for debugging purposes */
 static inline void mark_block_free( void *ptr, SIZE_T size )
 {
-    if (TRACE_ON(heap)) memset( ptr, ARENA_FREE_FILLER, size );
-#ifdef VALGRIND_MAKE_NOACCESS
+    if (TRACE_ON(heap) || WARN_ON(heap)) memset( ptr, ARENA_FREE_FILLER, size );
+#if defined(VALGRIND_MAKE_MEM_NOACCESS)
+    VALGRIND_DISCARD( VALGRIND_MAKE_MEM_NOACCESS( ptr, size ));
+#elif defined( VALGRIND_MAKE_NOACCESS)
     VALGRIND_DISCARD( VALGRIND_MAKE_NOACCESS( ptr, size ));
 #endif
 }
@@ -146,7 +150,9 @@ static inline void mark_block_free( void *ptr, SIZE_T size )
 /* mark a block of memory as initialized for debugging purposes */
 static inline void mark_block_initialized( void *ptr, SIZE_T size )
 {
-#ifdef VALGRIND_MAKE_READABLE
+#if defined(VALGRIND_MAKE_MEM_DEFINED)
+    VALGRIND_DISCARD( VALGRIND_MAKE_MEM_DEFINED( ptr, size ));
+#elif defined(VALGRIND_MAKE_READABLE)
     VALGRIND_DISCARD( VALGRIND_MAKE_READABLE( ptr, size ));
 #endif
 }
@@ -154,13 +160,17 @@ static inline void mark_block_initialized( void *ptr, SIZE_T size )
 /* mark a block of memory as uninitialized for debugging purposes */
 static inline void mark_block_uninitialized( void *ptr, SIZE_T size )
 {
-#ifdef VALGRIND_MAKE_WRITABLE
+#if defined(VALGRIND_MAKE_MEM_UNDEFINED)
+    VALGRIND_DISCARD( VALGRIND_MAKE_MEM_UNDEFINED( ptr, size ));
+#elif defined(VALGRIND_MAKE_WRITABLE)
     VALGRIND_DISCARD( VALGRIND_MAKE_WRITABLE( ptr, size ));
 #endif
-    if (TRACE_ON(heap))
+    if (TRACE_ON(heap) || WARN_ON(heap))
     {
         memset( ptr, ARENA_INUSE_FILLER, size );
-#ifdef VALGRIND_MAKE_WRITABLE
+#if defined(VALGRIND_MAKE_MEM_UNDEFINED)
+        VALGRIND_DISCARD( VALGRIND_MAKE_MEM_UNDEFINED( ptr, size ));
+#elif defined(VALGRIND_MAKE_WRITABLE)
         /* make it uninitialized to valgrind again */
         VALGRIND_DISCARD( VALGRIND_MAKE_WRITABLE( ptr, size ));
 #endif
@@ -225,14 +235,8 @@ static void HEAP_Dump( HEAP *heap )
     char *ptr;
 
     DPRINTF( "Heap: %p\n", heap );
-    DPRINTF( "Next: %p  Sub-heaps: %p",
-             LIST_ENTRY( heap->entry.next, HEAP, entry ), &heap->subheap );
-    subheap = &heap->subheap;
-    while (subheap->next)
-    {
-        DPRINTF( " -> %p", subheap->next );
-        subheap = subheap->next;
-    }
+    DPRINTF( "Next: %p  Sub-heaps:", LIST_ENTRY( heap->entry.next, HEAP, entry ) );
+    LIST_FOR_EACH_ENTRY( subheap, &heap->subheap_list, SUBHEAP, entry ) DPRINTF( " %p", subheap );
 
     DPRINTF( "\nFree lists:\n Block   Stat   Size    Id\n" );
     for (i = 0; i < HEAP_NB_FREE_LISTS; i++)
@@ -241,22 +245,22 @@ static void HEAP_Dump( HEAP *heap )
                  LIST_ENTRY( heap->freeList[i].arena.entry.prev, ARENA_FREE, entry ),
                  LIST_ENTRY( heap->freeList[i].arena.entry.next, ARENA_FREE, entry ));
 
-    subheap = &heap->subheap;
-    while (subheap)
+    LIST_FOR_EACH_ENTRY( subheap, &heap->subheap_list, SUBHEAP, entry )
     {
         SIZE_T freeSize = 0, usedSize = 0, arenaSize = subheap->headerSize;
-        DPRINTF( "\n\nSub-heap %p: size=%08x committed=%08x\n",
-                subheap, subheap->size, subheap->commitSize );
+        DPRINTF( "\n\nSub-heap %p: base=%p size=%08lx committed=%08lx\n",
+                 subheap, subheap->base, subheap->size, subheap->commitSize );
 
-        DPRINTF( "\n Block   Stat   Size    Id\n" );
-        ptr = (char*)subheap + subheap->headerSize;
-        while (ptr < (char *)subheap + subheap->size)
+        DPRINTF( "\n Block    Arena   Stat   Size    Id\n" );
+        ptr = (char *)subheap->base + subheap->headerSize;
+        while (ptr < (char *)subheap->base + subheap->size)
         {
             if (*(DWORD *)ptr & ARENA_FLAG_FREE)
             {
                 ARENA_FREE *pArena = (ARENA_FREE *)ptr;
-                DPRINTF( "%p free %08x prev=%p next=%p\n",
-                         pArena, pArena->size & ARENA_SIZE_MASK,
+                DPRINTF( "%p %08x free %08x prev=%p next=%p\n",
+                         pArena, pArena->magic,
+                         pArena->size & ARENA_SIZE_MASK,
                          LIST_ENTRY( pArena->entry.prev, ARENA_FREE, entry ),
                          LIST_ENTRY( pArena->entry.next, ARENA_FREE, entry ) );
                 ptr += sizeof(*pArena) + (pArena->size & ARENA_SIZE_MASK);
@@ -266,8 +270,8 @@ static void HEAP_Dump( HEAP *heap )
             else if (*(DWORD *)ptr & ARENA_FLAG_PREV_FREE)
             {
                 ARENA_INUSE *pArena = (ARENA_INUSE *)ptr;
-                DPRINTF( "%p Used %08x back=%p\n",
-                        pArena, pArena->size & ARENA_SIZE_MASK, *((ARENA_FREE **)pArena - 1) );
+                DPRINTF( "%p %08x Used %08x back=%p\n",
+                        pArena, pArena->magic, pArena->size & ARENA_SIZE_MASK, *((ARENA_FREE **)pArena - 1) );
                 ptr += sizeof(*pArena) + (pArena->size & ARENA_SIZE_MASK);
                 arenaSize += sizeof(ARENA_INUSE);
                 usedSize += pArena->size & ARENA_SIZE_MASK;
@@ -275,16 +279,15 @@ static void HEAP_Dump( HEAP *heap )
             else
             {
                 ARENA_INUSE *pArena = (ARENA_INUSE *)ptr;
-                DPRINTF( "%p used %08x\n", pArena, pArena->size & ARENA_SIZE_MASK );
+                DPRINTF( "%p %08x used %08x\n", pArena, pArena->magic, pArena->size & ARENA_SIZE_MASK );
                 ptr += sizeof(*pArena) + (pArena->size & ARENA_SIZE_MASK);
                 arenaSize += sizeof(ARENA_INUSE);
                 usedSize += pArena->size & ARENA_SIZE_MASK;
             }
         }
-        DPRINTF( "\nTotal: Size=%08x Committed=%08x Free=%08lx Used=%08lx Arenas=%08lx (%ld%%)\n\n",
+        DPRINTF( "\nTotal: Size=%08lx Committed=%08lx Free=%08lx Used=%08lx Arenas=%08lx (%ld%%)\n\n",
 	      subheap->size, subheap->commitSize, freeSize, usedSize,
 	      arenaSize, (arenaSize * 100) / subheap->size );
-        subheap = subheap->next;
     }
 }
 
@@ -389,16 +392,13 @@ static inline void HEAP_InsertFreeBlock( HEAP *heap, ARENA_FREE *pArena, BOOL la
  */
 static SUBHEAP *HEAP_FindSubHeap(
                 const HEAP *heap, /* [in] Heap pointer */
-                LPCVOID ptr /* [in] Address */
-) {
-    const SUBHEAP *sub = &heap->subheap;
-    while (sub)
-    {
-        if (((const char *)ptr >= (const char *)sub) &&
-            ((const char *)ptr < (const char *)sub + sub->size - sizeof(ARENA_INUSE)))
-            return (SUBHEAP *)sub;
-        sub = sub->next;
-    }
+                LPCVOID ptr ) /* [in] Address */
+{
+    SUBHEAP *sub;
+    LIST_FOR_EACH_ENTRY( sub, &heap->subheap_list, SUBHEAP, entry )
+        if (((const char *)ptr >= (const char *)sub->base) &&
+            ((const char *)ptr < (const char *)sub->base + sub->size - sizeof(ARENA_INUSE)))
+            return sub;
     return NULL;
 }
 
@@ -411,12 +411,12 @@ static SUBHEAP *HEAP_FindSubHeap(
 static inline BOOL HEAP_Commit( SUBHEAP *subheap, ARENA_INUSE *pArena, SIZE_T data_size )
 {
     void *ptr = (char *)(pArena + 1) + data_size + sizeof(ARENA_FREE);
-    SIZE_T size = (char *)ptr - (char *)subheap;
+    SIZE_T size = (char *)ptr - (char *)subheap->base;
     size = (size + COMMIT_MASK) & ~COMMIT_MASK;
     if (size > subheap->size) size = subheap->size;
     if (size <= subheap->commitSize) return TRUE;
     size -= subheap->commitSize;
-    ptr = (char *)subheap + subheap->commitSize;
+    ptr = (char *)subheap->base + subheap->commitSize;
     if (NtAllocateVirtualMemory( NtCurrentProcess(), &ptr, 0,
                                  &size, MEM_COMMIT, get_protection_type( subheap->heap->flags ) ))
     {
@@ -438,18 +438,18 @@ static inline BOOL HEAP_Decommit( SUBHEAP *subheap, void *ptr )
 {
     void *addr;
     SIZE_T decommit_size;
-    SIZE_T size = (char *)ptr - (char *)subheap;
+    SIZE_T size = (char *)ptr - (char *)subheap->base;
 
     /* round to next block and add one full block */
     size = ((size + COMMIT_MASK) & ~COMMIT_MASK) + COMMIT_MASK + 1;
     if (size >= subheap->commitSize) return TRUE;
     decommit_size = subheap->commitSize - size;
-    addr = (char *)subheap + size;
+    addr = (char *)subheap->base + size;
 
     if (NtFreeVirtualMemory( NtCurrentProcess(), &addr, &decommit_size, MEM_DECOMMIT ))
     {
         WARN("Could not decommit %08lx bytes at %p for heap %p\n",
-                decommit_size, (char *)subheap + size, subheap->heap );
+             decommit_size, (char *)subheap->base + size, subheap->heap );
         return FALSE;
     }
     subheap->commitSize -= decommit_size;
@@ -477,12 +477,13 @@ static void HEAP_CreateFreeBlock( SUBHEAP *subheap, void *ptr, SIZE_T size )
     /* If debugging, erase the freed block content */
 
     pEnd = (char *)ptr + size;
-    if (pEnd > (char *)subheap + subheap->commitSize) pEnd = (char *)subheap + subheap->commitSize;
+    if (pEnd > (char *)subheap->base + subheap->commitSize)
+        pEnd = (char *)subheap->base + subheap->commitSize;
     if (pEnd > (char *)(pFree + 1)) mark_block_free( pFree + 1, pEnd - (char *)(pFree + 1) );
 
     /* Check if next block is free also */
 
-    if (((char *)ptr + size < (char *)subheap + subheap->size) &&
+    if (((char *)ptr + size < (char *)subheap->base + subheap->size) &&
         (*(DWORD *)((char *)ptr + size) & ARENA_FLAG_FREE))
     {
         /* Remove the next arena from the free list */
@@ -494,7 +495,7 @@ static void HEAP_CreateFreeBlock( SUBHEAP *subheap, void *ptr, SIZE_T size )
 
     /* Set the next block PREV_FREE flag and pointer */
 
-    last = ((char *)ptr + size >= (char *)subheap + subheap->size);
+    last = ((char *)ptr + size >= (char *)subheap->base + subheap->size);
     if (!last)
     {
         DWORD *pNext = (DWORD *)((char *)ptr + size);
@@ -536,24 +537,23 @@ static void HEAP_MakeInUseBlockFree( SUBHEAP *subheap, ARENA_INUSE *pArena )
 
     HEAP_CreateFreeBlock( subheap, pFree, size );
     size = (pFree->size & ARENA_SIZE_MASK) + sizeof(ARENA_FREE);
-    if ((char *)pFree + size < (char *)subheap + subheap->size)
+    if ((char *)pFree + size < (char *)subheap->base + subheap->size)
         return;  /* Not the last block, so nothing more to do */
 
     /* Free the whole sub-heap if it's empty and not the original one */
 
-    if (((char *)pFree == (char *)subheap + subheap->headerSize) &&
+    if (((char *)pFree == (char *)subheap->base + subheap->headerSize) &&
         (subheap != &subheap->heap->subheap))
     {
         SIZE_T size = 0;
-        SUBHEAP *pPrev = &subheap->heap->subheap;
+        void *addr = subheap->base;
         /* Remove the free block from the list */
         list_remove( &pFree->entry );
         /* Remove the subheap from the list */
-        while (pPrev && (pPrev->next != subheap)) pPrev = pPrev->next;
-        if (pPrev) pPrev->next = subheap->next;
+        list_remove( &subheap->entry );
         /* Free the memory */
         subheap->magic = 0;
-        NtFreeVirtualMemory( NtCurrentProcess(), (void **)&subheap, &size, MEM_RELEASE );
+        NtFreeVirtualMemory( NtCurrentProcess(), &addr, &size, MEM_RELEASE );
         return;
     }
 
@@ -581,7 +581,7 @@ static void HEAP_ShrinkBlock(SUBHEAP *subheap, ARENA_INUSE *pArena, SIZE_T size)
     {
         /* Turn off PREV_FREE flag in next block */
         char *pNext = (char *)(pArena + 1) + (pArena->size & ARENA_SIZE_MASK);
-        if (pNext < (char *)subheap + subheap->size)
+        if (pNext < (char *)subheap->base + subheap->size)
             *(DWORD *)pNext &= ~ARENA_FLAG_PREV_FREE;
     }
 }
@@ -589,8 +589,8 @@ static void HEAP_ShrinkBlock(SUBHEAP *subheap, ARENA_INUSE *pArena, SIZE_T size)
 /***********************************************************************
  *           HEAP_InitSubHeap
  */
-static BOOL HEAP_InitSubHeap( HEAP *heap, LPVOID address, DWORD flags,
-                              SIZE_T commitSize, SIZE_T totalSize )
+static SUBHEAP *HEAP_InitSubHeap( HEAP *heap, LPVOID address, DWORD flags,
+                                  SIZE_T commitSize, SIZE_T totalSize )
 {
     SUBHEAP *subheap;
     FREE_LIST_ENTRY *pEntry;
@@ -604,33 +604,39 @@ static BOOL HEAP_InitSubHeap( HEAP *heap, LPVOID address, DWORD flags,
                                  &commitSize, MEM_COMMIT, get_protection_type( flags ) ))
     {
         WARN("Could not commit %08lx bytes for sub-heap %p\n", commitSize, address );
-        return FALSE;
+        return NULL;
     }
 
-    /* Fill the sub-heap structure */
-
-    subheap = (SUBHEAP *)address;
-    subheap->heap       = heap;
-    subheap->size       = totalSize;
-    subheap->commitSize = commitSize;
-    subheap->magic      = SUBHEAP_MAGIC;
-
-    if ( subheap != (SUBHEAP *)heap )
+    if (heap)
     {
         /* If this is a secondary subheap, insert it into list */
 
+        subheap = (SUBHEAP *)address;
+        subheap->base       = address;
+        subheap->heap       = heap;
+        subheap->size       = totalSize;
+        subheap->commitSize = commitSize;
+        subheap->magic      = SUBHEAP_MAGIC;
         subheap->headerSize = ROUND_SIZE( sizeof(SUBHEAP) );
-        subheap->next       = heap->subheap.next;
-        heap->subheap.next  = subheap;
+        list_add_head( &heap->subheap_list, &subheap->entry );
     }
     else
     {
         /* If this is a primary subheap, initialize main heap */
 
-        subheap->headerSize = ROUND_SIZE( sizeof(HEAP) );
-        subheap->next       = NULL;
+        heap = (HEAP *)address;
         heap->flags         = flags;
         heap->magic         = HEAP_MAGIC;
+        list_init( &heap->subheap_list );
+
+        subheap = &heap->subheap;
+        subheap->base       = address;
+        subheap->heap       = heap;
+        subheap->size       = totalSize;
+        subheap->commitSize = commitSize;
+        subheap->magic      = SUBHEAP_MAGIC;
+        subheap->headerSize = ROUND_SIZE( sizeof(HEAP) );
+        list_add_head( &heap->subheap_list, &subheap->entry );
 
         /* Build the free lists */
 
@@ -676,10 +682,10 @@ static BOOL HEAP_InitSubHeap( HEAP *heap, LPVOID address, DWORD flags,
 
     /* Create the first free block */
 
-    HEAP_CreateFreeBlock( subheap, (LPBYTE)subheap + subheap->headerSize,
+    HEAP_CreateFreeBlock( subheap, (LPBYTE)subheap->base + subheap->headerSize,
                           subheap->size - subheap->headerSize );
 
-    return TRUE;
+    return subheap;
 }
 
 /***********************************************************************
@@ -692,6 +698,7 @@ static SUBHEAP *HEAP_CreateSubHeap( HEAP *heap, void *base, DWORD flags,
                                     SIZE_T commitSize, SIZE_T totalSize )
 {
     LPVOID address = base;
+    SUBHEAP *ret;
 
     /* round-up sizes on a 64K boundary */
     totalSize  = (totalSize + 0xffff) & 0xffff0000;
@@ -712,15 +719,12 @@ static SUBHEAP *HEAP_CreateSubHeap( HEAP *heap, void *base, DWORD flags,
 
     /* Initialize subheap */
 
-    if (!HEAP_InitSubHeap( heap ? heap : (HEAP *)address,
-                           address, flags, commitSize, totalSize ))
+    if (!(ret = HEAP_InitSubHeap( heap, address, flags, commitSize, totalSize )))
     {
         SIZE_T size = 0;
         if (!base) NtFreeVirtualMemory( NtCurrentProcess(), &address, &size, MEM_RELEASE );
-        return NULL;
     }
-
-    return (SUBHEAP *)address;
+    return ret;
 }
 
 
@@ -778,7 +782,7 @@ static ARENA_FREE *HEAP_FindFreeBlock( HEAP *heap, SIZE_T size,
             subheap, total_size, heap );
 
     *ppSubHeap = subheap;
-    return (ARENA_FREE *)(subheap + 1);
+    return (ARENA_FREE *)((char *)subheap->base + subheap->headerSize);
 }
 
 
@@ -792,7 +796,7 @@ static BOOL HEAP_IsValidArenaPtr( const HEAP *heap, const ARENA_FREE *ptr )
     int i;
     const SUBHEAP *subheap = HEAP_FindSubHeap( heap, ptr );
     if (!subheap) return FALSE;
-    if ((const char *)ptr >= (const char *)subheap + subheap->headerSize) return TRUE;
+    if ((const char *)ptr >= (const char *)subheap->base + subheap->headerSize) return TRUE;
     if (subheap != &heap->subheap) return FALSE;
     for (i = 0; i < HEAP_NB_FREE_LISTS; i++)
         if (ptr == (const void *)&heap->freeList[i].arena) return TRUE;
@@ -806,7 +810,7 @@ static BOOL HEAP_IsValidArenaPtr( const HEAP *heap, const ARENA_FREE *ptr )
 static BOOL HEAP_ValidateFreeArena( SUBHEAP *subheap, ARENA_FREE *pArena )
 {
     ARENA_FREE *prev, *next;
-    char *heapEnd = (char *)subheap + subheap->size;
+    char *heapEnd = (char *)subheap->base + subheap->size;
 
     /* Check for unaligned pointers */
     if ( (ULONG_PTR)pArena % ALIGNMENT != 0 )
@@ -818,7 +822,7 @@ static BOOL HEAP_ValidateFreeArena( SUBHEAP *subheap, ARENA_FREE *pArena )
     /* Check magic number */
     if (pArena->magic != ARENA_FREE_MAGIC)
     {
-        ERR("Heap %p: invalid free arena magic for %p\n", subheap->heap, pArena );
+        ERR("Heap %p: invalid free arena magic %08x for %p\n", subheap->heap, pArena->magic, pArena );
         return FALSE;
     }
     /* Check size flags */
@@ -897,7 +901,7 @@ static BOOL HEAP_ValidateFreeArena( SUBHEAP *subheap, ARENA_FREE *pArena )
  */
 static BOOL HEAP_ValidateInUseArena( const SUBHEAP *subheap, const ARENA_INUSE *pArena, BOOL quiet )
 {
-    const char *heapEnd = (const char *)subheap + subheap->size;
+    const char *heapEnd = (const char *)subheap->base + subheap->size;
 
     /* Check for unaligned pointers */
     if ( (ULONG_PTR)pArena % ALIGNMENT != 0 )
@@ -921,11 +925,11 @@ static BOOL HEAP_ValidateInUseArena( const SUBHEAP *subheap, const ARENA_INUSE *
     if (pArena->magic != ARENA_INUSE_MAGIC)
     {
         if (quiet == NOISY) {
-            ERR("Heap %p: invalid in-use arena magic for %p\n", subheap->heap, pArena );
+            ERR("Heap %p: invalid in-use arena magic %08x for %p\n", subheap->heap, pArena->magic, pArena );
             if (TRACE_ON(heap))
                HEAP_Dump( subheap->heap );
         }  else if (WARN_ON(heap)) {
-            WARN("Heap %p: invalid in-use arena magic for %p\n", subheap->heap, pArena );
+            WARN("Heap %p: invalid in-use arena magic %08x for %p\n", subheap->heap, pArena->magic, pArena );
             if (TRACE_ON(heap))
                HEAP_Dump( subheap->heap );
         }
@@ -1012,7 +1016,7 @@ static BOOL HEAP_IsRealArena( HEAP *heapPtr,   /* [in] ptr to the heap */
         const ARENA_INUSE *arena = (const ARENA_INUSE *)block - 1;
 
         if (!(subheap = HEAP_FindSubHeap( heapPtr, arena )) ||
-            ((const char *)arena < (char *)subheap + subheap->headerSize))
+            ((const char *)arena < (char *)subheap->base + subheap->headerSize))
         {
             if (quiet == NOISY)
                 ERR("Heap %p: block %p is not inside heap\n", heapPtr, block );
@@ -1027,11 +1031,10 @@ static BOOL HEAP_IsRealArena( HEAP *heapPtr,   /* [in] ptr to the heap */
         return ret;
     }
 
-    subheap = &heapPtr->subheap;
-    while (subheap && ret)
+    LIST_FOR_EACH_ENTRY( subheap, &heapPtr->subheap_list, SUBHEAP, entry )
     {
-        char *ptr = (char *)subheap + subheap->headerSize;
-        while (ptr < (char *)subheap + subheap->size)
+        char *ptr = (char *)subheap->base + subheap->headerSize;
+        while (ptr < (char *)subheap->base + subheap->size)
         {
             if (*(DWORD *)ptr & ARENA_FLAG_FREE)
             {
@@ -1050,7 +1053,7 @@ static BOOL HEAP_IsRealArena( HEAP *heapPtr,   /* [in] ptr to the heap */
                 ptr += sizeof(ARENA_INUSE) + (*(DWORD *)ptr & ARENA_SIZE_MASK);
             }
         }
-        subheap = subheap->next;
+        if (!ret) break;
     }
 
     if (!(flags & HEAP_NO_SERIALIZE)) RtlLeaveCriticalSection( &heapPtr->critSection );
@@ -1102,9 +1105,11 @@ HANDLE WINAPI RtlCreateHeap( ULONG flags, PVOID addr, SIZE_T totalSize, SIZE_T c
     {
         processHeap = subheap->heap;  /* assume the first heap we create is the process main heap */
         list_init( &processHeap->entry );
+        /* make sure structure alignment is correct */
+        assert( (ULONG_PTR)&processHeap->freeList % ALIGNMENT == 0 );
     }
 
-    return (HANDLE)subheap;
+    return (HANDLE)subheap->heap;
 }
 
 
@@ -1123,7 +1128,9 @@ HANDLE WINAPI RtlCreateHeap( ULONG flags, PVOID addr, SIZE_T totalSize, SIZE_T c
 HANDLE WINAPI RtlDestroyHeap( HANDLE heap )
 {
     HEAP *heapPtr = HEAP_GetPtr( heap );
-    SUBHEAP *subheap;
+    SUBHEAP *subheap, *next;
+    SIZE_T size;
+    void *addr;
 
     TRACE("%p\n", heap );
     if (!heapPtr) return heap;
@@ -1137,15 +1144,18 @@ HANDLE WINAPI RtlDestroyHeap( HANDLE heap )
 
     heapPtr->critSection.DebugInfo->Spare[0] = 0;
     RtlDeleteCriticalSection( &heapPtr->critSection );
-    subheap = &heapPtr->subheap;
-    while (subheap)
+
+    LIST_FOR_EACH_ENTRY_SAFE( subheap, next, &heapPtr->subheap_list, SUBHEAP, entry )
     {
-        SUBHEAP *next = subheap->next;
-        SIZE_T size = 0;
-        void *addr = subheap;
+        if (subheap == &heapPtr->subheap) continue;  /* do this one last */
+        list_remove( &subheap->entry );
+        size = 0;
+        addr = subheap->base;
         NtFreeVirtualMemory( NtCurrentProcess(), &addr, &size, MEM_RELEASE );
-        subheap = next;
     }
+    size = 0;
+    addr = heapPtr->subheap.base;
+    NtFreeVirtualMemory( NtCurrentProcess(), &addr, &size, MEM_RELEASE );
     return 0;
 }
 
@@ -1221,7 +1231,10 @@ PVOID WINAPI RtlAllocateHeap( HANDLE heap, ULONG flags, SIZE_T size )
     notify_alloc( pInUse + 1, size, flags & HEAP_ZERO_MEMORY );
 
     if (flags & HEAP_ZERO_MEMORY)
-        clear_block( pInUse + 1, pInUse->size & ARENA_SIZE_MASK );
+    {
+        clear_block( pInUse + 1, size );
+        mark_block_uninitialized( (char *)(pInUse + 1) + size, pInUse->unused_bytes );
+    }
     else
         mark_block_uninitialized( pInUse + 1, pInUse->size & ARENA_SIZE_MASK );
 
@@ -1271,7 +1284,7 @@ BOOLEAN WINAPI RtlFreeHeap( HANDLE heap, ULONG flags, PVOID ptr )
 
     pInUse  = (ARENA_INUSE *)ptr - 1;
     if (!(subheap = HEAP_FindSubHeap( heapPtr, pInUse ))) goto error;
-    if ((char *)pInUse < (char *)subheap + subheap->headerSize) goto error;
+    if ((char *)pInUse < (char *)subheap->base + subheap->headerSize) goto error;
     if (!HEAP_ValidateInUseArena( subheap, pInUse, QUIET )) goto error;
 
     /* Turn the block into a free block */
@@ -1313,7 +1326,7 @@ PVOID WINAPI RtlReAllocateHeap( HANDLE heap, ULONG flags, PVOID ptr, SIZE_T size
     ARENA_INUSE *pArena;
     HEAP *heapPtr;
     SUBHEAP *subheap;
-    SIZE_T oldSize, rounded_size;
+    SIZE_T oldBlockSize, oldActualSize, rounded_size;
 
     if (!ptr) return NULL;
     if (!(heapPtr = HEAP_GetPtr( heap )))
@@ -1340,18 +1353,19 @@ PVOID WINAPI RtlReAllocateHeap( HANDLE heap, ULONG flags, PVOID ptr, SIZE_T size
 
     pArena = (ARENA_INUSE *)ptr - 1;
     if (!(subheap = HEAP_FindSubHeap( heapPtr, pArena ))) goto error;
-    if ((char *)pArena < (char *)subheap + subheap->headerSize) goto error;
+    if ((char *)pArena < (char *)subheap->base + subheap->headerSize) goto error;
     if (!HEAP_ValidateInUseArena( subheap, pArena, QUIET )) goto error;
 
     /* Check if we need to grow the block */
 
-    oldSize = (pArena->size & ARENA_SIZE_MASK);
-    if (rounded_size > oldSize)
+    oldBlockSize = (pArena->size & ARENA_SIZE_MASK);
+    oldActualSize = (pArena->size & ARENA_SIZE_MASK) - pArena->unused_bytes;
+    if (rounded_size > oldBlockSize)
     {
-        char *pNext = (char *)(pArena + 1) + oldSize;
-        if ((pNext < (char *)subheap + subheap->size) &&
+        char *pNext = (char *)(pArena + 1) + oldBlockSize;
+        if ((pNext < (char *)subheap->base + subheap->size) &&
             (*(DWORD *)pNext & ARENA_FLAG_FREE) &&
-            (oldSize + (*(DWORD *)pNext & ARENA_SIZE_MASK) + sizeof(ARENA_FREE) >= rounded_size))
+            (oldBlockSize + (*(DWORD *)pNext & ARENA_SIZE_MASK) + sizeof(ARENA_FREE) >= rounded_size))
         {
             /* The next block is free and large enough */
             ARENA_FREE *pFree = (ARENA_FREE *)pNext;
@@ -1368,7 +1382,7 @@ PVOID WINAPI RtlReAllocateHeap( HANDLE heap, ULONG flags, PVOID ptr, SIZE_T size
             HEAP_ShrinkBlock( subheap, pArena, rounded_size );
             notify_alloc( pArena + 1, size, FALSE );
             /* FIXME: this is wrong as we may lose old VBits settings */
-            mark_block_initialized( pArena + 1, oldSize );
+            mark_block_initialized( pArena + 1, oldActualSize );
         }
         else  /* Do it the hard way */
         {
@@ -1393,9 +1407,10 @@ PVOID WINAPI RtlReAllocateHeap( HANDLE heap, ULONG flags, PVOID ptr, SIZE_T size
                            + sizeof(ARENA_FREE) - sizeof(ARENA_INUSE);
             pInUse->magic = ARENA_INUSE_MAGIC;
             HEAP_ShrinkBlock( newsubheap, pInUse, rounded_size );
-            mark_block_initialized( pInUse + 1, oldSize );
+
+            mark_block_initialized( pInUse + 1, oldActualSize );
             notify_alloc( pInUse + 1, size, FALSE );
-            memcpy( pInUse + 1, pArena + 1, oldSize );
+            memcpy( pInUse + 1, pArena + 1, oldActualSize );
 
             /* Free the previous block */
 
@@ -1419,14 +1434,16 @@ PVOID WINAPI RtlReAllocateHeap( HANDLE heap, ULONG flags, PVOID ptr, SIZE_T size
 
     /* Clear the extra bytes if needed */
 
-    if (rounded_size > oldSize)
+    if (size > oldActualSize)
     {
         if (flags & HEAP_ZERO_MEMORY)
-            clear_block( (char *)(pArena + 1) + oldSize,
-                         (pArena->size & ARENA_SIZE_MASK) - oldSize );
+        {
+            clear_block( (char *)(pArena + 1) + oldActualSize, size - oldActualSize );
+            mark_block_uninitialized( (char *)(pArena + 1) + size, pArena->unused_bytes );
+        }
         else
-            mark_block_uninitialized( (char *)(pArena + 1) + oldSize,
-                                      (pArena->size & ARENA_SIZE_MASK) - oldSize );
+            mark_block_uninitialized( (char *)(pArena + 1) + oldActualSize,
+                                      (pArena->size & ARENA_SIZE_MASK) - oldActualSize );
     }
 
     /* Return the new arena */
@@ -1461,7 +1478,8 @@ error:
  */
 ULONG WINAPI RtlCompactHeap( HANDLE heap, ULONG flags )
 {
-    FIXME( "stub\n" );
+    static BOOL reported;
+    if (!reported++) FIXME( "(%p, 0x%x) stub\n", heap, flags );
     return 0;
 }
 
@@ -1603,21 +1621,19 @@ NTSTATUS WINAPI RtlWalkHeap( HANDLE heap, PVOID entry_ptr )
     {
         TRACE("begin walking of heap %p.\n", heap);
         currentheap = &heapPtr->subheap;
-        ptr = (char*)currentheap + currentheap->headerSize;
+        ptr = (char*)currentheap->base + currentheap->headerSize;
     }
     else
     {
         ptr = entry->lpData;
-        sub = &heapPtr->subheap;
-        while (sub)
+        LIST_FOR_EACH_ENTRY( sub, &heapPtr->subheap_list, SUBHEAP, entry )
         {
-            if (((char *)ptr >= (char *)sub) &&
-                ((char *)ptr < (char *)sub + sub->size))
+            if ((ptr >= (char *)sub->base) &&
+                (ptr < (char *)sub->base + sub->size))
             {
                 currentheap = sub;
                 break;
             }
-            sub = sub->next;
             region_index++;
         }
         if (currentheap == NULL)
@@ -1640,15 +1656,17 @@ NTSTATUS WINAPI RtlWalkHeap( HANDLE heap, PVOID entry_ptr )
         else
             ptr += entry->cbData; /* point to next arena */
 
-        if (ptr > (char *)currentheap + currentheap->size - 1)
+        if (ptr > (char *)currentheap->base + currentheap->size - 1)
         {   /* proceed with next subheap */
-            if (!(currentheap = currentheap->next))
+            struct list *next = list_next( &heapPtr->subheap_list, &currentheap->entry );
+            if (!next)
             {  /* successfully finished */
                 TRACE("end reached.\n");
                 ret = STATUS_NO_MORE_ENTRIES;
                 goto HW_end;
             }
-            ptr = (char*)currentheap + currentheap->headerSize;
+            currentheap = LIST_ENTRY( next, SUBHEAP, entry );
+            ptr = (char *)currentheap->base + currentheap->headerSize;
         }
     }
 
@@ -1681,16 +1699,16 @@ NTSTATUS WINAPI RtlWalkHeap( HANDLE heap, PVOID entry_ptr )
     entry->iRegionIndex = region_index;
 
     /* first element of heap ? */
-    if (ptr == (char *)(currentheap + currentheap->headerSize))
+    if (ptr == (char *)currentheap->base + currentheap->headerSize)
     {
         entry->wFlags |= PROCESS_HEAP_REGION;
         entry->u.Region.dwCommittedSize = currentheap->commitSize;
         entry->u.Region.dwUnCommittedSize =
                 currentheap->size - currentheap->commitSize;
         entry->u.Region.lpFirstBlock = /* first valid block */
-                currentheap + currentheap->headerSize;
+                (char *)currentheap->base + currentheap->headerSize;
         entry->u.Region.lpLastBlock  = /* first invalid block */
-                currentheap + currentheap->size;
+                (char *)currentheap->base + currentheap->size;
     }
     ret = STATUS_SUCCESS;
     if (TRACE_ON(heap)) HEAP_DumpEntry(entry);

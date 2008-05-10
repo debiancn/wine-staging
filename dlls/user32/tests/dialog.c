@@ -268,7 +268,7 @@ static int id (HWND h)
  *   3. Prev Group of hDlg in hDlg is null
  *   4. Prev Tab of hDlg in hDlg is null
  *   5. Next Group of null is first visible enabled child
- *      Check it skips invisible, diabled and both.
+ *      Check it skips invisible, disabled and both.
  *   6. Next Tab of null is first visible enabled tabstop
  *      Check it skips invisible, disabled, nontabstop, and in combination.
  *   7. Next Group of hDlg in hDlg is as of null
@@ -488,6 +488,44 @@ static LRESULT CALLBACK main_window_procA (HWND hwnd, UINT uiMsg, WPARAM wParam,
     return result;
 }
 
+static LRESULT CALLBACK disabled_test_proc (HWND hwnd, UINT uiMsg,
+        WPARAM wParam, LPARAM lParam)
+{
+    LRESULT result;
+    DWORD dw;
+    HWND hwndOk;
+
+    switch (uiMsg)
+    {
+        case WM_INITDIALOG:
+            dw = SendMessage(hwnd, DM_GETDEFID, 0, 0);
+            assert(DC_HASDEFID == HIWORD(dw));
+            hwndOk = GetDlgItem(hwnd, LOWORD(dw));
+            assert(hwndOk);
+            EnableWindow(hwndOk, FALSE);
+
+            PostMessage(hwnd, WM_KEYDOWN, VK_RETURN, 0);
+            PostMessage(hwnd, WM_COMMAND, IDCANCEL, 0);
+            break;
+        case WM_COMMAND:
+            if (wParam == IDOK)
+            {
+                g_terminated = TRUE;
+                EndDialog(hwnd, 0);
+                return 0;
+            }
+            else if (wParam == IDCANCEL)
+            {
+                EndDialog(hwnd, 0);
+                return 0;
+            }
+            break;
+    }
+
+    result=DefWindowProcA (hwnd, uiMsg, wParam, lParam);
+    return result;
+}
+
 static LRESULT CALLBACK testDlgWinProc (HWND hwnd, UINT uiMsg, WPARAM wParam,
         LPARAM lParam)
 {
@@ -676,7 +714,7 @@ static void IsDialogMessageWTest (void)
 }
 
 
-static LRESULT CALLBACK delayFocusDlgWinProc (HWND hDlg, UINT uiMsg, WPARAM wParam,
+static INT_PTR CALLBACK delayFocusDlgWinProc (HWND hDlg, UINT uiMsg, WPARAM wParam,
         LPARAM lParam)
 {
     switch (uiMsg)
@@ -716,7 +754,7 @@ static LRESULT CALLBACK delayFocusDlgWinProc (HWND hDlg, UINT uiMsg, WPARAM wPar
     return FALSE;
 }
 
-static LRESULT CALLBACK focusDlgWinProc (HWND hDlg, UINT uiMsg, WPARAM wParam,
+static INT_PTR CALLBACK focusDlgWinProc (HWND hDlg, UINT uiMsg, WPARAM wParam,
         LPARAM lParam)
 {
     switch (uiMsg)
@@ -781,7 +819,7 @@ static void InitialFocusTest (void)
     g_styleInitialFocusT1 = -1;
     g_styleInitialFocusT2 = -1;
 
-    DialogBoxA(g_hinst, "RADIO_TEST_DIALOG", NULL, (DLGPROC)delayFocusDlgWinProc);
+    DialogBoxA(g_hinst, "RADIO_TEST_DIALOG", NULL, delayFocusDlgWinProc);
 
     ok (((g_styleInitialFocusT1 & WS_TABSTOP) == 0),
        "Error in wrc - Detected WS_TABSTOP as default style for GROUPBOX\n");
@@ -812,7 +850,7 @@ static void InitialFocusTest (void)
     g_styleInitialFocusT1 = -1;
     g_styleInitialFocusT2 = -1;
 
-    DialogBoxA(g_hinst, "RADIO_TEST_DIALOG", NULL, (DLGPROC)delayFocusDlgWinProc);
+    DialogBoxA(g_hinst, "RADIO_TEST_DIALOG", NULL, delayFocusDlgWinProc);
 
     ok ((g_hwndInitialFocusT1 == g_hwndButton2),
        "Error in initial focus when WM_INITDIALOG returned TRUE: "
@@ -839,7 +877,7 @@ static void InitialFocusTest (void)
         pTemplate = (LPDLGTEMPLATEA)LockResource(hTemplate);
 
         g_hwndInitialFocusT1 = 0;
-        hDlg = CreateDialogIndirectParamW(g_hinst, pTemplate, NULL, (DLGPROC)focusDlgWinProc,0);
+        hDlg = CreateDialogIndirectParamA(g_hinst, pTemplate, NULL, focusDlgWinProc, 0);
         ok (hDlg != 0, "Failed to create test dialog.\n");
 
         ok ((g_hwndInitialFocusT1 == 0),
@@ -876,6 +914,13 @@ static void test_DialogBoxParamA(void)
     ok(ERROR_RESOURCE_NAME_NOT_FOUND == GetLastError(),"got %d, expected ERROR_RESOURCE_NAME_NOT_FOUND\n",GetLastError());
 }
 
+static void test_DisabledDialogTest(void)
+{
+    g_terminated = FALSE;
+    DialogBoxParam(g_hinst, "IDD_DIALOG", NULL, (DLGPROC)disabled_test_proc, 0);
+    ok(FALSE == g_terminated, "dialog with disabled ok button has been terminated\n");
+}
+
 START_TEST(dialog)
 {
     g_hinst = GetModuleHandleA (0);
@@ -888,4 +933,5 @@ START_TEST(dialog)
     InitialFocusTest();
     test_GetDlgItemText();
     test_DialogBoxParamA();
+    test_DisabledDialogTest();
 }

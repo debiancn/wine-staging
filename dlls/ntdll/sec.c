@@ -45,6 +45,20 @@ WINE_DEFAULT_DEBUG_CHANNEL(ntdll);
 
 #define NT_SUCCESS(status) (status == STATUS_SUCCESS)
 
+/* helper function to retrieve active length of an ACL */
+static size_t acl_bytesInUse(PACL pAcl)
+{
+    int i;
+    size_t bytesInUse = sizeof(ACL);
+    PACE_HEADER ace = (PACE_HEADER) (pAcl + 1);
+    for (i = 0; i < pAcl->AceCount; i++)
+    {
+	bytesInUse += ace->AceSize;
+	ace = (PACE_HEADER)(((BYTE*)ace)+ace->AceSize);
+    }
+    return bytesInUse;
+}
+
 /* helper function to copy an ACL */
 static BOOLEAN copy_acl(DWORD nDestinationAclLength, PACL pDestinationAcl, PACL pSourceAcl)
 {
@@ -52,8 +66,8 @@ static BOOLEAN copy_acl(DWORD nDestinationAclLength, PACL pDestinationAcl, PACL 
 
     if (!pSourceAcl || !RtlValidAcl(pSourceAcl))
         return FALSE;
-        
-    size = ((ACL *)pSourceAcl)->AclSize;
+
+    size = pSourceAcl->AclSize;
     if (nDestinationAclLength < size)
         return FALSE;
 
@@ -144,7 +158,7 @@ NTSTATUS WINAPI RtlAllocateAndInitializeSid (
     tmp_sid->Revision = SID_REVISION;
 
     if (pIdentifierAuthority)
-        memcpy(&tmp_sid->IdentifierAuthority, pIdentifierAuthority, sizeof(SID_IDENTIFIER_AUTHORITY));
+        tmp_sid->IdentifierAuthority = *pIdentifierAuthority;
     tmp_sid->SubAuthorityCount = nSubAuthorityCount;
 
     switch( nSubAuthorityCount )
@@ -288,7 +302,7 @@ BOOL WINAPI RtlInitializeSid(
 	pisid->Revision = SID_REVISION;
 	pisid->SubAuthorityCount = nSubAuthorityCount;
 	if (pIdentifierAuthority)
-	  memcpy(&pisid->IdentifierAuthority, pIdentifierAuthority, sizeof (SID_IDENTIFIER_AUTHORITY));
+	  pisid->IdentifierAuthority = *pIdentifierAuthority;
 
 	for (i = 0; i < nSubAuthorityCount; i++)
 	  *RtlSubAuthoritySid(pSid, i) = 0;
@@ -626,8 +640,9 @@ NTSTATUS WINAPI RtlSetDaclSecurityDescriptor (
 		return STATUS_INVALID_SECURITY_DESCR;
 
 	if (!daclpresent)
-	{	lpsd->Control &= ~SE_DACL_PRESENT;
-		return TRUE;
+	{
+		lpsd->Control &= ~SE_DACL_PRESENT;
+		return STATUS_SUCCESS;
 	}
 
 	lpsd->Control |= SE_DACL_PRESENT;
@@ -654,7 +669,7 @@ NTSTATUS WINAPI RtlGetSaclSecurityDescriptor(
 	SECURITY_DESCRIPTOR* lpsd=pSecurityDescriptor;
 
 	TRACE("(%p,%p,%p,%p)\n",
-	pSecurityDescriptor, lpbSaclPresent, *pSacl, lpbSaclDefaulted);
+	pSecurityDescriptor, lpbSaclPresent, pSacl, lpbSaclDefaulted);
 
 	if (lpsd->Revision != SECURITY_DESCRIPTOR_REVISION)
 	  return STATUS_UNKNOWN_REVISION;
@@ -713,6 +728,11 @@ NTSTATUS WINAPI RtlGetOwnerSecurityDescriptor(
 	if ( !lpsd  || !Owner || !OwnerDefaulted )
 		return STATUS_INVALID_PARAMETER;
 
+        if ( lpsd->Control & SE_OWNER_DEFAULTED )
+            *OwnerDefaulted = TRUE;
+        else
+            *OwnerDefaulted = FALSE;
+
 	if (lpsd->Owner != NULL)
 	{
             if (lpsd->Control & SE_SELF_RELATIVE)
@@ -720,10 +740,6 @@ NTSTATUS WINAPI RtlGetOwnerSecurityDescriptor(
             else
                 *Owner = lpsd->Owner;
 
-            if ( lpsd->Control & SE_OWNER_DEFAULTED )
-                *OwnerDefaulted = TRUE;
-            else
-                *OwnerDefaulted = FALSE;
         }
 	else
 	    *Owner = NULL;
@@ -790,17 +806,17 @@ NTSTATUS WINAPI RtlGetGroupSecurityDescriptor(
 	if ( !lpsd || !Group || !GroupDefaulted )
 		return STATUS_INVALID_PARAMETER;
 
+        if ( lpsd->Control & SE_GROUP_DEFAULTED )
+            *GroupDefaulted = TRUE;
+        else
+            *GroupDefaulted = FALSE;
+
 	if (lpsd->Group != NULL)
 	{
             if (lpsd->Control & SE_SELF_RELATIVE)
                 *Group = (PSID)((LPBYTE)lpsd + (ULONG_PTR)lpsd->Group);
             else
                 *Group = lpsd->Group;
-
-            if ( lpsd->Control & SE_GROUP_DEFAULTED )
-                *GroupDefaulted = TRUE;
-            else
-                *GroupDefaulted = FALSE;
 	}
 	else
 	    *Group = NULL;
@@ -848,30 +864,44 @@ NTSTATUS WINAPI RtlMakeSelfRelativeSD(
     pRel->Control = pAbs->Control | SE_SELF_RELATIVE;
 
     offsetRel = sizeof(SECURITY_DESCRIPTOR);
-    pRel->Owner = (PSID) offsetRel;
-    length = RtlLengthSid(pAbs->Owner);
-    memcpy((LPBYTE)pRel + offsetRel, pAbs->Owner, length);
-
-    offsetRel += length;
-    pRel->Group = (PSID) offsetRel;
-    length = RtlLengthSid(pAbs->Group);
-    memcpy((LPBYTE)pRel + offsetRel, pAbs->Group, length);
-
-    if (pRel->Control & SE_SACL_PRESENT)
+    if (pAbs->Owner)
     {
+        pRel->Owner = (PSID) offsetRel;
+        length = RtlLengthSid(pAbs->Owner);
+        memcpy((LPBYTE)pRel + offsetRel, pAbs->Owner, length);
         offsetRel += length;
+    }
+    else
+    {
+        pRel->Owner = NULL;
+    }
+
+    if (pAbs->Group)
+    {
+        pRel->Group = (PSID) offsetRel;
+        length = RtlLengthSid(pAbs->Group);
+        memcpy((LPBYTE)pRel + offsetRel, pAbs->Group, length);
+        offsetRel += length;
+    }
+    else
+    {
+        pRel->Group = NULL;
+    }
+
+    if (pAbs->Sacl)
+    {
         pRel->Sacl = (PACL) offsetRel;
         length = pAbs->Sacl->AclSize;
         memcpy((LPBYTE)pRel + offsetRel, pAbs->Sacl, length);
+        offsetRel += length;
     }
     else
     {
         pRel->Sacl = NULL;
     }
 
-    if (pRel->Control & SE_DACL_PRESENT)
+    if (pAbs->Dacl)
     {
-        offsetRel += length;
         pRel->Dacl = (PACL) offsetRel;
         length = pAbs->Dacl->AclSize;
         memcpy((LPBYTE)pRel + offsetRel, pAbs->Dacl, length);
@@ -1014,6 +1044,19 @@ NTSTATUS WINAPI RtlGetControlSecurityDescriptor(
     return STATUS_SUCCESS;
 }
 
+/******************************************************************************
+ * RtlSetControlSecurityDescriptor (NTDLL.@)
+ */
+NTSTATUS WINAPI RtlSetControlSecurityDescriptor(
+    PSECURITY_DESCRIPTOR SecurityDescriptor,
+    SECURITY_DESCRIPTOR_CONTROL ControlBitsOfInterest,
+    SECURITY_DESCRIPTOR_CONTROL ControlBitsToSet)
+{
+    FIXME("(%p 0x%08x 0x%08x): stub\n", SecurityDescriptor, ControlBitsOfInterest,
+          ControlBitsToSet);
+    return STATUS_SUCCESS;
+}
+
 
 /**************************************************************************
  *                 RtlAbsoluteToSelfRelativeSD [NTDLL.@]
@@ -1050,7 +1093,7 @@ NTSTATUS WINAPI RtlCreateAcl(PACL acl,DWORD size,DWORD rev)
 {
 	TRACE("%p 0x%08x 0x%08x\n", acl, size, rev);
 
-	if (rev!=ACL_REVISION)
+	if (rev < MIN_ACL_REVISION || rev > MAX_ACL_REVISION)
 		return STATUS_INVALID_PARAMETER;
 	if (size<sizeof(ACL))
 		return STATUS_BUFFER_TOO_SMALL;
@@ -1213,17 +1256,16 @@ NTSTATUS WINAPI RtlAddAccessDeniedAceEx(
 /************************************************************************** 
  *  RtlAddAuditAccessAce     [NTDLL.@] 
  */ 
-NTSTATUS WINAPI RtlAddAuditAccessAce( 
+NTSTATUS WINAPI RtlAddAuditAccessAceEx(
     IN OUT PACL pAcl, 
     IN DWORD dwAceRevision, 
+    IN DWORD dwAceFlags,
     IN DWORD dwAccessMask, 
     IN PSID pSid, 
     IN BOOL bAuditSuccess, 
     IN BOOL bAuditFailure) 
 { 
-    DWORD dwAceFlags = 0;
-
-    TRACE("(%p,%d,%d,%p,%u,%u)\n",pAcl,dwAceRevision,dwAccessMask,
+    TRACE("(%p,%d,0x%08x,0x%08x,%p,%u,%u)\n",pAcl,dwAceRevision,dwAceFlags,dwAccessMask,
           pSid,bAuditSuccess,bAuditFailure);
 
     if (bAuditSuccess)
@@ -1235,6 +1277,20 @@ NTSTATUS WINAPI RtlAddAuditAccessAce(
     return add_access_ace(pAcl, dwAceRevision, dwAceFlags,
                           dwAccessMask, pSid, SYSTEM_AUDIT_ACE_TYPE);
 } 
+
+/**************************************************************************
+ *  RtlAddAuditAccessAce     [NTDLL.@]
+ */
+NTSTATUS WINAPI RtlAddAuditAccessAce(
+    IN OUT PACL pAcl,
+    IN DWORD dwAceRevision,
+    IN DWORD dwAccessMask,
+    IN PSID pSid,
+    IN BOOL bAuditSuccess,
+    IN BOOL bAuditFailure)
+{
+    return RtlAddAuditAccessAceEx(pAcl, dwAceRevision, 0, dwAccessMask, pSid, bAuditSuccess, bAuditFailure);
+}
  
 /******************************************************************************
  *  RtlValidAcl		[NTDLL.@]
@@ -1249,7 +1305,8 @@ BOOLEAN WINAPI RtlValidAcl(PACL pAcl)
 		PACE_HEADER	ace;
 		int		i;
 
-                if (pAcl->AclRevision != ACL_REVISION)
+                if (pAcl->AclRevision < MIN_ACL_REVISION ||
+                    pAcl->AclRevision > MAX_ACL_REVISION)
                     ret = FALSE;
                 else
                 {
@@ -1284,7 +1341,7 @@ NTSTATUS WINAPI RtlGetAce(PACL pAcl,DWORD dwAceIndex,LPVOID *pAce )
 
 	TRACE("(%p,%d,%p)\n",pAcl,dwAceIndex,pAce);
 
-	if ((dwAceIndex < 0) || (dwAceIndex > pAcl->AceCount))
+	if (dwAceIndex >= pAcl->AceCount)
 		return STATUS_INVALID_PARAMETER;
 
 	ace = (PACE_HEADER)(pAcl + 1);
@@ -1510,9 +1567,9 @@ NtAccessCheck(
         RtlGetGroupSecurityDescriptor( SecurityDescriptor, &group, &defaulted );
         sd.group_len = RtlLengthSid( group );
         RtlGetSaclSecurityDescriptor( SecurityDescriptor, &present, &sacl, &defaulted );
-        sd.sacl_len = (present ? sacl->AclSize : 0);
+        sd.sacl_len = ((present && sacl) ? acl_bytesInUse(sacl) : 0);
         RtlGetDaclSecurityDescriptor( SecurityDescriptor, &present, &dacl, &defaulted );
-        sd.dacl_len = (present ? dacl->AclSize : 0);
+        sd.dacl_len = ((present && dacl) ? acl_bytesInUse(dacl) : 0);
 
         wine_server_add_data( req, &sd, sizeof(sd) );
         wine_server_add_data( req, owner, sd.owner_len );
@@ -1594,7 +1651,7 @@ NTSTATUS WINAPI NtSetSecurityObject(HANDLE Handle,
     {
         status = RtlGetSaclSecurityDescriptor( SecurityDescriptor, &present, &sacl, &defaulted );
         if (status != STATUS_SUCCESS) return status;
-        sd.sacl_len = (sacl && present) ? sacl->AclSize : 0;
+        sd.sacl_len = (sacl && present) ? acl_bytesInUse(sacl) : 0;
         sd.control |= SE_SACL_PRESENT;
     }
 
@@ -1602,7 +1659,7 @@ NTSTATUS WINAPI NtSetSecurityObject(HANDLE Handle,
     {
         status = RtlGetDaclSecurityDescriptor( SecurityDescriptor, &present, &dacl, &defaulted );
         if (status != STATUS_SUCCESS) return status;
-        sd.dacl_len = (dacl && present) ? dacl->AclSize : 0;
+        sd.dacl_len = (dacl && present) ? acl_bytesInUse(dacl) : 0;
         sd.control |= SE_DACL_PRESENT;
     }
 
@@ -1702,23 +1759,11 @@ NTSTATUS WINAPI RtlQueryInformationAcl(
                 status = STATUS_INVALID_PARAMETER;
             else
             {
-                INT i;
-                PACE_HEADER ace;
-
                 paclsize->AceCount = pAcl->AceCount;
-
-                paclsize->AclBytesInUse = 0;
-		ace = (PACE_HEADER) (pAcl + 1);
-
-                for (i = 0; i < pAcl->AceCount; i++)
-                {
-                    paclsize->AclBytesInUse += ace->AceSize;
-		    ace = (PACE_HEADER)(((BYTE*)ace)+ace->AceSize);
-                }
-
+                paclsize->AclBytesInUse = acl_bytesInUse(pAcl);
 		if (pAcl->AclSize < paclsize->AclBytesInUse)
                 {
-                    WARN("Acl has %d bytes free\n", paclsize->AclBytesFree);
+                    WARN("Acl uses %d bytes, but only has %d allocated!  Returning smaller of the two values.\n", pAcl->AclSize, paclsize->AclBytesInUse);
                     paclsize->AclBytesFree = 0;
                     paclsize->AclBytesInUse = pAcl->AclSize;
                 }

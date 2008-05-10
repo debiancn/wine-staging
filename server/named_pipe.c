@@ -117,6 +117,7 @@ static const struct object_ops named_pipe_ops =
 {
     sizeof(struct named_pipe),    /* size */
     named_pipe_dump,              /* dump */
+    no_get_type,                  /* get_type */
     no_add_queue,                 /* add_queue */
     NULL,                         /* remove_queue */
     NULL,                         /* signaled */
@@ -124,14 +125,13 @@ static const struct object_ops named_pipe_ops =
     no_signal,                    /* signal */
     no_get_fd,                    /* get_fd */
     named_pipe_map_access,        /* map_access */
+    default_get_sd,               /* get_sd */
+    default_set_sd,               /* set_sd */
     no_lookup_name,               /* lookup_name */
     named_pipe_open_file,         /* open_file */
     no_close_handle,              /* close_handle */
     named_pipe_destroy            /* destroy */
 };
-
-/* functions common to server and client */
-static unsigned int pipe_map_access( struct object *obj, unsigned int access );
 
 /* server end functions */
 static void pipe_server_dump( struct object *obj, int verbose );
@@ -146,13 +146,16 @@ static const struct object_ops pipe_server_ops =
 {
     sizeof(struct pipe_server),   /* size */
     pipe_server_dump,             /* dump */
+    no_get_type,                  /* get_type */
     add_queue,                    /* add_queue */
     remove_queue,                 /* remove_queue */
     default_fd_signaled,          /* signaled */
     no_satisfied,                 /* satisfied */
     no_signal,                    /* signal */
     pipe_server_get_fd,           /* get_fd */
-    pipe_map_access,              /* map_access */
+    default_fd_map_access,        /* map_access */
+    default_get_sd,               /* get_sd */
+    default_set_sd,               /* set_sd */
     no_lookup_name,               /* lookup_name */
     no_open_file,                 /* open_file */
     fd_close_handle,              /* close_handle */
@@ -182,13 +185,16 @@ static const struct object_ops pipe_client_ops =
 {
     sizeof(struct pipe_client),   /* size */
     pipe_client_dump,             /* dump */
+    no_get_type,                  /* get_type */
     add_queue,                    /* add_queue */
     remove_queue,                 /* remove_queue */
     default_fd_signaled,          /* signaled */
     no_satisfied,                 /* satisfied */
     no_signal,                    /* signal */
     pipe_client_get_fd,           /* get_fd */
-    pipe_map_access,              /* map_access */
+    default_fd_map_access,        /* map_access */
+    default_get_sd,               /* get_sd */
+    default_set_sd,               /* set_sd */
     no_lookup_name,               /* lookup_name */
     no_open_file,                 /* open_file */
     fd_close_handle,              /* close_handle */
@@ -208,6 +214,7 @@ static const struct fd_ops pipe_client_fd_ops =
 };
 
 static void named_pipe_device_dump( struct object *obj, int verbose );
+static struct object_type *named_pipe_device_get_type( struct object *obj );
 static struct fd *named_pipe_device_get_fd( struct object *obj );
 static struct object *named_pipe_device_lookup_name( struct object *obj,
     struct unicode_str *name, unsigned int attr );
@@ -222,6 +229,7 @@ static const struct object_ops named_pipe_device_ops =
 {
     sizeof(struct named_pipe_device), /* size */
     named_pipe_device_dump,           /* dump */
+    named_pipe_device_get_type,       /* get_type */
     no_add_queue,                     /* add_queue */
     NULL,                             /* remove_queue */
     NULL,                             /* signaled */
@@ -229,6 +237,8 @@ static const struct object_ops named_pipe_device_ops =
     no_signal,                        /* signal */
     named_pipe_device_get_fd,         /* get_fd */
     no_map_access,                    /* map_access */
+    default_get_sd,                   /* get_sd */
+    default_set_sd,                   /* set_sd */
     named_pipe_device_lookup_name,    /* lookup_name */
     named_pipe_device_open_file,      /* open_file */
     fd_close_handle,                  /* close_handle */
@@ -357,15 +367,6 @@ static void do_disconnect( struct pipe_server *server )
     server->fd = NULL;
 }
 
-static unsigned int pipe_map_access( struct object *obj, unsigned int access )
-{
-    if (access & GENERIC_READ)    access |= FILE_GENERIC_READ;
-    if (access & GENERIC_WRITE)   access |= FILE_GENERIC_WRITE;
-    if (access & GENERIC_EXECUTE) access |= FILE_GENERIC_EXECUTE;
-    if (access & GENERIC_ALL)     access |= FILE_ALL_ACCESS;
-    return access & ~(GENERIC_READ | GENERIC_WRITE | GENERIC_EXECUTE | GENERIC_ALL);
-}
-
 static void pipe_server_destroy( struct object *obj)
 {
     struct pipe_server *server = (struct pipe_server *)obj;
@@ -430,6 +431,13 @@ static void named_pipe_device_dump( struct object *obj, int verbose )
 {
     assert( obj->ops == &named_pipe_device_ops );
     fprintf( stderr, "Named pipe device\n" );
+}
+
+static struct object_type *named_pipe_device_get_type( struct object *obj )
+{
+    static const WCHAR name[] = {'D','e','v','i','c','e'};
+    static const struct unicode_str str = { name, sizeof(name) };
+    return get_object_type( &str );
 }
 
 static struct fd *named_pipe_device_get_fd( struct object *obj )
@@ -543,7 +551,7 @@ static void pipe_server_flush( struct fd *fd, struct event **event )
     {
         /* this kind of sux -
            there's no unix way to be alerted when a pipe becomes empty */
-        server->event = create_event( NULL, NULL, 0, 0, 0 );
+        server->event = create_event( NULL, NULL, 0, 0, 0, NULL );
         if (!server->event) return;
         server->flush_poll = add_timeout_user( -TICKS_PER_SEC / 10, check_flushed, server );
         *event = server->event;
@@ -573,7 +581,7 @@ static enum server_fd_type pipe_client_get_fd_type( struct fd *fd )
 static obj_handle_t alloc_wait_event( struct process *process )
 {
     obj_handle_t handle = 0;
-    struct event *event = create_event( NULL, NULL, 0, 1, 0 );
+    struct event *event = create_event( NULL, NULL, 0, 1, 0, NULL );
 
     if (event)
     {
@@ -764,11 +772,20 @@ static struct pipe_server *find_available_server( struct named_pipe *pipe )
 {
     struct pipe_server *server;
 
+    /* look for pipe servers that are listening */
     LIST_FOR_EACH_ENTRY( server, &pipe->servers, struct pipe_server, entry )
     {
-        if (server->state == ps_idle_server || server->state == ps_wait_open)
+        if (server->state == ps_wait_open)
             return (struct pipe_server *)grab_object( server );
     }
+
+    /* fall back to pipe servers that are idle */
+    LIST_FOR_EACH_ENTRY( server, &pipe->servers, struct pipe_server, entry )
+    {
+        if (server->state == ps_idle_server)
+            return (struct pipe_server *)grab_object( server );
+    }
+
     return NULL;
 }
 

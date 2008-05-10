@@ -223,7 +223,9 @@ static HRESULT OutputPin_ConnectSpecific(IPin * iface, IPin * pReceivePin, const
     return hr;
 }
 
-HRESULT OutputPin_Init(const PIN_INFO * pPinInfo, ALLOCATOR_PROPERTIES * props, LPVOID pUserData, QUERYACCEPTPROC pQueryAccept, LPCRITICAL_SECTION pCritSec, OutputPin * pPinImpl)
+HRESULT OutputPin_Init(const PIN_INFO * pPinInfo, const ALLOCATOR_PROPERTIES * props,
+                       LPVOID pUserData, QUERYACCEPTPROC pQueryAccept,
+                       LPCRITICAL_SECTION pCritSec, OutputPin * pPinImpl)
 {
     TRACE("\n");
 
@@ -240,7 +242,7 @@ HRESULT OutputPin_Init(const PIN_INFO * pPinInfo, ALLOCATOR_PROPERTIES * props, 
     pPinImpl->pConnectSpecific = OutputPin_ConnectSpecific;
     if (props)
     {
-        memcpy(&pPinImpl->allocProps, props, sizeof(pPinImpl->allocProps));
+        pPinImpl->allocProps = *props;
         if (pPinImpl->allocProps.cbAlign == 0)
             pPinImpl->allocProps.cbAlign = 1;
     }

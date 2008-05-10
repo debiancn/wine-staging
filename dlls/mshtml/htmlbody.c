@@ -16,8 +16,6 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "config.h"
-
 #include <stdarg.h>
 #include <stdio.h>
 
@@ -26,7 +24,6 @@
 #include "windef.h"
 #include "winbase.h"
 #include "winuser.h"
-#include "winnls.h"
 #include "ole2.h"
 
 #include "wine/debug.h"
@@ -36,19 +33,55 @@
 WINE_DEFAULT_DEBUG_CHANNEL(mshtml);
 
 typedef struct {
+    HTMLTextContainer textcont;
+
     const IHTMLBodyElementVtbl *lpHTMLBodyElementVtbl;
 
-    HTMLTextContainer text_container;
-
-    ConnectionPointContainer cp_container;
     ConnectionPoint cp_propnotif;
-    ConnectionPoint cp_txtcontevents;
 
-    HTMLElement *element;
     nsIDOMHTMLBodyElement *nsbody;
 } HTMLBodyElement;
 
 #define HTMLBODY(x)  ((IHTMLBodyElement*)  &(x)->lpHTMLBodyElementVtbl)
+
+static BOOL variant_to_nscolor(const VARIANT *v, nsAString *nsstr)
+{
+    switch(V_VT(v)) {
+    case VT_BSTR:
+        nsAString_Init(nsstr, V_BSTR(v));
+        return TRUE;
+
+    case VT_I4: {
+        PRUnichar buf[10];
+        static const WCHAR formatW[] = {'#','%','x',0};
+
+        wsprintfW(buf, formatW, V_I4(v));
+        nsAString_Init(nsstr, buf);
+        return TRUE;
+    }
+
+    default:
+        FIXME("invalid vt=%d\n", V_VT(v));
+    }
+
+    return FALSE;
+
+}
+
+static void nscolor_to_variant(const nsAString *nsstr, VARIANT *p)
+{
+    const PRUnichar *color;
+
+    nsAString_GetData(nsstr, &color);
+
+    if(*color == '#') {
+        V_VT(p) = VT_I4;
+        V_I4(p) = strtolW(color+1, NULL, 16);
+    }else {
+        V_VT(p) = VT_BSTR;
+        V_BSTR(p) = SysAllocString(color);
+    }
+}
 
 #define HTMLBODY_THIS(iface) DEFINE_THIS(HTMLBodyElement, HTMLBodyElement, iface)
 
@@ -56,55 +89,22 @@ static HRESULT WINAPI HTMLBodyElement_QueryInterface(IHTMLBodyElement *iface,
                                                      REFIID riid, void **ppv)
 {
     HTMLBodyElement *This = HTMLBODY_THIS(iface);
-    HRESULT hres;
 
-    *ppv = NULL;
-
-    if(IsEqualGUID(&IID_IUnknown, riid)) {
-        TRACE("(%p)->(IID_IUnknown %p)\n", This, ppv);
-        *ppv = HTMLBODY(This);
-    }else if(IsEqualGUID(&IID_IDispatch, riid)) {
-        TRACE("(%p)->(IID_IDispatch %p)\n", This, ppv);
-        *ppv = HTMLBODY(This);
-    }else if(IsEqualGUID(&IID_IHTMLBodyElement, riid)) {
-        TRACE("(%p)->(IID_IHTMLBodyElement %p)\n", This, ppv);
-        *ppv = HTMLBODY(This);
-    }else if(IsEqualGUID(&IID_IHTMLTextContainer, riid)) {
-        TRACE("(%p)->(IID_IHTMLTextContainer %p)\n", This, ppv);
-        *ppv = HTMLTEXTCONT(&This->text_container);
-    }else if(IsEqualGUID(&IID_IConnectionPointContainer, riid)) {
-        TRACE("(%p)->(IID_IConnectionPointContainer %p)\n", This, ppv);
-        *ppv = CONPTCONT(&This->cp_container);
-    }
-
-    if(*ppv) {
-        IUnknown_AddRef((IUnknown*)*ppv);
-        return S_OK;
-    }
-
-    hres = HTMLElement_QI(This->element, riid, ppv);
-    if(FAILED(hres))
-        WARN("(%p)->(%s %p)\n", This, debugstr_guid(riid), ppv);
-
-    return hres;
+    return IHTMLDOMNode_QueryInterface(HTMLDOMNODE(&This->textcont.element.node), riid, ppv);
 }
 
 static ULONG WINAPI HTMLBodyElement_AddRef(IHTMLBodyElement *iface)
 {
     HTMLBodyElement *This = HTMLBODY_THIS(iface);
 
-    TRACE("(%p)\n", This);
-
-    return IHTMLDocument2_AddRef(HTMLDOC(This->element->node->doc));
+    return IHTMLDOMNode_AddRef(HTMLDOMNODE(&This->textcont.element.node));
 }
 
 static ULONG WINAPI HTMLBodyElement_Release(IHTMLBodyElement *iface)
 {
     HTMLBodyElement *This = HTMLBODY_THIS(iface);
 
-    TRACE("(%p)\n", This);
-
-    return IHTMLDocument2_Release(HTMLDOC(This->element->node->doc));
+    return IHTMLDOMNode_Release(HTMLDOMNODE(&This->textcont.element.node));
 }
 
 static HRESULT WINAPI HTMLBodyElement_GetTypeInfoCount(IHTMLBodyElement *iface, UINT *pctinfo)
@@ -162,8 +162,8 @@ static HRESULT WINAPI HTMLBodyElement_get_background(IHTMLBodyElement *iface, BS
     nsres = nsIDOMHTMLBodyElement_GetBackground(This->nsbody, &background_str);
     if(NS_SUCCEEDED(nsres)) {
         const PRUnichar *background;
-        nsAString_GetData(&background_str, &background, NULL);
-        *p = SysAllocString(background);
+        nsAString_GetData(&background_str, &background);
+        *p = *background ? SysAllocString(background) : NULL;
     }else {
         ERR("GetBackground failed: %08x\n", nsres);
         *p = NULL;
@@ -290,43 +290,115 @@ static HRESULT WINAPI HTMLBodyElement_get_text(IHTMLBodyElement *iface, VARIANT 
 static HRESULT WINAPI HTMLBodyElement_put_link(IHTMLBodyElement *iface, VARIANT v)
 {
     HTMLBodyElement *This = HTMLBODY_THIS(iface);
-    FIXME("(%p)->()\n", This);
-    return E_NOTIMPL;
+    nsAString link_str;
+    nsresult nsres;
+
+    TRACE("(%p)->(v%d)\n", This, V_VT(&v));
+
+    if(!variant_to_nscolor(&v, &link_str))
+        return S_OK;
+
+    nsres = nsIDOMHTMLBodyElement_SetLink(This->nsbody, &link_str);
+    nsAString_Finish(&link_str);
+    if(NS_FAILED(nsres))
+        ERR("SetLink failed: %08x\n", nsres);
+
+    return S_OK;
 }
 
 static HRESULT WINAPI HTMLBodyElement_get_link(IHTMLBodyElement *iface, VARIANT *p)
 {
     HTMLBodyElement *This = HTMLBODY_THIS(iface);
-    FIXME("(%p)->(%p)\n", This, p);
-    return E_NOTIMPL;
+    nsAString link_str;
+    nsresult nsres;
+
+    TRACE("(%p)->(%p)\n", This, p);
+
+    nsAString_Init(&link_str, NULL);
+    nsres = nsIDOMHTMLBodyElement_GetLink(This->nsbody, &link_str);
+    if(NS_FAILED(nsres))
+        ERR("GetLink failed: %08x\n", nsres);
+
+    nscolor_to_variant(&link_str, p);
+    nsAString_Finish(&link_str);
+
+    return S_OK;
 }
 
 static HRESULT WINAPI HTMLBodyElement_put_vLink(IHTMLBodyElement *iface, VARIANT v)
 {
     HTMLBodyElement *This = HTMLBODY_THIS(iface);
-    FIXME("(%p)->()\n", This);
-    return E_NOTIMPL;
+    nsAString vlink_str;
+    nsresult nsres;
+
+    TRACE("(%p)->(v%d)\n", This, V_VT(&v));
+
+    if(!variant_to_nscolor(&v, &vlink_str))
+        return S_OK;
+
+    nsres = nsIDOMHTMLBodyElement_SetVLink(This->nsbody, &vlink_str);
+    nsAString_Finish(&vlink_str);
+    if(NS_FAILED(nsres))
+        ERR("SetLink failed: %08x\n", nsres);
+
+    return S_OK;
 }
 
 static HRESULT WINAPI HTMLBodyElement_get_vLink(IHTMLBodyElement *iface, VARIANT *p)
 {
     HTMLBodyElement *This = HTMLBODY_THIS(iface);
-    FIXME("(%p)->(%p)\n", This, p);
-    return E_NOTIMPL;
+    nsAString vlink_str;
+    nsresult nsres;
+
+    TRACE("(%p)->(%p)\n", This, p);
+
+    nsAString_Init(&vlink_str, NULL);
+    nsres = nsIDOMHTMLBodyElement_GetVLink(This->nsbody, &vlink_str);
+    if(NS_FAILED(nsres))
+        ERR("GetLink failed: %08x\n", nsres);
+
+    nscolor_to_variant(&vlink_str, p);
+    nsAString_Finish(&vlink_str);
+
+    return S_OK;
 }
 
 static HRESULT WINAPI HTMLBodyElement_put_aLink(IHTMLBodyElement *iface, VARIANT v)
 {
     HTMLBodyElement *This = HTMLBODY_THIS(iface);
-    FIXME("(%p)->()\n", This);
-    return E_NOTIMPL;
+    nsAString alink_str;
+    nsresult nsres;
+
+    TRACE("(%p)->(v%d)\n", This, V_VT(&v));
+
+    if(!variant_to_nscolor(&v, &alink_str))
+        return S_OK;
+
+    nsres = nsIDOMHTMLBodyElement_SetALink(This->nsbody, &alink_str);
+    nsAString_Finish(&alink_str);
+    if(NS_FAILED(nsres))
+        ERR("SetALink failed: %08x\n", nsres);
+
+    return S_OK;
 }
 
 static HRESULT WINAPI HTMLBodyElement_get_aLink(IHTMLBodyElement *iface, VARIANT *p)
 {
     HTMLBodyElement *This = HTMLBODY_THIS(iface);
-    FIXME("(%p)->(%p)\n", This, p);
-    return E_NOTIMPL;
+    nsAString alink_str;
+    nsresult nsres;
+
+    TRACE("(%p)->(%p)\n", This, p);
+
+    nsAString_Init(&alink_str, NULL);
+    nsres = nsIDOMHTMLBodyElement_GetALink(This->nsbody, &alink_str);
+    if(NS_FAILED(nsres))
+        ERR("GetALink failed: %08x\n", nsres);
+
+    nscolor_to_variant(&alink_str, p);
+    nsAString_Finish(&alink_str);
+
+    return S_OK;
 }
 
 static HRESULT WINAPI HTMLBodyElement_put_onload(IHTMLBodyElement *iface, VARIANT v)
@@ -406,18 +478,18 @@ static HRESULT WINAPI HTMLBodyElement_createTextRange(IHTMLBodyElement *iface, I
 
     TRACE("(%p)->(%p)\n", This, range);
 
-    if(This->element->node->doc->nscontainer) {
+    if(This->textcont.element.node.doc->nscontainer) {
         nsIDOMDocument *nsdoc;
         nsIDOMDocumentRange *nsdocrange;
         nsresult nsres;
 
-        nsIWebNavigation_GetDocument(This->element->node->doc->nscontainer->navigation, &nsdoc);
+        nsIWebNavigation_GetDocument(This->textcont.element.node.doc->nscontainer->navigation, &nsdoc);
         nsIDOMDocument_QueryInterface(nsdoc, &IID_nsIDOMDocumentRange, (void**)&nsdocrange);
         nsIDOMDocument_Release(nsdoc);
 
         nsres = nsIDOMDocumentRange_CreateRange(nsdocrange, &nsrange);
         if(NS_SUCCEEDED(nsres)) {
-            nsres = nsIDOMRange_SelectNodeContents(nsrange, This->element->node->nsnode);
+            nsres = nsIDOMRange_SelectNodeContents(nsrange, This->textcont.element.node.nsnode);
             if(NS_FAILED(nsres))
                 ERR("SelectNodeContents failed: %08x\n", nsres);
         }else {
@@ -427,18 +499,11 @@ static HRESULT WINAPI HTMLBodyElement_createTextRange(IHTMLBodyElement *iface, I
         nsIDOMDocumentRange_Release(nsdocrange);
     }
 
-    *range = HTMLTxtRange_Create(nsrange);
+    *range = HTMLTxtRange_Create(This->textcont.element.node.doc, nsrange);
     return S_OK;
 }
 
-static void HTMLBodyElement_destructor(IUnknown *iface)
-{
-    HTMLBodyElement *This = HTMLBODY_THIS(iface);
-
-    ConnectionPointContainer_Destroy(&This->cp_container);
-    nsIDOMHTMLBodyElement_Release(This->nsbody);
-    mshtml_free(This);
-}
+#undef HTMLBODY_THIS
 
 static const IHTMLBodyElementVtbl HTMLBodyElementVtbl = {
     HTMLBodyElement_QueryInterface,
@@ -485,27 +550,70 @@ static const IHTMLBodyElementVtbl HTMLBodyElementVtbl = {
     HTMLBodyElement_createTextRange
 };
 
-void HTMLBodyElement_Create(HTMLElement *element)
+#define HTMLBODY_NODE_THIS(iface) DEFINE_THIS2(HTMLBodyElement, textcont.element.node, iface)
+
+static HRESULT HTMLBodyElement_QI(HTMLDOMNode *iface, REFIID riid, void **ppv)
 {
-    HTMLBodyElement *ret = mshtml_alloc(sizeof(HTMLBodyElement));
+    HTMLBodyElement *This = HTMLBODY_NODE_THIS(iface);
+
+    *ppv = NULL;
+
+    if(IsEqualGUID(&IID_IUnknown, riid)) {
+        TRACE("(%p)->(IID_IUnknown %p)\n", This, ppv);
+        *ppv = HTMLBODY(This);
+    }else if(IsEqualGUID(&IID_IDispatch, riid)) {
+        TRACE("(%p)->(IID_IDispatch %p)\n", This, ppv);
+        *ppv = HTMLBODY(This);
+    }else if(IsEqualGUID(&IID_IHTMLBodyElement, riid)) {
+        TRACE("(%p)->(IID_IHTMLBodyElement %p)\n", This, ppv);
+        *ppv = HTMLBODY(This);
+    }else if(IsEqualGUID(&IID_IHTMLTextContainer, riid)) {
+        TRACE("(%p)->(IID_IHTMLTextContainer %p)\n", &This->textcont, ppv);
+        *ppv = HTMLTEXTCONT(&This->textcont);
+    }
+
+    if(*ppv) {
+        IUnknown_AddRef((IUnknown*)*ppv);
+        return S_OK;
+    }
+
+    return HTMLElement_QI(&This->textcont.element.node, riid, ppv);
+}
+
+static void HTMLBodyElement_destructor(HTMLDOMNode *iface)
+{
+    HTMLBodyElement *This = HTMLBODY_NODE_THIS(iface);
+
+    nsIDOMHTMLBodyElement_Release(This->nsbody);
+
+    HTMLElement_destructor(&This->textcont.element.node);
+}
+
+#undef HTMLBODY_NODE_THIS
+
+static const NodeImplVtbl HTMLBodyElementImplVtbl = {
+    HTMLBodyElement_QI,
+    HTMLBodyElement_destructor
+};
+
+HTMLElement *HTMLBodyElement_Create(nsIDOMHTMLElement *nselem)
+{
+    HTMLBodyElement *ret = heap_alloc_zero(sizeof(HTMLBodyElement));
     nsresult nsres;
 
+    TRACE("(%p)->(%p)\n", ret, nselem);
+
+    HTMLTextContainer_Init(&ret->textcont);
+
     ret->lpHTMLBodyElementVtbl = &HTMLBodyElementVtbl;
-    ret->element = element;
+    ret->textcont.element.node.vtbl = &HTMLBodyElementImplVtbl;
 
-    HTMLTextContainer_Init(&ret->text_container, element);
+    ConnectionPoint_Init(&ret->cp_propnotif, &ret->textcont.element.cp_container, &IID_IPropertyNotifySink);
 
-    ConnectionPoint_Init(&ret->cp_propnotif, CONPTCONT(&ret->cp_container),
-            &IID_IPropertyNotifySink, NULL);
-    ConnectionPoint_Init(&ret->cp_txtcontevents, CONPTCONT(&ret->cp_container),
-            &DIID_HTMLTextContainerEvents, &ret->cp_propnotif);
-    ConnectionPointContainer_Init(&ret->cp_container, &ret->cp_propnotif, (IUnknown*)HTMLBODY(ret));
-
-    nsres = nsIDOMHTMLElement_QueryInterface(element->nselem, &IID_nsIDOMHTMLBodyElement,
+    nsres = nsIDOMHTMLElement_QueryInterface(nselem, &IID_nsIDOMHTMLBodyElement,
                                              (void**)&ret->nsbody);
     if(NS_FAILED(nsres))
         ERR("Could not get nsDOMHTMLBodyElement: %08x\n", nsres);
 
-    element->impl = (IUnknown*)HTMLBODY(ret);
-    element->destructor = HTMLBodyElement_destructor;
+    return &ret->textcont.element;
 }

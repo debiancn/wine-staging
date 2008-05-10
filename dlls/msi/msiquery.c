@@ -35,6 +35,7 @@
 #include "winnls.h"
 
 #include "query.h"
+#include "msiserver.h"
 
 #include "initguid.h"
 
@@ -166,7 +167,7 @@ UINT MSI_OpenQuery( MSIDATABASE *db, MSIQUERY **view, LPCWSTR fmt, ... )
     return r;
 }
 
-UINT MSI_IterateRecords( MSIQUERY *view, DWORD *count,
+UINT MSI_IterateRecords( MSIQUERY *view, LPDWORD count,
                          record_func func, LPVOID param )
 {
     MSIRECORD *rec = NULL;
@@ -250,7 +251,27 @@ UINT WINAPI MsiDatabaseOpenViewW(MSIHANDLE hdb,
 
     db = msihandle2msiinfo( hdb, MSIHANDLETYPE_DATABASE );
     if( !db )
-        return ERROR_INVALID_HANDLE;
+    {
+        HRESULT hr;
+        IWineMsiRemoteDatabase *remote_database;
+
+        remote_database = (IWineMsiRemoteDatabase *)msi_get_remote( hdb );
+        if ( !remote_database )
+            return ERROR_INVALID_HANDLE;
+
+        hr = IWineMsiRemoteDatabase_OpenView( remote_database, (BSTR)szQuery, phView );
+        IWineMsiRemoteDatabase_Release( remote_database );
+
+        if (FAILED(hr))
+        {
+            if (HRESULT_FACILITY(hr) == FACILITY_WIN32)
+                return HRESULT_CODE(hr);
+
+            return ERROR_FUNCTION_FAILED;
+        }
+
+        return ERROR_SUCCESS;
+    }
 
     ret = MSI_DatabaseOpenViewW( db, szQuery, &query );
     if( ret == ERROR_SUCCESS )
@@ -265,11 +286,88 @@ UINT WINAPI MsiDatabaseOpenViewW(MSIHANDLE hdb,
     return ret;
 }
 
+UINT msi_view_get_row(MSIDATABASE *db, MSIVIEW *view, UINT row, MSIRECORD **rec)
+{
+    UINT row_count = 0, col_count = 0, i, ival, ret, type;
+
+    TRACE("%p %p %d %p\n", db, view, row, rec);
+
+    ret = view->ops->get_dimensions(view, &row_count, &col_count);
+    if (ret)
+        return ret;
+
+    if (!col_count)
+        return ERROR_INVALID_PARAMETER;
+
+    if (row >= row_count)
+        return ERROR_NO_MORE_ITEMS;
+
+    *rec = MSI_CreateRecord(col_count);
+    if (!*rec)
+        return ERROR_FUNCTION_FAILED;
+
+    for (i = 1; i <= col_count; i++)
+    {
+        ret = view->ops->get_column_info(view, i, NULL, &type);
+        if (ret)
+        {
+            ERR("Error getting column type for %d\n", i);
+            continue;
+        }
+
+        if (MSITYPE_IS_BINARY(type))
+        {
+            IStream *stm = NULL;
+
+            ret = view->ops->fetch_stream(view, row, i, &stm);
+            if ((ret == ERROR_SUCCESS) && stm)
+            {
+                MSI_RecordSetIStream(*rec, i, stm);
+                IStream_Release(stm);
+            }
+            else
+                ERR("failed to get stream\n");
+
+            continue;
+        }
+
+        ret = view->ops->fetch_int(view, row, i, &ival);
+        if (ret)
+        {
+            ERR("Error fetching data for %d\n", i);
+            continue;
+        }
+
+        if (! (type & MSITYPE_VALID))
+            ERR("Invalid type!\n");
+
+        /* check if it's nul (0) - if so, don't set anything */
+        if (!ival)
+            continue;
+
+        if (type & MSITYPE_STRING)
+        {
+            LPCWSTR sval;
+
+            sval = msi_string_lookup_id(db->strings, ival);
+            MSI_RecordSetStringW(*rec, i, sval);
+        }
+        else
+        {
+            if ((type & MSI_DATASIZEMASK) == 2)
+                MSI_RecordSetInteger(*rec, i, ival - (1<<15));
+            else
+                MSI_RecordSetInteger(*rec, i, ival - (1<<31));
+        }
+    }
+
+    return ERROR_SUCCESS;
+}
+
 UINT MSI_ViewFetch(MSIQUERY *query, MSIRECORD **prec)
 {
     MSIVIEW *view;
-    MSIRECORD *rec;
-    UINT row_count = 0, col_count = 0, i, ival, ret, type;
+    UINT r;
 
     TRACE("%p %p\n", query, prec );
 
@@ -277,76 +375,11 @@ UINT MSI_ViewFetch(MSIQUERY *query, MSIRECORD **prec)
     if( !view )
         return ERROR_FUNCTION_FAILED;
 
-    ret = view->ops->get_dimensions( view, &row_count, &col_count );
-    if( ret )
-        return ret;
-    if( !col_count )
-        return ERROR_INVALID_PARAMETER;
+    r = msi_view_get_row(query->db, view, query->row, prec);
+    if (r == ERROR_SUCCESS)
+        query->row ++;
 
-    if( query->row >= row_count )
-        return ERROR_NO_MORE_ITEMS;
-
-    rec = MSI_CreateRecord( col_count );
-    if( !rec )
-        return ERROR_FUNCTION_FAILED;
-
-    for( i=1; i<=col_count; i++ )
-    {
-        ret = view->ops->get_column_info( view, i, NULL, &type );
-        if( ret )
-        {
-            ERR("Error getting column type for %d\n", i );
-            continue;
-        }
-        if (!MSITYPE_IS_BINARY(type))
-        {
-            ret = view->ops->fetch_int( view, query->row, i, &ival );
-            if( ret )
-            {
-                ERR("Error fetching data for %d\n", i );
-                continue;
-            }
-            if( ! (type & MSITYPE_VALID ) )
-                ERR("Invalid type!\n");
-
-            /* check if it's nul (0) - if so, don't set anything */
-            if( !ival )
-                continue;
-
-            if( type & MSITYPE_STRING )
-            {
-                LPCWSTR sval;
-
-                sval = msi_string_lookup_id( query->db->strings, ival );
-                MSI_RecordSetStringW( rec, i, sval );
-            }
-            else
-            {
-                if( (type & MSI_DATASIZEMASK) == 2 )
-                    MSI_RecordSetInteger( rec, i, ival - (1<<15) );
-                else
-                    MSI_RecordSetInteger( rec, i, ival - (1<<31) );
-            }
-        }
-        else
-        {
-            IStream *stm = NULL;
-
-            ret = view->ops->fetch_stream( view, query->row, i, &stm );
-            if( ( ret == ERROR_SUCCESS ) && stm )
-            {
-                MSI_RecordSetIStream( rec, i, stm );
-                IStream_Release( stm );
-            }
-            else
-                ERR("failed to get stream\n");
-        }
-    }
-    query->row ++;
-
-    *prec = rec;
-
-    return ERROR_SUCCESS;
+    return r;
 }
 
 UINT WINAPI MsiViewFetch(MSIHANDLE hView, MSIHANDLE *record)
@@ -555,6 +588,7 @@ UINT WINAPI MsiViewGetColumnInfo(MSIHANDLE hView, MSICOLINFO info, MSIHANDLE *hR
 UINT MSI_ViewModify( MSIQUERY *query, MSIMODIFY mode, MSIRECORD *rec )
 {
     MSIVIEW *view = NULL;
+    UINT r;
 
     if ( !query || !rec )
         return ERROR_INVALID_HANDLE;
@@ -563,7 +597,11 @@ UINT MSI_ViewModify( MSIQUERY *query, MSIMODIFY mode, MSIRECORD *rec )
     if ( !view  || !view->ops->modify)
         return ERROR_FUNCTION_FAILED;
 
-    return view->ops->modify( view, mode, rec );
+    r = view->ops->modify( view, mode, rec, query->row );
+    if (mode == MSIMODIFY_DELETE && r == ERROR_SUCCESS)
+        query->row--;
+
+    return r;
 }
 
 UINT WINAPI MsiViewModify( MSIHANDLE hView, MSIMODIFY eModifyMode,
@@ -590,7 +628,7 @@ UINT WINAPI MsiViewModify( MSIHANDLE hView, MSIMODIFY eModifyMode,
 }
 
 MSIDBERROR WINAPI MsiViewGetErrorW( MSIHANDLE handle, LPWSTR szColumnNameBuffer,
-                              DWORD *pcchBuf )
+                              LPDWORD pcchBuf )
 {
     MSIQUERY *query = NULL;
     static const WCHAR szError[] = { 0 };
@@ -622,7 +660,7 @@ MSIDBERROR WINAPI MsiViewGetErrorW( MSIHANDLE handle, LPWSTR szColumnNameBuffer,
 }
 
 MSIDBERROR WINAPI MsiViewGetErrorA( MSIHANDLE handle, LPSTR szColumnNameBuffer,
-                              DWORD *pcchBuf )
+                              LPDWORD pcchBuf )
 {
     static const CHAR szError[] = { 0 };
     MSIQUERY *query = NULL;
@@ -702,7 +740,18 @@ UINT WINAPI MsiDatabaseApplyTransformW( MSIHANDLE hdb,
 
     db = msihandle2msiinfo( hdb, MSIHANDLETYPE_DATABASE );
     if( !db )
-        return ERROR_INVALID_HANDLE;
+    {
+        IWineMsiRemoteDatabase *remote_database;
+
+        remote_database = (IWineMsiRemoteDatabase *)msi_get_remote( hdb );
+        if ( !remote_database )
+            return ERROR_INVALID_HANDLE;
+
+        IWineMsiRemoteDatabase_Release( remote_database );
+        WARN("MsiDatabaseApplyTransform not allowed during a custom action!\n");
+
+        return ERROR_SUCCESS;
+    }
 
     r = MSI_DatabaseApplyTransformW( db, szTransformFile, iErrorCond );
     msiobj_release( &db->hdr );
@@ -753,11 +802,23 @@ UINT WINAPI MsiDatabaseCommit( MSIHANDLE hdb )
 
     db = msihandle2msiinfo( hdb, MSIHANDLETYPE_DATABASE );
     if( !db )
-        return ERROR_INVALID_HANDLE;
+    {
+        IWineMsiRemoteDatabase *remote_database;
+
+        remote_database = (IWineMsiRemoteDatabase *)msi_get_remote( hdb );
+        if ( !remote_database )
+            return ERROR_INVALID_HANDLE;
+
+        IWineMsiRemoteDatabase_Release( remote_database );
+        WARN("MsiDatabaseCommit not allowed during a custom action!\n");
+
+        return ERROR_SUCCESS;
+    }
 
     /* FIXME: lock the database */
 
     r = MSI_CommitTables( db );
+    if (r != ERROR_SUCCESS) ERR("Failed to commit tables!\n");
 
     /* FIXME: unlock the database */
 
@@ -808,14 +869,11 @@ UINT MSI_DatabaseGetPrimaryKeys( MSIDATABASE *db,
         '`','T','a','b','l','e','`',' ','=',' ','\'','%','s','\'',0 };
     struct msi_primary_key_record_info info;
     MSIQUERY *query = NULL;
-    MSIVIEW *view;
     UINT r;
-    
+
     r = MSI_OpenQuery( db, &query, sql, table );
     if( r != ERROR_SUCCESS )
         return r;
-
-    view = query->view;
 
     /* count the number of primary key records */
     info.n = 0;
@@ -850,7 +908,27 @@ UINT WINAPI MsiDatabaseGetPrimaryKeysW( MSIHANDLE hdb,
 
     db = msihandle2msiinfo( hdb, MSIHANDLETYPE_DATABASE );
     if( !db )
-        return ERROR_INVALID_HANDLE;
+    {
+        HRESULT hr;
+        IWineMsiRemoteDatabase *remote_database;
+
+        remote_database = (IWineMsiRemoteDatabase *)msi_get_remote( hdb );
+        if ( !remote_database )
+            return ERROR_INVALID_HANDLE;
+
+        hr = IWineMsiRemoteDatabase_GetPrimaryKeys( remote_database, (BSTR)table, phRec );
+        IWineMsiRemoteDatabase_Release( remote_database );
+
+        if (FAILED(hr))
+        {
+            if (HRESULT_FACILITY(hr) == FACILITY_WIN32)
+                return HRESULT_CODE(hr);
+
+            return ERROR_FUNCTION_FAILED;
+        }
+
+        return ERROR_SUCCESS;
+    }
 
     r = MSI_DatabaseGetPrimaryKeys( db, table, &rec );
     if( r == ERROR_SUCCESS )
@@ -915,7 +993,24 @@ MSICONDITION WINAPI MsiDatabaseIsTablePersistentW(
 
     db = msihandle2msiinfo( hDatabase, MSIHANDLETYPE_DATABASE );
     if( !db )
-        return MSICONDITION_ERROR;
+    {
+        HRESULT hr;
+        MSICONDITION condition;
+        IWineMsiRemoteDatabase *remote_database;
+
+        remote_database = (IWineMsiRemoteDatabase *)msi_get_remote( hDatabase );
+        if ( !remote_database )
+            return MSICONDITION_ERROR;
+
+        hr = IWineMsiRemoteDatabase_IsTablePersistent( remote_database,
+                                                       (BSTR)szTableName, &condition );
+        IWineMsiRemoteDatabase_Release( remote_database );
+
+        if (FAILED(hr))
+            return MSICONDITION_ERROR;
+
+        return condition;
+    }
 
     r = MSI_DatabaseIsTablePersistent( db, szTableName );
 

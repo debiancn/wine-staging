@@ -16,17 +16,7 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include <stdarg.h>
-
-#define COBJMACROS
-
-#include "windef.h"
-#include "winbase.h"
-#include "winuser.h"
-#include "ole2.h"
-#include "urlmon.h"
 #include "urlmon_main.h"
-
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(urlmon);
@@ -43,7 +33,7 @@ typedef struct {
     LONG ref;
 } EnumFORMATETC;
 
-static IEnumFORMATETC *EnumFORMATETC_Create(UINT cfmtetc, FORMATETC *rgfmtetc, UINT it);
+static IEnumFORMATETC *EnumFORMATETC_Create(UINT cfmtetc, const FORMATETC *rgfmtetc, UINT it);
 
 #define ENUMF_THIS(iface) ICOM_THIS_MULTI(EnumFORMATETC, lpEnumFORMATETCVtbl, iface)
 
@@ -54,6 +44,7 @@ static HRESULT WINAPI EnumFORMATETC_QueryInterface(IEnumFORMATETC *iface, REFIID
     *ppv = NULL;
 
     if(IsEqualGUID(&IID_IUnknown, riid) || IsEqualGUID(&IID_IEnumFORMATETC, riid)) {
+        IEnumFORMATETC_AddRef(iface);
         *ppv = iface;
         return S_OK;
     }
@@ -78,8 +69,8 @@ static ULONG WINAPI EnumFORMATETC_Release(IEnumFORMATETC *iface)
     TRACE("(%p) ref=%d\n", This, ref);
 
     if(!ref) {
-        HeapFree(GetProcessHeap(), 0, This->fetc);
-        HeapFree(GetProcessHeap(), 0, This);
+        heap_free(This->fetc);
+        heap_free(This);
 
         URLMON_UnlockModule();
     }
@@ -158,9 +149,9 @@ static const IEnumFORMATETCVtbl EnumFORMATETCVtbl = {
     EnumFORMATETC_Clone
 };
 
-static IEnumFORMATETC *EnumFORMATETC_Create(UINT cfmtetc, FORMATETC *rgfmtetc, UINT it)
+static IEnumFORMATETC *EnumFORMATETC_Create(UINT cfmtetc, const FORMATETC *rgfmtetc, UINT it)
 {
-    EnumFORMATETC *ret = HeapAlloc(GetProcessHeap(), 0, sizeof(EnumFORMATETC));
+    EnumFORMATETC *ret = heap_alloc(sizeof(EnumFORMATETC));
 
     URLMON_LockModule();
 
@@ -169,7 +160,7 @@ static IEnumFORMATETC *EnumFORMATETC_Create(UINT cfmtetc, FORMATETC *rgfmtetc, U
     ret->it = it;
     ret->fetc_cnt = cfmtetc;
 
-    ret->fetc = HeapAlloc(GetProcessHeap(), 0, cfmtetc*sizeof(FORMATETC));
+    ret->fetc = heap_alloc(cfmtetc*sizeof(FORMATETC));
     memcpy(ret->fetc, rgfmtetc, cfmtetc*sizeof(FORMATETC));
 
     return (IEnumFORMATETC*)ret;

@@ -44,6 +44,9 @@ ID_ACCEL ACCELERATORS
     VK_INSERT, CMD_PASTE, VIRTKEY, SHIFT
 }
 
+/* @makedep: notepad.ico */
+IDI_NOTEPAD ICON "notepad.ico"
+
 #include "Bg.rc"
 #include "Cs.rc"
 #include "Da.rc"
@@ -61,10 +64,11 @@ ID_ACCEL ACCELERATORS
 #include "No.rc"
 #include "Pl.rc"
 #include "Pt.rc"
+#include "Ro.rc"
 #include "Ru.rc"
 #include "Si.rc"
 #include "Sk.rc"
-#include "Sw.rc"
+#include "Sv.rc"
 #include "Th.rc"
 #include "Tr.rc"
 #include "Wa.rc"

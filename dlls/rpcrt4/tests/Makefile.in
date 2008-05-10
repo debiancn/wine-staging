@@ -3,8 +3,7 @@ TOPOBJDIR = ../../..
 SRCDIR    = @srcdir@
 VPATH     = @srcdir@
 TESTDLL   = rpcrt4.dll
-IMPORTS   = ole32 rpcrt4 kernel32
-EXTRALIBS = -luuid
+IMPORTS   = uuid ole32 rpcrt4 kernel32
 EXTRAIDLFLAGS = --prefix-server=s_
 
 IDL_C_SRCS = server.idl
@@ -15,6 +14,7 @@ CTESTS = \
 	generated.c \
 	ndr_marshall.c \
 	rpc.c \
+	rpc_async.c \
 	server.c
 
 @MAKE_TEST_RULES@

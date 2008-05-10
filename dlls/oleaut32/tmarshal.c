@@ -22,6 +22,7 @@
  */
 
 #include "config.h"
+#include "wine/port.h"
 
 #include <assert.h>
 #include <stdlib.h>
@@ -96,7 +97,7 @@ xbuf_resize(marshal_state *buf, DWORD newsize)
 }
 
 static HRESULT
-xbuf_add(marshal_state *buf, LPBYTE stuff, DWORD size)
+xbuf_add(marshal_state *buf, const BYTE *stuff, DWORD size)
 {
     HRESULT hr;
 
@@ -372,12 +373,13 @@ static HRESULT num_of_funcs(ITypeInfo *tinfo, unsigned int *num)
 typedef struct _TMAsmProxy {
     BYTE	popleax;
     BYTE	pushlval;
-    BYTE	nr;
+    DWORD	nr;
     BYTE	pushleax;
     BYTE	lcall;
     DWORD	xcall;
     BYTE	lret;
     WORD	bytestopop;
+    BYTE	nop;
 } TMAsmProxy;
 
 #include "poppack.h"
@@ -470,7 +472,9 @@ TMProxyImpl_Connect(
         HRESULT hr = TMarshalDispatchChannel_Create(pRpcChannelBuffer, &This->iid, &pDelegateChannel);
         if (FAILED(hr))
             return hr;
-        return IRpcProxyBuffer_Connect(This->dispatch_proxy, pDelegateChannel);
+        hr = IRpcProxyBuffer_Connect(This->dispatch_proxy, pDelegateChannel);
+        IRpcChannelBuffer_Release(pDelegateChannel);
+        return hr;
     }
 
     return S_OK;
@@ -523,7 +527,7 @@ _argsize(DWORD vt) {
 }
 
 static int
-_xsize(TYPEDESC *td) {
+_xsize(const TYPEDESC *td) {
     switch (td->vt) {
     case VT_DATE:
 	return sizeof(DATE);
@@ -531,7 +535,7 @@ _xsize(TYPEDESC *td) {
 	return sizeof(VARIANT)+3;
     case VT_CARRAY: {
 	int i, arrsize = 1;
-	ARRAYDESC *adesc = td->u.lpadesc;
+	const ARRAYDESC *adesc = td->u.lpadesc;
 
 	for (i=0;i<adesc->cDims;i++)
 	    arrsize *= adesc->rgbounds[i].cElements;
@@ -570,6 +574,7 @@ serialize_param(
 	return S_OK;
     case VT_I8:
     case VT_UI8:
+    case VT_R8:
     case VT_CY:
 	hres = S_OK;
 	if (debugout) TRACE_(olerelay)("%x%x\n",arg[0],arg[1]);
@@ -694,11 +699,24 @@ serialize_param(
 	    }
 	    ITypeInfo_GetTypeAttr(tinfo2,&tattr);
 	    switch (tattr->typekind) {
+            case TKIND_ALIAS:
+                if (tattr->tdescAlias.vt == VT_USERDEFINED)
+                {
+                    DWORD href = tattr->tdescAlias.u.hreftype;
+                    ITypeInfo_ReleaseTypeAttr(tinfo, tattr);
+                    ITypeInfo_Release(tinfo2);
+                    hres = ITypeInfo_GetRefTypeInfo(tinfo,href,&tinfo2);
+                    if (hres) {
+                        ERR("Could not get typeinfo of hreftype %x for VT_USERDEFINED.\n",tdesc->u.lptdesc->u.hreftype);
+                        return hres;
+                    }
+                    ITypeInfo_GetTypeAttr(tinfo2,&tattr);
+                    derefhere = (tattr->typekind != TKIND_DISPATCH && tattr->typekind != TKIND_INTERFACE);
+                }
+                break;
 	    case TKIND_ENUM:	/* confirmed */
 	    case TKIND_RECORD:	/* FIXME: mostly untested */
-		derefhere=TRUE;
 		break;
-	    case TKIND_ALIAS:	/* FIXME: untested */
 	    case TKIND_DISPATCH:	/* will be done in VT_USERDEFINED case */
 	    case TKIND_INTERFACE:	/* will be done in VT_USERDEFINED case */
 		derefhere=FALSE;
@@ -897,6 +915,7 @@ deserialize_param(
 	}
         case VT_I8:
         case VT_UI8:
+        case VT_R8:
         case VT_CY:
 	    if (readit) {
 		hres = xbuf_get(buf,(LPBYTE)arg,8);
@@ -967,6 +986,7 @@ deserialize_param(
 		    hres = xbuf_get(buf,(LPBYTE)str,len*sizeof(WCHAR));
 		    if (hres) {
 			ERR("Failed to read BSTR.\n");
+			HeapFree(GetProcessHeap(),0,str);
 			return hres;
 		    }
                     *bstr = CoTaskMemAlloc(sizeof(BSTR *));
@@ -997,6 +1017,7 @@ deserialize_param(
 		    hres = xbuf_get(buf,(LPBYTE)str,len*sizeof(WCHAR));
 		    if (hres) {
 			ERR("Failed to read BSTR.\n");
+			HeapFree(GetProcessHeap(),0,str);
 			return hres;
 		    }
 		    *arg = (DWORD)SysAllocStringLen(str,len);
@@ -1023,11 +1044,24 @@ deserialize_param(
 		}
 		ITypeInfo_GetTypeAttr(tinfo2,&tattr);
 		switch (tattr->typekind) {
+                case TKIND_ALIAS:
+                    if (tattr->tdescAlias.vt == VT_USERDEFINED)
+                    {
+                        DWORD href = tattr->tdescAlias.u.hreftype;
+                        ITypeInfo_ReleaseTypeAttr(tinfo, tattr);
+                        ITypeInfo_Release(tinfo2);
+                        hres = ITypeInfo_GetRefTypeInfo(tinfo,href,&tinfo2);
+                        if (hres) {
+                            ERR("Could not get typeinfo of hreftype %x for VT_USERDEFINED.\n",tdesc->u.lptdesc->u.hreftype);
+                            return hres;
+                        }
+                        ITypeInfo_GetTypeAttr(tinfo2,&tattr);
+                        derefhere = (tattr->typekind != TKIND_DISPATCH && tattr->typekind != TKIND_INTERFACE);
+                    }
+                    break;
 		case TKIND_ENUM:	/* confirmed */
 		case TKIND_RECORD:	/* FIXME: mostly untested */
-		    derefhere=TRUE;
 		    break;
-		case TKIND_ALIAS:	/* FIXME: untested */
 		case TKIND_DISPATCH:	/* will be done in VT_USERDEFINED case */
 		case TKIND_INTERFACE:	/* will be done in VT_USERDEFINED case */
 		    derefhere=FALSE;
@@ -1461,6 +1495,7 @@ xCall(LPVOID retptr, int method, TMProxyImpl *tpinfo /*, args */)
     hres = remoteresult;
 
 exit:
+    IRpcChannelBuffer_FreeBuffer(chanbuf,&msg);
     for (i = 0; i < nrofnames; i++)
         SysFreeString(names[i]);
     HeapFree(GetProcessHeap(),0,buf.base);
@@ -1707,7 +1742,7 @@ static HRESULT init_proxy_entry_point(TMProxyImpl *proxy, unsigned int num)
  * arg3 arg2 arg1 <method> <returnptr>
  */
     xasm->popleax       = 0x58;
-    xasm->pushlval      = 0x6a;
+    xasm->pushlval      = 0x68;
     xasm->nr            = num;
     xasm->pushleax      = 0x50;
     xasm->lcall         = 0xe8; /* relative jump */
@@ -1715,6 +1750,7 @@ static HRESULT init_proxy_entry_point(TMProxyImpl *proxy, unsigned int num)
     xasm->xcall        -= (DWORD)&(xasm->lret);
     xasm->lret          = 0xc2;
     xasm->bytestopop    = (nrofargs+2)*4; /* pop args, This, iMethod */
+    xasm->nop           = 0x90;
     proxy->lpvtbl[num]  = xasm;
 #else
     FIXME("not implemented on non i386\n");
@@ -1752,7 +1788,7 @@ PSFacBuf_CreateProxy(
     proxy = CoTaskMemAlloc(sizeof(TMProxyImpl));
     if (!proxy) return E_OUTOFMEMORY;
 
-    assert(sizeof(TMAsmProxy) == 12);
+    assert(sizeof(TMAsmProxy) == 16);
 
     proxy->dispatch = NULL;
     proxy->dispatch_proxy = NULL;
@@ -1767,7 +1803,7 @@ PSFacBuf_CreateProxy(
     /* one reference for the proxy */
     proxy->ref		= 1;
     proxy->tinfo	= tinfo;
-    memcpy(&proxy->iid,riid,sizeof(*riid));
+    proxy->iid		= *riid;
     proxy->chanbuf      = 0;
 
     InitializeCriticalSection(&proxy->crit);
@@ -2059,7 +2095,7 @@ TMStubImpl_Invoke(
             args
         );
     }
-    __EXCEPT(NULL)
+    __EXCEPT_ALL
     {
         DWORD dwExceptionCode = GetExceptionCode();
         ERR("invoke call failed with exception 0x%08x (%d)\n", dwExceptionCode, dwExceptionCode);
@@ -2183,7 +2219,7 @@ PSFacBuf_CreateStub(
     stub->tinfo		= tinfo;
     stub->dispatch_stub = NULL;
     stub->dispatch_derivative = FALSE;
-    memcpy(&(stub->iid),riid,sizeof(*riid));
+    stub->iid		= *riid;
     hres = IRpcStubBuffer_Connect((LPRPCSTUBBUFFER)stub,pUnkServer);
     *ppStub 		= (LPRPCSTUBBUFFER)stub;
     TRACE("IRpcStubBuffer: %p\n", stub);

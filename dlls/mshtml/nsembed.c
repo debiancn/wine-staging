@@ -43,6 +43,9 @@ WINE_DEFAULT_DEBUG_CHANNEL(mshtml);
 #define NS_COMMANDPARAMS_CONTRACTID "@mozilla.org/embedcomp/command-params;1"
 #define NS_HTMLSERIALIZER_CONTRACTID "@mozilla.org/layout/contentserializer;1?mimetype=text/html"
 #define NS_EDITORCONTROLLER_CONTRACTID "@mozilla.org/editor/editorcontroller;1"
+#define NS_ARRAY_CONTRACTID "@mozilla.org/array;1"
+#define NS_VARIANT_CONTRACTID "@mozilla.org/variant;1"
+#define NS_PREFERENCES_CONTRACTID "@mozilla.org/preferences;1"
 
 #define APPSTARTUP_TOPIC "app-startup"
 
@@ -78,6 +81,8 @@ static const WCHAR wszNsContainer[] = {'N','s','C','o','n','t','a','i','n','e','
 
 static ATOM nscontainer_class;
 
+#define WM_RESETFOCUS_HACK WM_USER+600
+
 static LRESULT WINAPI nsembed_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     NSContainer *This;
@@ -93,13 +98,30 @@ static LRESULT WINAPI nsembed_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
     }
 
     switch(msg) {
-        case WM_SIZE:
-            TRACE("(%p)->(WM_SIZE)\n", This);
+    case WM_SIZE:
+        TRACE("(%p)->(WM_SIZE)\n", This);
 
-            nsres = nsIBaseWindow_SetSize(This->window,
-                    LOWORD(lParam), HIWORD(lParam), TRUE);
-            if(NS_FAILED(nsres))
-                WARN("SetSize failed: %08x\n", nsres);
+        nsres = nsIBaseWindow_SetSize(This->window,
+                LOWORD(lParam), HIWORD(lParam), TRUE);
+        if(NS_FAILED(nsres))
+            WARN("SetSize failed: %08x\n", nsres);
+        break;
+
+    case WM_RESETFOCUS_HACK:
+        /*
+         * FIXME
+         * Gecko grabs focus in edit mode and some apps don't like it.
+         * We should somehow prevent grabbing focus.
+         */
+
+        TRACE("WM_RESETFOCUS_HACK\n");
+
+        if(This->reset_focus) {
+            SetFocus(This->reset_focus);
+            This->reset_focus = NULL;
+            if(This->doc)
+                This->doc->focus = FALSE;
+        }
     }
 
     return DefWindowProcW(hwnd, msg, wParam, lParam);
@@ -144,7 +166,7 @@ static BOOL load_xpcom(const PRUnichar *gre_path)
     }
 
 #define NS_DLSYM(func) \
-    func = (typeof(func))GetProcAddress(hXPCOM, #func); \
+    func = (void *)GetProcAddress(hXPCOM, #func); \
     if(!func) \
         ERR("Could not GetProcAddress(" #func ") failed\n")
 
@@ -243,24 +265,62 @@ static BOOL load_wine_gecko(PRUnichar *gre_path)
     if(res != ERROR_SUCCESS)
         return FALSE;
 
-    ret = load_wine_gecko_v(gre_path, hkey, GECKO_VERSION, GECKO_VERSION_STRING)
-        || load_wine_gecko_v(gre_path, hkey, "0.0.1", "Wine Gecko 0.0.1\n")
-        || load_wine_gecko_v(gre_path, hkey, NULL, "Wine Gecko 0.0.1\n");
+    ret = load_wine_gecko_v(gre_path, hkey, GECKO_VERSION, GECKO_VERSION_STRING);
 
     RegCloseKey(hkey);
     return ret;
 }
 
+static void set_lang(nsIPrefBranch *pref)
+{
+    char langs[100];
+    DWORD res, size, type;
+    HKEY hkey;
+    nsresult nsres;
+
+    static const WCHAR international_keyW[] =
+        {'S','o','f','t','w','a','r','e',
+         '\\','M','i','c','r','o','s','o','f','t',
+         '\\','I','n','t','e','r','n','e','t',' ','E','x','p','l','o','r','e','r',
+         '\\','I','n','t','e','r','n','a','t','i','o','n','a','l',0};
+
+    res = RegOpenKeyW(HKEY_CURRENT_USER, international_keyW, &hkey);
+    if(res != ERROR_SUCCESS)
+        return;
+
+    size = sizeof(langs);
+    res = RegQueryValueExA(hkey, "AcceptLanguage", 0, &type, (LPBYTE)langs, &size);
+    RegCloseKey(hkey);
+    if(res != ERROR_SUCCESS || type != REG_SZ)
+        return;
+
+    TRACE("Setting lang %s\n", debugstr_a(langs));
+
+    nsres = nsIPrefBranch_SetCharPref(pref, "intl.accept_languages", langs);
+    if(NS_FAILED(nsres))
+        ERR("SetCharPref failed: %08x\n", nsres);
+}
+
+static void set_bool_pref(nsIPrefBranch *pref, const char *pref_name, BOOL val)
+{
+    nsresult nsres;
+
+    nsres = nsIPrefBranch_SetBoolPref(pref, pref_name, val);
+    if(NS_FAILED(nsres))
+        ERR("Could not set pref %s\n", debugstr_a(pref_name));
+}
+
 static void set_profile(void)
 {
+    nsIPrefBranch *pref;
     nsIProfile *profile;
     PRBool exists = FALSE;
     nsresult nsres;
 
     static const WCHAR wszMSHTML[] = {'M','S','H','T','M','L',0};
 
-    nsres = nsIServiceManager_GetServiceByContactID(pServMgr, NS_PROFILE_CONTRACTID,
-                                         &IID_nsIProfile, (void**)&profile);
+    nsres = nsIServiceManager_GetServiceByContractID(pServMgr, NS_PROFILE_CONTRACTID,
+            &IID_nsIProfile, (void**)&profile);
     if(NS_FAILED(nsres)) {
         ERR("Could not get profile service: %08x\n", nsres);
         return;
@@ -278,6 +338,19 @@ static void set_profile(void)
         ERR("SetCurrentProfile failed: %08x\n", nsres);
 
     nsIProfile_Release(profile);
+
+    nsres = nsIServiceManager_GetServiceByContractID(pServMgr, NS_PREFERENCES_CONTRACTID,
+            &IID_nsIPrefBranch, (void**)&pref);
+    if(NS_FAILED(nsres)) {
+        ERR("Could not get preference service: %08x\n", nsres);
+        return;
+    }
+
+    set_lang(pref);
+    set_bool_pref(pref, "security.warn_entering_secure", FALSE);
+    set_bool_pref(pref, "security.warn_submit_insecure", FALSE);
+
+    nsIPrefBranch_Release(pref);
 }
 
 static BOOL init_xpcom(const PRUnichar *gre_path)
@@ -359,7 +432,7 @@ static CRITICAL_SECTION_DEBUG cs_load_gecko_dbg =
 };
 static CRITICAL_SECTION cs_load_gecko = { &cs_load_gecko_dbg, -1, 0, 0, 0, 0 };
 
-static BOOL load_gecko(void)
+BOOL load_gecko(BOOL silent)
 {
     PRUnichar gre_path[MAX_PATH];
     BOOL ret = FALSE;
@@ -378,7 +451,7 @@ static BOOL load_gecko(void)
         loading_thread = GetCurrentThreadId();
 
         if(load_wine_gecko(gre_path)
-           || (install_wine_gecko() && load_wine_gecko(gre_path)))
+           || (install_wine_gecko(silent) && load_wine_gecko(gre_path)))
             ret = init_xpcom(gre_path);
         else
            MESSAGE("Could not load Mozilla. HTML rendering will be disabled.\n");
@@ -413,9 +486,9 @@ void nsACString_SetData(nsACString *str, const char *data)
     NS_CStringSetData(str, data, PR_UINT32_MAX);
 }
 
-PRUint32 nsACString_GetData(const nsACString *str, const char **data, PRBool *termited)
+PRUint32 nsACString_GetData(const nsACString *str, const char **data)
 {
-    return NS_CStringGetData(str, data, termited);
+    return NS_CStringGetData(str, data, NULL);
 }
 
 void nsACString_Finish(nsACString *str)
@@ -427,12 +500,17 @@ void nsAString_Init(nsAString *str, const PRUnichar *data)
 {
     NS_StringContainerInit(str);
     if(data)
-        NS_StringSetData(str, data, PR_UINT32_MAX);
+        nsAString_SetData(str, data);
 }
 
-PRUint32 nsAString_GetData(const nsAString *str, const PRUnichar **data, PRBool *termited)
+void nsAString_SetData(nsAString *str, const PRUnichar *data)
 {
-    return NS_StringGetData(str, data, termited);
+    NS_StringSetData(str, data, PR_UINT32_MAX);
+}
+
+PRUint32 nsAString_GetData(const nsAString *str, const PRUnichar **data)
+{
+    return NS_StringGetData(str, data, NULL);
 }
 
 void nsAString_Finish(nsAString *str)
@@ -466,6 +544,44 @@ nsIInputStream *create_nsstream(const char *data, PRInt32 data_len)
     return (nsIInputStream*)ret;
 }
 
+nsIMutableArray *create_nsarray(void)
+{
+    nsIMutableArray *ret;
+    nsresult nsres;
+
+    if(!pCompMgr)
+        return NULL;
+
+    nsres = nsIComponentManager_CreateInstanceByContractID(pCompMgr,
+            NS_ARRAY_CONTRACTID, NULL, &IID_nsIMutableArray,
+            (void**)&ret);
+    if(NS_FAILED(nsres)) {
+        ERR("Could not get nsIArray: %08x\n", nsres);
+        return NULL;
+    }
+
+    return ret;
+}
+
+nsIWritableVariant *create_nsvariant(void)
+{
+    nsIWritableVariant *ret;
+    nsresult nsres;
+
+    if(!pCompMgr)
+        return NULL;
+
+    nsres = nsIComponentManager_CreateInstanceByContractID(pCompMgr,
+            NS_VARIANT_CONTRACTID, NULL, &IID_nsIWritableVariant,
+            (void**)&ret);
+    if(NS_FAILED(nsres)) {
+        ERR("Could not get nsIWritableVariant: %08x\n", nsres);
+        return NULL;
+    }
+
+    return ret;
+}
+
 nsICommandParams *create_nscommand_params(void)
 {
     nsICommandParams *ret = NULL;
@@ -481,6 +597,21 @@ nsICommandParams *create_nscommand_params(void)
         ERR("Could not get nsICommandParams\n");
 
     return ret;
+}
+
+nsresult get_nsinterface(nsISupports *iface, REFIID riid, void **ppv)
+{
+    nsIInterfaceRequestor *iface_req;
+    nsresult nsres;
+
+    nsres = nsISupports_QueryInterface(iface, &IID_nsIInterfaceRequestor, (void**)&iface_req);
+    if(NS_FAILED(nsres))
+        return nsres;
+
+    nsres = nsIInterfaceRequestor_GetInterface(iface_req, riid, ppv);
+    nsIInterfaceRequestor_Release(iface_req);
+
+    return nsres;
 }
 
 static void nsnode_to_nsstring_rec(nsIContentSerializer *serializer, nsIDOMNode *nsnode, nsAString *str)
@@ -589,76 +720,62 @@ void nsnode_to_nsstring(nsIDOMNode *nsdoc, nsAString *str)
     nsIContentSerializer_Release(serializer);
 }
 
-nsIController *get_editor_controller(NSContainer *This)
+void get_editor_controller(NSContainer *This)
 {
-    nsIController *ret = NULL;
     nsIEditingSession *editing_session = NULL;
-    nsIInterfaceRequestor *iface_req;
     nsIControllerContext *ctrlctx;
-    nsIEditor *editor = NULL;
     nsresult nsres;
 
-    nsres = nsIWebBrowser_QueryInterface(This->webbrowser,
-            &IID_nsIInterfaceRequestor, (void**)&iface_req);
-    if(NS_FAILED(nsres)) {
-        ERR("Could not get nsIInterfaceRequestor: %08x\n", nsres);
-        return NULL;
+    if(This->editor) {
+        nsIEditor_Release(This->editor);
+        This->editor = NULL;
     }
 
-    nsres = nsIInterfaceRequestor_GetInterface(iface_req, &IID_nsIEditingSession,
-                                               (void**)&editing_session);
-    nsIInterfaceRequestor_Release(iface_req);
+    if(This->editor_controller) {
+        nsIController_Release(This->editor_controller);
+        This->editor_controller = NULL;
+    }
+
+    nsres = get_nsinterface((nsISupports*)This->webbrowser, &IID_nsIEditingSession,
+            (void**)&editing_session);
     if(NS_FAILED(nsres)) {
         ERR("Could not get nsIEditingSession: %08x\n", nsres);
-        return NULL;
+        return;
     }
 
     nsres = nsIEditingSession_GetEditorForWindow(editing_session,
-            This->doc->window->nswindow, &editor);
+            This->doc->window->nswindow, &This->editor);
     nsIEditingSession_Release(editing_session);
     if(NS_FAILED(nsres)) {
         ERR("Could not get editor: %08x\n", nsres);
-        return NULL;
+        return;
     }
 
     nsres = nsIComponentManager_CreateInstanceByContractID(pCompMgr,
             NS_EDITORCONTROLLER_CONTRACTID, NULL, &IID_nsIControllerContext, (void**)&ctrlctx);
     if(NS_SUCCEEDED(nsres)) {
-        nsres = nsIControllerContext_SetCommandContext(ctrlctx, editor);
+        nsres = nsIControllerContext_SetCommandContext(ctrlctx, (nsISupports *)This->editor);
         if(NS_FAILED(nsres))
             ERR("SetCommandContext failed: %08x\n", nsres);
         nsres = nsIControllerContext_QueryInterface(ctrlctx, &IID_nsIController,
-                (void**)&ret);
+                (void**)&This->editor_controller);
         nsIControllerContext_Release(ctrlctx);
         if(NS_FAILED(nsres))
             ERR("Could not get nsIController interface: %08x\n", nsres);
     }else {
         ERR("Could not create edit controller: %08x\n", nsres);
     }
-
-    nsISupports_Release(editor);
-
-    return ret;
 }
 
 void set_ns_editmode(NSContainer *This)
 {
-    nsIInterfaceRequestor *iface_req;
     nsIEditingSession *editing_session = NULL;
     nsIURIContentListener *listener = NULL;
     nsIDOMWindow *dom_window = NULL;
     nsresult nsres;
 
-    nsres = nsIWebBrowser_QueryInterface(This->webbrowser,
-            &IID_nsIInterfaceRequestor, (void**)&iface_req);
-    if(NS_FAILED(nsres)) {
-        ERR("Could not get nsIInterfaceRequestor: %08x\n", nsres);
-        return;
-    }
-
-    nsres = nsIInterfaceRequestor_GetInterface(iface_req, &IID_nsIEditingSession,
-                                               (void**)&editing_session);
-    nsIInterfaceRequestor_Release(iface_req);
+    nsres = get_nsinterface((nsISupports*)This->webbrowser, &IID_nsIEditingSession,
+            (void**)&editing_session);
     if(NS_FAILED(nsres)) {
         ERR("Could not get nsIEditingSession: %08x\n", nsres);
         return;
@@ -776,7 +893,7 @@ static nsrefcnt NSAPI nsWebBrowserChrome_Release(nsIWebBrowserChrome *iface)
     if(!ref) {
         if(This->parent)
             nsIWebBrowserChrome_Release(NSWBCHROME(This->parent));
-        mshtml_free(This);
+        heap_free(This);
     }
 
     return ref;
@@ -956,7 +1073,7 @@ static nsresult NSAPI nsContextMenuListener_OnShowContextMenu(nsIContextMenuList
         FIXME("aContextFlags=%08x\n", aContextFlags);
     };
 
-    show_context_menu(This->doc, dwID, &pt);
+    show_context_menu(This->doc, dwID, &pt, (IDispatch*)HTMLDOMNODE(get_node(This->doc, aNode, TRUE)));
 
     return NS_OK;
 }
@@ -1006,7 +1123,7 @@ static nsresult NSAPI nsURIContentListener_OnStartURIOpen(nsIURIContentListener 
 
     nsACString_Init(&spec_str, NULL);
     nsIURI_GetSpec(aURI, &spec_str);
-    nsACString_GetData(&spec_str, &spec, NULL);
+    nsACString_GetData(&spec_str, &spec);
 
     TRACE("(%p)->(%p(%s) %p)\n", This, aURI, debugstr_a(spec), _retval);
 
@@ -1021,16 +1138,22 @@ static nsresult NSAPI nsURIContentListener_OnStartURIOpen(nsIURIContentListener 
     nsIWineURI_SetNSContainer(wine_uri, This);
     nsIWineURI_SetIsDocumentURI(wine_uri, TRUE);
 
-    if(This->bscallback && This->bscallback->mon) {
-        LPWSTR wine_url;
-        HRESULT hres;
+    if(This->bscallback) {
+        IMoniker *mon = get_channelbsc_mon(This->bscallback);
 
-        hres = IMoniker_GetDisplayName(This->bscallback->mon, NULL, 0, &wine_url);
-        if(SUCCEEDED(hres)) {
-            nsIWineURI_SetWineURL(wine_uri, wine_url);
-            CoTaskMemFree(wine_url);
-        }else {
-            WARN("GetDisplayName failed: %08x\n", hres);
+        if(mon) {
+            LPWSTR wine_url;
+            HRESULT hres;
+
+            hres = IMoniker_GetDisplayName(mon, NULL, 0, &wine_url);
+            if(SUCCEEDED(hres)) {
+                nsIWineURI_SetWineURL(wine_uri, wine_url);
+                CoTaskMemFree(wine_url);
+            }else {
+                WARN("GetDisplayName failed: %08x\n", hres);
+            }
+
+            IMoniker_Release(mon);
         }
     }
 
@@ -1208,6 +1331,9 @@ static nsresult NSAPI nsEmbeddingSiteWindow_SetFocus(nsIEmbeddingSiteWindow *ifa
     NSContainer *This = NSEMBWNDS_THIS(iface);
 
     TRACE("(%p)\n", This);
+
+    if(This->reset_focus)
+        PostMessageW(This->hwnd, WM_RESETFOCUS_HACK, 0, 0);
 
     return nsIBaseWindow_SetFocus(This->window);
 }
@@ -1454,10 +1580,10 @@ NSContainer *NSContainer_Create(HTMLDocument *doc, NSContainer *parent)
     NSContainer *ret;
     nsresult nsres;
 
-    if(!load_gecko())
+    if(!load_gecko(FALSE))
         return NULL;
 
-    ret = mshtml_alloc(sizeof(NSContainer));
+    ret = heap_alloc(sizeof(NSContainer));
 
     ret->lpWebBrowserChromeVtbl      = &nsWebBrowserChromeVtbl;
     ret->lpContextMenuListenerVtbl   = &nsContextMenuListenerVtbl;
@@ -1473,15 +1599,20 @@ NSContainer *NSContainer_Create(HTMLDocument *doc, NSContainer *parent)
     ret->bscallback = NULL;
     ret->content_listener = NULL;
     ret->editor_controller = NULL;
+    ret->editor = NULL;
+    ret->reset_focus = NULL;
+
+    nsres = nsIComponentManager_CreateInstanceByContractID(pCompMgr, NS_WEBBROWSER_CONTRACTID,
+            NULL, &IID_nsIWebBrowser, (void**)&ret->webbrowser);
+    if(NS_FAILED(nsres)) {
+        ERR("Creating WebBrowser failed: %08x\n", nsres);
+        heap_free(ret);
+        return NULL;
+    }
 
     if(parent)
         nsIWebBrowserChrome_AddRef(NSWBCHROME(parent));
     ret->parent = parent;
-
-    nsres = nsIComponentManager_CreateInstanceByContractID(pCompMgr, NS_WEBBROWSER_CONTRACTID,
-            NULL, &IID_nsIWebBrowser, (void**)&ret->webbrowser);
-    if(NS_FAILED(nsres))
-        ERR("Creating WebBrowser failed: %08x\n", nsres);
 
     nsres = nsIWebBrowser_SetContainerWindow(ret->webbrowser, NSWBCHROME(ret));
     if(NS_FAILED(nsres))
@@ -1495,7 +1626,7 @@ NSContainer *NSContainer_Create(HTMLDocument *doc, NSContainer *parent)
     nsres = nsIWebBrowser_QueryInterface(ret->webbrowser, &IID_nsIWebBrowserSetup,
                                          (void**)&wbsetup);
     if(NS_SUCCEEDED(nsres)) {
-        nsres = nsIWebBrowserSetup_SetProperty(wbsetup, SETUP_IS_CHROME_WRAPPER, TRUE);
+        nsres = nsIWebBrowserSetup_SetProperty(wbsetup, SETUP_IS_CHROME_WRAPPER, FALSE);
         nsIWebBrowserSetup_Release(wbsetup);
         if(NS_FAILED(nsres))
             ERR("SetProperty(SETUP_IS_CHROME_WRAPPER) failed: %08x\n", nsres);
@@ -1585,6 +1716,11 @@ void NSContainer_Release(NSContainer *This)
     if(This->editor_controller) {
         nsIController_Release(This->editor_controller);
         This->editor_controller = NULL;
+    }
+
+    if(This->editor) {
+        nsIEditor_Release(This->editor);
+        This->editor = NULL;
     }
 
     if(This->content_listener) {

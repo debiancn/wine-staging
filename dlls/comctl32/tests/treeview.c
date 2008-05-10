@@ -141,7 +141,7 @@ static const struct message TestGetSetItemHeightSeq[] = {
     { TVM_GETITEMHEIGHT, sent|wparam|lparam, 0x00000000, 0x00000000 },
     { TVM_SETITEMHEIGHT, sent|wparam|lparam, 0xffffffff, 0x00000000 },
     { TVM_GETITEMHEIGHT, sent|wparam|lparam, 0x00000000, 0x00000000 },
-    { TVM_SETITEMHEIGHT, sent|wparam|lparam, 0x00000020, 0x00000000 },
+    { TVM_SETITEMHEIGHT, sent|lparam, 0xcccccccc, 0x00000000 },
     { TVM_GETITEMHEIGHT, sent|wparam|lparam, 0x00000000, 0x00000000 },
     { TVM_SETITEMHEIGHT, sent|wparam|lparam, 0x00000009, 0x00000000 },
     { WM_WINDOWPOSCHANGING, sent|defwinproc },
@@ -649,13 +649,23 @@ static LRESULT CALLBACK MyWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPa
 
 START_TEST(treeview)
 {
+    HMODULE hComctl32;
+    BOOL (WINAPI *pInitCommonControlsEx)(const INITCOMMONCONTROLSEX*);
     WNDCLASSA wc;
     MSG msg;
-    INITCOMMONCONTROLSEX icex;
   
-    icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
-    icex.dwICC   = ICC_TREEVIEW_CLASSES;
-    InitCommonControlsEx(&icex);
+    hComctl32 = GetModuleHandleA("comctl32.dll");
+    pInitCommonControlsEx = (void*)GetProcAddress(hComctl32, "InitCommonControlsEx");
+    if (pInitCommonControlsEx)
+    {
+        INITCOMMONCONTROLSEX iccex;
+        iccex.dwSize = sizeof(iccex);
+        iccex.dwICC  = ICC_TREEVIEW_CLASSES;
+        pInitCommonControlsEx(&iccex);
+    }
+    else
+        InitCommonControls();
+
     init_msg_sequences(MsgSequences, NUM_MSG_SEQUENCES);
   
     wc.style = CS_HREDRAW | CS_VREDRAW;
@@ -663,7 +673,7 @@ START_TEST(treeview)
     wc.cbWndExtra = 0;
     wc.hInstance = GetModuleHandleA(NULL);
     wc.hIcon = NULL;
-    wc.hCursor = LoadCursorA(NULL, MAKEINTRESOURCEA(IDC_IBEAM));
+    wc.hCursor = LoadCursorA(NULL, IDC_IBEAM);
     wc.hbrBackground = GetSysColorBrush(COLOR_WINDOW);
     wc.lpszMenuName = NULL;
     wc.lpszClassName = "MyTestWnd";

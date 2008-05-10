@@ -619,10 +619,10 @@
 @ varargs _execle(str str) msvcrt._execle
 @ varargs _execlp(str str) msvcrt._execlp
 @ varargs _execlpe(str str) msvcrt._execlpe
-@ cdecl _execv(str str) msvcrt._execv
-@ cdecl _execve(str str str) msvcrt._execve
-@ cdecl _execvp(str str) msvcrt._execvp
-@ cdecl _execvpe(str str str) msvcrt._execvpe
+@ cdecl _execv(str ptr) msvcrt._execv
+@ cdecl _execve(str ptr ptr) msvcrt._execve
+@ cdecl _execvp(str ptr) msvcrt._execvp
+@ cdecl _execvpe(str ptr ptr) msvcrt._execvpe
 @ cdecl _exit(long) msvcrt._exit
 @ cdecl _expand(ptr long) msvcrt._expand
 @ cdecl _fcloseall() msvcrt._fcloseall
@@ -653,7 +653,7 @@
 @ cdecl _fstat(long ptr) msvcrt._fstat
 @ cdecl _fstati64(long ptr) msvcrt._fstati64
 @ cdecl _ftime(ptr) msvcrt._ftime
-@ cdecl _ftol() msvcrt._ftol
+@ cdecl -ret64 _ftol() msvcrt._ftol
 @ cdecl _fullpath(ptr str long) msvcrt._fullpath
 @ cdecl _futime(long ptr) msvcrt._futime
 @ cdecl _gcvt( double long str) msvcrt._gcvt

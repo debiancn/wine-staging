@@ -20,9 +20,11 @@
 @ stdcall CoFreeAllLibraries()
 @ stdcall CoFreeLibrary(long)
 @ stdcall CoFreeUnusedLibraries()
+@ stdcall CoFreeUnusedLibrariesEx(long long)
 @ stdcall CoGetCallContext(ptr ptr)
 @ stub CoGetCallerTID
 @ stdcall CoGetClassObject(ptr long ptr ptr ptr)
+@ stdcall CoGetContextToken(ptr)
 @ stub CoGetCurrentLogicalThreadId
 @ stdcall CoGetCurrentProcess()
 @ stub CoGetInstanceFromFile      #@ stdcall (ptr ptr ptr long wstr long ptr) return 0,ERR_NOTIMPLEMENTED
@@ -31,6 +33,7 @@
 @ stdcall CoGetMalloc(long ptr)
 @ stdcall CoGetMarshalSizeMax(ptr ptr ptr long ptr long)
 @ stdcall CoGetObject(wstr ptr ptr ptr)
+@ stdcall CoGetObjectContext(ptr ptr)
 @ stdcall CoGetPSClsid(ptr ptr)
 @ stdcall CoGetStandardMarshal(ptr ptr long ptr long ptr)
 @ stdcall CoGetState(ptr)
@@ -90,7 +93,7 @@
 @ stdcall CreateItemMoniker(wstr wstr ptr)
 @ stub CreateObjrefMoniker
 @ stdcall CreateOleAdviseHolder(ptr)
-@ stub CreatePointerMoniker       #@ stdcall (ptr ptr) return 0,ERR_NOTIMPLEMENTED
+@ stdcall CreatePointerMoniker(ptr ptr)
 @ stdcall CreateStreamOnHGlobal(ptr long ptr)
 @ stdcall DllDebugObjectRPCHook(long ptr)
 @ stdcall -private DllGetClassObject (ptr ptr ptr)
@@ -265,10 +268,10 @@
 @ stub UtConvertDvtd32toDvtd16
 @ stub UtGetDvtd16Info
 @ stub UtGetDvtd32Info
-@ stub WdtpInterfacePointer_UserFree
-@ stub WdtpInterfacePointer_UserMarshal
-@ stub WdtpInterfacePointer_UserSize
-@ stub WdtpInterfacePointer_UserUnmarshal
+@ stdcall WdtpInterfacePointer_UserFree(ptr)
+@ stdcall WdtpInterfacePointer_UserMarshal(ptr long ptr ptr ptr)
+@ stdcall WdtpInterfacePointer_UserSize(ptr long ptr long ptr)
+@ stdcall WdtpInterfacePointer_UserUnmarshal(ptr ptr ptr ptr)
 @ stdcall WriteClassStg(ptr ptr)
 @ stdcall WriteClassStm(ptr ptr)
 @ stdcall WriteFmtUserTypeStg(ptr long ptr)

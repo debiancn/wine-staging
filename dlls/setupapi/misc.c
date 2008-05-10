@@ -511,7 +511,7 @@ BOOL WINAPI FileExists(LPCWSTR lpFileName, LPWIN32_FIND_DATAW lpFileFindData)
     FindClose(hFind);
 
     if (lpFileFindData)
-        memcpy(lpFileFindData, &FindData, sizeof(WIN32_FIND_DATAW));
+        *lpFileFindData = FindData;
 
     SetErrorMode(uErrorMode);
 
@@ -789,7 +789,7 @@ DWORD WINAPI RetreiveFileSecurity(LPCWSTR lpFileName,
     DWORD dwSize = 0x100;
     DWORD dwError;
 
-    SecDesc = (PSECURITY_DESCRIPTOR)MyMalloc(dwSize);
+    SecDesc = MyMalloc(dwSize);
     if (SecDesc == NULL)
         return ERROR_NOT_ENOUGH_MEMORY;
 
@@ -808,7 +808,7 @@ DWORD WINAPI RetreiveFileSecurity(LPCWSTR lpFileName,
         return dwError;
     }
 
-    SecDesc = (PSECURITY_DESCRIPTOR)MyRealloc(SecDesc, dwSize);
+    SecDesc = MyRealloc(SecDesc, dwSize);
     if (SecDesc == NULL)
         return ERROR_NOT_ENOUGH_MEMORY;
 
@@ -852,7 +852,13 @@ void WINAPI pSetupSetGlobalFlags( DWORD flags )
  */
 DWORD WINAPI CMP_WaitNoPendingInstallEvents( DWORD dwTimeout )
 {
-    FIXME("%d\n", dwTimeout);
+    static BOOL warned = FALSE;
+
+    if (!warned)
+    {
+        FIXME("%d\n", dwTimeout);
+        warned = TRUE;
+    }
     return WAIT_OBJECT_0;
 }
 

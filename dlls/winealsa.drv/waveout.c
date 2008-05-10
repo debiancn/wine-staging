@@ -109,7 +109,7 @@ static BOOL wodUpdatePlayedTotal(WINE_WAVEDEV* wwo, snd_pcm_status_t* ps)
         WARN("Unexpected state (%d) or delay (%ld) while updating Total Played, resetting\n", state, delay);
         delay=0;
     }
-    wwo->dwPlayedTotal = wwo->dwWrittenTotal - snd_pcm_frames_to_bytes(wwo->pcm, delay);
+    InterlockedExchange((LONG*)&wwo->dwPlayedTotal, wwo->dwWrittenTotal - snd_pcm_frames_to_bytes(wwo->pcm, delay));
     return TRUE;
 }
 
@@ -444,10 +444,6 @@ static void wodPlayer_ProcessMessages(WINE_WAVEDEV* wwo)
 	    wodPlayer_Reset(wwo,TRUE);
 	    SetEvent(ev);
 	    break;
-        case WINE_WM_UPDATE:
-            wodUpdatePlayedTotal(wwo, NULL);
-	    SetEvent(ev);
-            break;
         case WINE_WM_BREAKLOOP:
             if (wwo->state == WINE_WS_PLAYING && wwo->lpLoopPtr != NULL) {
                 /* ensure exit at end of current loop */
@@ -583,8 +579,6 @@ static DWORD wodOpen(WORD wDevID, LPWAVEOPENDESC lpDesc, DWORD dwFlags)
     int                         dir=0;
     DWORD                       retcode = 0;
 
-    snd_pcm_sw_params_alloca(&sw_params);
-
     TRACE("(%u, %p, %08X);\n", wDevID, lpDesc, dwFlags);
     if (lpDesc == NULL) {
 	WARN("Invalid Parameter !\n");
@@ -646,7 +640,7 @@ static DWORD wodOpen(WORD wDevID, LPWAVEOPENDESC lpDesc, DWORD dwFlags)
 
     wwo->wFlags = HIWORD(dwFlags & CALLBACK_TYPEMASK);
 
-    memcpy(&wwo->waveDesc, lpDesc, sizeof(WAVEOPENDESC));
+    wwo->waveDesc = *lpDesc;
     ALSA_copyFormat(lpDesc->lpFormat, &wwo->format);
 
     TRACE("Requested this format: %dx%dx%d %s\n",
@@ -674,6 +668,7 @@ static DWORD wodOpen(WORD wDevID, LPWAVEOPENDESC lpDesc, DWORD dwFlags)
     } \
 } while(0)
 
+    sw_params = HeapAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY, snd_pcm_sw_params_sizeof() );
     snd_pcm_hw_params_malloc(&hw_params);
     if (! hw_params)
     {
@@ -702,7 +697,7 @@ static DWORD wodOpen(WORD wDevID, LPWAVEOPENDESC lpDesc, DWORD dwFlags)
         IsEqualGUID(&wwo->format.SubFormat, &KSDATAFORMAT_SUBTYPE_PCM))) {
         format = (wwo->format.Format.wBitsPerSample == 8) ? SND_PCM_FORMAT_U8 :
                  (wwo->format.Format.wBitsPerSample == 16) ? SND_PCM_FORMAT_S16_LE :
-                 (wwo->format.Format.wBitsPerSample == 24) ? SND_PCM_FORMAT_S24_LE :
+                 (wwo->format.Format.wBitsPerSample == 24) ? SND_PCM_FORMAT_S24_3LE :
                  (wwo->format.Format.wBitsPerSample == 32) ? SND_PCM_FORMAT_S32_LE : -1;
     } else if ((wwo->format.Format.wFormatTag == WAVE_FORMAT_EXTENSIBLE) &&
         IsEqualGUID(&wwo->format.SubFormat, &KSDATAFORMAT_SUBTYPE_IEEE_FLOAT)){
@@ -764,9 +759,7 @@ static DWORD wodOpen(WORD wDevID, LPWAVEOPENDESC lpDesc, DWORD dwFlags)
     EXIT_ON_ERROR( snd_pcm_sw_params_set_start_threshold(pcm, sw_params, 1), MMSYSERR_ERROR, "unable to set start threshold");
     EXIT_ON_ERROR( snd_pcm_sw_params_set_silence_size(pcm, sw_params, 0), MMSYSERR_ERROR, "unable to set silence size");
     EXIT_ON_ERROR( snd_pcm_sw_params_set_avail_min(pcm, sw_params, period_size), MMSYSERR_ERROR, "unable to set avail min");
-    EXIT_ON_ERROR( snd_pcm_sw_params_set_xfer_align(pcm, sw_params, 1), MMSYSERR_ERROR, "unable to set xfer align");
     EXIT_ON_ERROR( snd_pcm_sw_params_set_silence_threshold(pcm, sw_params, 0), MMSYSERR_ERROR, "unable to set silence threshold");
-    EXIT_ON_ERROR( snd_pcm_sw_params_set_xrun_mode(pcm, sw_params, SND_PCM_XRUN_NONE), MMSYSERR_ERROR, "unable to set xrun mode");
     EXIT_ON_ERROR( snd_pcm_sw_params(pcm, sw_params), MMSYSERR_ERROR, "unable to set sw params for playback");
 #undef EXIT_ON_ERROR
 
@@ -805,6 +798,7 @@ static DWORD wodOpen(WORD wDevID, LPWAVEOPENDESC lpDesc, DWORD dwFlags)
 	  wwo->format.Format.nSamplesPerSec, wwo->format.Format.nChannels,
 	  wwo->format.Format.nBlockAlign);
 
+    HeapFree( GetProcessHeap(), 0, sw_params );
     wwo->pcm = pcm;
     wwo->hctl = hctl;
     if ( wwo->hw_params )
@@ -826,6 +820,7 @@ errexit:
     if ( hw_params )
 	snd_pcm_hw_params_free(hw_params);
 
+    HeapFree( GetProcessHeap(), 0, sw_params );
     if (wwo->msgRing.ring_buffer_size > 0)
         ALSA_DestroyRingMessage(&wwo->msgRing);
 
@@ -1013,8 +1008,6 @@ static DWORD wodGetPosition(WORD wDevID, LPMMTIME lpTime, DWORD uSize)
     if (lpTime == NULL)	return MMSYSERR_INVALPARAM;
 
     wwo = &WOutDev[wDevID];
-    ALSA_AddRingMessage(&wwo->msgRing, WINE_WM_UPDATE, 0, TRUE);
-
     return ALSA_bytes_to_mmtime(lpTime, wwo->dwPlayedTotal, &wwo->format);
 }
 

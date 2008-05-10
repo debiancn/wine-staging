@@ -21,6 +21,12 @@
 
 #include "config.h"
 
+#ifdef HAVE_POLL_H
+#include <poll.h>
+#endif
+#ifdef HAVE_SYS_POLL_H
+#include <sys/poll.h>
+#endif
 #include <X11/Xatom.h>
 #include <X11/keysym.h>
 #include <X11/Xlib.h>
@@ -37,11 +43,15 @@
 #include "winbase.h"
 #include "winuser.h"
 #include "wingdi.h"
-#include "shlobj.h"  /* DROPFILES */
 
-#include "win.h"
 #include "x11drv.h"
+
+/* avoid conflict with field names in included win32 headers */
+#undef Status
+#include "shlobj.h"  /* DROPFILES */
 #include "shellapi.h"
+
+#include "wine/server.h"
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(event);
@@ -63,10 +73,13 @@ extern BOOL ximInComposeMode;
 #define DndURL          128   /* KDE drag&drop */
 
   /* Event handlers */
-static void EVENT_FocusIn( HWND hwnd, XEvent *event );
-static void EVENT_FocusOut( HWND hwnd, XEvent *event );
-static void EVENT_PropertyNotify( HWND hwnd, XEvent *event );
-static void EVENT_ClientMessage( HWND hwnd, XEvent *event );
+static void X11DRV_FocusIn( HWND hwnd, XEvent *event );
+static void X11DRV_FocusOut( HWND hwnd, XEvent *event );
+static void X11DRV_Expose( HWND hwnd, XEvent *event );
+static void X11DRV_MapNotify( HWND hwnd, XEvent *event );
+static void X11DRV_ConfigureNotify( HWND hwnd, XEvent *event );
+static void X11DRV_PropertyNotify( HWND hwnd, XEvent *event );
+static void X11DRV_ClientMessage( HWND hwnd, XEvent *event );
 
 struct event_handler
 {
@@ -86,16 +99,16 @@ static struct event_handler handlers[MAX_EVENT_HANDLERS] =
     { MotionNotify,     X11DRV_MotionNotify },
     { EnterNotify,      X11DRV_EnterNotify },
     /* LeaveNotify */
-    { FocusIn,          EVENT_FocusIn },
-    { FocusOut,         EVENT_FocusOut },
+    { FocusIn,          X11DRV_FocusIn },
+    { FocusOut,         X11DRV_FocusOut },
     { KeymapNotify,     X11DRV_KeymapNotify },
     { Expose,           X11DRV_Expose },
     /* GraphicsExpose */
     /* NoExpose */
     /* VisibilityNotify */
     /* CreateNotify */
-    /* DestroyNotify */
-    { UnmapNotify,      X11DRV_UnmapNotify },
+    { DestroyNotify,    X11DRV_DestroyNotify },
+    /* UnmapNotify */
     { MapNotify,        X11DRV_MapNotify },
     /* MapRequest */
     /* ReparentNotify */
@@ -105,12 +118,12 @@ static struct event_handler handlers[MAX_EVENT_HANDLERS] =
     /* ResizeRequest */
     /* CirculateNotify */
     /* CirculateRequest */
-    { PropertyNotify,   EVENT_PropertyNotify },
+    { PropertyNotify,   X11DRV_PropertyNotify },
     { SelectionClear,   X11DRV_SelectionClear },
     { SelectionRequest, X11DRV_SelectionRequest },
     /* SelectionNotify */
     /* ColormapNotify */
-    { ClientMessage,    EVENT_ClientMessage },
+    { ClientMessage,    X11DRV_ClientMessage },
     { MappingNotify,    X11DRV_MappingNotify },
 };
 
@@ -232,39 +245,113 @@ static Bool filter_event( Display *display, XEvent *event, char *arg )
 }
 
 
+enum event_merge_action
+{
+    MERGE_DISCARD,  /* discard the old event */
+    MERGE_HANDLE,   /* handle the old event */
+    MERGE_KEEP      /* keep the old event for future merging */
+};
+
+/***********************************************************************
+ *           merge_events
+ *
+ * Try to merge 2 consecutive events.
+ */
+static enum event_merge_action merge_events( XEvent *prev, XEvent *next )
+{
+    switch (prev->type)
+    {
+    case ConfigureNotify:
+        switch (next->type)
+        {
+        case ConfigureNotify:
+            if (prev->xany.window == next->xany.window)
+            {
+                TRACE( "discarding duplicate ConfigureNotify for window %lx\n", prev->xany.window );
+                return MERGE_DISCARD;
+            }
+            break;
+        case Expose:
+        case PropertyNotify:
+            return MERGE_KEEP;
+        }
+        break;
+    case MotionNotify:
+        if (prev->xany.window == next->xany.window && next->type == MotionNotify)
+        {
+            TRACE( "discarding duplicate MotionNotify for window %lx\n", prev->xany.window );
+            return MERGE_DISCARD;
+        }
+        break;
+    }
+    return MERGE_HANDLE;
+}
+
+
+/***********************************************************************
+ *           call_event_handler
+ */
+static inline void call_event_handler( Display *display, XEvent *event )
+{
+    HWND hwnd;
+    x11drv_event_handler handler;
+    XEvent *prev;
+    struct x11drv_thread_data *thread_data;
+
+    if (!(handler = find_handler( event->type )))
+    {
+        TRACE( "%s for win %lx, ignoring\n", dbgstr_event( event->type ), event->xany.window );
+        return;  /* no handler, ignore it */
+    }
+
+    if (XFindContext( display, event->xany.window, winContext, (char **)&hwnd ) != 0)
+        hwnd = 0;  /* not for a registered window */
+    if (!hwnd && event->xany.window == root_window) hwnd = GetDesktopWindow();
+
+    TRACE( "%s for hwnd/window %p/%lx\n",
+           dbgstr_event( event->type ), hwnd, event->xany.window );
+    wine_tsx11_unlock();
+    thread_data = x11drv_thread_data();
+    prev = thread_data->current_event;
+    thread_data->current_event = event;
+    handler( hwnd, event );
+    thread_data->current_event = prev;
+    wine_tsx11_lock();
+}
+
+
 /***********************************************************************
  *           process_events
  */
-static int process_events( Display *display, ULONG_PTR mask )
+static int process_events( Display *display, Bool (*filter)(), ULONG_PTR arg )
 {
-    XEvent event;
-    HWND hwnd;
+    XEvent event, prev_event;
     int count = 0;
-    x11drv_event_handler handler;
+    enum event_merge_action action = MERGE_DISCARD;
 
+    prev_event.type = 0;
     wine_tsx11_lock();
-    while (XCheckIfEvent( display, &event, filter_event, (char *)mask ))
+    while (XCheckIfEvent( display, &event, filter, (char *)arg ))
     {
         count++;
         if (XFilterEvent( &event, None )) continue;  /* filtered, ignore it */
-
-        if (!(handler = find_handler( event.type )))
+        if (prev_event.type) action = merge_events( &prev_event, &event );
+        switch( action )
         {
-            TRACE( "%s, ignoring\n", dbgstr_event( event.type ));
-            continue;  /* no handler, ignore it */
+        case MERGE_DISCARD:  /* discard prev, keep new */
+            prev_event = event;
+            break;
+        case MERGE_HANDLE:  /* handle prev, keep new */
+            call_event_handler( display, &prev_event );
+            prev_event = event;
+            break;
+        case MERGE_KEEP:  /* handle new, keep prev for future merging */
+            call_event_handler( display, &event );
+            break;
         }
-
-        if (XFindContext( display, event.xany.window, winContext, (char **)&hwnd ) != 0)
-            hwnd = 0;  /* not for a registered window */
-        if (!hwnd && event.xany.window == root_window) hwnd = GetDesktopWindow();
-
-        wine_tsx11_unlock();
-        TRACE( "%s for hwnd/window %p/%lx\n",
-               dbgstr_event( event.type ), hwnd, event.xany.window );
-        handler( hwnd, &event );
-        wine_tsx11_lock();
     }
     XFlush( gdi_display );
+    if (prev_event.type) call_event_handler( display, &prev_event );
     wine_tsx11_unlock();
     if (count) TRACE( "processed %d events\n", count );
     return count;
@@ -287,20 +374,17 @@ DWORD X11DRV_MsgWaitForMultipleObjectsEx( DWORD count, const HANDLE *handles,
                                          timeout, flags & MWMO_ALERTABLE );
     }
 
-    if (data->process_event_count) mask = 0;  /* don't process nested events */
+    if (data->current_event) mask = 0;  /* don't process nested events */
 
-    data->process_event_count++;
-
-    if (process_events( data->display, mask )) ret = count - 1;
+    if (process_events( data->display, filter_event, mask )) ret = count - 1;
     else if (count || timeout)
     {
         ret = WaitForMultipleObjectsEx( count, handles, flags & MWMO_WAITALL,
                                         timeout, flags & MWMO_ALERTABLE );
-        if (ret == count - 1) process_events( data->display, mask );
+        if (ret == count - 1) process_events( data->display, filter_event, mask );
     }
     else ret = WAIT_TIMEOUT;
 
-    data->process_event_count--;
     return ret;
 }
 
@@ -349,6 +433,7 @@ static inline BOOL can_activate_window( HWND hwnd )
     LONG style = GetWindowLongW( hwnd, GWL_STYLE );
     if (!(style & WS_VISIBLE)) return FALSE;
     if ((style & (WS_POPUP|WS_CHILD)) == WS_CHILD) return FALSE;
+    if (hwnd == GetDesktopWindow()) return FALSE;
     return !(style & WS_DISABLED);
 }
 
@@ -487,9 +572,9 @@ static const char * const focus_details[] =
 };
 
 /**********************************************************************
- *              EVENT_FocusIn
+ *              X11DRV_FocusIn
  */
-static void EVENT_FocusIn( HWND hwnd, XEvent *xev )
+static void X11DRV_FocusIn( HWND hwnd, XEvent *xev )
 {
     XFocusChangeEvent *event = &xev->xfocus;
     XIC xic;
@@ -521,11 +606,11 @@ static void EVENT_FocusIn( HWND hwnd, XEvent *xev )
 
 
 /**********************************************************************
- *              EVENT_FocusOut
+ *              X11DRV_FocusOut
  *
  * Note: only top-level windows get FocusOut events.
  */
-static void EVENT_FocusOut( HWND hwnd, XEvent *xev )
+static void X11DRV_FocusOut( HWND hwnd, XEvent *xev )
 {
     XFocusChangeEvent *event = &xev->xfocus;
     HWND hwnd_tmp;
@@ -570,44 +655,313 @@ static void EVENT_FocusOut( HWND hwnd, XEvent *xev )
            case we don't have to change the foreground window to 0 */
         if (hwnd == GetForegroundWindow())
         {
-            TRACE( "lost focus, setting fg to 0\n" );
-            SetForegroundWindow( 0 );
+            TRACE( "lost focus, setting fg to desktop\n" );
+            SetForegroundWindow( GetDesktopWindow() );
         }
     }
 }
 
 
 /***********************************************************************
- *           EVENT_PropertyNotify
- *   We use this to release resources like Pixmaps when a selection
- *   client no longer needs them.
+ *           X11DRV_Expose
  */
-static void EVENT_PropertyNotify( HWND hwnd, XEvent *xev )
+static void X11DRV_Expose( HWND hwnd, XEvent *xev )
 {
-  XPropertyEvent *event = &xev->xproperty;
-  /* Check if we have any resources to free */
-  TRACE("Received PropertyNotify event:\n");
+    XExposeEvent *event = &xev->xexpose;
+    RECT rect;
+    struct x11drv_win_data *data;
+    int flags = RDW_INVALIDATE | RDW_ERASE;
 
-  switch(event->state)
-  {
-    case PropertyDelete:
+    TRACE( "win %p (%lx) %d,%d %dx%d\n",
+           hwnd, event->window, event->x, event->y, event->width, event->height );
+
+    if (!(data = X11DRV_get_win_data( hwnd ))) return;
+
+    if (event->window == data->whole_window)
     {
-      TRACE("\tPropertyDelete for atom %ld on window %ld\n",
-            event->atom, (long)event->window);
-      break;
+        rect.left = data->whole_rect.left + event->x;
+        rect.top  = data->whole_rect.top + event->y;
+        flags |= RDW_FRAME;
+    }
+    else
+    {
+        rect.left = data->client_rect.left + event->x;
+        rect.top  = data->client_rect.top + event->y;
+    }
+    rect.right  = rect.left + event->width;
+    rect.bottom = rect.top + event->height;
+
+    if (event->window != root_window)
+    {
+        SERVER_START_REQ( update_window_zorder )
+        {
+            req->window      = hwnd;
+            req->rect.left   = rect.left;
+            req->rect.top    = rect.top;
+            req->rect.right  = rect.right;
+            req->rect.bottom = rect.bottom;
+            wine_server_call( req );
+        }
+        SERVER_END_REQ;
+
+        /* make position relative to client area instead of parent */
+        OffsetRect( &rect, -data->client_rect.left, -data->client_rect.top );
+        flags |= RDW_ALLCHILDREN;
     }
 
-    case PropertyNewValue:
-    {
-      TRACE("\tPropertyNewValue for atom %ld on window %ld\n\n",
-            event->atom, (long)event->window);
-      break;
-    }
-
-    default:
-      break;
-  }
+    RedrawWindow( hwnd, &rect, 0, flags );
 }
+
+
+/**********************************************************************
+ *		X11DRV_MapNotify
+ */
+static void X11DRV_MapNotify( HWND hwnd, XEvent *event )
+{
+    struct x11drv_win_data *data;
+
+    if (!(data = X11DRV_get_win_data( hwnd ))) return;
+    if (!data->mapped) return;
+
+    if (!data->managed)
+    {
+        HWND hwndFocus = GetFocus();
+        if (hwndFocus && IsChild( hwnd, hwndFocus )) X11DRV_SetFocus(hwndFocus);  /* FIXME */
+    }
+}
+
+
+/***********************************************************************
+ *		X11DRV_ConfigureNotify
+ */
+void X11DRV_ConfigureNotify( HWND hwnd, XEvent *xev )
+{
+    XConfigureEvent *event = &xev->xconfigure;
+    struct x11drv_win_data *data;
+    RECT rect;
+    UINT flags;
+    int cx, cy, x = event->x, y = event->y;
+
+    if (!hwnd) return;
+    if (!(data = X11DRV_get_win_data( hwnd ))) return;
+    if (!data->mapped || data->iconic) return;
+
+    /* Get geometry */
+
+    if (!event->send_event)  /* normal event, need to map coordinates to the root */
+    {
+        Window child;
+        wine_tsx11_lock();
+        XTranslateCoordinates( event->display, data->whole_window, root_window,
+                               0, 0, &x, &y, &child );
+        wine_tsx11_unlock();
+    }
+    rect.left   = x;
+    rect.top    = y;
+    rect.right  = x + event->width;
+    rect.bottom = y + event->height;
+    OffsetRect( &rect, virtual_screen_rect.left, virtual_screen_rect.top );
+    TRACE( "win %p new X rect %d,%d,%dx%d (event %d,%d,%dx%d)\n",
+           hwnd, rect.left, rect.top, rect.right-rect.left, rect.bottom-rect.top,
+           event->x, event->y, event->width, event->height );
+    X11DRV_X_to_window_rect( data, &rect );
+
+    x     = rect.left;
+    y     = rect.top;
+    cx    = rect.right - rect.left;
+    cy    = rect.bottom - rect.top;
+    flags = SWP_NOACTIVATE | SWP_NOZORDER;
+
+    /* Compare what has changed */
+
+    GetWindowRect( hwnd, &rect );
+    if (rect.left == x && rect.top == y) flags |= SWP_NOMOVE;
+    else
+        TRACE( "%p moving from (%d,%d) to (%d,%d)\n",
+               hwnd, rect.left, rect.top, x, y );
+
+    if ((rect.right - rect.left == cx && rect.bottom - rect.top == cy) ||
+        (IsRectEmpty( &rect ) && event->width == 1 && event->height == 1))
+    {
+        if (flags & SWP_NOMOVE) return;  /* if nothing changed, don't do anything */
+        flags |= SWP_NOSIZE;
+    }
+    else
+        TRACE( "%p resizing from (%dx%d) to (%dx%d)\n",
+               hwnd, rect.right - rect.left, rect.bottom - rect.top, cx, cy );
+
+    SetWindowPos( hwnd, 0, x, y, cx, cy, flags );
+}
+
+
+/***********************************************************************
+ *           get_window_wm_state
+ */
+static int get_window_wm_state( Display *display, struct x11drv_win_data *data )
+{
+    struct
+    {
+        CARD32 state;
+        XID     icon;
+    } *state;
+    Atom type;
+    int format, ret = -1;
+    unsigned long count, remaining;
+
+    wine_tsx11_lock();
+    if (!XGetWindowProperty( display, data->whole_window, x11drv_atom(WM_STATE), 0,
+                             sizeof(*state)/sizeof(CARD32), False, x11drv_atom(WM_STATE),
+                             &type, &format, &count, &remaining, (unsigned char **)&state ))
+    {
+        if (type == x11drv_atom(WM_STATE) && get_property_size( format, count ) >= sizeof(*state))
+            ret = state->state;
+        XFree( state );
+    }
+    wine_tsx11_unlock();
+    return ret;
+}
+
+
+/***********************************************************************
+ *           handle_wm_state_notify
+ *
+ * Handle a PropertyNotify for WM_STATE.
+ */
+static void handle_wm_state_notify( struct x11drv_win_data *data, XPropertyEvent *event,
+                                    BOOL update_window )
+{
+    switch(event->state)
+    {
+    case PropertyDelete:
+        data->wm_state = WithdrawnState;
+        TRACE( "%p/%lx: WM_STATE deleted\n", data->hwnd, data->whole_window );
+        break;
+    case PropertyNewValue:
+        {
+            int new_state = get_window_wm_state( event->display, data );
+            if (new_state != -1 && new_state != data->wm_state)
+            {
+                TRACE( "%p/%lx: new WM_STATE %d\n", data->hwnd, data->whole_window, new_state );
+                data->wm_state = new_state;
+            }
+        }
+        break;
+    }
+
+    if (!update_window || !data->managed || !data->mapped) return;
+
+    if (data->iconic && data->wm_state == NormalState)  /* restore window */
+    {
+        int x, y;
+        unsigned int width, height, border, depth;
+        Window root, top;
+        WINDOWPLACEMENT wp;
+        RECT rect;
+
+        /* FIXME: hack */
+        wine_tsx11_lock();
+        XGetGeometry( event->display, data->whole_window, &root, &x, &y, &width, &height,
+                        &border, &depth );
+        XTranslateCoordinates( event->display, data->whole_window, root, 0, 0, &x, &y, &top );
+        wine_tsx11_unlock();
+        rect.left   = x;
+        rect.top    = y;
+        rect.right  = x + width;
+        rect.bottom = y + height;
+        OffsetRect( &rect, virtual_screen_rect.left, virtual_screen_rect.top );
+        X11DRV_X_to_window_rect( data, &rect );
+
+        wp.length = sizeof(wp);
+        GetWindowPlacement( data->hwnd, &wp );
+        wp.flags = 0;
+        wp.showCmd = SW_RESTORE;
+        wp.rcNormalPosition = rect;
+
+        TRACE( "restoring win %p/%lx\n", data->hwnd, data->whole_window );
+        data->iconic = FALSE;
+        SetWindowPlacement( data->hwnd, &wp );
+    }
+    else if (!data->iconic && data->wm_state == IconicState)
+    {
+        TRACE( "minimizing win %p/%lx\n", data->hwnd, data->whole_window );
+        data->iconic = TRUE;
+        ShowWindow( data->hwnd, SW_MINIMIZE );
+    }
+}
+
+
+/***********************************************************************
+ *           X11DRV_PropertyNotify
+ */
+static void X11DRV_PropertyNotify( HWND hwnd, XEvent *xev )
+{
+    XPropertyEvent *event = &xev->xproperty;
+    struct x11drv_win_data *data;
+
+    if (!hwnd) return;
+    if (!(data = X11DRV_get_win_data( hwnd ))) return;
+
+    if (event->atom == x11drv_atom(WM_STATE)) handle_wm_state_notify( data, event, TRUE );
+}
+
+
+/* event filter to wait for a WM_STATE change notification on a window */
+static Bool is_wm_state_notify( Display *display, XEvent *event, XPointer arg )
+{
+    if (event->xany.window != (Window)arg) return 0;
+    return (event->type == DestroyNotify ||
+            (event->type == PropertyNotify && event->xproperty.atom == x11drv_atom(WM_STATE)));
+}
+
+/***********************************************************************
+ *           wait_for_withdrawn_state
+ */
+void wait_for_withdrawn_state( Display *display, struct x11drv_win_data *data, BOOL set )
+{
+    DWORD end = GetTickCount() + 2000;
+
+    if (!data->managed) return;
+
+    TRACE( "waiting for window %p/%lx to become %swithdrawn\n",
+           data->hwnd, data->whole_window, set ? "" : "not " );
+
+    while (data->whole_window && ((data->wm_state == WithdrawnState) == !set))
+    {
+        XEvent event;
+        int count = 0;
+
+        wine_tsx11_lock();
+        while (XCheckIfEvent( display, &event, is_wm_state_notify, (char *)data->whole_window ))
+        {
+            count++;
+            if (XFilterEvent( &event, None )) continue;  /* filtered, ignore it */
+            if (event.type == DestroyNotify) call_event_handler( display, &event );
+            else
+            {
+                wine_tsx11_unlock();
+                handle_wm_state_notify( data, &event.xproperty, FALSE );
+                wine_tsx11_lock();
+            }
+        }
+        wine_tsx11_unlock();
+
+        if (!count)
+        {
+            struct pollfd pfd;
+            int timeout = end - GetTickCount();
+
+            pfd.fd = ConnectionNumber(display);
+            pfd.events = POLLIN;
+            if (timeout <= 0 || poll( &pfd, 1, timeout ) != 1)
+            {
+                FIXME( "window %p/%lx wait timed out\n", data->hwnd, data->whole_window );
+                break;
+            }
+        }
+    }
+    TRACE( "window %p/%lx state now %d\n", data->hwnd, data->whole_window, data->wm_state );
+}
+
 
 static HWND find_drop_window( HWND hQueryWnd, LPPOINT lpPt )
 {
@@ -646,10 +1000,11 @@ static HWND find_drop_window( HWND hQueryWnd, LPPOINT lpPt )
 /**********************************************************************
  *           EVENT_DropFromOffix
  *
- * don't know if it still works (last Changlog is from 96/11/04)
+ * don't know if it still works (last Changelog is from 96/11/04)
  */
 static void EVENT_DropFromOffiX( HWND hWnd, XClientMessageEvent *event )
 {
+    struct x11drv_win_data *data;
     unsigned long	data_length;
     unsigned long	aux_long;
     unsigned char*	p_data = NULL;
@@ -657,8 +1012,6 @@ static void EVENT_DropFromOffiX( HWND hWnd, XClientMessageEvent *event )
     int			x, y, dummy;
     BOOL	        bAccept;
     Window		win, w_aux_root, w_aux_child;
-    WND*                pWnd;
-    HWND		hScope = hWnd;
 
     win = X11DRV_get_whole_window(hWnd);
     wine_tsx11_lock();
@@ -668,14 +1021,14 @@ static void EVENT_DropFromOffiX( HWND hWnd, XClientMessageEvent *event )
     y += virtual_screen_rect.top;
     wine_tsx11_unlock();
 
-    pWnd = WIN_GetPtr(hWnd);
+    if (!(data = X11DRV_get_win_data( hWnd ))) return;
 
     /* find out drop point and drop window */
     if( x < 0 || y < 0 ||
-        x > (pWnd->rectWindow.right - pWnd->rectWindow.left) ||
-        y > (pWnd->rectWindow.bottom - pWnd->rectWindow.top) )
+        x > (data->whole_rect.right - data->whole_rect.left) ||
+        y > (data->whole_rect.bottom - data->whole_rect.top) )
     {   
-	bAccept = pWnd->dwExStyle & WS_EX_ACCEPTFILES; 
+	bAccept = GetWindowLongW( hWnd, GWL_EXSTYLE ) & WS_EX_ACCEPTFILES;
 	x = 0;
 	y = 0; 
     }
@@ -687,7 +1040,6 @@ static void EVENT_DropFromOffiX( HWND hWnd, XClientMessageEvent *event )
 	{
 	    x = pt.x;
 	    y = pt.y;
-	    hScope = hwndDrop;
 	    bAccept = TRUE;
 	}
 	else
@@ -695,7 +1047,6 @@ static void EVENT_DropFromOffiX( HWND hWnd, XClientMessageEvent *event )
 	    bAccept = FALSE;
 	}
     }
-    WIN_ReleasePtr(pWnd);
 
     if (!bAccept) return;
 
@@ -729,17 +1080,11 @@ static void EVENT_DropFromOffiX( HWND hWnd, XClientMessageEvent *event )
 
             if( lpDrop )
             {
-                WND *pDropWnd = WIN_GetPtr( hScope );
                 lpDrop->pFiles = sizeof(DROPFILES);
                 lpDrop->pt.x = x;
                 lpDrop->pt.y = y;
-                lpDrop->fNC =
-                    ( x < (pDropWnd->rectClient.left - pDropWnd->rectWindow.left)  ||
-                      y < (pDropWnd->rectClient.top - pDropWnd->rectWindow.top)    ||
-                      x > (pDropWnd->rectClient.right - pDropWnd->rectWindow.left) ||
-                      y > (pDropWnd->rectClient.bottom - pDropWnd->rectWindow.top) );
+                lpDrop->fNC = FALSE;
                 lpDrop->fWide = FALSE;
-                WIN_ReleasePtr(pDropWnd);
                 p_drop = (char *)(lpDrop + 1);
                 p = (char *)p_data;
                 while(*p)
@@ -768,6 +1113,7 @@ static void EVENT_DropFromOffiX( HWND hWnd, XClientMessageEvent *event )
  */
 static void EVENT_DropURLs( HWND hWnd, XClientMessageEvent *event )
 {
+  struct x11drv_win_data *win_data;
   unsigned long	data_length;
   unsigned long	aux_long, drop_len = 0;
   unsigned char	*p_data = NULL; /* property data */
@@ -826,19 +1172,18 @@ static void EVENT_DropURLs( HWND hWnd, XClientMessageEvent *event )
       hDrop = GlobalAlloc( GMEM_SHARE, drop_len );
       lpDrop = (DROPFILES *) GlobalLock( hDrop );
 
-      if( lpDrop ) {
-          WND *pDropWnd = WIN_GetPtr( hWnd );
+      if( lpDrop && (win_data = X11DRV_get_win_data( hWnd )))
+      {
 	  lpDrop->pFiles = sizeof(DROPFILES);
-	  lpDrop->pt.x = (INT)x;
-	  lpDrop->pt.y = (INT)y;
+	  lpDrop->pt.x = x;
+	  lpDrop->pt.y = y;
 	  lpDrop->fNC =
-	    ( x < (pDropWnd->rectClient.left - pDropWnd->rectWindow.left)  ||
-	      y < (pDropWnd->rectClient.top - pDropWnd->rectWindow.top)    ||
-	      x > (pDropWnd->rectClient.right - pDropWnd->rectWindow.left) ||
-	      y > (pDropWnd->rectClient.bottom - pDropWnd->rectWindow.top) );
+	    ( x < (win_data->client_rect.left - win_data->whole_rect.left)  ||
+	      y < (win_data->client_rect.top - win_data->whole_rect.top)    ||
+	      x > (win_data->client_rect.right - win_data->whole_rect.left) ||
+	      y > (win_data->client_rect.bottom - win_data->whole_rect.top) );
 	  lpDrop->fWide = FALSE;
 	  p_drop = (char*)(lpDrop + 1);
-          WIN_ReleasePtr(pDropWnd);
       }
 
       /* create message content */
@@ -919,9 +1264,9 @@ static const struct client_message_handler client_messages[] =
 
 
 /**********************************************************************
- *           EVENT_ClientMessage
+ *           X11DRV_ClientMessage
  */
-static void EVENT_ClientMessage( HWND hwnd, XEvent *xev )
+static void X11DRV_ClientMessage( HWND hwnd, XEvent *xev )
 {
     XClientMessageEvent *event = &xev->xclient;
     unsigned int i;
@@ -957,6 +1302,11 @@ LRESULT X11DRV_WindowMessage( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
         return X11DRV_AcquireClipboard( hwnd );
     case WM_X11DRV_DELETE_WINDOW:
         return SendMessageW( hwnd, WM_SYSCOMMAND, SC_CLOSE, 0 );
+    case WM_X11DRV_SET_WIN_FORMAT:
+        return X11DRV_set_win_format( hwnd, (XID)wp );
+    case WM_X11DRV_RESIZE_DESKTOP:
+        X11DRV_resize_desktop( LOWORD(lp), HIWORD(lp) );
+        return 0;
     default:
         FIXME( "got window msg %x hwnd %p wp %lx lp %lx\n", msg, hwnd, wp, lp );
         return 0;

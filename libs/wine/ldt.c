@@ -52,7 +52,7 @@ struct modify_ldt_s
     unsigned int  read_exec_only : 1;
     unsigned int  limit_in_pages : 1;
     unsigned int  seg_not_present : 1;
-    unsigned int  useable : 1;
+    unsigned int  usable : 1;
     unsigned int  garbage : 25;
 };
 
@@ -65,7 +65,7 @@ static inline void fill_modify_ldt_struct( struct modify_ldt_s *ptr, const LDT_E
     ptr->read_exec_only  = !(entry->HighWord.Bits.Type & 2);
     ptr->limit_in_pages  = entry->HighWord.Bits.Granularity;
     ptr->seg_not_present = !entry->HighWord.Bits.Pres;
-    ptr->useable         = entry->HighWord.Bits.Sys;
+    ptr->usable          = entry->HighWord.Bits.Sys;
     ptr->garbage         = 0;
 }
 
@@ -112,9 +112,7 @@ static inline int set_thread_area( struct modify_ldt_s *ptr )
 
 #if defined(__NetBSD__) || defined(__FreeBSD__) || defined(__FreeBSD_kernel__) || defined(__OpenBSD__)
 #include <machine/segments.h>
-
-extern int i386_get_ldt(int, union descriptor *, int);
-extern int i386_set_ldt(int, union descriptor *, int);
+#include <machine/sysarch.h>
 #endif  /* __NetBSD__ || __FreeBSD__ || __OpenBSD__ */
 
 #ifdef __APPLE__
@@ -417,6 +415,8 @@ unsigned short wine_ldt_alloc_fs(void)
             if (errno != ENOSYS) perror( "set_thread_area" );
         }
         else global_fs_sel = (ldt_info.entry_number << 3) | 3;
+#elif defined(__FreeBSD__)
+        global_fs_sel = GSEL( GUFS_SEL, SEL_UPL );
 #endif
     }
     if (global_fs_sel > 0) return global_fs_sel;
@@ -443,6 +443,8 @@ void wine_ldt_init_fs( unsigned short sel, const LDT_ENTRY *entry )
         ldt_info.entry_number = sel >> 3;
         fill_modify_ldt_struct( &ldt_info, entry );
         if ((ret = set_thread_area( &ldt_info ) < 0)) perror( "set_thread_area" );
+#elif defined(__FreeBSD__)
+        i386_set_fsbase( wine_ldt_get_base( entry ));
 #endif
     }
     else  /* LDT selector */

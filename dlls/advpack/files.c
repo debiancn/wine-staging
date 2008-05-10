@@ -29,6 +29,7 @@
 #include "winternl.h"
 #include "setupapi.h"
 #include "advpub.h"
+#include "fdi.h"
 #include "wine/debug.h"
 #include "wine/unicode.h"
 #include "advpack_private.h"
@@ -513,30 +514,31 @@ HRESULT WINAPI DelNodeRunDLL32W(HWND hWnd, HINSTANCE hInst, LPWSTR cmdline, INT 
     return res;
 }
 
-/* The following defintions were copied from dlls/cabinet/cabinet.h */
+/* The following definitions were copied from dlls/cabinet/cabinet.h */
 
-/* EXTRACTdest flags */
+/* SESSION Operation */
 #define EXTRACT_FILLFILELIST  0x00000001
 #define EXTRACT_EXTRACTFILES  0x00000002
 
-struct ExtractFileList {
-        LPSTR  filename;
-        struct ExtractFileList *next;
-        BOOL   unknown;  /* always 1L */
-} ;
+struct FILELIST{
+    LPSTR FileName;
+    struct FILELIST *next;
+    BOOL DoExtract;
+};
 
-/* the first parameter of the function Extract */
 typedef struct {
-        long  result1;          /* 0x000 */
-        long  unknown1[3];      /* 0x004 */
-        struct ExtractFileList *filelist; /* 0x010 */
-        long  filecount;        /* 0x014 */
-        DWORD flags;            /* 0x018 */
-        char  directory[0x104]; /* 0x01c */
-        char  lastfile[0x20c];  /* 0x120 */
-} EXTRACTdest;
+    INT FileSize;
+    ERF Error;
+    struct FILELIST *FileList;
+    INT FileCount;
+    INT Operation;
+    CHAR Destination[MAX_PATH];
+    CHAR CurrentFile[MAX_PATH];
+    CHAR Reserved[MAX_PATH];
+    struct FILELIST *FilterList;
+} SESSION;
 
-static HRESULT (WINAPI *pExtract)(EXTRACTdest*, LPCSTR);
+static HRESULT (WINAPI *pExtract)(SESSION*, LPCSTR);
 
 /* removes legal characters before and after file list, and
  * converts the file list to a NULL-separated list
@@ -562,9 +564,7 @@ static LPSTR convert_file_list(LPCSTR FileList, DWORD *dwNumFiles)
     dwLen = last - first + 3; /* room for double-null termination */
     szConvertedList = HeapAlloc(GetProcessHeap(), 0, dwLen);
     lstrcpynA(szConvertedList, first, dwLen - 1);
-
     szConvertedList[dwLen - 1] = '\0';
-    szConvertedList[dwLen] = '\0';
 
     /* empty list */
     if (!lstrlenA(szConvertedList))
@@ -591,9 +591,9 @@ static LPSTR convert_file_list(LPCSTR FileList, DWORD *dwNumFiles)
     return szConvertedList;
 }
 
-static void free_file_node(struct ExtractFileList *pNode)
+static void free_file_node(struct FILELIST *pNode)
 {
-    HeapFree(GetProcessHeap(), 0, pNode->filename);
+    HeapFree(GetProcessHeap(), 0, pNode->FileName);
     HeapFree(GetProcessHeap(), 0, pNode);
 }
 
@@ -619,46 +619,32 @@ static BOOL file_in_list(LPCSTR szFile, LPCSTR szFileList)
     return FALSE;
 }
 
-/* removes nodes from the linked list that aren't specified in szFileList
- * returns the number of files that are in both the linked list and szFileList
- */
-static DWORD fill_file_list(EXTRACTdest *extractDest, LPCSTR szCabName, LPCSTR szFileList)
+
+/* returns the number of files that are in both the linked list and szFileList */
+static DWORD fill_file_list(SESSION *session, LPCSTR szCabName, LPCSTR szFileList)
 {
     DWORD dwNumFound = 0;
-    struct ExtractFileList *pNode;
-    struct ExtractFileList *prev = NULL;
+    struct FILELIST *pNode;
 
-    extractDest->flags |= EXTRACT_FILLFILELIST;
-    if (pExtract(extractDest, szCabName))
+    session->Operation |= EXTRACT_FILLFILELIST;
+    if (pExtract(session, szCabName))
     {
-        extractDest->flags &= ~EXTRACT_FILLFILELIST;
+        session->Operation &= ~EXTRACT_FILLFILELIST;
         return -1;
     }
 
-    pNode = extractDest->filelist;
+    pNode = session->FileList;
     while (pNode)
     {
-        if (file_in_list(pNode->filename, szFileList))
-        {
-            prev = pNode;
-            pNode = pNode->next;
-            dwNumFound++;
-        }
-        else if (prev)
-        {
-            prev->next = pNode->next;
-            free_file_node(pNode);
-            pNode = prev->next;
-        }
+        if (!file_in_list(pNode->FileName, szFileList))
+            pNode->DoExtract = FALSE;
         else
-        {
-            extractDest->filelist = pNode->next;
-            free_file_node(pNode);
-            pNode = extractDest->filelist;
-        }
+            dwNumFound++;
+
+        pNode = pNode->next;
     }
 
-    extractDest->flags &= ~EXTRACT_FILLFILELIST;
+    session->Operation &= ~EXTRACT_FILLFILELIST;
     return dwNumFound;
 }
 
@@ -690,7 +676,7 @@ static DWORD fill_file_list(EXTRACTdest *extractDest, LPCSTR szCabName, LPCSTR s
 HRESULT WINAPI ExtractFilesA(LPCSTR CabName, LPCSTR ExpandDir, DWORD Flags,
                              LPCSTR FileList, LPVOID LReserved, DWORD Reserved)
 {   
-    EXTRACTdest extractDest;
+    SESSION session;
     HMODULE hCabinet;
     HRESULT res = S_OK;
     DWORD dwFileCount = 0;
@@ -717,8 +703,8 @@ HRESULT WINAPI ExtractFilesA(LPCSTR CabName, LPCSTR ExpandDir, DWORD Flags,
         goto done;
     }
 
-    ZeroMemory(&extractDest, sizeof(EXTRACTdest));
-    lstrcpyA(extractDest.directory, ExpandDir);
+    ZeroMemory(&session, sizeof(SESSION));
+    lstrcpyA(session.Destination, ExpandDir);
 
     if (FileList)
     {
@@ -729,7 +715,7 @@ HRESULT WINAPI ExtractFilesA(LPCSTR CabName, LPCSTR ExpandDir, DWORD Flags,
             goto done;
         }
 
-        dwFilesFound = fill_file_list(&extractDest, CabName, szConvertedList);
+        dwFilesFound = fill_file_list(&session, CabName, szConvertedList);
         if (dwFilesFound != dwFileCount)
         {
             res = E_FAIL;
@@ -737,15 +723,15 @@ HRESULT WINAPI ExtractFilesA(LPCSTR CabName, LPCSTR ExpandDir, DWORD Flags,
         }
     }
     else
-        extractDest.flags |= EXTRACT_FILLFILELIST;
+        session.Operation |= EXTRACT_FILLFILELIST;
 
-    extractDest.flags |= EXTRACT_EXTRACTFILES;
-    res = pExtract(&extractDest, CabName);
+    session.Operation |= EXTRACT_EXTRACTFILES;
+    res = pExtract(&session, CabName);
 
-    if (extractDest.filelist)
+    if (session.FileList)
     {
-        struct ExtractFileList* curr = extractDest.filelist;
-        struct ExtractFileList* next;
+        struct FILELIST *curr = session.FileList;
+        struct FILELIST *next;
 
         while (curr)
         {

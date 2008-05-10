@@ -4,6 +4,7 @@
  * Copyright 2002-2003 The wine-d3d team
  * Copyright 2002-2003 Raphael Junqueira
  * Copyright 2004      Jason Edmeades
+ * Copyright 2007-2008 Stefan Dösinger for CodeWeavers
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -39,31 +40,22 @@ wined3d_settings_t wined3d_settings =
     VS_HW,          /* Hardware by default */
     PS_HW,          /* Hardware by default */
     VBO_HW,         /* Hardware by default */
-    FALSE,          /* Use of GLSL disabled by default */
+    TRUE,           /* Use of GLSL enabled by default */
     ORM_BACKBUFFER, /* Use the backbuffer to do offscreen rendering */
     RTL_AUTO,       /* Automatically determine best locking method */
-    64*1024*1024    /* 64MB texture memory by default */
+    0,              /* The default of memory is set in FillGLCaps */
+    NULL            /* No wine logo by default */
 };
-
-WineD3DGlobalStatistics *wineD3DGlobalStatistics = NULL;
-
-long globalChangeGlRam(long glram){
-    /* FIXME: replace this function with object tracking */
-    int result;
-
-    wineD3DGlobalStatistics->glsurfaceram     += glram;
-    TRACE("Adjusted gl ram by %ld to %d\n", glram, wineD3DGlobalStatistics->glsurfaceram);
-    result = wineD3DGlobalStatistics->glsurfaceram;
-    return result;
-
-}
 
 IWineD3D* WINAPI WineDirect3DCreate(UINT SDKVersion, UINT dxVersion, IUnknown *parent) {
     IWineD3DImpl* object;
 
     if (!InitAdapters()) {
-        ERR("Failed to initialize direct3d adapters\n");
-        return NULL;
+        WARN("Failed to initialize direct3d adapters, Direct3D will not be available\n");
+        if(dxVersion > 7) {
+            ERR("Direct3D%d is not available without opengl\n", dxVersion);
+            return NULL;
+        }
     }
 
     object = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(IWineD3DImpl));
@@ -71,13 +63,6 @@ IWineD3D* WINAPI WineDirect3DCreate(UINT SDKVersion, UINT dxVersion, IUnknown *p
     object->dxVersion = dxVersion;
     object->ref = 1;
     object->parent = parent;
-
-    /*Create a structure for storing global data in*/
-    if(wineD3DGlobalStatistics == NULL){
-        TRACE("Creating global statistics store\n");
-        wineD3DGlobalStatistics = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*wineD3DGlobalStatistics));
-
-    }
 
     TRACE("Created WineD3D object @ %p for d3d%d support\n", object, dxVersion);
 
@@ -89,6 +74,10 @@ static inline DWORD get_config_key(HKEY defkey, HKEY appkey, const char* name, c
     if (0 != appkey && !RegQueryValueExA( appkey, name, 0, NULL, (LPBYTE) buffer, &size )) return 0;
     if (0 != defkey && !RegQueryValueExA( defkey, name, 0, NULL, (LPBYTE) buffer, &size )) return 0;
     return ERROR_FILE_NOT_FOUND;
+}
+
+static void wined3d_do_nothing(void)
+{
 }
 
 /* At process attach */
@@ -103,7 +92,32 @@ BOOL WINAPI DllMain(HINSTANCE hInstDLL, DWORD fdwReason, LPVOID lpv)
        HKEY hkey = 0;
        HKEY appkey = 0;
        DWORD len;
-       wined3d_settings.emulated_textureram = 64*1024*1024;
+       WNDCLASSA wc;
+
+       atifs_shader_backend.shader_dll_load_init();
+       glsl_shader_backend.shader_dll_load_init();
+       arb_program_shader_backend.shader_dll_load_init();
+       none_shader_backend.shader_dll_load_init();
+
+       /* We need our own window class for a fake window which we use to retrieve GL capabilities */
+       /* We might need CS_OWNDC in the future if we notice strange things on Windows.
+        * Various articles/posts about OpenGL problems on Windows recommend this. */
+       wc.style                = CS_HREDRAW | CS_VREDRAW;
+       wc.lpfnWndProc          = DefWindowProcA;
+       wc.cbClsExtra           = 0;
+       wc.cbWndExtra           = 0;
+       wc.hInstance            = hInstDLL;
+       wc.hIcon                = LoadIconA(NULL, (LPCSTR)IDI_WINLOGO);
+       wc.hCursor              = LoadCursorA(NULL, (LPCSTR)IDC_ARROW);
+       wc.hbrBackground        = NULL;
+       wc.lpszMenuName         = NULL;
+       wc.lpszClassName        = "WineD3D_OpenGL";
+
+       if (!RegisterClassA(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
+       {
+           ERR("Failed to register window class 'WineD3D_OpenGL'!\n");
+           return FALSE;
+       }
 
        DisableThreadLibraryCalls(hInstDLL);
 
@@ -112,6 +126,11 @@ BOOL WINAPI DllMain(HINSTANCE hInstDLL, DWORD fdwReason, LPVOID lpv)
        {
            wine_tsx11_lock_ptr   = (void *)GetProcAddress( mod, "wine_tsx11_lock" );
            wine_tsx11_unlock_ptr = (void *)GetProcAddress( mod, "wine_tsx11_unlock" );
+       }
+       else /* We are most likely on Windows */
+       {
+           wine_tsx11_lock_ptr   = wined3d_do_nothing;
+           wine_tsx11_unlock_ptr = wined3d_do_nothing;
        }
        /* @@ Wine registry key: HKCU\Software\Wine\Direct3D */
        if ( RegOpenKeyA( HKEY_CURRENT_USER, "Software\\Wine\\Direct3D", &hkey ) ) hkey = 0;
@@ -171,14 +190,10 @@ BOOL WINAPI DllMain(HINSTANCE hInstDLL, DWORD fdwReason, LPVOID lpv)
             }
             if ( !get_config_key( hkey, appkey, "UseGLSL", buffer, size) )
             {
-                if (!strcmp(buffer,"enabled"))
-                {
-                    TRACE("Use of GL Shading Language enabled for systems that support it\n");
-                    wined3d_settings.glslRequested = TRUE;
-                }
-                else
+                if (!strcmp(buffer,"disabled"))
                 {
                     TRACE("Use of GL Shading Language disabled\n");
+                    wined3d_settings.glslRequested = FALSE;
                 }
             }
             if ( !get_config_key( hkey, appkey, "OffscreenRenderingMode", buffer, size) )
@@ -239,6 +254,11 @@ BOOL WINAPI DllMain(HINSTANCE hInstDLL, DWORD fdwReason, LPVOID lpv)
                 }
                 else
                     ERR("VideoMemorySize is %i but must be >0\n", TmpVideoMemorySize);
+            }
+            if ( !get_config_key( hkey, appkey, "WineLogo", buffer, size) )
+            {
+                wined3d_settings.logo = HeapAlloc(GetProcessHeap(), 0, strlen(buffer) + 1);
+                if(wined3d_settings.logo) strcpy(wined3d_settings.logo, buffer);
             }
        }
        if (wined3d_settings.vs_mode == VS_HW)

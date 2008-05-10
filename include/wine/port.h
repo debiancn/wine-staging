@@ -126,12 +126,24 @@ struct statvfs
 #define pclose _pclose
 #endif
 
+#if !defined(HAVE_STRDUP) && defined(HAVE__STRDUP)
+#define strdup _strdup
+#endif
+
 #if !defined(HAVE_SNPRINTF) && defined(HAVE__SNPRINTF)
 #define snprintf _snprintf
 #endif
 
 #if !defined(HAVE_VSNPRINTF) && defined(HAVE__VSNPRINTF)
 #define vsnprintf _vsnprintf
+#endif
+
+#if !defined(HAVE_STRTOLL) && defined(HAVE__STRTOI64)
+#define strtoll _strtoi64
+#endif
+
+#if !defined(HAVE_STRTOULL) && defined(HAVE__STRTOUI64)
+#define strtoull _strtoui64
 #endif
 
 #ifndef S_ISLNK
@@ -286,6 +298,10 @@ size_t getpagesize(void);
 #ifndef HAVE_GETTID
 pid_t gettid(void);
 #endif /* HAVE_GETTID */
+
+#ifndef HAVE_ISINF
+int isinf(double x);
+#endif
 
 #ifndef HAVE_LSTAT
 int lstat(const char *file_name, struct stat *buf);

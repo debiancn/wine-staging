@@ -248,7 +248,7 @@ static ULONG WINAPI IDirectMusicStyleTrack_IPersistStream_Release (LPPERSISTSTRE
 static HRESULT WINAPI IDirectMusicStyleTrack_IPersistStream_GetClassID (LPPERSISTSTREAM iface, CLSID* pClassID) {
   ICOM_THIS_MULTI(IDirectMusicStyleTrack, PersistStreamVtbl, iface);
   TRACE("(%p, %p)\n", This, pClassID);
-  memcpy(pClassID, &CLSID_DirectMusicStyleTrack, sizeof(CLSID));
+  *pClassID = CLSID_DirectMusicStyleTrack;
   return S_OK;
 }
 
@@ -282,7 +282,7 @@ static HRESULT IDirectMusicStyleTrack_IPersistStream_ParseStyleRef (LPPERSISTSTR
     TRACE_(dmfile)(": %s chunk (size = %d)", debugstr_fourcc (Chunk.fccID), Chunk.dwSize);
     switch (Chunk.fccID) { 
     case DMUS_FOURCC_TIME_STAMP_CHUNK: {
-      TRACE_(dmfile)(": Time Stamp chunck\n");
+      TRACE_(dmfile)(": Time Stamp chunk\n");
       pNewItem = HeapAlloc (GetProcessHeap (), HEAP_ZERO_MEMORY, sizeof(DMUS_PRIVATE_STYLE_ITEM));
       if (NULL == pNewItem) {
 	ERR(": no more memory\n");
@@ -476,9 +476,9 @@ HRESULT WINAPI DMUSIC_CreateDirectMusicStyleTrack (LPCGUID lpcGUID, LPVOID *ppob
   track->pDesc = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(DMUS_OBJECTDESC));
   DM_STRUCT_INIT(track->pDesc);
   track->pDesc->dwValidData |= DMUS_OBJ_CLASS;
-  memcpy (&track->pDesc->guidClass, &CLSID_DirectMusicStyleTrack, sizeof (CLSID));
+  track->pDesc->guidClass = CLSID_DirectMusicStyleTrack;
   track->ref = 0; /* will be inited by QueryInterface */
   list_init (&track->Items);
-  
+
   return IDirectMusicStyleTrack_IUnknown_QueryInterface ((LPUNKNOWN)&track->UnknownVtbl, lpcGUID, ppobj);
 }

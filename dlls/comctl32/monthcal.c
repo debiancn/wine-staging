@@ -333,7 +333,7 @@ static void MONTHCAL_DrawDay(const MONTHCAL_INFO *infoPtr, HDC hdc, int day, int
   wsprintfW(buf, fmtW, day);
 
 /* No need to check styles: when selection is not valid, it is set to zero.
- * 1<day<31, so evertyhing's OK.
+ * 1<day<31, so everything is OK.
  */
 
   MONTHCAL_CalcDayRect(infoPtr, &r, x, y);
@@ -344,7 +344,7 @@ static void MONTHCAL_DrawDay(const MONTHCAL_INFO *infoPtr, HDC hdc, int day, int
     RECT r2;
 
     TRACE("%d %d %d\n",day, infoPtr->minSel.wDay, infoPtr->maxSel.wDay);
-    TRACE("%d %d %d %d\n", r.left, r.top, r.right, r.bottom);
+    TRACE("%s\n", wine_dbgstr_rect(&r));
     oldCol = SetTextColor(hdc, infoPtr->monthbk);
     oldBk = SetBkColor(hdc, infoPtr->trailingtxt);
     hbr = GetSysColorBrush(COLOR_GRAYTEXT);
@@ -442,7 +442,7 @@ static void MONTHCAL_Refresh(MONTHCAL_INFO *infoPtr, HDC hdc, const PAINTSTRUCT 
   RECT *days=&dayrect;
   RECT rtoday;
   int i, j, m, mask, day, firstDay, weeknum, weeknum1,prevMonth;
-  int textHeight = infoPtr->textHeight, textWidth = infoPtr->textWidth;
+  int textHeight = infoPtr->textHeight;
   SIZE size;
   HBRUSH hbr;
   HFONT currentFont;
@@ -516,7 +516,7 @@ static void MONTHCAL_Refresh(MONTHCAL_INFO *infoPtr, HDC hdc, const PAINTSTRUCT 
     DeleteObject(hbr);
   }
 
-/* draw line under day abbreviatons */
+/* draw line under day abbreviations */
 
   MoveToEx(hdc, infoPtr->days.left + 3, title->bottom + textHeight + 1, NULL);
   LineTo(hdc, infoPtr->days.right - 3, title->bottom + textHeight + 1);
@@ -659,13 +659,11 @@ static void MONTHCAL_Refresh(MONTHCAL_INFO *infoPtr, HDC hdc, const PAINTSTRUCT 
  * date if necessary */
 
   if(!(dwStyle & MCS_NOTODAY))  {
-    int offset = 0;
     if(!(dwStyle & MCS_NOTODAYCIRCLE))  {
       /*day is the number of days from nextmonth we put on the calendar */
       MONTHCAL_CircleDay(infoPtr, hdc,
 			 day+MONTHCAL_MonthLength(infoPtr->currentMonth,infoPtr->currentYear),
 			 infoPtr->currentMonth);
-      offset+=textWidth;
     }
     if (!LoadStringW(COMCTL32_hModule,IDM_TODAY,buf1,countof(buf1)))
       {
@@ -1305,8 +1303,7 @@ static void MONTHCAL_GoToNextMonth(MONTHCAL_INFO *infoPtr)
     nmds.cDayState	= infoPtr->monthRange;
     nmds.prgDayState	= Alloc(infoPtr->monthRange * sizeof(MONTHDAYSTATE));
 
-    SendMessageW(infoPtr->hwndNotify, WM_NOTIFY,
-    (WPARAM)nmds.nmhdr.idFrom, (LPARAM)&nmds);
+    SendMessageW(infoPtr->hwndNotify, WM_NOTIFY, nmds.nmhdr.idFrom, (LPARAM)&nmds);
     for(i=0; i<infoPtr->monthRange; i++)
       infoPtr->monthdayState[i] = nmds.prgDayState[i];
   }
@@ -1336,8 +1333,7 @@ static void MONTHCAL_GoToPrevMonth(MONTHCAL_INFO *infoPtr)
     nmds.prgDayState	= Alloc
                         (infoPtr->monthRange * sizeof(MONTHDAYSTATE));
 
-    SendMessageW(infoPtr->hwndNotify, WM_NOTIFY,
-        (WPARAM)nmds.nmhdr.idFrom, (LPARAM)&nmds);
+    SendMessageW(infoPtr->hwndNotify, WM_NOTIFY, nmds.nmhdr.idFrom, (LPARAM)&nmds);
     for(i=0; i<infoPtr->monthRange; i++)
        infoPtr->monthdayState[i] = nmds.prgDayState[i];
   }
@@ -1415,14 +1411,14 @@ MONTHCAL_LButtonDown(MONTHCAL_INFO *infoPtr, LPARAM lParam)
     infoPtr->status = MC_NEXTPRESSED;
     SetTimer(infoPtr->hwndSelf, MC_NEXTMONTHTIMER, MC_NEXTMONTHDELAY, 0);
     InvalidateRect(infoPtr->hwndSelf, NULL, FALSE);
-    return TRUE;
+    return 0;
   }
   if(hit == MCHT_TITLEBTNPREV){
     MONTHCAL_GoToPrevMonth(infoPtr);
     infoPtr->status = MC_PREVPRESSED;
     SetTimer(infoPtr->hwndSelf, MC_PREVMONTHTIMER, MC_NEXTMONTHDELAY, 0);
     InvalidateRect(infoPtr->hwndSelf, NULL, FALSE);
-    return TRUE;
+    return 0;
   }
 
   if(hit == MCHT_TITLEMONTH) {
@@ -1471,14 +1467,30 @@ MONTHCAL_LButtonDown(MONTHCAL_INFO *infoPtr, LPARAM lParam)
     SendMessageW( infoPtr->hWndYearUpDown, UDM_SETRANGE, (WPARAM) 0, MAKELONG (9999, 1753));
     SendMessageW( infoPtr->hWndYearUpDown, UDM_SETBUDDY, (WPARAM) infoPtr->hWndYearEdit, (LPARAM)0 );
     SendMessageW( infoPtr->hWndYearUpDown, UDM_SETPOS,   (WPARAM) 0,(LPARAM)infoPtr->currentYear );
-    return TRUE;
+    return 0;
 
   }
   if(hit == MCHT_TODAYLINK) {
+    NMSELCHANGE nmsc;
+
+    infoPtr->curSelDay = infoPtr->todaysDate.wDay;
+    infoPtr->firstSelDay = infoPtr->todaysDate.wDay;
     infoPtr->currentMonth=infoPtr->todaysDate.wMonth;
     infoPtr->currentYear=infoPtr->todaysDate.wYear;
+    MONTHCAL_CopyTime(&infoPtr->todaysDate, &infoPtr->minSel);
+    MONTHCAL_CopyTime(&infoPtr->todaysDate, &infoPtr->maxSel);
     InvalidateRect(infoPtr->hwndSelf, NULL, FALSE);
-    return TRUE;
+
+    nmsc.nmhdr.hwndFrom = infoPtr->hwndSelf;
+    nmsc.nmhdr.idFrom   = GetWindowLongPtrW(infoPtr->hwndSelf, GWLP_ID);
+    nmsc.nmhdr.code     = MCN_SELCHANGE;
+    MONTHCAL_CopyTime(&infoPtr->minSel, &nmsc.stSelStart);
+    MONTHCAL_CopyTime(&infoPtr->maxSel, &nmsc.stSelEnd);
+    SendMessageW(infoPtr->hwndNotify, WM_NOTIFY, nmsc.nmhdr.idFrom, (LPARAM)&nmsc);
+
+    nmsc.nmhdr.code     = MCN_SELECT;
+    SendMessageW(infoPtr->hwndNotify, WM_NOTIFY, nmsc.nmhdr.idFrom, (LPARAM)&nmsc);
+    return 0;
   }
   if(hit == MCHT_CALENDARDATE) {
     SYSTEMTIME selArray[2];
@@ -1495,8 +1507,7 @@ MONTHCAL_LButtonDown(MONTHCAL_INFO *infoPtr, LPARAM lParam)
     MONTHCAL_CopyTime(&infoPtr->minSel,&nmsc.stSelStart);
     MONTHCAL_CopyTime(&infoPtr->maxSel,&nmsc.stSelEnd);
 
-    SendMessageW(infoPtr->hwndNotify, WM_NOTIFY,
-           (WPARAM)nmsc.nmhdr.idFrom,(LPARAM)&nmsc);
+    SendMessageW(infoPtr->hwndNotify, WM_NOTIFY, nmsc.nmhdr.idFrom, (LPARAM)&nmsc);
 
 
     /* redraw both old and new days if the selected day changed */
@@ -1511,10 +1522,10 @@ MONTHCAL_LButtonDown(MONTHCAL_INFO *infoPtr, LPARAM lParam)
     infoPtr->firstSelDay = ht.st.wDay;
     infoPtr->curSelDay = ht.st.wDay;
     infoPtr->status = MC_SEL_LBUTDOWN;
-    return TRUE;
+    return 0;
   }
 
-  return 0;
+  return 1;
 }
 
 
@@ -1561,7 +1572,7 @@ MONTHCAL_LButtonUp(MONTHCAL_INFO *infoPtr, LPARAM lParam)
   nmhdr.code     = NM_RELEASEDCAPTURE;
   TRACE("Sent notification from %p to %p\n", infoPtr->hwndSelf, infoPtr->hwndNotify);
 
-  SendMessageW(infoPtr->hwndNotify, WM_NOTIFY, (WPARAM)nmhdr.idFrom, (LPARAM)&nmhdr);
+  SendMessageW(infoPtr->hwndNotify, WM_NOTIFY, nmhdr.idFrom, (LPARAM)&nmhdr);
   /* redraw if necessary */
   if(redraw)
     InvalidateRect(infoPtr->hwndSelf, NULL, FALSE);
@@ -1573,7 +1584,7 @@ MONTHCAL_LButtonUp(MONTHCAL_INFO *infoPtr, LPARAM lParam)
     MONTHCAL_CopyTime(&infoPtr->minSel, &nmsc.stSelStart);
     MONTHCAL_CopyTime(&infoPtr->maxSel, &nmsc.stSelEnd);
 
-    SendMessageW(infoPtr->hwndNotify, WM_NOTIFY, (WPARAM)nmsc.nmhdr.idFrom, (LPARAM)&nmsc);
+    SendMessageW(infoPtr->hwndNotify, WM_NOTIFY, nmsc.nmhdr.idFrom, (LPARAM)&nmsc);
 
   }
   return 0;
@@ -1703,11 +1714,14 @@ MONTHCAL_Paint(MONTHCAL_INFO *infoPtr, WPARAM wParam)
 
 
 static LRESULT
-MONTHCAL_KillFocus(const MONTHCAL_INFO *infoPtr)
+MONTHCAL_KillFocus(const MONTHCAL_INFO *infoPtr, HWND hFocusWnd)
 {
   TRACE("\n");
 
-  InvalidateRect(infoPtr->hwndSelf, NULL, TRUE);
+  if (infoPtr->hwndNotify != hFocusWnd)
+    ShowWindow(infoPtr->hwndSelf, SW_HIDE);
+  else
+    InvalidateRect(infoPtr->hwndSelf, NULL, TRUE);
 
   return 0;
 }
@@ -2015,7 +2029,7 @@ MONTHCAL_WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     return DLGC_WANTARROWS | DLGC_WANTCHARS;
 
   case WM_KILLFOCUS:
-    return MONTHCAL_KillFocus(infoPtr);
+    return MONTHCAL_KillFocus(infoPtr, (HWND)wParam);
 
   case WM_RBUTTONDOWN:
     return MONTHCAL_RButtonDown(infoPtr, lParam);

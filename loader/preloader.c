@@ -108,7 +108,9 @@
 
 static struct wine_preload_info preload_info[] =
 {
-    { (void *)0x00000000, 0x60000000 },  /* low memory area */
+    { (void *)0x00000000, 0x00010000 },  /* low 64k */
+    { (void *)0x00010000, 0x00100000 },  /* DOS area */
+    { (void *)0x00110000, 0x5fef0000 },  /* low memory area */
     { (void *)0x7f000000, 0x02000000 },  /* top-down allocations + shared heap */
     { 0, 0 },                            /* PE exe range set with WINEPRELOADRESERVE */
     { 0, 0 }                             /* end of list */
@@ -178,7 +180,7 @@ struct
     unsigned int  read_exec_only : 1;
     unsigned int  limit_in_pages : 1;
     unsigned int  seg_not_present : 1;
-    unsigned int  useable : 1;
+    unsigned int  usable : 1;
     unsigned int  garbage : 25;
 } thread_ldt = { -1, (unsigned long)thread_data, 0xfffff, 1, 0, 0, 1, 0, 1, 0 };
 
@@ -919,7 +921,7 @@ static void preload_reserve( const char *str )
     const char *p;
     unsigned long result = 0;
     void *start = NULL, *end = NULL;
-    int first = 1;
+    int i, first = 1;
 
     for (p = str; *p; p++)
     {
@@ -948,15 +950,22 @@ static void preload_reserve( const char *str )
         start = end = NULL;
     }
 
-    /* check for overlap with low memory area */
-    if ((char *)end <= (char *)preload_info[0].addr + preload_info[0].size)
-        start = end = NULL;
-    else if ((char *)start < (char *)preload_info[0].addr + preload_info[0].size)
-        start = (char *)preload_info[0].addr + preload_info[0].size;
+    /* check for overlap with low memory areas */
+    for (i = 0; preload_info[i].size; i++)
+    {
+        if ((char *)preload_info[i].addr > (char *)0x00110000) break;
+        if ((char *)end <= (char *)preload_info[i].addr + preload_info[i].size)
+        {
+            start = end = NULL;
+            break;
+        }
+        if ((char *)start < (char *)preload_info[i].addr + preload_info[i].size)
+            start = (char *)preload_info[i].addr + preload_info[i].size;
+    }
 
-    /* entry 2 is for the PE exe */
-    preload_info[2].addr = start;
-    preload_info[2].size = (char *)end - (char *)start;
+    while (preload_info[i].size) i++;
+    preload_info[i].addr = start;
+    preload_info[i].size = (char *)end - (char *)start;
     return;
 
 error:
@@ -1075,8 +1084,10 @@ void* wld_start( void **stack )
         if (wld_mmap( preload_info[i].addr, preload_info[i].size, PROT_NONE,
                       MAP_FIXED | MAP_PRIVATE | MAP_ANON | MAP_NORESERVE, -1, 0 ) == (void *)-1)
         {
-            wld_printf( "preloader: Warning: failed to reserve range %p-%p\n",
-                        preload_info[i].addr, (char *)preload_info[i].addr + preload_info[i].size );
+            /* don't warn for low 64k */
+            if (preload_info[i].addr >= (void *)0x10000)
+                wld_printf( "preloader: Warning: failed to reserve range %p-%p\n",
+                            preload_info[i].addr, (char *)preload_info[i].addr + preload_info[i].size );
             remove_preload_range( i );
             i--;
         }

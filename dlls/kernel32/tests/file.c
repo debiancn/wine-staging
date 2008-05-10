@@ -23,18 +23,17 @@
 #include <stdlib.h>
 #include <time.h>
 
+/* ReplaceFile requires Windows 2000 or newer */
+#define _WIN32_WINNT 0x0500
+
 #include "wine/test.h"
 #include "windef.h"
 #include "winbase.h"
 #include "winerror.h"
 
-static int dll_capable(const char *dll, const char *function)
-{
-    HMODULE module = GetModuleHandleA(dll);
-    if (!module) return 0;
-
-    return (GetProcAddress(module, function) != NULL);
-}
+static HANDLE (WINAPI *pFindFirstFileExA)(LPCSTR,FINDEX_INFO_LEVELS,LPVOID,FINDEX_SEARCH_OPS,LPVOID,DWORD);
+static BOOL (WINAPI *pReplaceFileA)(LPCSTR, LPCSTR, LPCSTR, DWORD, LPVOID, LPVOID);
+static BOOL (WINAPI *pReplaceFileW)(LPCWSTR, LPCWSTR, LPCWSTR, DWORD, LPVOID, LPVOID);
 
 /* keep filename and filenameW the same */
 static const char filename[] = "testfile.xxx";
@@ -51,6 +50,14 @@ static const char sillytext[] =
 "1234 43 4kljf lf &%%%&&&&&& 34 4 34   3############# 33 3 3 3 # 3## 3"
 "sdlkfjasdlkfj a dslkj adsklf  \n  \nasdklf askldfa sdlkf \nsadklf asdklf asdf ";
 
+static void InitFunctionPointers(void)
+{
+    HMODULE hkernel32 = GetModuleHandleA("kernel32");
+
+    pFindFirstFileExA=(void*)GetProcAddress(hkernel32, "FindFirstFileExA");
+    pReplaceFileA=(void*)GetProcAddress(hkernel32, "ReplaceFileA");
+    pReplaceFileW=(void*)GetProcAddress(hkernel32, "ReplaceFileW");
+}
 
 static void test__hread( void )
 {
@@ -318,6 +325,7 @@ static void test__lcreat( void )
         ok ( 0 != ret, "FindClose complains (%d)\n", GetLastError ());
         ok (!strcmp (filename, search_results.cFileName),
             "found unexpected name \"%s\"\n", search_results.cFileName);
+        search_results.dwFileAttributes &= ~FILE_ATTRIBUTE_NOT_CONTENT_INDEXED;
         ok (FILE_ATTRIBUTE_ARCHIVE==search_results.dwFileAttributes,
             "attributes of file \"%s\" are 0x%04x\n", search_results.cFileName,
             search_results.dwFileAttributes);
@@ -658,10 +666,38 @@ static void test_CreateFileA(void)
     ret = GetTempFileNameA(temp_path, prefix, 0, filename);
     ok(ret != 0, "GetTempFileNameA error %d\n", GetLastError());
 
+    SetLastError(0xdeadbeef);
     hFile = CreateFileA(filename, GENERIC_READ, 0, NULL,
                         CREATE_NEW, FILE_FLAG_RANDOM_ACCESS, 0);
     ok(hFile == INVALID_HANDLE_VALUE && GetLastError() == ERROR_FILE_EXISTS,
         "CREATE_NEW should fail if file exists and last error value should be ERROR_FILE_EXISTS\n");
+
+    SetLastError(0xdeadbeef);
+    hFile = CreateFileA(filename, GENERIC_READ, FILE_SHARE_READ, NULL,
+                        CREATE_ALWAYS, FILE_FLAG_RANDOM_ACCESS, 0);
+    ok(hFile != INVALID_HANDLE_VALUE && GetLastError() == ERROR_ALREADY_EXISTS,
+       "hFile %p, last error %u\n", hFile, GetLastError());
+
+    CloseHandle(hFile);
+
+    SetLastError(0xdeadbeef);
+    hFile = CreateFileA(filename, GENERIC_READ, FILE_SHARE_READ, NULL,
+                        OPEN_ALWAYS, FILE_FLAG_RANDOM_ACCESS, 0);
+    ok(hFile != INVALID_HANDLE_VALUE && GetLastError() == ERROR_ALREADY_EXISTS,
+       "hFile %p, last error %u\n", hFile, GetLastError());
+
+    CloseHandle(hFile);
+
+    ret = DeleteFileA(filename);
+    ok(ret, "DeleteFileA: error %d\n", GetLastError());
+
+    SetLastError(0xdeadbeef);
+    hFile = CreateFileA(filename, GENERIC_READ, FILE_SHARE_READ, NULL,
+                        OPEN_ALWAYS, FILE_FLAG_RANDOM_ACCESS, 0);
+    ok(hFile != INVALID_HANDLE_VALUE && GetLastError() == 0,
+       "hFile %p, last error %u\n", hFile, GetLastError());
+
+    CloseHandle(hFile);
 
     ret = DeleteFileA(filename);
     ok(ret, "DeleteFileA: error %d\n", GetLastError());
@@ -686,10 +722,38 @@ static void test_CreateFileW(void)
     ret = GetTempFileNameW(temp_path, prefix, 0, filename);
     ok(ret != 0, "GetTempFileNameW error %d\n", GetLastError());
 
+    SetLastError(0xdeadbeef);
     hFile = CreateFileW(filename, GENERIC_READ, 0, NULL,
                         CREATE_NEW, FILE_FLAG_RANDOM_ACCESS, 0);
     ok(hFile == INVALID_HANDLE_VALUE && GetLastError() == ERROR_FILE_EXISTS,
         "CREATE_NEW should fail if file exists and last error value should be ERROR_FILE_EXISTS\n");
+
+    SetLastError(0xdeadbeef);
+    hFile = CreateFileW(filename, GENERIC_READ, FILE_SHARE_READ, NULL,
+                        CREATE_ALWAYS, FILE_FLAG_RANDOM_ACCESS, 0);
+    ok(hFile != INVALID_HANDLE_VALUE && GetLastError() == ERROR_ALREADY_EXISTS,
+       "hFile %p, last error %u\n", hFile, GetLastError());
+
+    CloseHandle(hFile);
+
+    SetLastError(0xdeadbeef);
+    hFile = CreateFileW(filename, GENERIC_READ, FILE_SHARE_READ, NULL,
+                        OPEN_ALWAYS, FILE_FLAG_RANDOM_ACCESS, 0);
+    ok(hFile != INVALID_HANDLE_VALUE && GetLastError() == ERROR_ALREADY_EXISTS,
+       "hFile %p, last error %u\n", hFile, GetLastError());
+
+    CloseHandle(hFile);
+
+    ret = DeleteFileW(filename);
+    ok(ret, "DeleteFileW: error %d\n", GetLastError());
+
+    SetLastError(0xdeadbeef);
+    hFile = CreateFileW(filename, GENERIC_READ, FILE_SHARE_READ, NULL,
+                        OPEN_ALWAYS, FILE_FLAG_RANDOM_ACCESS, 0);
+    ok(hFile != INVALID_HANDLE_VALUE && GetLastError() == 0,
+       "hFile %p, last error %u\n", hFile, GetLastError());
+
+    CloseHandle(hFile);
 
     ret = DeleteFileW(filename);
     ok(ret, "DeleteFileW: error %d\n", GetLastError());
@@ -974,7 +1038,6 @@ static void test_LockFile(void)
     OVERLAPPED overlapped;
     int limited_LockFile;
     int limited_UnLockFile;
-    int lockfileex_capable;
 
     handle = CreateFileA( filename, GENERIC_READ | GENERIC_WRITE,
                           FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
@@ -1011,16 +1074,12 @@ static void test_LockFile(void)
     S(U(overlapped)).OffsetHigh = 0;
     overlapped.hEvent = 0;
 
-    lockfileex_capable = dll_capable("kernel32", "LockFileEx");
-    if (lockfileex_capable)
+    /* Test for broken LockFileEx a la Windows 95 OSR2. */
+    if (LockFileEx( handle, 0, 0, 100, 0, &overlapped ))
     {
-        /* Test for broken LockFileEx a la Windows 95 OSR2. */
-        if (LockFileEx( handle, 0, 0, 100, 0, &overlapped ))
-        {
-            /* LockFileEx is probably OK, test it more. */
-            ok( LockFileEx( handle, 0, 0, 100, 0, &overlapped ),
-                "LockFileEx 100,100 failed\n" );
-	}
+        /* LockFileEx is probably OK, test it more. */
+        ok( LockFileEx( handle, 0, 0, 100, 0, &overlapped ),
+            "LockFileEx 100,100 failed\n" );
     }
 
     /* overlapping shared locks are OK */
@@ -1028,20 +1087,14 @@ static void test_LockFile(void)
     limited_UnLockFile || ok( LockFileEx( handle, 0, 0, 100, 0, &overlapped ), "LockFileEx 150,100 failed\n" );
 
     /* but exclusive is not */
-    if (lockfileex_capable)
-    {
-        ok( !LockFileEx( handle, LOCKFILE_EXCLUSIVE_LOCK|LOCKFILE_FAIL_IMMEDIATELY,
-                         0, 50, 0, &overlapped ),
-                         "LockFileEx exclusive 150,50 succeeded\n" );
-	if (dll_capable("kernel32.dll", "UnlockFileEx"))
-        {
-            if (!UnlockFileEx( handle, 0, 100, 0, &overlapped ))
-            { /* UnLockFile is capable. */
-                S(U(overlapped)).Offset = 100;
-                ok( !UnlockFileEx( handle, 0, 100, 0, &overlapped ),
-                    "UnlockFileEx 150,100 again succeeded\n" );
-	    }
-	}
+    ok( !LockFileEx( handle, LOCKFILE_EXCLUSIVE_LOCK|LOCKFILE_FAIL_IMMEDIATELY,
+                     0, 50, 0, &overlapped ),
+        "LockFileEx exclusive 150,50 succeeded\n" );
+    if (!UnlockFileEx( handle, 0, 100, 0, &overlapped ))
+    { /* UnLockFile is capable. */
+        S(U(overlapped)).Offset = 100;
+        ok( !UnlockFileEx( handle, 0, 100, 0, &overlapped ),
+            "UnlockFileEx 150,100 again succeeded\n" );
     }
 
     ok( LockFile( handle, 0, 0x10000000, 0, 0xf0000000 ), "LockFile failed\n" );
@@ -1375,6 +1428,49 @@ static void test_FindNextFileA(void)
     ok ( FindClose(handle) == TRUE, "Failed to close handle\n");
     err = GetLastError();
     ok ( err == ERROR_NO_MORE_FILES, "GetLastError should return ERROR_NO_MORE_FILES\n");
+}
+
+static void test_FindFirstFileExA(void)
+{
+    WIN32_FIND_DATAA search_results;
+    HANDLE handle;
+
+    if (!pFindFirstFileExA)
+    {
+        skip("FindFirstFileExA() is missing\n");
+        return;
+    }
+
+    CreateDirectoryA("test-dir", NULL);
+    _lclose(_lcreat("test-dir\\file1", 0));
+    _lclose(_lcreat("test-dir\\file2", 0));
+    CreateDirectoryA("test-dir\\dir1", NULL);
+    /* FindExLimitToDirectories is ignored */
+    handle = pFindFirstFileExA("test-dir\\*", FindExInfoStandard, &search_results, FindExSearchLimitToDirectories, NULL, 0);
+    ok(handle != INVALID_HANDLE_VALUE, "FindFirstFile failed (err=%u)\n", GetLastError());
+    ok(strcmp(search_results.cFileName, ".") == 0, "First entry should be '.', is %s\n", search_results.cFileName);
+
+#define CHECK_NAME(fn) (strcmp((fn), "file1") == 0 || strcmp((fn), "file2") == 0 || strcmp((fn), "dir1") == 0)
+
+    ok(FindNextFile(handle, &search_results), "Fetching second file failed\n");
+    ok(strcmp(search_results.cFileName, "..") == 0, "Second entry should be '..' is %s\n", search_results.cFileName);
+
+    ok(FindNextFile(handle, &search_results), "Fetching third file failed\n");
+    ok(CHECK_NAME(search_results.cFileName), "Invalid thrid entry - %s\n", search_results.cFileName);
+
+    ok(FindNextFile(handle, &search_results), "Fetching fourth file failed\n");
+    ok(CHECK_NAME(search_results.cFileName), "Invalid fourth entry - %s\n", search_results.cFileName);
+
+    ok(FindNextFile(handle, &search_results), "Fetching fifth file failed\n");
+    ok(CHECK_NAME(search_results.cFileName), "Invalid fifth entry - %s\n", search_results.cFileName);
+
+#undef CHECK_NAME
+
+    ok(FindNextFile(handle, &search_results) == FALSE, "Fetching sixth file should failed\n");
+    DeleteFileA("test-dir\\file1");
+    DeleteFileA("test-dir\\file2");
+    RemoveDirectoryA("test-dir\\dir1");
+    RemoveDirectoryA("test-dir");
 }
 
 static int test_Mapfile_createtemp(HANDLE *handle)
@@ -1818,8 +1914,269 @@ static void test_RemoveDirectory(void)
     }
 }
 
+static void test_ReplaceFileA(void)
+{
+    char replaced[MAX_PATH], replacement[MAX_PATH], backup[MAX_PATH];
+    HANDLE hReplacedFile, hReplacementFile, hBackupFile;
+    static const char replacedData[] = "file-to-replace";
+    static const char replacementData[] = "new-file";
+    static const char backupData[] = "backup-file";
+    FILETIME ftReplaced, ftReplacement, ftBackup;
+    static const char prefix[] = "pfx";
+    char temp_path[MAX_PATH];
+    DWORD ret;
+    BOOL retok;
+
+    if (!pReplaceFileA)
+    {
+        skip("ReplaceFileA() is missing\n");
+        return;
+    }
+
+    ret = GetTempPathA(MAX_PATH, temp_path);
+    ok(ret != 0, "GetTempPathA error %d\n", GetLastError());
+    ok(ret < MAX_PATH, "temp path should fit into MAX_PATH\n");
+
+    ret = GetTempFileNameA(temp_path, prefix, 0, replaced);
+    ok(ret != 0, "GetTempFileNameA error (replaced) %d\n", GetLastError());
+
+    ret = GetTempFileNameA(temp_path, prefix, 0, replacement);
+    ok(ret != 0, "GetTempFileNameA error (replacement) %d\n", GetLastError());
+
+    ret = GetTempFileNameA(temp_path, prefix, 0, backup);
+    ok(ret != 0, "GetTempFileNameA error (backup) %d\n", GetLastError());
+
+    /* place predictable data in the file to be replaced */
+    hReplacedFile = CreateFileA(replaced, GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, 0 );
+    ok(hReplacedFile != INVALID_HANDLE_VALUE,
+        "failed to open replaced file\n");
+    retok = WriteFile(hReplacedFile, replacedData, sizeof(replacedData), &ret, NULL );
+    ok( retok && ret == sizeof(replacedData),
+       "WriteFile error (replaced) %d\n", GetLastError());
+    ok(GetFileSize(hReplacedFile, NULL) == sizeof(replacedData),
+        "replaced file has wrong size\n");
+    /* place predictable data in the file to be the replacement */
+    hReplacementFile = CreateFileA(replacement, GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, 0 );
+    ok(hReplacementFile != INVALID_HANDLE_VALUE,
+        "failed to open replacement file\n");
+    retok = WriteFile(hReplacementFile, replacementData, sizeof(replacementData), &ret, NULL );
+    ok( retok && ret == sizeof(replacementData),
+       "WriteFile error (replacement) %d\n", GetLastError());
+    ok(GetFileSize(hReplacementFile, NULL) == sizeof(replacementData),
+        "replacement file has wrong size\n");
+    /* place predictable data in the backup file (to be over-written) */
+    hBackupFile = CreateFileA(backup, GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, 0 );
+    ok(hBackupFile != INVALID_HANDLE_VALUE,
+        "failed to open backup file\n");
+    retok = WriteFile(hBackupFile, backupData, sizeof(backupData), &ret, NULL );
+    ok( retok && ret == sizeof(backupData),
+       "WriteFile error (replacement) %d\n", GetLastError());
+    ok(GetFileSize(hBackupFile, NULL) == sizeof(backupData),
+        "backup file has wrong size\n");
+    /* change the filetime on the "replaced" file to ensure that it changes */
+    ret = GetFileTime(hReplacedFile, NULL, NULL, &ftReplaced);
+    ok( ret, "GetFileTime error (replaced) %d\n", GetLastError());
+    ftReplaced.dwLowDateTime -= 600000000; /* 60 second */
+    ret = SetFileTime(hReplacedFile, NULL, NULL, &ftReplaced);
+    ok( ret, "SetFileTime error (replaced) %d\n", GetLastError());
+    GetFileTime(hReplacedFile, NULL, NULL, &ftReplaced);  /* get the actual time back */
+    CloseHandle(hReplacedFile);
+    /* change the filetime on the backup to ensure that it changes */
+    ret = GetFileTime(hBackupFile, NULL, NULL, &ftBackup);
+    ok( ret, "GetFileTime error (backup) %d\n", GetLastError());
+    ftBackup.dwLowDateTime -= 1200000000; /* 120 second */
+    ret = SetFileTime(hBackupFile, NULL, NULL, &ftBackup);
+    ok( ret, "SetFileTime error (backup) %d\n", GetLastError());
+    GetFileTime(hBackupFile, NULL, NULL, &ftBackup);  /* get the actual time back */
+    CloseHandle(hBackupFile);
+    /* get the filetime on the replacement file to perform checks */
+    ret = GetFileTime(hReplacementFile, NULL, NULL, &ftReplacement);
+    ok( ret, "GetFileTime error (replacement) %d\n", GetLastError());
+    CloseHandle(hReplacementFile);
+
+    /* perform replacement w/ backup
+     * TODO: flags are not implemented
+     */
+    SetLastError(0xdeadbeef);
+    ret = pReplaceFileA(replaced, replacement, backup, 0, 0, 0);
+    ok(ret, "ReplaceFileA: unexpected error %d\n", GetLastError());
+    /* make sure that the backup has the size of the old "replaced" file */
+    hBackupFile = CreateFileA(backup, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, 0);
+    ok(hBackupFile != INVALID_HANDLE_VALUE,
+        "failed to open backup file\n");
+    ret = GetFileSize(hBackupFile, NULL);
+    ok(ret == sizeof(replacedData),
+        "backup file has wrong size %d\n", ret);
+    /* make sure that the "replaced" file has the size of the replacement file */
+    hReplacedFile = CreateFileA(replaced, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, 0);
+    ok(hReplacedFile != INVALID_HANDLE_VALUE,
+        "failed to open replaced file\n");
+    ret = GetFileSize(hReplacedFile, NULL);
+    ok(ret == sizeof(replacementData),
+        "replaced file has wrong size %d\n", ret);
+    /* make sure that the replacement file no-longer exists */
+    hReplacementFile = CreateFileA(replacement, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, 0);
+    ok(hReplacementFile == INVALID_HANDLE_VALUE,
+       "unexpected error, replacement file should not exist %d\n", GetLastError());
+    /* make sure that the backup has the old "replaced" filetime */
+    ret = GetFileTime(hBackupFile, NULL, NULL, &ftBackup);
+    ok( ret, "GetFileTime error (backup %d\n", GetLastError());
+    ok(CompareFileTime(&ftBackup, &ftReplaced) == 0,
+        "backup file has wrong filetime\n");
+    CloseHandle(hBackupFile);
+    /* make sure that the "replaced" has the old replacement filetime */
+    ret = GetFileTime(hReplacedFile, NULL, NULL, &ftReplaced);
+    ok( ret, "GetFileTime error (backup %d\n", GetLastError());
+    ok(CompareFileTime(&ftReplaced, &ftReplacement) == 0,
+        "replaced file has wrong filetime\n");
+    CloseHandle(hReplacedFile);
+
+    /* re-create replacement file for pass w/o backup (blank) */
+    ret = GetTempFileNameA(temp_path, prefix, 0, replacement);
+    ok(ret != 0, "GetTempFileNameA error (replacement) %d\n", GetLastError());
+    /* perform replacement w/o backup
+     * TODO: flags are not implemented
+     */
+    SetLastError(0xdeadbeef);
+    ret = pReplaceFileA(replaced, replacement, NULL, 0, 0, 0);
+    ok(ret, "ReplaceFileA: unexpected error %d\n", GetLastError());
+
+    /* re-create replacement file for pass w/ backup (backup-file not existing) */
+    ret = GetTempFileNameA(temp_path, prefix, 0, replacement);
+    ok(ret != 0, "GetTempFileNameA error (replacement) %d\n", GetLastError());
+    ret = DeleteFileA(backup);
+    ok(ret, "DeleteFileA: error (backup) %d\n", GetLastError());
+    /* perform replacement w/ backup (no pre-existing backup)
+     * TODO: flags are not implemented
+     */
+    SetLastError(0xdeadbeef);
+    ret = pReplaceFileA(replaced, replacement, backup, 0, 0, 0);
+    ok(ret, "ReplaceFileA: unexpected error %d\n", GetLastError());
+
+    /* re-create replacement file for pass w/ no permissions to "replaced" */
+    ret = GetTempFileNameA(temp_path, prefix, 0, replacement);
+    ok(ret != 0, "GetTempFileNameA error (replacement) %d\n", GetLastError());
+    ret = SetFileAttributesA(replaced, FILE_ATTRIBUTE_READONLY);
+    ok(ret, "SetFileAttributesA: error setting to read only %d\n", GetLastError());
+    /* perform replacement w/ backup (no permission to "replaced")
+     * TODO: flags are not implemented
+     */
+    SetLastError(0xdeadbeef);
+    ret = pReplaceFileA(replaced, replacement, backup, 0, 0, 0);
+    ok(ret != ERROR_UNABLE_TO_REMOVE_REPLACED, "ReplaceFileA: unexpected error %d\n", GetLastError());
+    /* make sure that the replacement file still exists */
+    hReplacementFile = CreateFileA(replacement, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, 0);
+    ok(hReplacementFile != INVALID_HANDLE_VALUE,
+       "unexpected error, replacement file should still exist %d\n", GetLastError());
+    CloseHandle(hReplacementFile);
+    ret = SetFileAttributesA(replaced, FILE_ATTRIBUTE_NORMAL);
+    ok(ret, "SetFileAttributesA: error setting to normal %d\n", GetLastError());
+
+    /* replacement file still exists, make pass w/o "replaced" */
+    ret = DeleteFileA(replaced);
+    ok(ret, "DeleteFileA: error (replaced) %d\n", GetLastError());
+    /* perform replacement w/ backup (no pre-existing backup or "replaced")
+     * TODO: flags are not implemented
+     */
+    SetLastError(0xdeadbeef);
+    ret = pReplaceFileA(replaced, replacement, backup, 0, 0, 0);
+    ok(!ret && GetLastError() == ERROR_FILE_NOT_FOUND,
+			"ReplaceFileA: unexpected error %d\n", GetLastError());
+
+    /* perform replacement w/o existing "replacement" file
+     * TODO: flags are not implemented
+     */
+    SetLastError(0xdeadbeef);
+    ret = pReplaceFileA(replaced, replacement, NULL, 0, 0, 0);
+    ok(!ret && GetLastError() == ERROR_FILE_NOT_FOUND,
+        "ReplaceFileA: unexpected error %d\n", GetLastError());
+
+    /*
+     * if the first round (w/ backup) worked then as long as there is no
+     * failure then there is no need to check this round (w/ backup is the
+     * more complete case)
+     */
+
+    /* delete temporary files, replacement and replaced are already deleted */
+    ret = DeleteFileA(backup);
+    ok(ret, "DeleteFileA: error (backup) %d\n", GetLastError());
+}
+
+/*
+ * ReplaceFileW is a simpler case of ReplaceFileA, there is no
+ * need to be as thorough.
+ */
+static void test_ReplaceFileW(void)
+{
+    WCHAR replaced[MAX_PATH], replacement[MAX_PATH], backup[MAX_PATH];
+    static const WCHAR prefix[] = {'p','f','x',0};
+    WCHAR temp_path[MAX_PATH];
+    DWORD ret;
+
+    if (!pReplaceFileW)
+    {
+        skip("ReplaceFileW() is missing\n");
+        return;
+    }
+
+    ret = GetTempPathW(MAX_PATH, temp_path);
+    if (ret==0 && GetLastError() == ERROR_CALL_NOT_IMPLEMENTED)
+        return;
+    ok(ret != 0, "GetTempPathW error %d\n", GetLastError());
+    ok(ret < MAX_PATH, "temp path should fit into MAX_PATH\n");
+
+    ret = GetTempFileNameW(temp_path, prefix, 0, replaced);
+    ok(ret != 0, "GetTempFileNameW error (replaced) %d\n", GetLastError());
+
+    ret = GetTempFileNameW(temp_path, prefix, 0, replacement);
+    ok(ret != 0, "GetTempFileNameW error (replacement) %d\n", GetLastError());
+
+    ret = GetTempFileNameW(temp_path, prefix, 0, backup);
+    ok(ret != 0, "GetTempFileNameW error (backup) %d\n", GetLastError());
+
+    ret = pReplaceFileW(replaced, replacement, backup, 0, 0, 0);
+    ok(ret, "ReplaceFileW: error %d\n", GetLastError());
+
+    ret = GetTempFileNameW(temp_path, prefix, 0, replacement);
+    ok(ret != 0, "GetTempFileNameW error (replacement) %d\n", GetLastError());
+    ret = pReplaceFileW(replaced, replacement, NULL, 0, 0, 0);
+    ok(ret, "ReplaceFileW: error %d\n", GetLastError());
+
+    ret = GetTempFileNameW(temp_path, prefix, 0, replacement);
+    ok(ret != 0, "GetTempFileNameW error (replacement) %d\n", GetLastError());
+    ret = DeleteFileW(backup);
+    ok(ret, "DeleteFileW: error (backup) %d\n", GetLastError());
+    ret = pReplaceFileW(replaced, replacement, backup, 0, 0, 0);
+    ok(ret, "ReplaceFileW: error %d\n", GetLastError());
+
+    ret = GetTempFileNameW(temp_path, prefix, 0, replacement);
+    ok(ret != 0, "GetTempFileNameW error (replacement) %d\n", GetLastError());
+    ret = SetFileAttributesW(replaced, FILE_ATTRIBUTE_READONLY);
+    ok(ret, "SetFileAttributesW: error setting to read only %d\n", GetLastError());
+
+    ret = pReplaceFileW(replaced, replacement, backup, 0, 0, 0);
+    ok(ret != ERROR_UNABLE_TO_REMOVE_REPLACED,
+        "ReplaceFileW: unexpected error %d\n", GetLastError());
+    ret = SetFileAttributesW(replaced, FILE_ATTRIBUTE_NORMAL);
+    ok(ret, "SetFileAttributesW: error setting to normal %d\n", GetLastError());
+
+    ret = DeleteFileW(replaced);
+    ok(ret, "DeleteFileW: error (replaced) %d\n", GetLastError());
+    ret = pReplaceFileW(replaced, replacement, backup, 0, 0, 0);
+    ok(!ret, "ReplaceFileW: error %d\n", GetLastError());
+
+    ret = pReplaceFileW(replaced, replacement, NULL, 0, 0, 0);
+    ok(!ret && GetLastError() == ERROR_FILE_NOT_FOUND,
+        "ReplaceFileW: unexpected error %d\n", GetLastError());
+
+    ret = DeleteFileW(backup);
+    ok(ret, "DeleteFileW: error %d\n", GetLastError());
+}
+
 START_TEST(file)
 {
+    InitFunctionPointers();
+
     test__hread(  );
     test__hwrite(  );
     test__lclose(  );
@@ -1839,6 +2196,7 @@ START_TEST(file)
     test_MoveFileW();
     test_FindFirstFileA();
     test_FindNextFileA();
+    test_FindFirstFileExA();
     test_LockFile();
     test_file_sharing();
     test_offset_in_overlapped_structure();
@@ -1849,4 +2207,6 @@ START_TEST(file)
     test_OpenFile();
     test_overlapped();
     test_RemoveDirectory();
+    test_ReplaceFileA();
+    test_ReplaceFileW();
 }

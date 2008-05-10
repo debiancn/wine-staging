@@ -30,6 +30,13 @@ typedef enum {
     WINED3D_DCS_NO_COPY = 2
 } WINED3D_DEPTHCOPYSTATE;
 
+/* WineD3D pixel format flags */
+#define WINED3DFMT_FLAG_POSTPIXELSHADER_BLENDING 0x1
+#define WINED3DFMT_FLAG_FILTERING                0x2
+#define WINED3DFMT_FLAG_DEPTH                    0x4
+#define WINED3DFMT_FLAG_STENCIL                  0x8
+#define WINED3DFMT_FLAG_RENDERTARGET             0x10
+
 /** DCL usage masks **/
 #define WINED3DSP_DCL_USAGE_SHIFT 0
 #define WINED3DSP_DCL_USAGE_MASK  0x0000000f
@@ -293,6 +300,7 @@ typedef enum _WINED3DSHADER_INSTRUCTION_OPCODE_TYPE {
 
 /* Undocumented opcode control to identify projective texture lookups in ps 2.0 and later */
 #define WINED3DSI_TEXLD_PROJECT 0x00010000
+#define WINED3DSI_TEXLD_BIAS    0x00020000
 
 /** Shader version tokens, and shader end tokens **/
 

@@ -31,7 +31,28 @@
 WINE_DEFAULT_DEBUG_CHANNEL(msvcrt);
 
 unsigned char MSVCRT_mbctype[257];
+static int g_mbcp_is_multibyte = 0;
+
 int MSVCRT___mb_cur_max = 1;
+extern int MSVCRT___lc_collate_cp;
+
+/* It seems that the data about valid trail bytes is not available from kernel32
+ * so we have to store is here. The format is the same as for lead bytes in CPINFO */
+struct cp_extra_info_t
+{
+    int cp;
+    BYTE TrailBytes[MAX_LEADBYTES];
+};
+
+static struct cp_extra_info_t g_cpextrainfo[] =
+{
+    {932, {0x40, 0x7e, 0x80, 0xfc, 0, 0}},
+    {936, {0x40, 0xfe, 0, 0}},
+    {949, {0x41, 0xfe, 0, 0}},
+    {950, {0x40, 0x7e, 0xa1, 0xfe, 0, 0}},
+    {20932, {1, 255, 0, 0}},  /* seems to give different results on different systems */
+    {0, {1, 255, 0, 0}}       /* match all with FIXME */
+};
 
 static MSVCRT_wchar_t msvcrt_mbc_to_wc(unsigned int ch)
 {
@@ -132,13 +153,144 @@ int* CDECL __p___mb_cur_max(void)
 }
 
 /*********************************************************************
+ *		_setmbcp (MSVCRT.@)
+ */
+int CDECL _setmbcp(int cp)
+{
+  int newcp;
+  CPINFO cpi;
+  BYTE *bytes;
+  WORD chartypes[256];
+  WORD *curr_type;
+  char bufA[256];
+  WCHAR bufW[256];
+  int charcount;
+  int ret;
+  int i;
+
+  switch (cp)
+  {
+    case _MB_CP_ANSI:
+      newcp = GetACP();
+      break;
+    case _MB_CP_OEM:
+      newcp = GetOEMCP();
+      break;
+    case _MB_CP_LOCALE:
+      newcp = MSVCRT___lc_codepage;
+      break;
+    case _MB_CP_SBCS:
+      newcp = 20127;   /* ASCII */
+      break;
+    default:
+      newcp = cp;
+      break;
+  }
+
+  if (!GetCPInfo(newcp, &cpi))
+  {
+    WARN("Codepage %d not found\n", newcp);
+    *MSVCRT__errno() = MSVCRT_EINVAL;
+    return -1;
+  }
+
+  /* setup the _mbctype */
+  memset(MSVCRT_mbctype, 0, sizeof(MSVCRT_mbctype));
+
+  bytes = cpi.LeadByte;
+  while (bytes[0] || bytes[1])
+  {
+    for (i = bytes[0]; i <= bytes[1]; i++)
+      MSVCRT_mbctype[i + 1] |= _M1;
+    bytes += 2;
+  }
+
+  if (cpi.MaxCharSize > 1)
+  {
+    /* trail bytes not available through kernel32 but stored in a structure in msvcrt */
+    struct cp_extra_info_t *cpextra = g_cpextrainfo;
+
+    g_mbcp_is_multibyte = 1;
+    while (TRUE)
+    {
+      if (cpextra->cp == 0 || cpextra->cp == newcp)
+      {
+        if (cpextra->cp == 0)
+          FIXME("trail bytes data not available for DBCS codepage %d - assuming all bytes\n", newcp);
+
+        bytes = cpextra->TrailBytes;
+        while (bytes[0] || bytes[1])
+        {
+          for (i = bytes[0]; i <= bytes[1]; i++)
+            MSVCRT_mbctype[i + 1] |= _M2;
+          bytes += 2;
+        }
+        break;
+      }
+      cpextra++;
+    }
+  }
+  else
+    g_mbcp_is_multibyte = 0;
+
+  /* we can't use GetStringTypeA directly because we don't have a locale - only a code page
+   */
+  charcount = 0;
+  for (i = 0; i < 256; i++)
+    if (!(MSVCRT_mbctype[i + 1] & _M1))
+      bufA[charcount++] = i;
+
+  ret = MultiByteToWideChar(newcp, 0, bufA, charcount, bufW, charcount);
+  if (ret != charcount)
+    ERR("MultiByteToWideChar of chars failed for cp %d, ret=%d (exp %d), error=%d\n", newcp, ret, charcount, GetLastError());
+
+  GetStringTypeW(CT_CTYPE1, bufW, charcount, chartypes);
+
+  curr_type = chartypes;
+  for (i = 0; i < 256; i++)
+    if (!(MSVCRT_mbctype[i + 1] & _M1))
+    {
+	if ((*curr_type) & C1_UPPER)
+	    MSVCRT_mbctype[i + 1] |= _SBUP;
+	if ((*curr_type) & C1_LOWER)
+	    MSVCRT_mbctype[i + 1] |= _SBLOW;
+	curr_type++;
+    }
+
+  if (newcp == 932)   /* CP932 only - set _MP and _MS */
+  {
+    /* On Windows it's possible to calculate the _MP and _MS from CT_CTYPE1
+     * and CT_CTYPE3. But as of Wine 0.9.43 we return wrong values what makes
+     * it hard. As this is set only for codepage 932 we hardcode it what gives
+     * also faster execution.
+     */
+    for (i = 161; i <= 165; i++)
+      MSVCRT_mbctype[i + 1] |= _MP;
+    for (i = 166; i <= 223; i++)
+      MSVCRT_mbctype[i + 1] |= _MS;
+  }
+
+  MSVCRT___lc_collate_cp = MSVCRT___lc_codepage = newcp;
+  TRACE("(%d) -> %d\n", cp, MSVCRT___lc_codepage);
+  return 0;
+}
+
+/*********************************************************************
+ *		_getmbcp (MSVCRT.@)
+ */
+int CDECL _getmbcp(void)
+{
+  return MSVCRT___lc_codepage;
+}
+
+/*********************************************************************
  *		_mbsnextc(MSVCRT.@)
  */
 unsigned int CDECL _mbsnextc(const unsigned char* str)
 {
-  if(MSVCRT___mb_cur_max > 1 && MSVCRT_isleadbyte(*str))
+  if(_ismbblead(*str))
     return *str << 8 | str[1];
-  return *str; /* ASCII CP or SB char */
+  return *str;
 }
 
 /*********************************************************************
@@ -179,14 +331,19 @@ unsigned char* CDECL _mbsdec(const unsigned char* start, const unsigned char* cu
 }
 
 /*********************************************************************
+ *		_mbclen(MSVCRT.@)
+ */
+unsigned int CDECL _mbclen(const unsigned char* str)
+{
+  return _ismbblead(*str) ? 2 : 1;
+}
+
+/*********************************************************************
  *		_mbsinc(MSVCRT.@)
  */
 unsigned char* CDECL _mbsinc(const unsigned char* str)
 {
-  if(MSVCRT___mb_cur_max > 1 && MSVCRT_isleadbyte(*str))
-    return (unsigned char*)str + 2; /* MB char */
-
-  return (unsigned char*)str + 1; /* ASCII CP or SB char */
+  return (unsigned char *)(str + _mbclen(str));
 }
 
 /*********************************************************************
@@ -194,38 +351,22 @@ unsigned char* CDECL _mbsinc(const unsigned char* str)
  */
 unsigned char* CDECL _mbsninc(const unsigned char* str, MSVCRT_size_t num)
 {
-  if(!str || num < 1)
+  if(!str)
     return NULL;
-  if(MSVCRT___mb_cur_max > 1)
+
+  while (num > 0 && *str)
   {
-    while(num--)
-      str = _mbsinc(str);
-    return (unsigned char*)str;
+    if (_ismbblead(*str))
+    {
+      if (!*(str+1))
+         break;
+      str++;
+    }
+    str++;
+    num--;
   }
-  return (unsigned char*)str + num; /* ASCII CP */
-}
 
-/*********************************************************************
- *		_mbclen(MSVCRT.@)
- */
-unsigned int CDECL _mbclen(const unsigned char* str)
-{
-  return MSVCRT_isleadbyte(*str) ? 2 : 1;
-}
-
-/*********************************************************************
- *		mblen(MSVCRT.@)
- */
-int CDECL MSVCRT_mblen(const char* str, MSVCRT_size_t size)
-{
-  if (str && *str && size)
-  {
-    if(MSVCRT___mb_cur_max == 1)
-      return 1; /* ASCII CP */
-
-    return !MSVCRT_isleadbyte(*str) ? 1 : (size>1 ? 2 : -1);
-  }
-  return 0;
+  return (unsigned char*)str;
 }
 
 /*********************************************************************
@@ -233,38 +374,19 @@ int CDECL MSVCRT_mblen(const char* str, MSVCRT_size_t size)
  */
 MSVCRT_size_t CDECL _mbslen(const unsigned char* str)
 {
-  if(MSVCRT___mb_cur_max > 1)
+  MSVCRT_size_t len = 0;
+  while(*str)
   {
-    MSVCRT_size_t len = 0;
-    while(*str)
+    if (_ismbblead(*str))
     {
-      str += MSVCRT_isleadbyte(*str) ? 2 : 1;
-      len++;
+      str++;
+      if (!*str)  /* count only full chars */
+        break;
     }
-    return len;
+    str++;
+    len++;
   }
-  return u_strlen(str); /* ASCII CP */
-}
-
-/*********************************************************************
- *		_mbstrlen(MSVCRT.@)
- */
-MSVCRT_size_t CDECL _mbstrlen(const char* str)
-{
-  if(MSVCRT___mb_cur_max > 1)
-  {
-    MSVCRT_size_t len = 0;
-    while(*str)
-    {
-      /* FIXME: According to the documentation we are supposed to test for
-       * multi-byte character validity. Whatever that means
-       */
-      str += MSVCRT_isleadbyte(*str) ? 2 : 1;
-      len++;
-    }
-    return len;
-  }
-  return strlen(str); /* ASCII CP */
+  return len;
 }
 
 /*********************************************************************
@@ -273,26 +395,39 @@ MSVCRT_size_t CDECL _mbstrlen(const char* str)
 void CDECL _mbccpy(unsigned char* dest, const unsigned char* src)
 {
   *dest = *src;
-  if(MSVCRT___mb_cur_max > 1 && MSVCRT_isleadbyte(*src))
+  if(_ismbblead(*src))
     *++dest = *++src; /* MB char */
 }
 
 /*********************************************************************
  *		_mbsncpy(MSVCRT.@)
+ * REMARKS
+ *  The parameter n is the number or characters to copy, not the size of
+ *  the buffer. Use _mbsnbcpy for a function analogical to strncpy
  */
 unsigned char* CDECL _mbsncpy(unsigned char* dst, const unsigned char* src, MSVCRT_size_t n)
 {
   unsigned char* ret = dst;
   if(!n)
     return dst;
-  if(MSVCRT___mb_cur_max > 1)
+  if (g_mbcp_is_multibyte)
   {
     while (*src && n)
     {
       n--;
-      *dst++ = *src;
-      if (MSVCRT_isleadbyte(*src++))
-          *dst++ = *src++;
+      if (_ismbblead(*src))
+      {
+        if (!*(src+1))
+        {
+            *dst++ = 0;
+            *dst++ = 0;
+            break;
+        }
+
+        *dst++ = *src++;
+      }
+
+      *dst++ = *src++;
     }
   }
   else
@@ -308,33 +443,93 @@ unsigned char* CDECL _mbsncpy(unsigned char* dst, const unsigned char* src, MSVC
 }
 
 /*********************************************************************
+ *              _mbsnbcpy_s(MSVCRT.@)
+ * REMARKS
+ * Unlike _mbsnbcpy this function does not pad the rest of the dest
+ * string with 0
+ */
+int CDECL _mbsnbcpy_s(unsigned char* dst, MSVCRT_size_t size, const unsigned char* src, MSVCRT_size_t n)
+{
+    MSVCRT_size_t pos = 0;
+
+    if(!dst || size == 0)
+        return MSVCRT_EINVAL;
+    if(!src)
+    {
+        dst[0] = '\0';
+        return MSVCRT_EINVAL;
+    }
+    if(!n)
+        return 0;
+
+    if(g_mbcp_is_multibyte)
+    {
+        int is_lead = 0;
+        while (*src && n)
+        {
+            if(pos == size)
+            {
+                dst[0] = '\0';
+                return MSVCRT_ERANGE;
+            }
+            is_lead = (!is_lead && _ismbblead(*src));
+            n--;
+            dst[pos++] = *src++;
+        }
+
+        if (is_lead) /* if string ends with a lead, remove it */
+            dst[pos - 1] = 0;
+    }
+    else
+    {
+        while (n)
+        {
+            n--;
+            if(pos == size)
+            {
+                dst[0] = '\0';
+                return MSVCRT_ERANGE;
+            }
+
+            if(!(*src)) break;
+            dst[pos++] = *src++;
+        }
+    }
+
+    if(pos < size)
+        dst[pos] = '\0';
+    else
+    {
+        dst[0] = '\0';
+        return MSVCRT_ERANGE;
+    }
+
+    return 0;
+}
+
+/*********************************************************************
  *              _mbsnbcpy(MSVCRT.@)
+ * REMARKS
+ *  Like strncpy this function doesn't enforce the string to be
+ *  NUL-terminated
  */
 unsigned char* CDECL _mbsnbcpy(unsigned char* dst, const unsigned char* src, MSVCRT_size_t n)
 {
   unsigned char* ret = dst;
   if(!n)
     return dst;
-  if(MSVCRT___mb_cur_max > 1)
+  if(g_mbcp_is_multibyte)
   {
-    while (*src && (n > 1))
+    int is_lead = 0;
+    while (*src && n)
     {
+      is_lead = (!is_lead && _ismbblead(*src));
       n--;
-      *dst++ = *src;
-      if (MSVCRT_isleadbyte(*src++))
-      {
-        *dst++ = *src++;
-        n--;
-      }
+      *dst++ = *src++;
     }
-    if (*src && n && !MSVCRT_isleadbyte(*src))
-    {
-      /* If the last character is a multi-byte character then
-       * we cannot copy it since we have only one byte left
-       */
-      *dst++ = *src;
-      n--;
-    }
+
+    if (is_lead) /* if string ends with a lead, remove it */
+	*(dst - 1) = 0;
   }
   else
   {
@@ -593,7 +788,7 @@ int CDECL _mbsnbicmp(const unsigned char* str, const unsigned char* cmp, MSVCRT_
     }
     return 0; /* Matched len bytes */
   }
-  return u_strncmp(str,cmp,len);
+  return u_strncasecmp(str,cmp,len);
 }
 
 /*********************************************************************
@@ -910,8 +1105,7 @@ int CDECL _ismbckata(unsigned int c)
  */
 int CDECL _ismbblead(unsigned int c)
 {
-  /* FIXME: should reference MSVCRT_mbctype */
-  return MSVCRT___mb_cur_max > 1 && MSVCRT_isleadbyte(c);
+  return (MSVCRT_mbctype[(c&0xff) + 1] & _M1) != 0;
 }
 
 
@@ -920,8 +1114,7 @@ int CDECL _ismbblead(unsigned int c)
  */
 int CDECL _ismbbtrail(unsigned int c)
 {
-  /* FIXME: should reference MSVCRT_mbctype */
-  return !_ismbblead(c);
+  return (MSVCRT_mbctype[(c&0xff) + 1] & _M2) != 0;
 }
 
 /*********************************************************************
@@ -929,18 +1122,22 @@ int CDECL _ismbbtrail(unsigned int c)
  */
 int CDECL _ismbslead(const unsigned char* start, const unsigned char* str)
 {
-  /* Lead bytes can also be trail bytes if caller messed up
-   * iterating through the string...
-   */
-  if(MSVCRT___mb_cur_max > 1)
-  {
-    while(start < str)
-      start += MSVCRT_isleadbyte(*str) ? 2 : 1;
+  int lead = 0;
 
-    if(start == str)
-      return MSVCRT_isleadbyte(*str);
+  if(!g_mbcp_is_multibyte)
+    return 0;
+
+  /* Lead bytes can also be trail bytes so we need to analyse the string
+   */
+  while (start <= str)
+  {
+    if (!*start)
+      return 0;
+    lead = !lead && _ismbblead(*start);
+    start++;
   }
-  return 0; /* Must have been a trail, we skipped it */
+
+  return lead ? -1 : 0;
 }
 
 /*********************************************************************
@@ -948,8 +1145,43 @@ int CDECL _ismbslead(const unsigned char* start, const unsigned char* str)
  */
 int CDECL _ismbstrail(const unsigned char* start, const unsigned char* str)
 {
-  /* Must not be a lead, and must be preceded by one */
-  return !_ismbslead(start, str) && MSVCRT_isleadbyte(str[-1]);
+  /* Note: this function doesn't check _ismbbtrail */
+  if ((str > start) && _ismbslead(start, str-1))
+    return -1;
+  else
+    return 0;
+}
+
+/*********************************************************************
+ *		_mbsbtype (MSVCRT.@)
+ */
+int CDECL _mbsbtype(const unsigned char *str, MSVCRT_size_t count)
+{
+  int lead = 0;
+  const unsigned char *end = str + count;
+  int mbcp = g_mbcp_is_multibyte;
+
+  /* Lead bytes can also be trail bytes so we need to analyse the string.
+   * Also we must return _MBC_ILLEGAL for chars past the end of the string
+   */
+  while (str < end) /* Note: we skip the last byte - will check after the loop */
+  {
+    if (!*str)
+      return _MBC_ILLEGAL;
+    lead = mbcp && !lead && _ismbblead(*str);
+    str++;
+  }
+
+  if (lead)
+    if (_ismbbtrail(*str))
+      return _MBC_TRAIL;
+    else
+      return _MBC_ILLEGAL;
+  else
+    if (_ismbblead(*str))
+      return _MBC_LEAD;
+    else
+      return _MBC_SINGLE;
 }
 
 /*********************************************************************
@@ -1224,7 +1456,7 @@ MSVCRT_size_t CDECL _mbsspn(const unsigned char* string, const unsigned char* se
 /*********************************************************************
  *              _mbsspnp (MSVCRT.@)
  */
-const unsigned char* CDECL _mbsspnp(const unsigned char* string, const unsigned char* set)
+unsigned char* CDECL _mbsspnp(const unsigned char* string, const unsigned char* set)
 {
     const unsigned char *p, *q;
 
@@ -1252,7 +1484,7 @@ const unsigned char* CDECL _mbsspnp(const unsigned char* string, const unsigned 
     }
     if (*p == '\0')
         return NULL;
-    return p;
+    return (unsigned char *)p;
 }
 
 /*********************************************************************
@@ -1330,4 +1562,51 @@ unsigned char* CDECL _mbspbrk(const unsigned char* str, const unsigned char* acc
         str += (MSVCRT_isleadbyte(*str)?2:1);
     }
     return NULL;
+}
+
+
+/*
+ * Functions depending on locale codepage
+ */
+
+/*********************************************************************
+ *		mblen(MSVCRT.@)
+ * REMARKS
+ *  Unlike most of the multibyte string functions this function uses
+ *  the locale codepage, not the codepage set by _setmbcp
+ */
+int CDECL MSVCRT_mblen(const char* str, MSVCRT_size_t size)
+{
+  if (str && *str && size)
+  {
+    if(MSVCRT___mb_cur_max == 1)
+      return 1; /* ASCII CP */
+
+    return !MSVCRT_isleadbyte(*str) ? 1 : (size>1 ? 2 : -1);
+  }
+  return 0;
+}
+
+/*********************************************************************
+ *		_mbstrlen(MSVCRT.@)
+ * REMARKS
+ *  Unlike most of the multibyte string functions this function uses
+ *  the locale codepage, not the codepage set by _setmbcp
+ */
+MSVCRT_size_t CDECL _mbstrlen(const char* str)
+{
+  if(MSVCRT___mb_cur_max > 1)
+  {
+    MSVCRT_size_t len = 0;
+    while(*str)
+    {
+      /* FIXME: According to the documentation we are supposed to test for
+       * multi-byte character validity. Whatever that means
+       */
+      str += MSVCRT_isleadbyte(*str) ? 2 : 1;
+      len++;
+    }
+    return len;
+  }
+  return strlen(str); /* ASCII CP */
 }

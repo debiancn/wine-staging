@@ -266,6 +266,7 @@ typedef enum _WINED3DFORMAT {
 
     WINED3DFMT_UYVY                 =  WINEMAKEFOURCC('U', 'Y', 'V', 'Y'),
     WINED3DFMT_YUY2                 =  WINEMAKEFOURCC('Y', 'U', 'Y', '2'),
+    WINED3DFMT_YV12                 =  WINEMAKEFOURCC('Y', 'V', '1', '2'),
     WINED3DFMT_DXT1                 =  WINEMAKEFOURCC('D', 'X', 'T', '1'),
     WINED3DFMT_DXT2                 =  WINEMAKEFOURCC('D', 'X', 'T', '2'),
     WINED3DFMT_DXT3                 =  WINEMAKEFOURCC('D', 'X', 'T', '3'),
@@ -1095,111 +1096,111 @@ typedef struct _WINED3DINDEXBUFFER_DESC {
  */
 
 typedef struct _WINED3DVSHADERCAPS2_0 {
-  DWORD  *Caps;
-  INT    *DynamicFlowControlDepth;
-  INT    *NumTemps;
-  INT    *StaticFlowControlDepth;
+  DWORD  Caps;
+  INT    DynamicFlowControlDepth;
+  INT    NumTemps;
+  INT    StaticFlowControlDepth;
 } WINED3DVSHADERCAPS2_0;
 
 typedef struct _WINED3DPSHADERCAPS2_0 {
-  DWORD  *Caps;
-  INT    *DynamicFlowControlDepth;
-  INT    *NumTemps;
-  INT    *StaticFlowControlDepth;
-  INT    *NumInstructionSlots;
+  DWORD  Caps;
+  INT    DynamicFlowControlDepth;
+  INT    NumTemps;
+  INT    StaticFlowControlDepth;
+  INT    NumInstructionSlots;
 } WINED3DPSHADERCAPS2_0;
 
 typedef struct _WINED3DCAPS {
-  WINED3DDEVTYPE      *DeviceType;
-  UINT                *AdapterOrdinal;
+  WINED3DDEVTYPE      DeviceType;
+  UINT                AdapterOrdinal;
 
-  DWORD               *Caps;
-  DWORD               *Caps2;
-  DWORD               *Caps3;
-  DWORD               *PresentationIntervals;
+  DWORD               Caps;
+  DWORD               Caps2;
+  DWORD               Caps3;
+  DWORD               PresentationIntervals;
 
-  DWORD               *CursorCaps;
+  DWORD               CursorCaps;
 
-  DWORD               *DevCaps;
+  DWORD               DevCaps;
 
-  DWORD               *PrimitiveMiscCaps;
-  DWORD               *RasterCaps;
-  DWORD               *ZCmpCaps;
-  DWORD               *SrcBlendCaps;
-  DWORD               *DestBlendCaps;
-  DWORD               *AlphaCmpCaps;
-  DWORD               *ShadeCaps;
-  DWORD               *TextureCaps;
-  DWORD               *TextureFilterCaps;
-  DWORD               *CubeTextureFilterCaps;
-  DWORD               *VolumeTextureFilterCaps;
-  DWORD               *TextureAddressCaps;
-  DWORD               *VolumeTextureAddressCaps;
+  DWORD               PrimitiveMiscCaps;
+  DWORD               RasterCaps;
+  DWORD               ZCmpCaps;
+  DWORD               SrcBlendCaps;
+  DWORD               DestBlendCaps;
+  DWORD               AlphaCmpCaps;
+  DWORD               ShadeCaps;
+  DWORD               TextureCaps;
+  DWORD               TextureFilterCaps;
+  DWORD               CubeTextureFilterCaps;
+  DWORD               VolumeTextureFilterCaps;
+  DWORD               TextureAddressCaps;
+  DWORD               VolumeTextureAddressCaps;
 
-  DWORD               *LineCaps;
+  DWORD               LineCaps;
 
-  DWORD               *MaxTextureWidth;
-  DWORD               *MaxTextureHeight;
-  DWORD               *MaxVolumeExtent;
+  DWORD               MaxTextureWidth;
+  DWORD               MaxTextureHeight;
+  DWORD               MaxVolumeExtent;
 
-  DWORD               *MaxTextureRepeat;
-  DWORD               *MaxTextureAspectRatio;
-  DWORD               *MaxAnisotropy;
-  float               *MaxVertexW;
+  DWORD               MaxTextureRepeat;
+  DWORD               MaxTextureAspectRatio;
+  DWORD               MaxAnisotropy;
+  float               MaxVertexW;
 
-  float               *GuardBandLeft;
-  float               *GuardBandTop;
-  float               *GuardBandRight;
-  float               *GuardBandBottom;
+  float               GuardBandLeft;
+  float               GuardBandTop;
+  float               GuardBandRight;
+  float               GuardBandBottom;
 
-  float               *ExtentsAdjust;
-  DWORD               *StencilCaps;
+  float               ExtentsAdjust;
+  DWORD               StencilCaps;
 
-  DWORD               *FVFCaps;
-  DWORD               *TextureOpCaps;
-  DWORD               *MaxTextureBlendStages;
-  DWORD               *MaxSimultaneousTextures;
+  DWORD               FVFCaps;
+  DWORD               TextureOpCaps;
+  DWORD               MaxTextureBlendStages;
+  DWORD               MaxSimultaneousTextures;
 
-  DWORD               *VertexProcessingCaps;
-  DWORD               *MaxActiveLights;
-  DWORD               *MaxUserClipPlanes;
-  DWORD               *MaxVertexBlendMatrices;
-  DWORD               *MaxVertexBlendMatrixIndex;
+  DWORD               VertexProcessingCaps;
+  DWORD               MaxActiveLights;
+  DWORD               MaxUserClipPlanes;
+  DWORD               MaxVertexBlendMatrices;
+  DWORD               MaxVertexBlendMatrixIndex;
 
-  float               *MaxPointSize;
+  float               MaxPointSize;
 
-  DWORD               *MaxPrimitiveCount;
-  DWORD               *MaxVertexIndex;
-  DWORD               *MaxStreams;
-  DWORD               *MaxStreamStride;
+  DWORD               MaxPrimitiveCount;
+  DWORD               MaxVertexIndex;
+  DWORD               MaxStreams;
+  DWORD               MaxStreamStride;
 
-  DWORD               *VertexShaderVersion;
-  DWORD               *MaxVertexShaderConst;
+  DWORD               VertexShaderVersion;
+  DWORD               MaxVertexShaderConst;
 
-  DWORD               *PixelShaderVersion;
-  float               *PixelShader1xMaxValue;
+  DWORD               PixelShaderVersion;
+  float               PixelShader1xMaxValue;
 
   /* DX 9 */
-  DWORD               *DevCaps2;
+  DWORD               DevCaps2;
 
-  float               *MaxNpatchTessellationLevel;
-  DWORD               *Reserved5; /*undocumented*/
+  float               MaxNpatchTessellationLevel;
+  DWORD               Reserved5; /*undocumented*/
 
-  UINT                *MasterAdapterOrdinal;
-  UINT                *AdapterOrdinalInGroup;
-  UINT                *NumberOfAdaptersInGroup;
-  DWORD               *DeclTypes;
-  DWORD               *NumSimultaneousRTs;
-  DWORD               *StretchRectFilterCaps;
+  UINT                MasterAdapterOrdinal;
+  UINT                AdapterOrdinalInGroup;
+  UINT                NumberOfAdaptersInGroup;
+  DWORD               DeclTypes;
+  DWORD               NumSimultaneousRTs;
+  DWORD               StretchRectFilterCaps;
   WINED3DVSHADERCAPS2_0   VS20Caps;
   WINED3DPSHADERCAPS2_0   PS20Caps;
-  DWORD               *VertexTextureFilterCaps;
-  DWORD               *MaxVShaderInstructionsExecuted;
-  DWORD               *MaxPShaderInstructionsExecuted;
-  DWORD               *MaxVertexShader30InstructionSlots; 
-  DWORD               *MaxPixelShader30InstructionSlots;
-  DWORD               *Reserved2;/* Not in the microsoft headers but documented */
-  DWORD               *Reserved3;
+  DWORD               VertexTextureFilterCaps;
+  DWORD               MaxVShaderInstructionsExecuted;
+  DWORD               MaxPShaderInstructionsExecuted;
+  DWORD               MaxVertexShader30InstructionSlots;
+  DWORD               MaxPixelShader30InstructionSlots;
+  DWORD               Reserved2;/* Not in the microsoft headers but documented */
+  DWORD               Reserved3;
 
 } WINED3DCAPS;
 
@@ -1208,6 +1209,7 @@ typedef enum _WINED3DSTATEBLOCKTYPE {
     WINED3DSBT_ALL           = 1,
     WINED3DSBT_PIXELSTATE    = 2,
     WINED3DSBT_VERTEXSTATE   = 3,
+    WINED3DSBT_RECORDED      = 4,       /* WineD3D private */
 
     WINED3DSBT_FORCE_DWORD   = 0xffffffff
 } WINED3DSTATEBLOCKTYPE;
@@ -1258,14 +1260,21 @@ typedef enum _WINED3DDECLTYPE {
 #define WINED3DDECL_END() {0xFF,0,WINED3DDECLTYPE_UNUSED,0,0,0,-1}
 
 typedef struct WineDirect3DStridedData {
-    BYTE     *lpData;        /* Pointer to start of data               */
-    DWORD     dwStride;      /* Stride between occurances of this data */
-    DWORD     dwType;        /* Type (as in D3DVSDT_TYPE)              */
-    int       VBO;           /* Vertex buffer object this data is in   */
-    UINT      streamNo;      /* D3D stream number                      */
+    BYTE     *lpData;        /* Pointer to start of data                */
+    DWORD     dwStride;      /* Stride between occurrences of this data */
+    DWORD     dwType;        /* Type (as in D3DVSDT_TYPE)               */
+    int       VBO;           /* Vertex buffer object this data is in    */
+    UINT      streamNo;      /* D3D stream number                       */
 } WineDirect3DStridedData;
 
 typedef struct WineDirect3DVertexStridedData {
+    /* IMPORTANT:
+     *
+     * This structure can be accessed in two ways: Named access, and array
+     * access. Please note that named access is only valid with the fixed
+     * function vertex pipeline, and the arrays are only valid with the
+     * programmable vertex pipeline(vertex shaders)
+     */
     union {
         struct {
 

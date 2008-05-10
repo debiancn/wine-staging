@@ -56,6 +56,7 @@
 #define INT8 X_INT8
 #define INT16 X_INT16
 #define INT32 X_INT32
+#define INT64 X_INT64
 #define BOOL X_BOOL
 #define BYTE X_BYTE
 #ifdef HAVE_AUDIO_AUDIOLIB_H
@@ -67,6 +68,8 @@
 #undef INT8
 #undef INT16
 #undef INT32
+#undef INT64
+#undef LONG64
 #undef BOOL
 #undef BYTE
 
@@ -481,7 +484,7 @@ static int NAS_DestroyRingMessage(MSG_RING* mr)
 /******************************************************************
  *		NAS_AddRingMessage
  *
- * Inserts a new message into the ring (should be called from DriverProc derivated routines)
+ * Inserts a new message into the ring (should be called from DriverProc derived routines)
  */
 static int NAS_AddRingMessage(MSG_RING* mr, enum win_wm_message msg, DWORD param, BOOL wait)
 {
@@ -938,7 +941,7 @@ static DWORD wodOpen(WORD wDevID, LPWAVEOPENDESC lpDesc, DWORD dwFlags)
 
     wwo->wFlags = HIWORD(dwFlags & CALLBACK_TYPEMASK);
 
-    memcpy(&wwo->waveDesc, lpDesc, 	     sizeof(WAVEOPENDESC));
+    wwo->waveDesc = *lpDesc;
     memcpy(&wwo->format,   lpDesc->lpFormat, sizeof(PCMWAVEFORMAT));
 
     if (wwo->format.wBitsPerSample == 0) {

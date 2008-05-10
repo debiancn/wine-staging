@@ -36,7 +36,6 @@
 #include "windef.h"
 #include "winbase.h"
 #include "winternl.h"
-#include "thread.h"
 #include "kernel_private.h"
 
 #include "wine/exception.h"
@@ -362,7 +361,7 @@ enum binary_type MODULE_GetBinaryType( HANDLE hfile, void **res_start, void **re
  *  FALSE, if the file is not an executable or if the function fails.
  *
  * NOTES
- *  The type of executable is a property that determines which subsytem an
+ *  The type of executable is a property that determines which subsystem an
  *  executable file runs under. lpBinaryType can be set to one of the following
  *  values:
  *   SCS_32BIT_BINARY: A Win32 based application
@@ -806,7 +805,7 @@ static BOOL load_library_as_datafile( LPCWSTR name, HMODULE* hmod)
 
     *hmod = 0;
 
-    if (SearchPathW( NULL, (LPCWSTR)name, dotDLL, sizeof(filenameW) / sizeof(filenameW[0]),
+    if (SearchPathW( NULL, name, dotDLL, sizeof(filenameW) / sizeof(filenameW[0]),
                      filenameW, NULL ))
     {
         hFile = CreateFileW( filenameW, GENERIC_READ, FILE_SHARE_READ,

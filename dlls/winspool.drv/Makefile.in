@@ -4,7 +4,7 @@ TOPOBJDIR = ../..
 SRCDIR    = @srcdir@
 VPATH     = @srcdir@
 MODULE    = winspool.drv
-IMPORTLIB = libwinspool.$(IMPLIBEXT)
+IMPORTLIB = winspool
 IMPORTS   = user32 gdi32 advapi32 kernel32 ntdll
 
 C_SRCS = \
@@ -14,14 +14,5 @@ C_SRCS = \
 RC_SRCS = winspool.rc
 
 @MAKE_DLL_RULES@
-
-libwinspool.def: $(MAINSPEC)
-	$(WINEBUILD) -w --def -o $@ --export $(SRCDIR)/$(MAINSPEC)
-
-libwinspool.a: $(SPEC_DEF)
-	$(DLLTOOL) -k -l $@ -d $(SPEC_DEF)
-
-clean::
-	$(RM) $(IMPORTLIB)
 
 @DEPENDENCIES@  # everything below this line is overwritten by make depend

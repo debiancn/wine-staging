@@ -36,15 +36,17 @@ enum remoting_phase
     PHASE_FREE
 };
 
-void write_formatstringsdecl(FILE *f, int indent, ifref_list_t *ifaces, int for_objects);
-void write_procformatstring(FILE *file, const ifref_list_t *ifaces, int for_objects);
-void write_typeformatstring(FILE *file, const ifref_list_t *ifaces, int for_objects);
+typedef int (*type_pred_t)(const type_t *);
+
+void write_formatstringsdecl(FILE *f, int indent, const statement_list_t *stmts, type_pred_t pred);
+void write_procformatstring(FILE *file, const statement_list_t *stmts, type_pred_t pred);
+void write_typeformatstring(FILE *file, const statement_list_t *stmts, type_pred_t pred);
 void print_phase_basetype(FILE *file, int indent, enum remoting_phase phase, enum pass pass, const var_t *var, const char *varname);
 void write_remoting_arguments(FILE *file, int indent, const func_t *func, enum pass pass, enum remoting_phase phase);
-size_t get_size_procformatstring_var(const var_t *var);
+size_t get_size_procformatstring_type(const char *name, const type_t *type, const attr_list_t *attrs);
 size_t get_size_procformatstring_func(const func_t *func);
-size_t get_size_procformatstring(const ifref_list_t *ifaces, int for_objects);
-size_t get_size_typeformatstring(const ifref_list_t *ifaces, int for_objects);
+size_t get_size_procformatstring(const statement_list_t *stmts, type_pred_t pred);
+size_t get_size_typeformatstring(const statement_list_t *stmts, type_pred_t pred);
 void assign_stub_out_args( FILE *file, int indent, const func_t *func );
 void declare_stub_args( FILE *file, int indent, const func_t *func );
 int write_expr_eval_routines(FILE *file, const char *iface);
@@ -55,3 +57,9 @@ size_t type_memsize(const type_t *t, unsigned int *align);
 int decl_indirect(const type_t *t);
 void write_parameters_init(FILE *file, int indent, const func_t *func);
 void print(FILE *file, int indent, const char *format, va_list ap);
+int get_padding(const var_list_t *fields);
+int is_user_type(const type_t *t);
+expr_t *get_size_is_expr(const type_t *t, const char *name);
+int is_full_pointer_function(const func_t *func);
+void write_full_pointer_init(FILE *file, int indent, const func_t *func, int is_server);
+void write_full_pointer_free(FILE *file, int indent, const func_t *func);

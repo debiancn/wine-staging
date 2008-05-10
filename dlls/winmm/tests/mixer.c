@@ -195,12 +195,11 @@ static void mixer_test_controlA(HMIXER mix, LPMIXERCONTROLA control)
         ok(rc==MMSYSERR_NOERROR,"mixerGetControlDetails(MIXER_GETCONTROLDETAILSF_VALUE): "
            "MMSYSERR_NOERROR expected, got %s\n",
            mmsys_error(rc));
-        if (rc==MMSYSERR_NOERROR) {
+        if (rc==MMSYSERR_NOERROR && winetest_interactive) {
             MIXERCONTROLDETAILS new_details;
             MIXERCONTROLDETAILS_UNSIGNED new_value;
 
-            if (winetest_interactive)
-                trace("            Value=%d\n",value.dwValue);
+            trace("            Value=%d\n",value.dwValue);
 
             if (value.dwValue + control->Metrics.cSteps < S1(control->Bounds).dwMaximum)
                 new_value.dwValue = value.dwValue + control->Metrics.cSteps;
@@ -275,12 +274,11 @@ static void mixer_test_controlA(HMIXER mix, LPMIXERCONTROLA control)
         ok(rc==MMSYSERR_NOERROR,"mixerGetControlDetails(MIXER_GETCONTROLDETAILSF_VALUE): "
            "MMSYSERR_NOERROR expected, got %s\n",
            mmsys_error(rc));
-        if (rc==MMSYSERR_NOERROR) {
+        if (rc==MMSYSERR_NOERROR && winetest_interactive) {
             MIXERCONTROLDETAILS new_details;
             MIXERCONTROLDETAILS_BOOLEAN new_value;
 
-            if (winetest_interactive)
-                trace("            Value=%d\n",value.fValue);
+            trace("            Value=%d\n",value.fValue);
 
             if (value.fValue == FALSE)
                 new_value.fValue = TRUE;
@@ -384,12 +382,6 @@ static void mixer_test_deviceA(int device)
         ok(rc==MMSYSERR_INVALFLAG,
            "mixerOpen: MMSYSERR_INVALFLAG expected, got %s\n", mmsys_error(rc));
 
-        /* Shouldn't open without a valid HWND */
-        rc=mixerOpen(&mix, device, 0, 0, CALLBACK_WINDOW);
-        ok(rc==MMSYSERR_INVALPARAM,
-           "mixerOpen: MMSYSERR_INVALPARAM expected, got %s\n", mmsys_error(rc));
-
-
         for (d=0;d<capsA.cDestinations;d++) {
             MIXERLINEA mixerlineA;
             mixerlineA.cbStruct = 0;
@@ -436,7 +428,8 @@ static void mixer_test_deviceA(int device)
                mmsys_error(rc));
             if (rc==MMSYSERR_NODRIVER)
                 trace("  No Driver\n");
-            else if (rc==MMSYSERR_NOERROR && winetest_interactive) {
+            else if (rc==MMSYSERR_NOERROR) {
+	      if (winetest_interactive) {
                 trace("    %d: \"%s\" (%s) Destination=%d Source=%d\n",
                       d,mixerlineA.szShortName, mixerlineA.szName,
                       mixerlineA.dwDestination,mixerlineA.dwSource);
@@ -456,9 +449,9 @@ static void mixer_test_deviceA(int device)
                       mixerlineA.Target.vDriverVersion >> 8,
                       mixerlineA.Target.vDriverVersion & 0xff,
                       mixerlineA.Target.wMid, mixerlineA.Target.wPid);
-            }
-            ns=mixerlineA.cConnections;
-            for(s=0;s<ns;s++) {
+	      }
+              ns=mixerlineA.cConnections;
+              for(s=0;s<ns;s++) {
                 mixerlineA.cbStruct = sizeof(mixerlineA);
                 mixerlineA.dwDestination=d;
                 mixerlineA.dwSource=s;
@@ -552,11 +545,12 @@ static void mixer_test_deviceA(int device)
                         }
                     }
                 }
+              }
             }
         }
         rc=mixerClose(mix);
-        ok(rc==MMSYSERR_NOERROR,
-           "mixerClose: MMSYSERR_BADDEVICEID expected, got %s\n",
+        ok(rc==MMSYSERR_NOERROR || rc==MMSYSERR_INVALHANDLE,
+           "mixerClose: MMSYSERR_NOERROR or MMSYSERR_INVALHANDLE expected, got %s\n",
            mmsys_error(rc));
     }
 }
@@ -582,12 +576,11 @@ static void mixer_test_controlW(HMIXER mix, LPMIXERCONTROLW control)
         ok(rc==MMSYSERR_NOERROR,"mixerGetControlDetails(MIXER_GETCONTROLDETAILSF_VALUE): "
            "MMSYSERR_NOERROR expected, got %s\n",
            mmsys_error(rc));
-        if (rc==MMSYSERR_NOERROR) {
+        if (rc==MMSYSERR_NOERROR && winetest_interactive) {
             MIXERCONTROLDETAILS new_details;
             MIXERCONTROLDETAILS_UNSIGNED new_value;
 
-            if (winetest_interactive)
-                trace("            Value=%d\n",value.dwValue);
+            trace("            Value=%d\n",value.dwValue);
 
             if (value.dwValue + control->Metrics.cSteps < S1(control->Bounds).dwMaximum)
                 new_value.dwValue = value.dwValue + control->Metrics.cSteps;
@@ -662,12 +655,11 @@ static void mixer_test_controlW(HMIXER mix, LPMIXERCONTROLW control)
         ok(rc==MMSYSERR_NOERROR,"mixerGetControlDetails(MIXER_GETCONTROLDETAILSF_VALUE): "
            "MMSYSERR_NOERROR expected, got %s\n",
            mmsys_error(rc));
-        if (rc==MMSYSERR_NOERROR) {
+        if (rc==MMSYSERR_NOERROR && winetest_interactive) {
             MIXERCONTROLDETAILS new_details;
             MIXERCONTROLDETAILS_BOOLEAN new_value;
 
-            if (winetest_interactive)
-                trace("            Value=%d\n",value.fValue);
+            trace("            Value=%d\n",value.fValue);
 
             if (value.fValue == FALSE)
                 new_value.fValue = TRUE;
@@ -776,11 +768,6 @@ static void mixer_test_deviceW(int device)
         rc=mixerOpen(&mix, device, 0, 0, CALLBACK_FUNCTION);
         ok(rc==MMSYSERR_INVALFLAG,
            "mixerOpen: MMSYSERR_INVALFLAG expected, got %s\n", mmsys_error(rc));
-
-        /* Shouldn't open without a valid HWND */
-        rc=mixerOpen(&mix, device, 0, 0, CALLBACK_WINDOW);
-        ok(rc==MMSYSERR_INVALPARAM,
-           "mixerOpen: MMSYSERR_INVALPARAM expected, got %s\n", mmsys_error(rc));
 
         for (d=0;d<capsW.cDestinations;d++) {
             MIXERLINEW mixerlineW;
@@ -967,8 +954,8 @@ static void mixer_test_deviceW(int device)
             }
         }
         rc=mixerClose(mix);
-        ok(rc==MMSYSERR_NOERROR,
-           "mixerClose: MMSYSERR_BADDEVICEID expected, got %s\n",
+        ok(rc==MMSYSERR_NOERROR || rc==MMSYSERR_INVALHANDLE,
+           "mixerClose: MMSYSERR_NOERROR or MMSYSERR_INVALHANDLE expected, got %s\n",
            mmsys_error(rc));
     }
 }

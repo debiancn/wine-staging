@@ -53,7 +53,7 @@
 #define CREATE_URL11 "about:"
 #define CREATE_URL12 "http://www.winehq.org:65535"
 
-static inline void copy_compsA(
+static void copy_compsA(
     URL_COMPONENTSA *src, 
     URL_COMPONENTSA *dst, 
     DWORD scheLen,
@@ -73,7 +73,7 @@ static inline void copy_compsA(
     SetLastError(0xfaceabad);
 }
 
-static inline void zero_compsA(
+static void zero_compsA(
     URL_COMPONENTSA *dst, 
     DWORD scheLen,
     DWORD hostLen,
@@ -98,8 +98,8 @@ static void InternetCrackUrl_test(void)
   URL_COMPONENTSA urlSrc, urlComponents;
   char protocol[32], hostName[1024], userName[1024];
   char password[1024], extra[1024], path[1024];
-  BOOL ret;
-  DWORD GLE;
+  BOOL ret, firstret;
+  DWORD GLE, firstGLE;
 
   ZeroMemory(&urlSrc, sizeof(urlSrc));
   urlSrc.dwStructSize = sizeof(urlSrc);
@@ -155,30 +155,42 @@ static void InternetCrackUrl_test(void)
   copy_compsA(&urlSrc, &urlComponents, 32, 1024, 1024, 1024, 2048, 1024);
   ok(InternetCrackUrlA(TEST_URL3, 0, ICU_DECODE, &urlComponents),"InternetCrackUrl failed with GLE %d\n",GetLastError());
 
-
   /* Tests for lpsz* members pointing to real strings while 
-   * some corresponding length members are set to zero */
+   * some corresponding length members are set to zero.
+   * As of IE7 (wininet 7.0*?) all members are checked. So we
+   * run the first test and expect the outcome to be the same
+   * for the first four (scheme, hostname, username and password).
+   * The last two (path and extrainfo) are the same for all versions
+   * of the wininet.dll.
+   */
   copy_compsA(&urlSrc, &urlComponents, 0, 1024, 1024, 1024, 2048, 1024);
-  ret = InternetCrackUrlA(TEST_URL3, 0, ICU_DECODE, &urlComponents);
-  ok(ret==1, "InternetCrackUrl returned %d with GLE=%d (expected to return 1)\n",
-    ret, GetLastError());
+  SetLastError(0xdeadbeef);
+  firstret = InternetCrackUrlA(TEST_URL3, 0, ICU_DECODE, &urlComponents);
+  firstGLE = GetLastError();
 
   copy_compsA(&urlSrc, &urlComponents, 32, 0, 1024, 1024, 2048, 1024);
+  SetLastError(0xdeadbeef);
   ret = InternetCrackUrlA(TEST_URL3, 0, ICU_DECODE, &urlComponents);
-  ok(ret==1, "InternetCrackUrl returned %d with GLE=%d (expected to return 1)\n",
-    ret, GetLastError());
+  GLE = GetLastError();
+  ok(ret==firstret && (GLE==firstGLE), "InternetCrackUrl returned %d with GLE=%d (expected to return %d)\n",
+    ret, GetLastError(), firstret);
 
   copy_compsA(&urlSrc, &urlComponents, 32, 1024, 0, 1024, 2048, 1024);
+  SetLastError(0xdeadbeef);
   ret = InternetCrackUrlA(TEST_URL3, 0, ICU_DECODE, &urlComponents);
-  ok(ret==1, "InternetCrackUrl returned %d with GLE=%d (expected to return 1)\n",
-    ret, GetLastError());
+  GLE = GetLastError();
+  ok(ret==firstret && (GLE==firstGLE), "InternetCrackUrl returned %d with GLE=%d (expected to return %d)\n",
+    ret, GetLastError(), firstret);
 
   copy_compsA(&urlSrc, &urlComponents, 32, 1024, 1024, 0, 2048, 1024);
+  SetLastError(0xdeadbeef);
   ret = InternetCrackUrlA(TEST_URL3, 0, ICU_DECODE, &urlComponents);
-  ok(ret==1, "InternetCrackUrl returned %d with GLE=%d (expected to return 1)\n",
-    ret, GetLastError());
+  GLE = GetLastError();
+  ok(ret==firstret && (GLE==firstGLE), "InternetCrackUrl returned %d with GLE=%d (expected to return %d)\n",
+    ret, GetLastError(), firstret);
 
   copy_compsA(&urlSrc, &urlComponents, 32, 1024, 1024, 1024, 0, 1024);
+  SetLastError(0xdeadbeef);
   ret = InternetCrackUrlA(TEST_URL3, 0, ICU_DECODE, &urlComponents);
   GLE = GetLastError();
   todo_wine
@@ -187,6 +199,7 @@ static void InternetCrackUrl_test(void)
     ret, GLE);
 
   copy_compsA(&urlSrc, &urlComponents, 32, 1024, 1024, 1024, 2048, 0);
+  SetLastError(0xdeadbeef);
   ret = InternetCrackUrlA(TEST_URL3, 0, ICU_DECODE, &urlComponents);
   GLE = GetLastError();
   todo_wine
@@ -226,6 +239,25 @@ static void InternetCrackUrl_test(void)
   GLE = GetLastError();
   ok(ret == FALSE, "Expected InternetCrackUrl to fail\n");
   ok(GLE != 0xdeadbeef && GLE != ERROR_SUCCESS, "Expected GLE to represent a failure\n");
+
+  /* Invalid Call: must set size of components structure (Windows only
+   * enforces this on the InternetCrackUrlA version of the call) */
+  copy_compsA(&urlSrc, &urlComponents, 0, 1024, 1024, 1024, 2048, 1024);
+  SetLastError(0xdeadbeef);
+  urlComponents.dwStructSize = 0;
+  ret = InternetCrackUrlA(TEST_URL, 0, 0, &urlComponents);
+  ok(ret == FALSE, "Expected InternetCrackUrl to fail\n");
+  ok(GLE != 0xdeadbeef && GLE != ERROR_SUCCESS, "Expected GLE to represent a failure\n");
+
+  /* Invalid Call: size of dwStructSize must be one of the "standard" sizes
+   * of the URL_COMPONENTS structure (Windows only enforces this on the
+   * InternetCrackUrlA version of the call) */
+  copy_compsA(&urlSrc, &urlComponents, 0, 1024, 1024, 1024, 2048, 1024);
+  SetLastError(0xdeadbeef);
+  urlComponents.dwStructSize = sizeof(urlComponents) + 1;
+  ret = InternetCrackUrlA(TEST_URL, 0, 0, &urlComponents);
+  ok(ret == FALSE, "Expected InternetCrackUrl to fail\n");
+  ok(GLE != 0xdeadbeef && GLE != ERROR_SUCCESS, "Expected GLE to represent a failure\n");
 }
 
 static void InternetCrackUrlW_test(void)
@@ -238,6 +270,7 @@ static void InternetCrackUrlW_test(void)
     static const WCHAR url2[] = { '.','.','/','R','i','t','z','.','x','m','l',0 };
     URL_COMPONENTSW comp;
     WCHAR scheme[20], host[20], user[20], pwd[20], urlpart[50], extra[50];
+    DWORD error;
     BOOL r;
 
     urlpart[0]=0;
@@ -260,6 +293,18 @@ static void InternetCrackUrlW_test(void)
     comp.dwUrlPathLength = sizeof urlpart;
     comp.lpszExtraInfo = extra;
     comp.dwExtraInfoLength = sizeof extra;
+
+    SetLastError(0xdeadbeef);
+    r = InternetCrackUrlW(NULL, 0, 0, &comp );
+    error = GetLastError();
+    ok( !r, "InternetCrackUrlW succeeded unexpectedly\n");
+    ok( error == ERROR_INVALID_PARAMETER, "expected ERROR_INVALID_PARAMETER got %u\n", error);
+
+    SetLastError(0xdeadbeef);
+    r = InternetCrackUrlW(url, 0, 0, NULL );
+    error = GetLastError();
+    ok( !r, "InternetCrackUrlW succeeded unexpectedly\n");
+    ok( error == ERROR_INVALID_PARAMETER, "expected ERROR_INVALID_PARAMETER got %u\n", error);
 
     r = InternetCrackUrlW(url, 0, 0, &comp );
     ok( r, "failed to crack url\n");
@@ -391,11 +436,11 @@ static void InternetCreateUrlA_test(void)
                     host[]       = "host";
 
 	/* test NULL lpUrlComponents */
-	ret = InternetCreateUrlA(NULL, 0, NULL, &len);
 	SetLastError(0xdeadbeef);
+	ret = InternetCreateUrlA(NULL, 0, NULL, &len);
 	ok(!ret, "Expected failure\n");
-	ok(GetLastError() == 0xdeadbeef,
-		"Expected 0xdeadbeef, got %d\n", GetLastError());
+	ok(GetLastError() == ERROR_INVALID_PARAMETER,
+		"Expected ERROR_INVALID_PARAMETER, got %d\n", GetLastError());
 	ok(len == -1, "Expected len -1, got %d\n", len);
 
 	/* test zero'ed lpUrlComponents */
@@ -407,7 +452,7 @@ static void InternetCreateUrlA_test(void)
 		"Expected ERROR_INVALID_PARAMETER, got %d\n", GetLastError());
 	ok(len == -1, "Expected len -1, got %d\n", len);
 
-	/* test valid lpUrlComponets, NULL lpdwUrlLength */
+	/* test valid lpUrlComponents, NULL lpdwUrlLength */
 	fill_url_components(&urlComp);
 	SetLastError(0xdeadbeef);
 	ret = InternetCreateUrlA(&urlComp, 0, NULL, NULL);
@@ -416,7 +461,7 @@ static void InternetCreateUrlA_test(void)
 		"Expected ERROR_INVALID_PARAMETER, got %d\n", GetLastError());
 	ok(len == -1, "Expected len -1, got %d\n", len);
 
-	/* test valid lpUrlComponets, emptry szUrl
+	/* test valid lpUrlComponents, empty szUrl
 	 * lpdwUrlLength is size of buffer required on exit, including
 	 * the terminating null when GLE == ERROR_INSUFFICIENT_BUFFER
 	 */
@@ -436,7 +481,7 @@ static void InternetCreateUrlA_test(void)
 		"Expected ERROR_INSUFFICIENT_BUFFER, got %d\n", GetLastError());
 	ok(len == 51, "Expected len 51, got %d\n", len);
 
-	/* test valid lpUrlComponets, alloced szUrl, small size */
+	/* test valid lpUrlComponents, alloc-ed szUrl, small size */
 	SetLastError(0xdeadbeef);
 	szUrl = HeapAlloc(GetProcessHeap(), 0, len);
 	len -= 2;
@@ -446,7 +491,7 @@ static void InternetCreateUrlA_test(void)
 		"Expected ERROR_INSUFFICIENT_BUFFER, got %d\n", GetLastError());
 	ok(len == 51, "Expected len 51, got %d\n", len);
 
-	/* alloced szUrl, NULL lpszScheme
+	/* alloc-ed szUrl, NULL lpszScheme
 	 * shows that it uses nScheme instead
 	 */
 	SetLastError(0xdeadbeef);
@@ -458,7 +503,7 @@ static void InternetCreateUrlA_test(void)
 	ok(len == 50, "Expected len 50, got %d\n", len);
 	ok(!strcmp(szUrl, CREATE_URL1), "Expected %s, got %s\n", CREATE_URL1, szUrl);
 
-	/* alloced szUrl, invalid nScheme
+	/* alloc-ed szUrl, invalid nScheme
 	 * any nScheme out of range seems ignored
 	 */
 	fill_url_components(&urlComp);
@@ -471,7 +516,7 @@ static void InternetCreateUrlA_test(void)
 		"Expected 0xdeadbeef, got %d\n", GetLastError());
 	ok(len == 50, "Expected len 50, got %d\n", len);
 
-	/* test valid lpUrlComponets, alloced szUrl */
+	/* test valid lpUrlComponents, alloc-ed szUrl */
 	fill_url_components(&urlComp);
 	SetLastError(0xdeadbeef);
 	len = 51;

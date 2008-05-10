@@ -60,6 +60,7 @@ struct object_creation_info
 
 static const struct object_creation_info object_creation[] =
 {
+    { &CLSID_SeekingPassThru, SeekingPassThru_create },
     { &CLSID_FilterGraph, FilterGraph_create },
     { &CLSID_FilterGraphNoThread, FilterGraphNoThread_create },
     { &CLSID_FilterMapper, FilterMapper_create },
@@ -69,6 +70,8 @@ static const struct object_creation_info object_creation[] =
     { &CLSID_AviSplitter, AVISplitter_create },
     { &CLSID_MPEG1Splitter, MPEGSplitter_create },
     { &CLSID_VideoRenderer, VideoRenderer_create },
+    { &CLSID_NullRenderer, NullRenderer_create },
+    { &CLSID_VideoRendererDefault, VideoRendererDefault_create },
     { &CLSID_DSoundRender, DSoundRender_create },
     { &CLSID_AVIDec, AVIDec_create },
     { &CLSID_SystemClock, &QUARTZ_CreateSystemClock },
@@ -89,6 +92,7 @@ DSCF_QueryInterface(LPCLASSFACTORY iface,REFIID riid,LPVOID *ppobj)
 	return S_OK;
     }
 
+    *ppobj = NULL;
     WARN("(%p)->(%s,%p),not found\n",This,debugstr_guid(riid),ppobj);
     return E_NOINTERFACE;
 }
@@ -201,7 +205,7 @@ HRESULT WINAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID *ppv)
 /***********************************************************************
  *              DllCanUnloadNow (QUARTZ.@)
  */
-HRESULT WINAPI DllCanUnloadNow()
+HRESULT WINAPI DllCanUnloadNow(void)
 {
     return dll_ref != 0 ? S_FALSE : S_OK;
 }
@@ -273,7 +277,7 @@ LONG WINAPI DBToAmpFactor(LONG db)
 /***********************************************************************
  *              AMGetErrorTextA (QUARTZ.@)
  */
-DWORD WINAPI AMGetErrorTextA(HRESULT hr, char *buffer, DWORD maxlen)
+DWORD WINAPI AMGetErrorTextA(HRESULT hr, LPSTR buffer, DWORD maxlen)
 {
     int len;
     static const char format[] = "Error: 0x%x";
@@ -291,7 +295,7 @@ DWORD WINAPI AMGetErrorTextA(HRESULT hr, char *buffer, DWORD maxlen)
 /***********************************************************************
  *              AMGetErrorTextW (QUARTZ.@)
  */
-DWORD WINAPI AMGetErrorTextW(HRESULT hr, WCHAR *buffer, DWORD maxlen)
+DWORD WINAPI AMGetErrorTextW(HRESULT hr, LPWSTR buffer, DWORD maxlen)
 {
     int len;
     static const WCHAR format[] = {'E','r','r','o','r',':',' ','0','x','%','l','x',0};

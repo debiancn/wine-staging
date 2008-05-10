@@ -65,7 +65,7 @@ struct atom_table
     int                 count;               /* count of atom handles */
     int                 last;                /* last handle in-use */
     struct atom_entry **handles;             /* atom handles */
-    int                 entries_count;       /* humber of hash entries */
+    int                 entries_count;       /* number of hash entries */
     struct atom_entry **entries;             /* hash table entries */
 };
 
@@ -76,6 +76,7 @@ static const struct object_ops atom_table_ops =
 {
     sizeof(struct atom_table),    /* size */
     atom_table_dump,              /* dump */
+    no_get_type,                  /* get_type */
     no_add_queue,                 /* add_queue */
     NULL,                         /* remove_queue */
     NULL,                         /* signaled */
@@ -83,6 +84,8 @@ static const struct object_ops atom_table_ops =
     no_signal,                    /* signal */
     no_get_fd,                    /* get_fd */
     no_map_access,                /* map_access */
+    default_get_sd,               /* get_sd */
+    default_set_sd,               /* set_sd */
     no_lookup_name,               /* lookup_name */
     no_open_file,                 /* open_file */
     no_close_handle,              /* close_handle */

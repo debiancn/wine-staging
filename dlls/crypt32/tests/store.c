@@ -94,6 +94,15 @@ static const BYTE bigCert2[] = { 0x30, 0x7a, 0x02, 0x01, 0x01, 0x30, 0x02, 0x06,
  0x00, 0xa3, 0x16, 0x30, 0x14, 0x30, 0x12, 0x06, 0x03, 0x55, 0x1d, 0x13, 0x01,
  0x01, 0xff, 0x04, 0x08, 0x30, 0x06, 0x01, 0x01, 0xff, 0x02, 0x01, 0x01 };
 
+
+static BOOL (WINAPI *pCertAddStoreToCollection)(HCERTSTORE,HCERTSTORE,DWORD,DWORD);
+static BOOL (WINAPI *pCertControlStore)(HCERTSTORE,DWORD,DWORD,void const*);
+static PCCRL_CONTEXT (WINAPI *pCertEnumCRLsInStore)(HCERTSTORE,PCCRL_CONTEXT);
+static BOOL (WINAPI *pCertEnumSystemStore)(DWORD,void*,void*,PFN_CERT_ENUM_SYSTEM_STORE);
+static BOOL (WINAPI *pCertGetStoreProperty)(HCERTSTORE,DWORD,void*,DWORD*);
+static void (WINAPI *pCertRemoveStoreFromCollection)(HCERTSTORE,HCERTSTORE);
+static BOOL (WINAPI *pCertSetStoreProperty)(HCERTSTORE,DWORD,DWORD,const void*);
+
 static void testMemStore(void)
 {
     HCERTSTORE store1, store2;
@@ -274,6 +283,12 @@ static void testCollectionStore(void)
     PCCERT_CONTEXT context;
     BOOL ret;
 
+    if (!pCertAddStoreToCollection)
+    {
+        skip("CertAddStoreToCollection() is not available\n");
+        return;
+    }
+
     collection = CertOpenStore(CERT_STORE_PROV_COLLECTION, 0, 0,
      CERT_STORE_CREATE_NEW_FLAG, NULL);
 
@@ -290,7 +305,7 @@ static void testCollectionStore(void)
      bigCert, sizeof(bigCert), CERT_STORE_ADD_ALWAYS, NULL);
     ok(ret, "CertAddEncodedCertificateToStore failed: %08x\n", GetLastError());
     /* Add the memory store to the collection, without allowing adding */
-    ret = CertAddStoreToCollection(collection, store1, 0, 0);
+    ret = pCertAddStoreToCollection(collection, store1, 0, 0);
     ok(ret, "CertAddStoreToCollection failed: %08x\n", GetLastError());
     /* Verify the cert is in the collection */
     context = CertEnumCertificatesInStore(collection, NULL);
@@ -310,26 +325,26 @@ static void testCollectionStore(void)
     store2 = CertOpenStore(CERT_STORE_PROV_MEMORY, 0, 0,
      CERT_STORE_CREATE_NEW_FLAG, NULL);
     /* Try adding a store to a non-collection store */
-    ret = CertAddStoreToCollection(store1, store2,
+    ret = pCertAddStoreToCollection(store1, store2,
      CERT_PHYSICAL_STORE_ADD_ENABLE_FLAG, 0);
     ok(!ret && GetLastError() == E_INVALIDARG,
      "Expected E_INVALIDARG, got %08x\n", GetLastError());
     /* Try adding some bogus stores */
     /* This crashes in Windows
-    ret = CertAddStoreToCollection(0, store2,
+    ret = pCertAddStoreToCollection(0, store2,
      CERT_PHYSICAL_STORE_ADD_ENABLE_FLAG, 0);
      */
     /* This "succeeds"... */
-    ret = CertAddStoreToCollection(collection, 0,
+    ret = pCertAddStoreToCollection(collection, 0,
      CERT_PHYSICAL_STORE_ADD_ENABLE_FLAG, 0);
     ok(ret, "CertAddStoreToCollection failed: %08x\n", GetLastError());
     /* while this crashes.
-    ret = CertAddStoreToCollection(collection, 1,
+    ret = pCertAddStoreToCollection(collection, 1,
      CERT_PHYSICAL_STORE_ADD_ENABLE_FLAG, 0);
      */
 
     /* Add it to the collection, this time allowing adding */
-    ret = CertAddStoreToCollection(collection, store2,
+    ret = pCertAddStoreToCollection(collection, store2,
      CERT_PHYSICAL_STORE_ADD_ENABLE_FLAG, 0);
     ok(ret, "CertAddStoreToCollection failed: %08x\n", GetLastError());
     /* Check that adding to the collection is allowed */
@@ -397,7 +412,7 @@ static void testCollectionStore(void)
     /* Adding a collection to a collection is legal */
     collection2 = CertOpenStore(CERT_STORE_PROV_COLLECTION, 0, 0,
      CERT_STORE_CREATE_NEW_FLAG, NULL);
-    ret = CertAddStoreToCollection(collection2, collection,
+    ret = pCertAddStoreToCollection(collection2, collection,
      CERT_PHYSICAL_STORE_ADD_ENABLE_FLAG, 0);
     ok(ret, "CertAddStoreToCollection failed: %08x\n", GetLastError());
     /* check the contents of collection2 */
@@ -457,10 +472,10 @@ static void testCollectionStore(void)
      CERT_STORE_CREATE_NEW_FLAG, NULL);
     ok(collection != 0, "CertOpenStore failed: %08x\n", GetLastError());
 
-    ret = CertAddStoreToCollection(collection, store1,
+    ret = pCertAddStoreToCollection(collection, store1,
      CERT_PHYSICAL_STORE_ADD_ENABLE_FLAG, 0);
     ok(ret, "CertAddStoreToCollection failed: %08x\n", GetLastError());
-    ret = CertAddStoreToCollection(collection, store2,
+    ret = pCertAddStoreToCollection(collection, store2,
      CERT_PHYSICAL_STORE_ADD_ENABLE_FLAG, 0);
     ok(ret, "CertAddStoreToCollection failed: %08x\n", GetLastError());
 
@@ -528,25 +543,32 @@ static void testCollectionStore(void)
         ok(context == NULL, "Unexpected cert\n");
     }
 
-    /* Finally, test removing stores from the collection.  No return value, so
-     * it's a bit funny to test.
-     */
-    /* This crashes
-    CertRemoveStoreFromCollection(NULL, NULL);
-     */
-    /* This "succeeds," no crash, no last error set */
-    SetLastError(0xdeadbeef);
-    CertRemoveStoreFromCollection(store2, collection);
-    ok(GetLastError() == 0xdeadbeef,
-     "Didn't expect an error to be set: %08x\n", GetLastError());
+    if (!pCertRemoveStoreFromCollection)
+    {
+        skip("CertRemoveStoreFromCollection() is not available\n");
+    }
+    else
+    {
+        /* Finally, test removing stores from the collection.  No return
+         *  value, so it's a bit funny to test.
+         */
+        /* This crashes
+         * pCertRemoveStoreFromCollection(NULL, NULL);
+         */
+        /* This "succeeds," no crash, no last error set */
+        SetLastError(0xdeadbeef);
+        pCertRemoveStoreFromCollection(store2, collection);
+        ok(GetLastError() == 0xdeadbeef,
+           "Didn't expect an error to be set: %08x\n", GetLastError());
 
-    /* After removing store2, the collection should be empty */
-    SetLastError(0xdeadbeef);
-    CertRemoveStoreFromCollection(collection, store2);
-    ok(GetLastError() == 0xdeadbeef,
-     "Didn't expect an error to be set: %08x\n", GetLastError());
-    context = CertEnumCertificatesInStore(collection, NULL);
-    ok(!context, "Unexpected cert\n");
+        /* After removing store2, the collection should be empty */
+        SetLastError(0xdeadbeef);
+        pCertRemoveStoreFromCollection(collection, store2);
+        ok(GetLastError() == 0xdeadbeef,
+           "Didn't expect an error to be set: %08x\n", GetLastError());
+        context = CertEnumCertificatesInStore(collection, NULL);
+        ok(!context, "Unexpected cert\n");
+    }
 
     CertCloseStore(collection, 0);
     CertCloseStore(store2, 0);
@@ -614,6 +636,13 @@ static void testRegStore(void)
     todo_wine ok(store != 0, "CertOpenStore failed: %08x\n", GetLastError());
     CertCloseStore(store, 0);
 
+    /* It looks like the remainder pretty much needs CertControlStore() */
+    if (!pCertControlStore)
+    {
+        skip("CertControlStore() is not available\n");
+        return;
+    }
+
     rc = RegCreateKeyExA(HKEY_CURRENT_USER, tempKey, 0, NULL, 0, KEY_ALL_ACCESS,
      NULL, &key, NULL);
     ok(!rc, "RegCreateKeyExA failed: %d\n", rc);
@@ -637,7 +666,7 @@ static void testRegStore(void)
         ok(ret, "CertAddEncodedCertificateToStore failed: %08x\n",
          GetLastError());
         /* so flush the cache to force a commit.. */
-        ret = CertControlStore(store, 0, CERT_STORE_CTRL_COMMIT, NULL);
+        ret = pCertControlStore(store, 0, CERT_STORE_CTRL_COMMIT, NULL);
         ok(ret, "CertControlStore failed: %08x\n", GetLastError());
         /* and check that the expected subkey was written. */
         size = sizeof(hash);
@@ -696,7 +725,7 @@ static void testRegStore(void)
         ok(context != NULL, "Expected a cert context\n");
         if (context)
             CertDeleteCertificateFromStore(context);
-        ret = CertControlStore(store, 0, CERT_STORE_CTRL_COMMIT, NULL);
+        ret = pCertControlStore(store, 0, CERT_STORE_CTRL_COMMIT, NULL);
         ok(ret, "CertControlStore failed: %08x\n", GetLastError());
 
         /* Add a serialized cert with a bogus hash directly to the registry */
@@ -733,7 +762,7 @@ static void testRegStore(void)
              sizeof(buf));
             ok(!rc, "RegSetValueExA failed: %d\n", rc);
 
-            ret = CertControlStore(store, 0, CERT_STORE_CTRL_RESYNC, NULL);
+            ret = pCertControlStore(store, 0, CERT_STORE_CTRL_RESYNC, NULL);
             ok(ret, "CertControlStore failed: %08x\n", GetLastError());
 
             /* Make sure the bogus hash cert gets loaded. */
@@ -790,7 +819,7 @@ static void testRegStore(void)
              sizeof(buf));
             ok(!rc, "RegSetValueExA failed: %d\n", rc);
 
-            ret = CertControlStore(store, 0, CERT_STORE_CTRL_RESYNC, NULL);
+            ret = pCertControlStore(store, 0, CERT_STORE_CTRL_RESYNC, NULL);
             ok(ret, "CertControlStore failed: %08x\n", GetLastError());
 
             /* and make sure just one cert still gets loaded. */
@@ -811,7 +840,7 @@ static void testRegStore(void)
              sizeof(buf));
             ok(!rc, "RegSetValueExA failed: %d\n", rc);
 
-            ret = CertControlStore(store, 0, CERT_STORE_CTRL_RESYNC, NULL);
+            ret = pCertControlStore(store, 0, CERT_STORE_CTRL_RESYNC, NULL);
             ok(ret, "CertControlStore failed: %08x\n", GetLastError());
 
             /* and make sure two certs get loaded. */
@@ -893,10 +922,12 @@ static void testSystemRegStore(void)
      CERT_STORE_CREATE_NEW_FLAG, NULL);
     if (memStore)
     {
-        BOOL ret = CertAddStoreToCollection(store, memStore, 0, 0);
-
-        ok(!ret && GetLastError() == E_INVALIDARG,
-         "Expected E_INVALIDARG, got %08x\n", GetLastError());
+        if (pCertAddStoreToCollection)
+        {
+            BOOL ret = pCertAddStoreToCollection(store, memStore, 0, 0);
+            ok(!ret && GetLastError() == E_INVALIDARG,
+               "Expected E_INVALIDARG, got %08x\n", GetLastError());
+        }
         CertCloseStore(memStore, 0);
     }
     CertCloseStore(store, 0);
@@ -984,10 +1015,12 @@ static void testSystemStore(void)
         /* Check that it's a collection store */
         if (memStore)
         {
-            BOOL ret = CertAddStoreToCollection(store, memStore, 0, 0);
-
-            /* FIXME: this'll fail on NT4, but what error will it give? */
-            ok(ret, "CertAddStoreToCollection failed: %08x\n", GetLastError());
+            if (pCertAddStoreToCollection)
+            {
+                BOOL ret = pCertAddStoreToCollection(store, memStore, 0, 0);
+                /* FIXME: this'll fail on NT4, but what error will it give? */
+                ok(ret, "CertAddStoreToCollection failed: %08x\n", GetLastError());
+            }
             CertCloseStore(memStore, 0);
         }
         CertCloseStore(store, 0);
@@ -1073,7 +1106,13 @@ static void testFileStore(void)
     BOOL ret;
     PCCERT_CONTEXT cert;
     HANDLE file;
- 
+
+    if (!pCertControlStore)
+    {
+        skip("CertControlStore() is not available\n");
+        return;
+    }
+
     store = CertOpenStore(CERT_STORE_PROV_FILE, 0, 0, 0, NULL);
     ok(!store && GetLastError() == ERROR_INVALID_HANDLE,
      "Expected ERROR_INVALID_HANDLE, got %08x\n", GetLastError());
@@ -1109,7 +1148,7 @@ static void testFileStore(void)
         /* apparently allows adding certificates.. */
         ok(ret, "CertAddEncodedCertificateToStore failed: %d\n", ret);
         /* but not commits.. */
-        ret = CertControlStore(store, 0, CERT_STORE_CTRL_COMMIT, NULL);
+        ret = pCertControlStore(store, 0, CERT_STORE_CTRL_COMMIT, NULL);
         ok(!ret && GetLastError() == ERROR_CALL_NOT_IMPLEMENTED,
          "Expected ERROR_CALL_NOT_IMPLEMENTED, got %08x\n", GetLastError());
         /* It still has certs in memory.. */
@@ -1133,7 +1172,7 @@ static void testFileStore(void)
         ret = CertAddEncodedCertificateToStore(store, X509_ASN_ENCODING,
          bigCert, sizeof(bigCert), CERT_STORE_ADD_ALWAYS, NULL);
         ok(ret, "CertAddEncodedCertificateToStore failed: %d\n", ret);
-        ret = CertControlStore(store, 0, CERT_STORE_CTRL_COMMIT, NULL);
+        ret = pCertControlStore(store, 0, CERT_STORE_CTRL_COMMIT, NULL);
         ok(!ret && GetLastError() == ERROR_CALL_NOT_IMPLEMENTED,
          "Expected ERROR_CALL_NOT_IMPLEMENTED, got %08x\n", GetLastError());
         CertCloseStore(store, 0);
@@ -1148,7 +1187,7 @@ static void testFileStore(void)
         ret = CertAddEncodedCertificateToStore(store, X509_ASN_ENCODING,
          bigCert, sizeof(bigCert), CERT_STORE_ADD_ALWAYS, NULL);
         ok(ret, "CertAddEncodedCertificateToStore failed: %d\n", ret);
-        ret = CertControlStore(store, 0, CERT_STORE_CTRL_COMMIT, NULL);
+        ret = pCertControlStore(store, 0, CERT_STORE_CTRL_COMMIT, NULL);
         ok(!ret && GetLastError() == ERROR_CALL_NOT_IMPLEMENTED,
          "Expected ERROR_CALL_NOT_IMPLEMENTED, got %08x\n", GetLastError());
         CertCloseStore(store, 0);
@@ -1164,7 +1203,7 @@ static void testFileStore(void)
         ok(ret, "CertAddEncodedCertificateToStore failed: %08x\n",
          GetLastError());
         /* with commits enabled, commit is allowed */
-        ret = CertControlStore(store, 0, CERT_STORE_CTRL_COMMIT, NULL);
+        ret = pCertControlStore(store, 0, CERT_STORE_CTRL_COMMIT, NULL);
         ok(ret, "CertControlStore failed: %d\n", ret);
         compareFile(filename, serializedStoreWithCert,
          sizeof(serializedStoreWithCert));
@@ -1244,12 +1283,15 @@ static void testFileNameStore(void)
         ok(store != NULL, "CertOpenStore failed: %08x\n", GetLastError());
 
         cert = CertEnumCertificatesInStore(store, NULL);
-        todo_wine ok(cert != NULL, "CertEnumCertificatesInStore failed: %08x\n",
+        ok(cert != NULL, "CertEnumCertificatesInStore failed: %08x\n",
          GetLastError());
         cert = CertEnumCertificatesInStore(store, cert);
         ok(!cert, "Expected only one cert\n");
-        crl = CertEnumCRLsInStore(store, NULL);
-        ok(!crl, "Expected no CRLs\n");
+        if (pCertEnumCRLsInStore)
+        {
+            crl = pCertEnumCRLsInStore(store, NULL);
+            ok(!crl, "Expected no CRLs\n");
+        }
 
         CertCloseStore(store, 0);
         DeleteFileW(filename);
@@ -1269,8 +1311,11 @@ static void testFileNameStore(void)
          GetLastError());
         cert = CertEnumCertificatesInStore(store, cert);
         ok(!cert, "Expected only one cert\n");
-        crl = CertEnumCRLsInStore(store, NULL);
-        ok(!crl, "Expected no CRLs\n");
+        if (pCertEnumCRLsInStore)
+        {
+            crl = pCertEnumCRLsInStore(store, NULL);
+            ok(!crl, "Expected no CRLs\n");
+        }
 
         CertCloseStore(store, 0);
         DeleteFileW(filename);
@@ -1290,10 +1335,13 @@ static void testFileNameStore(void)
          GetLastError());
         cert = CertEnumCertificatesInStore(store, cert);
         ok(!cert, "Expected only one cert\n");
-        crl = CertEnumCRLsInStore(store, NULL);
-        ok(crl != NULL, "CertEnumCRLsInStore failed: %08x\n", GetLastError());
-        crl = CertEnumCRLsInStore(store, crl);
-        ok(!crl, "Expected only one CRL\n");
+        if (pCertEnumCRLsInStore)
+        {
+            crl = pCertEnumCRLsInStore(store, NULL);
+            ok(crl != NULL, "CertEnumCRLsInStore failed: %08x\n", GetLastError());
+            crl = pCertEnumCRLsInStore(store, crl);
+            ok(!crl, "Expected only one CRL\n");
+        }
 
         CertCloseStore(store, 0);
         /* Don't delete it this time, the next test uses it */
@@ -1331,6 +1379,173 @@ static void testFileNameStore(void)
          sizeof(serializedStoreWithCertAndCRL));
     }
     DeleteFileW(filename);
+}
+
+static const BYTE signedContent[] = {
+0x30,0x81,0xb2,0x06,0x09,0x2a,0x86,0x48,0x86,0xf7,0x0d,0x01,0x07,0x02,0xa0,
+0x81,0xa4,0x30,0x81,0xa1,0x02,0x01,0x01,0x31,0x0e,0x30,0x0c,0x06,0x08,0x2a,
+0x86,0x48,0x86,0xf7,0x0d,0x02,0x05,0x05,0x00,0x30,0x13,0x06,0x09,0x2a,0x86,
+0x48,0x86,0xf7,0x0d,0x01,0x07,0x01,0xa0,0x06,0x04,0x04,0x01,0x02,0x03,0x04,
+0x31,0x77,0x30,0x75,0x02,0x01,0x01,0x30,0x1a,0x30,0x15,0x31,0x13,0x30,0x11,
+0x06,0x03,0x55,0x04,0x03,0x13,0x0a,0x4a,0x75,0x61,0x6e,0x20,0x4c,0x61,0x6e,
+0x67,0x00,0x02,0x01,0x01,0x30,0x0c,0x06,0x08,0x2a,0x86,0x48,0x86,0xf7,0x0d,
+0x02,0x05,0x05,0x00,0x30,0x04,0x06,0x00,0x05,0x00,0x04,0x40,0x81,0xa6,0x70,
+0xb3,0xef,0x59,0xd1,0x66,0xd1,0x9b,0xc0,0x9a,0xb6,0x9a,0x5e,0x6d,0x6f,0x6d,
+0x0d,0x59,0xa9,0xaa,0x6e,0xe9,0x2c,0xa0,0x1e,0xee,0xc2,0x60,0xbc,0x59,0xbe,
+0x3f,0x63,0x06,0x8d,0xc9,0x11,0x1d,0x23,0x64,0x92,0xef,0x2e,0xfc,0x57,0x29,
+0xa4,0xaf,0xe0,0xee,0x93,0x19,0x39,0x51,0xe4,0x44,0xb8,0x0b,0x28,0xf4,0xa8,
+0x0d };
+static const BYTE signedWithCertAndCrlBareContent[] = {
+0x30,0x82,0x01,0x4f,0x02,0x01,0x01,0x31,0x0e,0x30,0x0c,0x06,0x08,0x2a,0x86,
+0x48,0x86,0xf7,0x0d,0x02,0x05,0x05,0x00,0x30,0x13,0x06,0x09,0x2a,0x86,0x48,
+0x86,0xf7,0x0d,0x01,0x07,0x01,0xa0,0x06,0x04,0x04,0x01,0x02,0x03,0x04,0xa0,
+0x7c,0x30,0x7a,0x02,0x01,0x01,0x30,0x02,0x06,0x00,0x30,0x15,0x31,0x13,0x30,
+0x11,0x06,0x03,0x55,0x04,0x03,0x13,0x0a,0x4a,0x75,0x61,0x6e,0x20,0x4c,0x61,
+0x6e,0x67,0x00,0x30,0x22,0x18,0x0f,0x31,0x36,0x30,0x31,0x30,0x31,0x30,0x31,
+0x30,0x30,0x30,0x30,0x30,0x30,0x5a,0x18,0x0f,0x31,0x36,0x30,0x31,0x30,0x31,
+0x30,0x31,0x30,0x30,0x30,0x30,0x30,0x30,0x5a,0x30,0x15,0x31,0x13,0x30,0x11,
+0x06,0x03,0x55,0x04,0x03,0x13,0x0a,0x4a,0x75,0x61,0x6e,0x20,0x4c,0x61,0x6e,
+0x67,0x00,0x30,0x07,0x30,0x02,0x06,0x00,0x03,0x01,0x00,0xa3,0x16,0x30,0x14,
+0x30,0x12,0x06,0x03,0x55,0x1d,0x13,0x01,0x01,0xff,0x04,0x08,0x30,0x06,0x01,
+0x01,0xff,0x02,0x01,0x01,0xa1,0x2e,0x30,0x2c,0x30,0x02,0x06,0x00,0x30,0x15,
+0x31,0x13,0x30,0x11,0x06,0x03,0x55,0x04,0x03,0x13,0x0a,0x4a,0x75,0x61,0x6e,
+0x20,0x4c,0x61,0x6e,0x67,0x00,0x18,0x0f,0x31,0x36,0x30,0x31,0x30,0x31,0x30,
+0x31,0x30,0x30,0x30,0x30,0x30,0x30,0x5a,0x31,0x77,0x30,0x75,0x02,0x01,0x01,
+0x30,0x1a,0x30,0x15,0x31,0x13,0x30,0x11,0x06,0x03,0x55,0x04,0x03,0x13,0x0a,
+0x4a,0x75,0x61,0x6e,0x20,0x4c,0x61,0x6e,0x67,0x00,0x02,0x01,0x01,0x30,0x0c,
+0x06,0x08,0x2a,0x86,0x48,0x86,0xf7,0x0d,0x02,0x05,0x05,0x00,0x30,0x04,0x06,
+0x00,0x05,0x00,0x04,0x40,0x81,0xa6,0x70,0xb3,0xef,0x59,0xd1,0x66,0xd1,0x9b,
+0xc0,0x9a,0xb6,0x9a,0x5e,0x6d,0x6f,0x6d,0x0d,0x59,0xa9,0xaa,0x6e,0xe9,0x2c,
+0xa0,0x1e,0xee,0xc2,0x60,0xbc,0x59,0xbe,0x3f,0x63,0x06,0x8d,0xc9,0x11,0x1d,
+0x23,0x64,0x92,0xef,0x2e,0xfc,0x57,0x29,0xa4,0xaf,0xe0,0xee,0x93,0x19,0x39,
+0x51,0xe4,0x44,0xb8,0x0b,0x28,0xf4,0xa8,0x0d };
+static const BYTE hashContent[] = {
+0x30,0x47,0x06,0x09,0x2a,0x86,0x48,0x86,0xf7,0x0d,0x01,0x07,0x05,0xa0,0x3a,
+0x30,0x38,0x02,0x01,0x00,0x30,0x0c,0x06,0x08,0x2a,0x86,0x48,0x86,0xf7,0x0d,
+0x02,0x05,0x05,0x00,0x30,0x13,0x06,0x09,0x2a,0x86,0x48,0x86,0xf7,0x0d,0x01,
+0x07,0x01,0xa0,0x06,0x04,0x04,0x01,0x02,0x03,0x04,0x04,0x10,0x08,0xd6,0xc0,
+0x5a,0x21,0x51,0x2a,0x79,0xa1,0xdf,0xeb,0x9d,0x2a,0x8f,0x26,0x2f };
+static const BYTE hashBareContent[] = {
+0x30,0x38,0x02,0x01,0x00,0x30,0x0c,0x06,0x08,0x2a,0x86,0x48,0x86,0xf7,0x0d,
+0x02,0x05,0x05,0x00,0x30,0x13,0x06,0x09,0x2a,0x86,0x48,0x86,0xf7,0x0d,0x01,
+0x07,0x01,0xa0,0x06,0x04,0x04,0x01,0x02,0x03,0x04,0x04,0x10,0x08,0xd6,0xc0,
+0x5a,0x21,0x51,0x2a,0x79,0xa1,0xdf,0xeb,0x9d,0x2a,0x8f,0x26,0x2f };
+
+static void testMessageStore(void)
+{
+    HCERTSTORE store;
+    HCRYPTMSG msg = CryptMsgOpenToDecode(PKCS_7_ASN_ENCODING, 0, 0, 0, NULL,
+     NULL);
+    CRYPT_DATA_BLOB blob = { sizeof(signedWithCertAndCrlBareContent),
+     (LPBYTE)signedWithCertAndCrlBareContent };
+    DWORD count, size;
+    BOOL ret;
+
+    /* Crashes
+    store = CertOpenStore(CERT_STORE_PROV_MSG, 0, 0, 0, NULL);
+     */
+    SetLastError(0xdeadbeef);
+    store = CertOpenStore(CERT_STORE_PROV_MSG, 0, 0, 0, msg);
+    ok(!store && GetLastError() == CRYPT_E_INVALID_MSG_TYPE,
+     "Expected CRYPT_E_INVALID_MSG_TYPE, got %08x\n", GetLastError());
+    CryptMsgUpdate(msg, signedContent, sizeof(signedContent), TRUE);
+    store = CertOpenStore(CERT_STORE_PROV_MSG, 0, 0, 0, msg);
+    ok(store != NULL, "CertOpenStore failed: %08x\n", GetLastError());
+    if (store)
+    {
+        PCCERT_CONTEXT cert = NULL;
+        PCCRL_CONTEXT crl = NULL;
+
+        count = 0;
+        do {
+            cert = CertEnumCertificatesInStore(store, cert);
+            if (cert)
+                count++;
+        } while (cert);
+        ok(count == 0, "Expected 0 certificates, got %d\n", count);
+
+        if (pCertEnumCRLsInStore)
+        {
+            count = 0;
+            do {
+                crl = pCertEnumCRLsInStore(store, crl);
+                if (crl)
+                    count++;
+            } while (crl);
+            ok(count == 0, "Expected 0 CRLs, got %d\n", count);
+        }
+
+        /* Can add certs to a message store */
+        ret = CertAddEncodedCertificateToStore(store, X509_ASN_ENCODING,
+         bigCert, sizeof(bigCert), CERT_STORE_ADD_ALWAYS, NULL);
+        ok(ret, "CertAddEncodedCertificateToStore failed: %08x\n",
+         GetLastError());
+        count = 0;
+        do {
+            cert = CertEnumCertificatesInStore(store, cert);
+            if (cert)
+                count++;
+        } while (cert);
+        ok(count == 1, "Expected 1 certificate, got %d\n", count);
+
+        CertCloseStore(store, 0);
+    }
+    /* but the added certs weren't actually added to the message */
+    size = sizeof(count);
+    ret = CryptMsgGetParam(msg, CMSG_CERT_COUNT_PARAM, 0, &count, &size);
+    ok(ret, "CryptMsgGetParam failed: %08x\n", GetLastError());
+    ok(count == 0, "Expected 0 certificates, got %d\n", count);
+    CryptMsgClose(msg);
+
+    /* Crashes
+    store = CertOpenStore(CERT_STORE_PROV_PKCS7, 0, 0, 0, NULL);
+     */
+    store = CertOpenStore(CERT_STORE_PROV_PKCS7, 0, 0, 0, &blob);
+    ok(store != NULL, "CertOpenStore failed: %08x\n", GetLastError());
+    if (store)
+    {
+        DWORD count = 0;
+        PCCERT_CONTEXT cert = NULL;
+        PCCRL_CONTEXT crl = NULL;
+
+        do {
+            cert = CertEnumCertificatesInStore(store, cert);
+            if (cert)
+                count++;
+        } while (cert);
+        ok(count == 1, "Expected 1 certificate, got %d\n", count);
+
+        if (pCertEnumCRLsInStore)
+        {
+            count = 0;
+            do {
+                crl = pCertEnumCRLsInStore(store, crl);
+                if (crl)
+                    count++;
+            } while (crl);
+            ok(count == 1, "Expected 1 CRL, got %d\n", count);
+        }
+        CertCloseStore(store, 0);
+    }
+    /* Encoding appears to be ignored */
+    store = CertOpenStore(CERT_STORE_PROV_PKCS7, X509_ASN_ENCODING, 0, 0,
+     &blob);
+    ok(store != NULL, "CertOpenStore failed: %08x\n", GetLastError());
+    if (store)
+        CertCloseStore(store, 0);
+    /* Messages other than signed messages aren't allowed */
+    blob.cbData = sizeof(hashContent);
+    blob.pbData = (LPBYTE)hashContent;
+    SetLastError(0xdeadbeef);
+    store = CertOpenStore(CERT_STORE_PROV_PKCS7, 0, 0, 0, &blob);
+    ok(!store && GetLastError() == CRYPT_E_INVALID_MSG_TYPE,
+     "Expected CRYPT_E_INVALID_MSG_TYPE, got %08x\n", GetLastError());
+    blob.cbData = sizeof(hashBareContent);
+    blob.pbData = (LPBYTE)hashBareContent;
+    SetLastError(0xdeadbeef);
+    store = CertOpenStore(CERT_STORE_PROV_PKCS7, 0, 0, 0, &blob);
+    ok(!store && GetLastError() == CRYPT_E_ASN1_BADTAG,
+     "Expected CRYPT_E_ASN1_BADTAG, got %08x\n", GetLastError());
 }
 
 static void testCertOpenSystemStore(void)
@@ -1373,17 +1588,23 @@ static void testCertEnumSystemStore(void)
     BOOL ret;
     struct EnumSystemStoreInfo info = { FALSE, 0 };
 
+    if (!pCertEnumSystemStore)
+    {
+        skip("CertEnumSystemStore() is not available\n");
+        return;
+    }
+
     SetLastError(0xdeadbeef);
-    ret = CertEnumSystemStore(0, NULL, NULL, NULL);
+    ret = pCertEnumSystemStore(0, NULL, NULL, NULL);
     ok(!ret && GetLastError() == ERROR_FILE_NOT_FOUND,
      "Expected ERROR_FILE_NOT_FOUND, got %08x\n", GetLastError());
     /* Crashes
-    ret = CertEnumSystemStore(CERT_SYSTEM_STORE_LOCAL_MACHINE, NULL, NULL,
+    ret = pCertEnumSystemStore(CERT_SYSTEM_STORE_LOCAL_MACHINE, NULL, NULL,
      NULL);
      */
 
     SetLastError(0xdeadbeef);
-    ret = CertEnumSystemStore(CERT_SYSTEM_STORE_LOCAL_MACHINE, NULL, &info,
+    ret = pCertEnumSystemStore(CERT_SYSTEM_STORE_LOCAL_MACHINE, NULL, &info,
      enumSystemStoreCB);
     /* Callback returning FALSE stops enumeration */
     ok(!ret, "Expected CertEnumSystemStore to stop\n");
@@ -1392,7 +1613,7 @@ static void testCertEnumSystemStore(void)
 
     info.goOn = TRUE;
     info.storeCount = 0;
-    ret = CertEnumSystemStore(CERT_SYSTEM_STORE_LOCAL_MACHINE, NULL, &info,
+    ret = pCertEnumSystemStore(CERT_SYSTEM_STORE_LOCAL_MACHINE, NULL, &info,
      enumSystemStoreCB);
     ok(ret, "CertEnumSystemStore failed: %08x\n", GetLastError());
     /* There should always be at least My, Root, and CA stores */
@@ -1407,52 +1628,58 @@ static void testStoreProperty(void)
     DWORD propID, size = 0, state;
     CRYPT_DATA_BLOB blob;
 
+    if (!pCertGetStoreProperty || !pCertSetStoreProperty)
+    {
+        skip("CertGet/SetStoreProperty() is not available\n");
+        return;
+    }
+
     /* Crash
-    ret = CertGetStoreProperty(NULL, 0, NULL, NULL);
-    ret = CertGetStoreProperty(NULL, 0, NULL, &size);
-    ret = CertGetStoreProperty(store, 0, NULL, NULL);
+    ret = pCertGetStoreProperty(NULL, 0, NULL, NULL);
+    ret = pCertGetStoreProperty(NULL, 0, NULL, &size);
+    ret = pCertGetStoreProperty(store, 0, NULL, NULL);
      */
 
     store = CertOpenStore(CERT_STORE_PROV_MEMORY, 0, 0,
      CERT_STORE_CREATE_NEW_FLAG, NULL);
     /* Check a missing prop ID */
     SetLastError(0xdeadbeef);
-    ret = CertGetStoreProperty(store, 0, NULL, &size);
+    ret = pCertGetStoreProperty(store, 0, NULL, &size);
     ok(!ret && GetLastError() == CRYPT_E_NOT_FOUND,
      "Expected CRYPT_E_NOT_FOUND, got %08x\n", GetLastError());
     /* Contrary to MSDN, CERT_ACCESS_STATE_PROP_ID is supported for stores.. */
     size = sizeof(state);
-    ret = CertGetStoreProperty(store, CERT_ACCESS_STATE_PROP_ID, &state, &size);
+    ret = pCertGetStoreProperty(store, CERT_ACCESS_STATE_PROP_ID, &state, &size);
     ok(ret, "CertGetStoreProperty failed for CERT_ACCESS_STATE_PROP_ID: %08x\n",
      GetLastError());
     ok(!state, "Expected a non-persisted store\n");
     /* and CERT_STORE_LOCALIZED_NAME_PROP_ID isn't supported by default. */
     size = 0;
-    ret = CertGetStoreProperty(store, CERT_STORE_LOCALIZED_NAME_PROP_ID, NULL,
+    ret = pCertGetStoreProperty(store, CERT_STORE_LOCALIZED_NAME_PROP_ID, NULL,
      &size);
     ok(!ret && GetLastError() == CRYPT_E_NOT_FOUND,
      "Expected CRYPT_E_NOT_FOUND, got %08x\n", GetLastError());
     /* Delete an arbitrary property on a store */
-    ret = CertSetStoreProperty(store, CERT_FIRST_USER_PROP_ID, 0, NULL);
+    ret = pCertSetStoreProperty(store, CERT_FIRST_USER_PROP_ID, 0, NULL);
     ok(ret, "CertSetStoreProperty failed: %08x\n", GetLastError());
     /* Set an arbitrary property on a store */
     blob.pbData = (LPBYTE)&state;
     blob.cbData = sizeof(state);
-    ret = CertSetStoreProperty(store, CERT_FIRST_USER_PROP_ID, 0, &blob);
+    ret = pCertSetStoreProperty(store, CERT_FIRST_USER_PROP_ID, 0, &blob);
     ok(ret, "CertSetStoreProperty failed: %08x\n", GetLastError());
     /* Get an arbitrary property that's been set */
-    ret = CertGetStoreProperty(store, CERT_FIRST_USER_PROP_ID, NULL, &size);
+    ret = pCertGetStoreProperty(store, CERT_FIRST_USER_PROP_ID, NULL, &size);
     ok(ret, "CertGetStoreProperty failed: %08x\n", GetLastError());
     ok(size == sizeof(state), "Unexpected data size %d\n", size);
-    ret = CertGetStoreProperty(store, CERT_FIRST_USER_PROP_ID, &propID, &size);
+    ret = pCertGetStoreProperty(store, CERT_FIRST_USER_PROP_ID, &propID, &size);
     ok(ret, "CertGetStoreProperty failed: %08x\n", GetLastError());
     ok(propID == state, "CertGetStoreProperty got the wrong value\n");
     /* Delete it again */
-    ret = CertSetStoreProperty(store, CERT_FIRST_USER_PROP_ID, 0, NULL);
+    ret = pCertSetStoreProperty(store, CERT_FIRST_USER_PROP_ID, 0, NULL);
     ok(ret, "CertSetStoreProperty failed: %08x\n", GetLastError());
     /* And check that it's missing */
     SetLastError(0xdeadbeef);
-    ret = CertGetStoreProperty(store, CERT_FIRST_USER_PROP_ID, NULL, &size);
+    ret = pCertGetStoreProperty(store, CERT_FIRST_USER_PROP_ID, NULL, &size);
     ok(!ret && GetLastError() == CRYPT_E_NOT_FOUND,
      "Expected CRYPT_E_NOT_FOUND, got %08x\n", GetLastError());
     CertCloseStore(store, 0);
@@ -1460,13 +1687,13 @@ static void testStoreProperty(void)
     /* Recheck on the My store.. */
     store = CertOpenSystemStoreW(0, MyW);
     size = sizeof(state);
-    ret = CertGetStoreProperty(store, CERT_ACCESS_STATE_PROP_ID, &state, &size);
+    ret = pCertGetStoreProperty(store, CERT_ACCESS_STATE_PROP_ID, &state, &size);
     ok(ret, "CertGetStoreProperty failed for CERT_ACCESS_STATE_PROP_ID: %08x\n",
      GetLastError());
     ok(state, "Expected a persisted store\n");
     SetLastError(0xdeadbeef);
     size = 0;
-    ret = CertGetStoreProperty(store, CERT_STORE_LOCALIZED_NAME_PROP_ID, NULL,
+    ret = pCertGetStoreProperty(store, CERT_STORE_LOCALIZED_NAME_PROP_ID, NULL,
      &size);
     ok(!ret && GetLastError() == CRYPT_E_NOT_FOUND,
      "Expected CRYPT_E_NOT_FOUND, got %08x\n", GetLastError());
@@ -1627,8 +1854,120 @@ static void testAddSerialized(void)
     CertCloseStore(store, 0);
 }
 
+static DWORD countCertsInStore(HCERTSTORE store)
+{
+    PCCERT_CONTEXT cert = NULL;
+    DWORD certs = 0;
+
+    do {
+        cert = CertEnumCertificatesInStore(store, cert);
+        if (cert)
+            certs++;
+    } while (cert);
+    return certs;
+}
+
+static DWORD countCRLsInStore(HCERTSTORE store)
+{
+    PCCRL_CONTEXT crl = NULL;
+    DWORD crls = 0;
+
+    do {
+        crl = pCertEnumCRLsInStore(store, crl);
+        if (crl)
+            crls++;
+    } while (crl);
+    return crls;
+}
+
+static void test_I_UpdateStore(void)
+{
+    HMODULE lib = GetModuleHandleA("crypt32");
+    BOOL (WINAPI *pI_CertUpdatestore)(HCERTSTORE, HCERTSTORE, DWORD, DWORD) =
+     (void *)GetProcAddress(lib, "I_CertUpdateStore");
+    BOOL ret;
+    HCERTSTORE store1, store2;
+    PCCERT_CONTEXT cert;
+    DWORD certs;
+
+    if (!pI_CertUpdatestore)
+    {
+        skip("No I_CertUpdateStore\n");
+        return;
+    }
+    store1 = CertOpenStore(CERT_STORE_PROV_MEMORY, 0, 0,
+     CERT_STORE_CREATE_NEW_FLAG, NULL);
+    store2 = CertOpenStore(CERT_STORE_PROV_MEMORY, 0, 0,
+     CERT_STORE_CREATE_NEW_FLAG, NULL);
+
+    /* Crash
+    ret = pI_CertUpdatestore(NULL, NULL, 0, 0);
+    ret = pI_CertUpdatestore(store1, NULL, 0, 0);
+    ret = pI_CertUpdatestore(NULL, store2, 0, 0);
+     */
+    ret = pI_CertUpdatestore(store1, store2, 0, 0);
+    ok(ret, "I_CertUpdateStore failed: %08x\n", GetLastError());
+
+    CertAddEncodedCertificateToStore(store2, X509_ASN_ENCODING, bigCert,
+     sizeof(bigCert), CERT_STORE_ADD_ALWAYS, &cert);
+    /* I_CertUpdateStore adds the contexts from store2 to store1 */
+    ret = pI_CertUpdatestore(store1, store2, 0, 0);
+    ok(ret, "I_CertUpdateStore failed: %08x\n", GetLastError());
+    certs = countCertsInStore(store1);
+    ok(certs == 1, "Expected 1 cert, got %d\n", certs);
+    /* Calling it a second time has no effect */
+    ret = pI_CertUpdatestore(store1, store2, 0, 0);
+    ok(ret, "I_CertUpdateStore failed: %08x\n", GetLastError());
+    certs = countCertsInStore(store1);
+    ok(certs == 1, "Expected 1 cert, got %d\n", certs);
+
+    /* The last parameters to I_CertUpdateStore appear to be ignored */
+    ret = pI_CertUpdatestore(store1, store2, 1, 0);
+    ok(ret, "I_CertUpdateStore failed: %08x\n", GetLastError());
+    ret = pI_CertUpdatestore(store1, store2, 0, 1);
+    ok(ret, "I_CertUpdateStore failed: %08x\n", GetLastError());
+
+    CertAddEncodedCRLToStore(store2, X509_ASN_ENCODING, signedCRL,
+     sizeof(signedCRL), CERT_STORE_ADD_ALWAYS, NULL);
+
+    /* I_CertUpdateStore also adds the CRLs from store2 to store1 */
+    ret = pI_CertUpdatestore(store1, store2, 0, 0);
+    ok(ret, "I_CertUpdateStore failed: %08x\n", GetLastError());
+    certs = countCertsInStore(store1);
+    ok(certs == 1, "Expected 1 cert, got %d\n", certs);
+    if (pCertEnumCRLsInStore)
+    {
+        certs = countCRLsInStore(store1);
+        ok(certs == 1, "Expected 1 CRL, got %d\n", certs);
+    }
+
+    CertDeleteCertificateFromStore(cert);
+    /* If a context is deleted from store2, I_CertUpdateStore deletes it
+     * from store1
+     */
+    ret = pI_CertUpdatestore(store1, store2, 0, 0);
+    ok(ret, "I_CertUpdateStore failed: %08x\n", GetLastError());
+    certs = countCertsInStore(store1);
+    ok(certs == 0, "Expected 0 certs, got %d\n", certs);
+
+    CertFreeCertificateContext(cert);
+    CertCloseStore(store1, 0);
+    CertCloseStore(store2, 0);
+}
+
 START_TEST(store)
 {
+    HMODULE hdll;
+
+    hdll = GetModuleHandleA("Crypt32.dll");
+    pCertAddStoreToCollection = (void*)GetProcAddress(hdll, "CertAddStoreToCollection");
+    pCertControlStore = (void*)GetProcAddress(hdll, "CertControlStore");
+    pCertEnumCRLsInStore = (void*)GetProcAddress(hdll, "CertEnumCRLsInStore");
+    pCertEnumSystemStore = (void*)GetProcAddress(hdll, "CertEnumSystemStore");
+    pCertGetStoreProperty = (void*)GetProcAddress(hdll, "CertGetStoreProperty");
+    pCertRemoveStoreFromCollection = (void*)GetProcAddress(hdll, "CertRemoveStoreFromCollection");
+    pCertSetStoreProperty = (void*)GetProcAddress(hdll, "CertSetStoreProperty");
+
     /* various combinations of CertOpenStore */
     testMemStore();
     testCollectionStore();
@@ -1637,10 +1976,13 @@ START_TEST(store)
     testSystemStore();
     testFileStore();
     testFileNameStore();
+    testMessageStore();
 
     testCertOpenSystemStore();
     testCertEnumSystemStore();
     testStoreProperty();
 
     testAddSerialized();
+
+    test_I_UpdateStore();
 }

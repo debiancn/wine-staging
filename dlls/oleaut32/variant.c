@@ -6,7 +6,7 @@
  * Copyright 2005 Daniel Remenak
  * Copyright 2006 Google (Benjamin Arai)
  *
- * The alorithm for conversion from Julian days to day/month/year is based on
+ * The algorithm for conversion from Julian days to day/month/year is based on
  * that devised by Henry Fliegel, as implemented in PostgreSQL, which is
  * Copyright 1994-7 Regents of the University of California
  *
@@ -1108,7 +1108,7 @@ static HRESULT VARIANT_RollUdate(UDATE *lpUd)
     {
       lpUd->st.wMonth--; /* Previous month */
       if (lpUd->st.wMonth == 2 && IsLeapYear(lpUd->st.wYear))
-        lpUd->st.wDay = 29; /* Februaury has 29 days on leap years */
+        lpUd->st.wDay = 29; /* February has 29 days on leap years */
       else
         lpUd->st.wDay = days[lpUd->st.wMonth]; /* Last day of the month */
     }
@@ -1119,7 +1119,7 @@ static HRESULT VARIANT_RollUdate(UDATE *lpUd)
 
     /* Possibly need to roll the date forward */
     if (lpUd->st.wMonth == 2 && IsLeapYear(lpUd->st.wYear))
-      rollForward = lpUd->st.wDay - 29; /* Februaury has 29 days on leap years */
+      rollForward = lpUd->st.wDay - 29; /* February has 29 days on leap years */
     else
       rollForward = lpUd->st.wDay - days[lpUd->st.wMonth];
 
@@ -1254,7 +1254,7 @@ INT WINAPI SystemTimeToVariantTime(LPSYSTEMTIME lpSt, double *pDateOut)
   if (lpSt->wMonth > 12)
     return FALSE;
 
-  memcpy(&ud.st, lpSt, sizeof(ud.st));
+  ud.st = *lpSt;
   return !VarDateFromUdate(&ud, 0, pDateOut);
 }
 
@@ -1280,7 +1280,7 @@ INT WINAPI VariantTimeToSystemTime(double dateIn, LPSYSTEMTIME lpSt)
   if (FAILED(VarUdateFromDate(dateIn, 0, &ud)))
     return FALSE;
 
-  memcpy(lpSt, &ud.st, sizeof(ud.st));
+  *lpSt = ud.st;
   return TRUE;
 }
 
@@ -1312,8 +1312,8 @@ HRESULT WINAPI VarDateFromUdateEx(UDATE *pUdateIn, LCID lcid, ULONG dwFlags, DAT
 
   if (lcid != MAKELCID(MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US), SORT_DEFAULT))
     FIXME("lcid possibly not handled, treating as en-us\n");
-      
-  memcpy(&ud, pUdateIn, sizeof(ud));
+
+  ud = *pUdateIn;
 
   if (dwFlags & VAR_VALIDDATE)
     WARN("Ignoring VAR_VALIDDATE\n");
@@ -1915,7 +1915,7 @@ HRESULT WINAPI VarParseNumFromStr(OLECHAR *lpszStr, LCID lcid, ULONG dwFlags,
  * NOTES
  *  - The smallest favoured type present in dwVtBits that can represent the
  *    number in pNumprs without losing precision is used.
- *  - Signed types are preferrred over unsigned types of the same size.
+ *  - Signed types are preferred over unsigned types of the same size.
  *  - Preferred types in order are: integer, float, double, currency then decimal.
  *  - Rounding (dropping of decimal points) occurs without error. See VarI8FromR8()
  *    for details of the rounding method.
@@ -1924,7 +1924,7 @@ HRESULT WINAPI VarParseNumFromStr(OLECHAR *lpszStr, LCID lcid, ULONG dwFlags,
  *    design?): If some other VTBIT's for integers are specified together
  *    with VTBIT_I8 and the number will fit only in a VT_I8 Windows will "cast"
  *    the number to the smallest requested integer truncating this way the
- *    number.  Wine dosn't implement this "feature" (yet?).
+ *    number.  Wine doesn't implement this "feature" (yet?).
  */
 HRESULT WINAPI VarNumFromParseNum(NUMPARSE *pNumprs, BYTE *rgbDig,
                                   ULONG dwVtBits, VARIANT *pVarDst)
@@ -2517,7 +2517,7 @@ HRESULT WINAPI VarCat(LPVARIANT left, LPVARIANT right, LPVARIANT out)
     else
         hres = DISP_E_BADVARTYPE;
 
-    /* if resutl type is not S_OK, then no need to go further */
+    /* if result type is not S_OK, then no need to go further */
     if (hres != S_OK)
     {
         V_VT(out) = resultvt;
@@ -2654,7 +2654,7 @@ static HRESULT _VarChangeTypeExWrap (VARIANTARG* pvargDest,
  *  left    [I] First variant
  *  right   [I] Second variant
  *  lcid    [I] LCID (locale identifier) for the comparison
- *  flags   [I] Flags to be used in the comparision:
+ *  flags   [I] Flags to be used in the comparison:
  *              NORM_IGNORECASE, NORM_IGNORENONSPACE, NORM_IGNORESYMBOLS,
  *              NORM_IGNOREWIDTH, NORM_IGNOREKANATYPE, NORM_IGNOREKASHIDA
  *
@@ -2666,8 +2666,8 @@ static HRESULT _VarChangeTypeExWrap (VARIANTARG* pvargDest,
  *  Failure:     An HRESULT error code indicating the error.
  *
  * NOTES
- *  Native VarCmp up to and including WinXP dosn't like as input variants
- *  I1, UI2, VT_UI4, UI8 and UINT. INT is accepted only as left variant.
+ *  Native VarCmp up to and including WinXP doesn't like I1, UI2, VT_UI4,
+ *  UI8 and UINT as input variants. INT is accepted only as left variant.
  *
  *  If both input variants are ERROR then VARCMP_EQ will be returned, else
  *  an ERROR variant will trigger an error.
@@ -2677,9 +2677,9 @@ static HRESULT _VarChangeTypeExWrap (VARIANTARG* pvargDest,
  *  is not an EMPTY variant. All four VT_RESERVED combinations have a
  *  different meaning:
  *   - BSTR and other: BSTR is always greater than the other variant.
- *   - BSTR|VT_RESERVED and other: a string comparision is performed.
+ *   - BSTR|VT_RESERVED and other: a string comparison is performed.
  *   - BSTR and other|VT_RESERVED: If the BSTR is a number a numeric
- *     comparision will take place else the BSTR is always greater.
+ *     comparison will take place else the BSTR is always greater.
  *   - BSTR|VT_RESERVED and other|VT_RESERVED: It seems that the other
  *     variant is ignored and the return value depends only on the sign
  *     of the BSTR if it is a number else the BSTR is always greater. A
@@ -2763,7 +2763,7 @@ HRESULT WINAPI VarCmp(LPVARIANT left, LPVARIANT right, LCID lcid, DWORD flags)
                 /* No VT_RESERVED set ==> BSTR always greater */
                 rc = VARCMP_GT;
             else if (breserv && !nreserv) {
-                /* BSTR has VT_RESERVED set. Do a string comparision */
+                /* BSTR has VT_RESERVED set. Do a string comparison */
                 rc = VariantChangeTypeEx(&rv,nonbv,lcid,0,VT_BSTR);
                 if (FAILED(rc))
                     return rc;
@@ -2780,7 +2780,7 @@ HRESULT WINAPI VarCmp(LPVARIANT left, LPVARIANT right, LCID lcid, DWORD flags)
                        the BSTR number */
                     rc = (V_R8(&lv) >= 0) ? VARCMP_GT : VARCMP_LT;
                 else
-                    /* Numeric comparision, will be handled below.
+                    /* Numeric comparison, will be handled below.
                        VARCMP_NULL used only to break out. */
                     rc = VARCMP_NULL;
             VariantClear(&lv);
@@ -3115,10 +3115,10 @@ VarAnd_Exit:
  *  Failure: An HRESULT error code indicating the error.
  *
  * NOTES
- *  Native VarAdd up to and including WinXP dosn't like as input variants
- *  I1, UI2, UI4, UI8, INT and UINT.
+ *  Native VarAdd up to and including WinXP doesn't like I1, UI2, UI4,
+ *  UI8, INT and UINT as input variants.
  *
- *  Native VarAdd dosn't check for NULL in/out pointers and crashes. We do the
+ *  Native VarAdd doesn't check for NULL in/out pointers and crashes. We do the
  *  same here.
  *
  * FIXME
@@ -3330,10 +3330,10 @@ end:
  *  Failure: An HRESULT error code indicating the error.
  *
  * NOTES
- *  Native VarMul up to and including WinXP dosn't like as input variants
- *  I1, UI2, UI4, UI8, INT and UINT. But it can multiply apples with oranges.
+ *  Native VarMul up to and including WinXP doesn't like I1, UI2, UI4,
+ *  UI8, INT and UINT as input variants. But it can multiply apples with oranges.
  *
- *  Native VarMul dosn't check for NULL in/out pointers and crashes. We do the
+ *  Native VarMul doesn't check for NULL in/out pointers and crashes. We do the
  *  same here.
  *
  * FIXME
@@ -5875,7 +5875,10 @@ HRESULT WINAPI VarImp(LPVARIANT left, LPVARIANT right, LPVARIANT result)
     if (FAILED(hres)) goto VarImp_Exit;
 
     if (rightvt == VT_NULL)
+    {
+        memset( &rv, 0, sizeof(rv) );
         V_VT(&rv) = resvt;
+    }
     else
     {
         hres = VariantCopy(&rv, right);

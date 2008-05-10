@@ -28,7 +28,6 @@
 #include "windef.h"
 #include "winbase.h"
 #include "wingdi.h"
-#include "wine/wingdi16.h"
 #include "gdi_private.h"
 #include "wine/debug.h"
 
@@ -42,14 +41,12 @@ typedef struct
 } PENOBJ;
 
 
-static HGDIOBJ PEN_SelectObject( HGDIOBJ handle, void *obj, HDC hdc );
-static INT PEN_GetObject16( HGDIOBJ handle, void *obj, INT count, LPVOID buffer );
+static HGDIOBJ PEN_SelectObject( HGDIOBJ handle, HDC hdc );
 static INT PEN_GetObject( HGDIOBJ handle, void *obj, INT count, LPVOID buffer );
 
 static const struct gdi_obj_funcs pen_funcs =
 {
     PEN_SelectObject,  /* pSelectObject */
-    PEN_GetObject16,   /* pGetObject16 */
     PEN_GetObject,     /* pGetObjectA */
     PEN_GetObject,     /* pGetObjectW */
     NULL,              /* pUnrealizeObject */
@@ -123,14 +120,38 @@ HPEN WINAPI ExtCreatePen( DWORD style, DWORD width,
 
     if ((style & PS_STYLE_MASK) == PS_USERSTYLE)
     {
-        if (!style_count || !style_bits)
+        if(((INT)style_count) <= 0)
+            return 0;
+
+        if ((style_count > 16) || !style_bits)
         {
             SetLastError(ERROR_INVALID_PARAMETER);
             return 0;
         }
-        /* FIXME: PS_USERSTYLE workaround */
-        FIXME("PS_USERSTYLE not handled\n");
-        style = (style & ~PS_STYLE_MASK) | PS_SOLID;
+
+        if ((style & PS_TYPE_MASK) == PS_COSMETIC)
+        {
+            /* FIXME: PS_USERSTYLE workaround */
+            FIXME("PS_COSMETIC | PS_USERSTYLE not handled\n");
+            style = (style & ~PS_STYLE_MASK) | PS_SOLID;
+        }
+        else
+        {
+            UINT i;
+            BOOL has_neg = FALSE, all_zero = TRUE;
+
+            for(i = 0; (i < style_count) && !has_neg; i++)
+            {
+                has_neg = has_neg || (((INT)(style_bits[i])) < 0);
+                all_zero = all_zero && (style_bits[i] == 0);
+            }
+
+            if(all_zero || has_neg)
+            {
+                SetLastError(ERROR_INVALID_PARAMETER);
+                return 0;
+            }
+        }
     }
     else
     {
@@ -161,7 +182,7 @@ HPEN WINAPI ExtCreatePen( DWORD style, DWORD width,
     }
     else
     {
-        /* PS_INSIDEFRAME is applicable only for gemetric pens */
+        /* PS_INSIDEFRAME is applicable only for geometric pens */
         if ((style & PS_STYLE_MASK) == PS_INSIDEFRAME || width != 1)
         {
             SetLastError(ERROR_INVALID_PARAMETER);
@@ -191,40 +212,35 @@ HPEN WINAPI ExtCreatePen( DWORD style, DWORD width,
 /***********************************************************************
  *           PEN_SelectObject
  */
-static HGDIOBJ PEN_SelectObject( HGDIOBJ handle, void *obj, HDC hdc )
+static HGDIOBJ PEN_SelectObject( HGDIOBJ handle, HDC hdc )
 {
-    HGDIOBJ ret;
-    DC *dc = DC_GetDCPtr( hdc );
+    HGDIOBJ ret = 0;
+    DC *dc = get_dc_ptr( hdc );
 
-    if (!dc) return 0;
-    ret = dc->hPen;
-    if (dc->funcs->pSelectPen) handle = dc->funcs->pSelectPen( dc->physDev, handle );
-    if (handle) dc->hPen = handle;
-    else ret = 0;
-    GDI_ReleaseObj( hdc );
+    if (!dc)
+    {
+        SetLastError( ERROR_INVALID_HANDLE );
+        return 0;
+    }
+
+    if (!GDI_inc_ref_count( handle ))
+    {
+        release_dc_ptr( dc );
+        return 0;
+    }
+
+    if (dc->funcs->pSelectPen && !dc->funcs->pSelectPen( dc->physDev, handle ))
+    {
+        GDI_dec_ref_count( handle );
+    }
+    else
+    {
+        ret = dc->hPen;
+        dc->hPen = handle;
+        GDI_dec_ref_count( ret );
+    }
+    release_dc_ptr( dc );
     return ret;
-}
-
-
-/***********************************************************************
- *           PEN_GetObject16
- */
-static INT PEN_GetObject16( HGDIOBJ handle, void *obj, INT count, LPVOID buffer )
-{
-    PENOBJ *pen = obj;
-    LOGPEN16 *logpen;
-
-    if (!buffer) return sizeof(LOGPEN16);
-
-    if (count < sizeof(LOGPEN16)) return 0;
-
-    logpen = buffer;
-    logpen->lopnStyle = pen->logpen.elpPenStyle;
-    logpen->lopnColor = pen->logpen.elpColor;
-    logpen->lopnWidth.x = pen->logpen.elpWidth;
-    logpen->lopnWidth.y = 0;
-
-    return sizeof(LOGPEN16);
 }
 
 
@@ -249,7 +265,7 @@ static INT PEN_GetObject( HGDIOBJ handle, void *obj, INT count, LPVOID buffer )
             count == sizeof(EXTLOGPEN))
         {
             EXTLOGPEN *elp = buffer;
-            memcpy(elp, &pen->logpen, sizeof(EXTLOGPEN));
+            *elp = pen->logpen;
             elp->elpWidth = 0;
             return sizeof(EXTLOGPEN);
         }

@@ -338,6 +338,12 @@ BOOL WINAPI RegisterShellHook(
  * ShellMessageBoxW				[SHELL32.182]
  *
  * See ShellMessageBoxA.
+ *
+ * NOTE:
+ * shlwapi.ShellMessageBoxWrapW is a duplicate of shell32.ShellMessageBoxW
+ * because we can't forward to it in the .spec file since it's exported by
+ * ordinal. If you change the implementation here please update the code in
+ * shlwapi as well.
  */
 int WINAPIV ShellMessageBoxW(
 	HINSTANCE hInstance,
@@ -440,9 +446,12 @@ int WINAPIV ShellMessageBoxA(
 /*************************************************************************
  * SHRegisterDragDrop				[SHELL32.86]
  *
- * Probably equivalent to RegisterDragDrop but under Windows 9x it could use the
+ * Probably equivalent to RegisterDragDrop but under Windows 95 it could use the
  * shell32 built-in "mini-COM" without the need to load ole32.dll - see SHLoadOLE
- * for details
+ * for details. Under Windows 98 this function initializes the true OLE when called
+ * the first time, on XP always returns E_OUTOFMEMORY and it got removed from Vista.
+ *
+ * We follow Windows 98 behaviour.
  *
  * NOTES
  *     exported by ordinal
@@ -454,16 +463,30 @@ HRESULT WINAPI SHRegisterDragDrop(
 	HWND hWnd,
 	LPDROPTARGET pDropTarget)
 {
-	FIXME("(%p,%p):stub.\n", hWnd, pDropTarget);
+        static BOOL ole_initialized = FALSE;
+        HRESULT hr;
+
+        TRACE("(%p,%p)\n", hWnd, pDropTarget);
+
+        if (!ole_initialized)
+        {
+            hr = OleInitialize(NULL);
+            if (FAILED(hr))
+                return hr;
+            ole_initialized = TRUE;
+        }
 	return RegisterDragDrop(hWnd, pDropTarget);
 }
 
 /*************************************************************************
  * SHRevokeDragDrop				[SHELL32.87]
  *
- * Probably equivalent to RevokeDragDrop but under Windows 9x it could use the
+ * Probably equivalent to RevokeDragDrop but under Windows 95 it could use the
  * shell32 built-in "mini-COM" without the need to load ole32.dll - see SHLoadOLE
- * for details
+ * for details. Function removed from Windows Vista.
+ *
+ * We call ole32 RevokeDragDrop which seems to work even if OleInitialize was
+ * not called.
  *
  * NOTES
  *     exported by ordinal
@@ -473,7 +496,7 @@ HRESULT WINAPI SHRegisterDragDrop(
  */
 HRESULT WINAPI SHRevokeDragDrop(HWND hWnd)
 {
-    FIXME("(%p):stub.\n",hWnd);
+    TRACE("(%p)\n", hWnd);
     return RevokeDragDrop(hWnd);
 }
 
@@ -603,7 +626,7 @@ static INT CALLBACK SHADD_compare_mru(LPCVOID data1, LPCVOID data2, DWORD cbData
  * RETURNS
  *   position within MRU list that data was added.
  */
-static INT SHADD_create_add_mru_data(HANDLE mruhandle, LPSTR doc_name, LPSTR new_lnk_name,
+static INT SHADD_create_add_mru_data(HANDLE mruhandle, LPCSTR doc_name, LPCSTR new_lnk_name,
                                      LPSTR buffer, INT *len)
 {
     LPSTR ptr;
@@ -1582,6 +1605,14 @@ UINT WINAPI SHAddFromPropSheetExtArray(HPSXA hpsxa, LPFNADDPROPSHEETPAGE lpfnAdd
  */
 HPSXA WINAPI SHCreatePropSheetExtArray(HKEY hKey, LPCWSTR pszSubKey, UINT max_iface)
 {
+    return SHCreatePropSheetExtArrayEx(hKey, pszSubKey, max_iface, NULL);
+}
+
+/*************************************************************************
+ *      SHCreatePropSheetExtArrayEx	[SHELL32.194]
+ */
+HPSXA WINAPI SHCreatePropSheetExtArrayEx(HKEY hKey, LPCWSTR pszSubKey, UINT max_iface, LPDATAOBJECT pDataObj)
+{
     static const WCHAR szPropSheetSubKey[] = {'s','h','e','l','l','e','x','\\','P','r','o','p','e','r','t','y','S','h','e','e','t','H','a','n','d','l','e','r','s',0};
     WCHAR szHandler[64];
     DWORD dwHandlerLen;
@@ -1646,7 +1677,7 @@ HPSXA WINAPI SHCreatePropSheetExtArray(HKEY hKey, LPCWSTR pszSubKey, UINT max_if
                         {
                             if (SUCCEEDED(pspsx->lpVtbl->QueryInterface(pspsx, &IID_IShellExtInit, (PVOID *)&psxi)))
                             {
-                                if (SUCCEEDED(psxi->lpVtbl->Initialize(psxi, NULL, NULL, hKey)))
+                                if (SUCCEEDED(psxi->lpVtbl->Initialize(psxi, NULL, pDataObj, hKey)))
                                 {
                                     /* Add the IShellPropSheetExt instance to the array */
                                     psxa->pspsx[psxa->uiCount++] = pspsx;
@@ -1942,4 +1973,22 @@ HRESULT WINAPI SHSetLocalizedName(LPWSTR pszPath, LPCWSTR pszResModule, int idsR
     FIXME("%p, %s, %d - stub\n", pszPath, debugstr_w(pszResModule), idsRes);
 
     return S_OK;
+}
+
+/*************************************************************************
+ *              LinkWindow_RegisterClass (SHELL32.258)
+ */
+BOOL WINAPI LinkWindow_RegisterClass(void)
+{
+    FIXME("()\n");
+    return TRUE;
+}
+
+/*************************************************************************
+ *              LinkWindow_UnregisterClass (SHELL32.259)
+ */
+BOOL WINAPI LinkWindow_UnregisterClass(void)
+{
+    FIXME("()\n");
+    return TRUE;
 }

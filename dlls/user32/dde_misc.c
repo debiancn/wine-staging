@@ -126,13 +126,12 @@ BOOL WINAPI UnpackDDElParam(UINT msg, LPARAM lParam,
     case WM_DDE_ADVISE:
     case WM_DDE_DATA:
     case WM_DDE_POKE:
-        if (!lParam) return FALSE;
-        if (!(params = GlobalLock( (HGLOBAL)lParam )))
+        if (!lParam || !(params = GlobalLock((HGLOBAL)lParam)))
         {
-            ERR("GlobalLock failed (%lx)\n", lParam);
+            if (uiLo) *uiLo = 0;
+            if (uiHi) *uiHi = 0;
             return FALSE;
         }
-        TRACE("unpacked: low %08lx, high %08lx\n", params[0], params[1]);
         if (uiLo) *uiLo = params[0];
         if (uiHi) *uiHi = params[1];
         GlobalUnlock( (HGLOBAL)lParam );
@@ -865,7 +864,7 @@ ATOM	WDML_MakeAtomFromHsz(HSZ hsz)
  * Generally used while receiving a global atom and transforming it
  * into an HSZ
  */
-HSZ	WDML_MakeHszFromAtom(WDML_INSTANCE* pInstance, ATOM atom)
+HSZ	WDML_MakeHszFromAtom(const WDML_INSTANCE* pInstance, ATOM atom)
 {
     WCHAR nameBuffer[MAX_BUFFER_LEN];
 
@@ -1126,8 +1125,6 @@ HSZ WINAPI DdeCreateStringHandleW(DWORD idInst, LPCWSTR psz, INT codepage)
     WDML_INSTANCE*	pInstance;
     HSZ			hsz = 0;
 
-    TRACE("(%d,%s,%d)\n", idInst, debugstr_w(psz), codepage);
-
     pInstance = WDML_GetInstance(idInst);
     if (pInstance)
     {
@@ -1327,7 +1324,7 @@ HDDEDATA WINAPI DdeAddData(HDDEDATA hData, LPBYTE pSrc, DWORD cb, DWORD cbOff)
     if (new_sz > old_sz)
     {
 	DdeUnaccessData(hData);
-	hData = GlobalReAlloc((HGLOBAL)hData, new_sz + sizeof(DDE_DATAHANDLE_HEAD),
+	hData = GlobalReAlloc(hData, new_sz + sizeof(DDE_DATAHANDLE_HEAD),
 			      GMEM_MOVEABLE | GMEM_DDESHARE);
 	pDst = DdeAccessData(hData, &old_sz);
     }
@@ -1397,7 +1394,7 @@ DWORD WINAPI DdeGetData(HDDEDATA hData, LPBYTE pDst, DWORD cbMax, DWORD cbOff)
  */
 LPBYTE WINAPI DdeAccessData(HDDEDATA hData, LPDWORD pcbDataSize)
 {
-    HGLOBAL			hMem = (HGLOBAL)hData;
+    HGLOBAL			hMem = hData;
     DDE_DATAHANDLE_HEAD*	pDdh;
 
     TRACE("(%p,%p)\n", hData, pcbDataSize);
@@ -1422,7 +1419,7 @@ LPBYTE WINAPI DdeAccessData(HDDEDATA hData, LPDWORD pcbDataSize)
  */
 BOOL WINAPI DdeUnaccessData(HDDEDATA hData)
 {
-    HGLOBAL hMem = (HGLOBAL)hData;
+    HGLOBAL hMem = hData;
 
     TRACE("(%p)\n", hData);
 
@@ -1437,7 +1434,7 @@ BOOL WINAPI DdeUnaccessData(HDDEDATA hData)
 BOOL WINAPI DdeFreeDataHandle(HDDEDATA hData)
 {
     TRACE("(%p)\n", hData);
-    return GlobalFree((HGLOBAL)hData) == 0;
+    return GlobalFree(hData) == 0;
 }
 
 /******************************************************************
@@ -1450,11 +1447,11 @@ BOOL WDML_IsAppOwned(HDDEDATA hData)
     DDE_DATAHANDLE_HEAD*	pDdh;
     BOOL                        ret = FALSE;
 
-    pDdh = (DDE_DATAHANDLE_HEAD*)GlobalLock((HGLOBAL)hData);
+    pDdh = (DDE_DATAHANDLE_HEAD*)GlobalLock(hData);
     if (pDdh != NULL)
     {
         ret = pDdh->bAppOwned;
-        GlobalUnlock((HGLOBAL)hData);
+        GlobalUnlock(hData);
     }
     return ret;
 }
@@ -1727,7 +1724,7 @@ WDML_CONV*	WDML_AddConv(WDML_INSTANCE* pInstance, WDML_SIDE side,
 {
     WDML_CONV*	pConv;
 
-    /* no converstation yet, add it */
+    /* no conversation yet, add it */
     pConv = HeapAlloc(GetProcessHeap(), 0, sizeof(WDML_CONV));
     if (!pConv) return NULL;
 
@@ -2025,8 +2022,6 @@ BOOL		WDML_PostAck(WDML_CONV* pConv, WDML_SIDE side, WORD appRetCode,
 BOOL WINAPI DdeSetUserHandle(HCONV hConv, DWORD id, DWORD hUser)
 {
     WDML_CONV*	pConv;
-
-    TRACE("(%p,%x,%x)\n", hConv, id, hUser);
 
     pConv = WDML_GetConv(hConv, FALSE);
     if (pConv == NULL)

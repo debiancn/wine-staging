@@ -28,15 +28,22 @@ typedef struct IEnumPinsImpl
 {
     const IEnumPinsVtbl * lpVtbl;
     LONG refCount;
-    ENUMPINDETAILS enumPinDetails;
     ULONG uIndex;
+    IBaseFilter *base;
+    FNOBTAINPIN receive_pin;
+    DWORD synctime;
 } IEnumPinsImpl;
 
 static const struct IEnumPinsVtbl IEnumPinsImpl_Vtbl;
 
-HRESULT IEnumPinsImpl_Construct(const ENUMPINDETAILS * pDetails, IEnumPins ** ppEnum)
+HRESULT IEnumPinsImpl_Construct(IEnumPins ** ppEnum, FNOBTAINPIN receive_pin, IBaseFilter *base)
 {
-    IEnumPinsImpl * pEnumPins = CoTaskMemAlloc(sizeof(IEnumPinsImpl));
+    IEnumPinsImpl * pEnumPins;
+
+    if (!ppEnum)
+        return E_POINTER;
+
+    pEnumPins = CoTaskMemAlloc(sizeof(IEnumPinsImpl));
     if (!pEnumPins)
     {
         *ppEnum = NULL;
@@ -45,8 +52,12 @@ HRESULT IEnumPinsImpl_Construct(const ENUMPINDETAILS * pDetails, IEnumPins ** pp
     pEnumPins->lpVtbl = &IEnumPinsImpl_Vtbl;
     pEnumPins->refCount = 1;
     pEnumPins->uIndex = 0;
-    CopyMemory(&pEnumPins->enumPinDetails, pDetails, sizeof(ENUMPINDETAILS));
+    pEnumPins->receive_pin = receive_pin;
+    pEnumPins->base = base;
+    IBaseFilter_AddRef(base);
     *ppEnum = (IEnumPins *)(&pEnumPins->lpVtbl);
+
+    receive_pin(base, ~0, NULL, &pEnumPins->synctime);
 
     TRACE("Created new enumerator (%p)\n", *ppEnum);
     return S_OK;
@@ -90,9 +101,10 @@ static ULONG WINAPI IEnumPinsImpl_Release(IEnumPins * iface)
     ULONG refCount = InterlockedDecrement(&This->refCount);
 
     TRACE("(%p)->() Release from %d\n", This, refCount + 1);
-    
+
     if (!refCount)
     {
+        IBaseFilter_Release(This->base);
         CoTaskMemFree(This);
         return 0;
     }
@@ -102,28 +114,41 @@ static ULONG WINAPI IEnumPinsImpl_Release(IEnumPins * iface)
 
 static HRESULT WINAPI IEnumPinsImpl_Next(IEnumPins * iface, ULONG cPins, IPin ** ppPins, ULONG * pcFetched)
 {
-    ULONG cFetched; 
     IEnumPinsImpl *This = (IEnumPinsImpl *)iface;
-
-    cFetched = min(This->enumPinDetails.cPins, This->uIndex + cPins) - This->uIndex;
+    DWORD synctime = This->synctime;
+    HRESULT hr = S_OK;
+    ULONG i = 0;
 
     TRACE("(%u, %p, %p)\n", cPins, ppPins, pcFetched);
 
-    if (cFetched > 0)
+    if (!ppPins)
+        return E_POINTER;
+
+    if (cPins > 1 && !pcFetched)
+        return E_INVALIDARG;
+
+    if (pcFetched)
+        *pcFetched = 0;
+
+    while (i < cPins && hr == S_OK)
     {
-        ULONG i;
-        for (i = 0; i < cFetched; i++) {
-            IPin_AddRef(This->enumPinDetails.ppPins[This->uIndex + i]);
-            ppPins[i] = This->enumPinDetails.ppPins[This->uIndex + i];
-        }
+        hr = This->receive_pin(This->base, This->uIndex + i, &ppPins[i], &synctime);
+
+        if (hr == S_OK)
+            ++i;
+
+        if (synctime != This->synctime)
+            break;
     }
 
-    if ((cPins != 1) || pcFetched)
-        *pcFetched = cFetched;
+    if (!i && synctime != This->synctime)
+        return VFW_E_ENUM_OUT_OF_SYNC;
 
-    This->uIndex += cFetched;
+    if (pcFetched)
+        *pcFetched = i;
+    This->uIndex += i;
 
-    if (cFetched != cPins)
+    if (i < cPins)
         return S_FALSE;
     return S_OK;
 }
@@ -131,15 +156,23 @@ static HRESULT WINAPI IEnumPinsImpl_Next(IEnumPins * iface, ULONG cPins, IPin **
 static HRESULT WINAPI IEnumPinsImpl_Skip(IEnumPins * iface, ULONG cPins)
 {
     IEnumPinsImpl *This = (IEnumPinsImpl *)iface;
+    DWORD synctime = This->synctime;
+    HRESULT hr;
+    IPin *pin = NULL;
 
     TRACE("(%u)\n", cPins);
 
-    if (This->uIndex + cPins < This->enumPinDetails.cPins)
-    {
+    hr = This->receive_pin(This->base, This->uIndex + cPins, &pin, &synctime);
+    if (pin)
+        IPin_Release(pin);
+
+    if (synctime != This->synctime)
+        return VFW_E_ENUM_OUT_OF_SYNC;
+
+    if (hr == S_OK)
         This->uIndex += cPins;
-        return S_OK;
-    }
-    return S_FALSE;
+
+    return hr;
 }
 
 static HRESULT WINAPI IEnumPinsImpl_Reset(IEnumPins * iface)
@@ -147,6 +180,7 @@ static HRESULT WINAPI IEnumPinsImpl_Reset(IEnumPins * iface)
     IEnumPinsImpl *This = (IEnumPinsImpl *)iface;
 
     TRACE("IEnumPinsImpl::Reset()\n");
+    This->receive_pin(This->base, ~0, NULL, &This->synctime);
 
     This->uIndex = 0;
     return S_OK;
@@ -159,7 +193,7 @@ static HRESULT WINAPI IEnumPinsImpl_Clone(IEnumPins * iface, IEnumPins ** ppEnum
 
     TRACE("(%p)\n", ppEnum);
 
-    hr = IEnumPinsImpl_Construct(&This->enumPinDetails, ppEnum);
+    hr = IEnumPinsImpl_Construct(ppEnum, This->receive_pin, This->base);
     if (FAILED(hr))
         return hr;
     return IEnumPins_Skip(*ppEnum, This->uIndex);

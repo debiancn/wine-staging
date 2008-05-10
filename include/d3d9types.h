@@ -226,15 +226,6 @@ typedef enum _D3DDECLUSAGE {
   D3DDECLUSAGE_SAMPLE       = 13     
 } D3DDECLUSAGE;
 
-/* MSDN is quite confussing at this point...
-http://msdn.microsoft.com/archive/default.asp?url=/archive/en-us/directx9_c/directx/graphics/reference/d3d/constants/OTHER_D3D.asp
-says D3DMAX, and D3DMAXDECLUSAGE = D3DDECLUSAGE_DEPTH
-http://msdn.microsoft.com/library/default.asp?url=/archive/en-us/directx9_c_summer_03/directx/graphics/reference/d3d/constants/other_d3d.asp
-says MAXD3D, and D3DDECLUSAGE_SAMPLE
-
-So both are defined
-*/
-
 #define D3DMAXDECLUSAGE         D3DDECLUSAGE_SAMPLE
 #define D3DMAXDECLUSAGEINDEX    15
 #define D3DMAXDECLLENGTH        18
@@ -451,6 +442,9 @@ typedef enum _D3DSHADER_INSTRUCTION_OPCODE_TYPE {
 #define D3DSINCOSCONST2   -0.020833334f,    -0.12500000f,      1.0f,          0.50000000f
 
 #define D3DSHADER_INSTRUCTION_PREDICATED    (1 << 28)
+
+#define D3DSI_TEXLD_PROJECT 0x00010000
+#define D3DSI_TEXLD_BIAS    0x00020000
 
 /** for parallelism */
 #define D3DSI_COISSUE 0x40000000
@@ -1528,5 +1522,49 @@ typedef struct _D3DVOLUME_DESC {
     UINT                Height;
     UINT                Depth;
 } D3DVOLUME_DESC;
+
+/* Parts added with d3d9ex */
+#if !defined(D3D_DISABLE_9EX)
+typedef enum D3DSCANLINEORDERING
+{
+    D3DSCANLINEORDERING_UNKNOWN,
+    D3DSCANLINEORDERING_PROGRESSIVE,
+    D3DSCANLINEORDERING_INTERLACED,
+} D3DSCANLINEORDERING;
+
+
+typedef struct D3DDISPLAYMODEFILTER
+{
+    UINT                Size;
+    D3DFORMAT           Format;
+    D3DSCANLINEORDERING ScanLineOrdering;
+} D3DDISPLAYMODEFILTER;
+
+typedef struct D3DDISPLAYMODEEX
+{
+    UINT                Size;
+    UINT                Width;
+    UINT                Height;
+    UINT                RefreshRate;
+    D3DFORMAT           Format;
+    D3DSCANLINEORDERING ScanLineOrdering;
+} D3DDISPLAYMODEEX;
+
+typedef enum D3DDISPLAYROTATION
+{
+    D3DDISPLAYROTATION_IDENTITY = 1,
+    D3DDISPLAYROTATION_90,
+    D3DDISPLAYROTATION_180,
+    D3DDISPLAYROTATION_270
+} D3DDISPLAYROTATION;
+
+typedef enum _D3DCOMPOSERECTSOP{
+    D3DCOMPOSERECTS_COPY        = 1,
+    D3DCOMPOSERECTS_OR,
+    D3DCOMPOSERECTS_AND,
+    D3DCOMPOSERECTS_NEG,
+    D3DCOMPOSERECTS_FORCE_DWORD = 0x7fffffff
+} D3DCOMPOSERECTSOP;
+#endif /* D3D_DISABLE_9EX */
 
 #endif /* __WINE_D3D9TYPES_H */

@@ -207,29 +207,23 @@ BOOLEAN WINAPI IsAdminOverrideActive(PADMINISTRATOR_POWER_POLICY p)
 
 BOOLEAN WINAPI IsPwrHibernateAllowed(VOID)
 {
-   /* FIXME: See note #2 */
    SYSTEM_POWER_CAPABILITIES PowerCaps;
-   FIXME("() stub!\n");
    NtPowerInformation(SystemPowerCapabilities, NULL, 0, &PowerCaps, sizeof(PowerCaps));
-   return FALSE;
+   return PowerCaps.SystemS4 && PowerCaps.HiberFilePresent;
 }
 
 BOOLEAN WINAPI IsPwrShutdownAllowed(VOID)
 {
-   /* FIXME: See note #2 */
    SYSTEM_POWER_CAPABILITIES PowerCaps;
-   FIXME("() stub!\n");
    NtPowerInformation(SystemPowerCapabilities, NULL, 0, &PowerCaps, sizeof(PowerCaps));
-   return FALSE;
+   return PowerCaps.SystemS5;
 }
 
 BOOLEAN WINAPI IsPwrSuspendAllowed(VOID)
 {
-   /* FIXME: See note #2 */
    SYSTEM_POWER_CAPABILITIES PowerCaps;
-   FIXME("() stub!\n");
    NtPowerInformation(SystemPowerCapabilities, NULL, 0, &PowerCaps, sizeof(PowerCaps));
-   return FALSE;
+   return PowerCaps.SystemS1 && PowerCaps.SystemS2 && PowerCaps.SystemS3;
 }
 
 BOOLEAN WINAPI ReadGlobalPwrPolicy(PGLOBAL_POWER_POLICY pGlobalPowerPolicy)

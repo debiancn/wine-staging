@@ -17,7 +17,7 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  * This is a test program for the SHGet{Special}Folder{Path|Location} functions
- * of shell32, that get either a filesytem path or a LPITEMIDLIST (shell
+ * of shell32, that get either a filesystem path or a LPITEMIDLIST (shell
  * namespace) path for a given folder (CSIDL value).
  *
  */
@@ -41,6 +41,8 @@ static fnILFree pILFree;
 static fnILIsEqual pILIsEqual;
 static fnSHILCreateFromPath pSHILCreateFromPath;
 
+static DWORD (WINAPI *pGetLongPathNameA)(LPCSTR, LPSTR, DWORD);
+
 static const GUID _IID_IShellLinkDataList = {
     0x45e2b4ae, 0xb1c3, 0x11d0,
     { 0xb9, 0x2f, 0x00, 0xa0, 0xc9, 0x03, 0x12, 0xe1 }
@@ -62,7 +64,7 @@ static LPITEMIDLIST path_to_pidl(const char* path)
 
     if (!pSHSimpleIDListFromPathAW)
     {
-        HMODULE hdll=LoadLibraryA("shell32.dll");
+        HMODULE hdll=GetModuleHandleA("shell32.dll");
         pSHSimpleIDListFromPathAW=(void*)GetProcAddress(hdll, (char*)162);
         if (!pSHSimpleIDListFromPathAW)
             trace("SHSimpleIDListFromPathAW not found in shell32.dll\n");
@@ -144,7 +146,7 @@ static void test_get_set(void)
     ok(SUCCEEDED(r), "GetWorkingDirectory failed (0x%08x)\n", r);
     ok(lstrcmpi(buffer,str)==0, "GetWorkingDirectory returned '%s'\n", buffer);
 
-    /* Test Getting / Setting the work directory */
+    /* Test Getting / Setting the path */
     strcpy(buffer,"garbage");
     r = IShellLinkA_GetPath(sl, buffer, sizeof(buffer), NULL, SLGP_RAWPATH);
     ok(SUCCEEDED(r), "GetPath failed (0x%08x)\n", r);
@@ -281,7 +283,7 @@ static void test_get_set(void)
     i=0xdeadbeef;
     r = IShellLinkA_GetIconLocation(sl, buffer, sizeof(buffer), &i);
     ok(SUCCEEDED(r), "GetIconLocation failed (0x%08x)\n", r);
-    ok(lstrcmpi(buffer,str)==0, "GetArguments returned '%s'\n", buffer);
+    ok(lstrcmpi(buffer,str)==0, "GetIconLocation returned '%s'\n", buffer);
     ok(i==0xbabecafe, "GetIconLocation returned %d'\n", i);
 
     /* Test Getting / Setting the hot key */
@@ -525,7 +527,7 @@ static void test_load_save(void)
     check_lnk(lnkfile, &desc, 0x0);
 
     r=GetModuleFileName(NULL, mypath, sizeof(mypath));
-    ok(r>=0 && r<sizeof(mypath), "GetModuleFileName failed (%d)\n", r);
+    ok(r<sizeof(mypath), "GetModuleFileName failed (%d)\n", r);
     strcpy(mydir, mypath);
     p=strrchr(mydir, '\\');
     if (p)
@@ -562,9 +564,14 @@ static void test_load_save(void)
 
     /* Create a temporary non-executable file */
     r=GetTempPath(sizeof(mypath), mypath);
-    ok(r>=0 && r<sizeof(mypath), "GetTempPath failed (%d), err %d\n", r, GetLastError());
-    r=GetLongPathName(mypath, mydir, sizeof(mydir));
-    ok(r>=0 && r<sizeof(mydir), "GetLongPathName failed (%d), err %d\n", r, GetLastError());
+    ok(r<sizeof(mypath), "GetTempPath failed (%d), err %d\n", r, GetLastError());
+    if (!pGetLongPathNameA)
+    {
+        skip("GetLongPathNameA is not available\n");
+        goto cleanup;
+    }
+    r=pGetLongPathNameA(mypath, mydir, sizeof(mydir));
+    ok(r<sizeof(mydir), "GetLongPathName failed (%d), err %d\n", r, GetLastError());
     p=strrchr(mydir, '\\');
     if (p)
         *p='\0';
@@ -595,6 +602,7 @@ static void test_load_save(void)
      * represented as a path.
      */
 
+cleanup:
     /* DeleteFileW is not implemented on Win9x */
     r=DeleteFileA("c:\\test.lnk");
     ok(r, "failed to delete link (%d)\n", GetLastError());
@@ -642,12 +650,12 @@ static void test_datalink(void)
     }
 
     flags = 0;
-    r = dl->lpVtbl->GetFlags( dl, &flags );
+    r = IShellLinkDataList_GetFlags( dl, &flags );
     ok( r == S_OK, "GetFlags failed\n");
     ok( flags == 0, "GetFlags returned wrong flags\n");
 
     dar = (void*)-1;
-    r = dl->lpVtbl->CopyDataBlock( dl, EXP_DARWIN_ID_SIG, (LPVOID*) &dar );
+    r = IShellLinkDataList_CopyDataBlock( dl, EXP_DARWIN_ID_SIG, (LPVOID*) &dar );
     ok( r == E_FAIL, "CopyDataBlock failed\n");
     ok( dar == NULL, "should be null\n");
 
@@ -656,17 +664,17 @@ static void test_datalink(void)
 
     /*
      * The following crashes:
-     * r = dl->lpVtbl->GetFlags( dl, NULL );
+     * r = IShellLinkDataList_GetFlags( dl, NULL );
      */
 
     flags = 0;
-    r = dl->lpVtbl->GetFlags( dl, &flags );
+    r = IShellLinkDataList_GetFlags( dl, &flags );
     ok( r == S_OK, "GetFlags failed\n");
     ok( flags == (SLDF_HAS_DARWINID|SLDF_HAS_LOGO3ID),
         "GetFlags returned wrong flags\n");
 
     dar = NULL;
-    r = dl->lpVtbl->CopyDataBlock( dl, EXP_DARWIN_ID_SIG, (LPVOID*) &dar );
+    r = IShellLinkDataList_CopyDataBlock( dl, EXP_DARWIN_ID_SIG, (LPVOID*) &dar );
     ok( r == S_OK, "CopyDataBlock failed\n");
 
     ok( dar && ((DATABLOCK_HEADER*)dar)->dwSignature == EXP_DARWIN_ID_SIG, "signature wrong\n");
@@ -681,12 +689,14 @@ static void test_datalink(void)
 START_TEST(shelllink)
 {
     HRESULT r;
-    HMODULE hmod;
+    HMODULE hmod = GetModuleHandleA("shell32.dll");
+    HMODULE hkernel32 = GetModuleHandleA("kernel32.dll");
 
-    hmod = GetModuleHandle("shell32");
     pILFree = (fnILFree) GetProcAddress(hmod, (LPSTR)155);
     pILIsEqual = (fnILIsEqual) GetProcAddress(hmod, (LPSTR)21);
     pSHILCreateFromPath = (fnSHILCreateFromPath) GetProcAddress(hmod, (LPSTR)28);
+
+    pGetLongPathNameA = (void *)GetProcAddress(hkernel32, "GetLongPathNameA");
 
     r = CoInitialize(NULL);
     ok(SUCCEEDED(r), "CoInitialize failed (0x%08x)\n", r);

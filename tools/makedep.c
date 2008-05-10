@@ -242,24 +242,6 @@ static INCL_FILE *find_src_file( const char *name )
 }
 
 /*******************************************************************
- *         add_src_file
- *
- * Add a source file to the list.
- */
-static INCL_FILE *add_src_file( const char *name )
-{
-    INCL_FILE *file;
-
-    if (find_src_file( name )) return NULL;  /* we already have it */
-    file = xmalloc( sizeof(*file) );
-    memset( file, 0, sizeof(*file) );
-    file->name = xstrdup(name);
-    list_add_tail( &sources, &file->entry );
-    return file;
-}
-
-
-/*******************************************************************
  *         add_include
  *
  * Add an include file if it doesn't already exists.
@@ -717,6 +699,11 @@ static void parse_generated_idl( INCL_FILE *source )
     {
         add_include( source, header, 0, 0 );
     }
+    else if (!strcmp( source->name, "dlldata.c" ))
+    {
+        add_include( source, "objbase.h", 0, 1 );
+        add_include( source, "rpcproxy.h", 0, 1 );
+    }
 
     free( header );
     free( basename );
@@ -733,9 +720,17 @@ static void parse_file( INCL_FILE *pFile, int src )
     if (strendswith( pFile->name, "_c.c" ) ||
         strendswith( pFile->name, "_i.c" ) ||
         strendswith( pFile->name, "_p.c" ) ||
-        strendswith( pFile->name, "_s.c" ))
+        strendswith( pFile->name, "_s.c" ) ||
+        !strcmp( pFile->name, "dlldata.c" ))
     {
         parse_generated_idl( pFile );
+        return;
+    }
+
+    /* don't try to open .tlb files */
+    if (strendswith( pFile->name, ".tlb" ))
+    {
+        pFile->filename = xstrdup( pFile->name );
         return;
     }
 
@@ -754,6 +749,25 @@ static void parse_file( INCL_FILE *pFile, int src )
     else if (strendswith( pFile->filename, ".rc" ))
         parse_rc_file( pFile, file );
     fclose(file);
+}
+
+
+/*******************************************************************
+ *         add_src_file
+ *
+ * Add a source file to the list.
+ */
+static INCL_FILE *add_src_file( const char *name )
+{
+    INCL_FILE *file;
+
+    if (find_src_file( name )) return NULL;  /* we already have it */
+    file = xmalloc( sizeof(*file) );
+    memset( file, 0, sizeof(*file) );
+    file->name = xstrdup(name);
+    list_add_tail( &sources, &file->entry );
+    parse_file( file, 1 );
+    return file;
 }
 
 
@@ -784,7 +798,7 @@ static void output_include( FILE *file, INCL_FILE *pFile,
 /*******************************************************************
  *         output_src
  */
-static void output_src( FILE *file, INCL_FILE *pFile, int *column )
+static int output_src( FILE *file, INCL_FILE *pFile, int *column )
 {
     char *obj = xstrdup( pFile->name );
     char *ext = get_extension( obj );
@@ -810,23 +824,34 @@ static void output_src( FILE *file, INCL_FILE *pFile, int *column )
         else if (!strcmp( ext, "idl" ))  /* IDL file */
         {
             char *name;
+            int got_header = 0;
+            const char *suffix = "cips";
 
-            *column += fprintf( file, "%s.h", obj );
-
-            name = strmake( "%s_c.c", obj );
-            if (find_src_file( name )) *column += fprintf( file, " %s", name );
-            free( name );
-            name = strmake( "%s_i.c", obj );
-            if (find_src_file( name )) *column += fprintf( file, " %s", name );
-            free( name );
-            name = strmake( "%s_p.c", obj );
-            if (find_src_file( name )) *column += fprintf( file, " %s", name );
-            free( name );
-            name = strmake( "%s_s.c", obj );
-            if (find_src_file( name )) *column += fprintf( file, " %s", name );
+            name = strmake( "%s.tlb", obj );
+            if (find_src_file( name )) *column += fprintf( file, "%s", name );
+            else
+            {
+                got_header = 1;
+                *column += fprintf( file, "%s.h", obj );
+            }
             free( name );
 
+            while (*suffix)
+            {
+                name = strmake( "%s_%c.c", obj, *suffix );
+                if (find_src_file( name ))
+                {
+                    if (!got_header++) *column += fprintf( file, " %s.h", obj );
+                    *column += fprintf( file, " %s", name );
+                }
+                free( name );
+                suffix++;
+            }
             *column += fprintf( file, ": %s", pFile->filename );
+        }
+        else if (!strcmp( ext, "tlb" ))
+        {
+            return 0;  /* nothing to do for typelib files */
         }
         else
         {
@@ -834,6 +859,7 @@ static void output_src( FILE *file, INCL_FILE *pFile, int *column )
         }
     }
     free( obj );
+    return 1;
 }
 
 
@@ -868,7 +894,7 @@ static void output_dependencies(void)
     LIST_FOR_EACH_ENTRY( pFile, &sources, INCL_FILE, entry )
     {
         column = 0;
-        output_src( file, pFile, &column );
+        if (!output_src( file, pFile, &column )) continue;
         for (i = 0; i < MAX_INCLUDES; i++)
             if (pFile->files[i]) output_include( file, pFile->files[i],
                                                  pFile, &column );
@@ -954,7 +980,8 @@ int main( int argc, char *argv[] )
 
     for (i = 1; i < argc; i++)
     {
-        if ((pFile = add_src_file( argv[i] ))) parse_file( pFile, 1 );
+        add_src_file( argv[i] );
+        if (strendswith( argv[i], "_p.c" )) add_src_file( "dlldata.c" );
     }
     LIST_FOR_EACH_ENTRY( pFile, &includes, INCL_FILE, entry ) parse_file( pFile, 0 );
     output_dependencies();

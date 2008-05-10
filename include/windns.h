@@ -152,16 +152,23 @@ typedef enum _DnsSection
     DnsSectionQuestion,
     DnsSectionAnswer,
     DnsSectionAuthority,
-    DnsSectionAddtional
+    DnsSectionAddtional /* Not a typo, as per Microsoft's headers */
 } DNS_SECTION;
 
-typedef long DNS_STATUS;
-typedef DWORD IP4_ADDRESS;
+typedef LONG DNS_STATUS, *PDNS_STATUS;
+typedef DWORD IP4_ADDRESS, *PIP4_ADDRESS;
 
 typedef struct
 {
     DWORD IP6Dword[4];
 } IP6_ADDRESS, *PIP6_ADDRESS, DNS_IP6_ADDRESS, *PDNS_IP6_ADDRESS;
+
+#define SIZEOF_IP4_ADDRESS                   4
+#define IP4_ADDRESS_STRING_LENGTH           16
+#define IP6_ADDRESS_STRING_LENGTH           65
+#define DNS_ADDRESS_STRING_LENGTH           IP6_ADDRESS_STRING_LENGTH
+#define IP4_ADDRESS_STRING_BUFFER_LENGTH    IP4_ADDRESS_STRING_LENGTH
+#define IP6_ADDRESS_STRING_BUFFER_LENGTH    IP6_ADDRESS_STRING_LENGTH
 
 typedef struct _IP4_ARRAY
 {
@@ -208,8 +215,8 @@ typedef struct _DnsRecordFlags
 
 typedef struct
 {
-    LPSTR pNamePrimaryServer;
-    LPSTR pNameAdministrator;
+    PSTR  pNamePrimaryServer;
+    PSTR  pNameAdministrator;
     DWORD dwSerialNo;
     DWORD dwRefresh;
     DWORD dwRetry;
@@ -219,8 +226,8 @@ typedef struct
 
 typedef struct
 {
-    LPWSTR pNamePrimaryServer;
-    LPWSTR pNameAdministrator;
+    PWSTR pNamePrimaryServer;
+    PWSTR pNameAdministrator;
     DWORD dwSerialNo;
     DWORD dwRefresh;
     DWORD dwRetry;
@@ -233,12 +240,12 @@ DECL_WINELIB_TYPE_AW(PDNS_SOA_DATA)
 
 typedef struct
 {
-    LPSTR pNameHost;
+    PSTR pNameHost;
 } DNS_PTR_DATAA, *PDNS_PTR_DATAA;
 
 typedef struct
 {
-    LPWSTR pNameHost;
+    PWSTR pNameHost;
 } DNS_PTR_DATAW, *PDNS_PTR_DATAW;
 
 DECL_WINELIB_TYPE_AW(DNS_PTR_DATA)
@@ -246,14 +253,14 @@ DECL_WINELIB_TYPE_AW(PDNS_PTR_DATA)
 
 typedef struct
 {
-    LPSTR pNameMailbox;
-    LPSTR pNameErrorsMailbox;
+    PSTR pNameMailbox;
+    PSTR pNameErrorsMailbox;
 } DNS_MINFO_DATAA, *PDNS_MINFO_DATAA;
 
 typedef struct
 {
-    LPWSTR pNameMailbox;
-    LPWSTR pNameErrorsMailbox;
+    PWSTR pNameMailbox;
+    PWSTR pNameErrorsMailbox;
 } DNS_MINFO_DATAW, *PDNS_MINFO_DATAW;
 
 DECL_WINELIB_TYPE_AW(DNS_MINFO_DATA)
@@ -261,14 +268,14 @@ DECL_WINELIB_TYPE_AW(PDNS_MINFO_DATA)
 
 typedef struct
 {
-    LPSTR pNameExchange;
+    PSTR pNameExchange;
     WORD wPreference;
     WORD Pad;
 } DNS_MX_DATAA, *PDNS_MX_DATAA;
 
 typedef struct
 {
-    LPWSTR pNameExchange;
+    PWSTR pNameExchange;
     WORD wPreference;
     WORD Pad;
 } DNS_MX_DATAW, *PDNS_MX_DATAW;
@@ -279,13 +286,13 @@ DECL_WINELIB_TYPE_AW(PDNS_MX_DATA)
 typedef struct
 {
     DWORD dwStringCount;
-    LPSTR pStringArray[1];
+    PSTR pStringArray[1];
 } DNS_TXT_DATAA, *PDNS_TXT_DATAA;
 
 typedef struct
 {
     DWORD dwStringCount;
-    LPWSTR pStringArray[1];
+    PWSTR pStringArray[1];
 } DNS_TXT_DATAW, *PDNS_TXT_DATAW;
 
 DECL_WINELIB_TYPE_AW(DNS_TXT_DATA)
@@ -330,7 +337,7 @@ typedef struct
 
 typedef struct
 {
-    LPSTR pNameSigner;
+    PSTR pNameSigner;
     WORD wTypeCovered;
     BYTE chAlgorithm;
     BYTE chLabelCount;
@@ -344,7 +351,7 @@ typedef struct
 
 typedef struct
 {
-    LPWSTR pNameSigner;
+    PWSTR pNameSigner;
     WORD wTypeCovered;
     BYTE chAlgorithm;
     BYTE chLabelCount;
@@ -369,14 +376,14 @@ typedef struct
 
 typedef struct
 {
-    LPSTR pNameNext;
+    PSTR pNameNext;
     WORD wNumTypes;
     WORD wTypes[1];
 } DNS_NXT_DATAA, *PDNS_NXT_DATAA;
 
 typedef struct
 {
-    LPWSTR pNameNext;
+    PWSTR pNameNext;
     WORD wNumTypes;
     WORD wTypes[1];
 } DNS_NXT_DATAW, *PDNS_NXT_DATAW;
@@ -386,7 +393,7 @@ DECL_WINELIB_TYPE_AW(PDNS_NXT_DATA)
 
 typedef struct
 {
-    LPSTR pNameTarget;
+    PSTR pNameTarget;
     WORD wPriority;
     WORD wWeight;
     WORD wPort;
@@ -395,7 +402,7 @@ typedef struct
 
 typedef struct
 {
-    LPWSTR pNameTarget;
+    PWSTR pNameTarget;
     WORD wPriority;
     WORD wWeight;
     WORD wPort;
@@ -407,7 +414,7 @@ DECL_WINELIB_TYPE_AW(PDNS_SRV_DATA)
 
 typedef struct
 {
-    LPSTR pNameAlgorithm;
+    PSTR pNameAlgorithm;
     PBYTE pAlgorithmPacket;
     PBYTE pKey;
     PBYTE pOtherData;
@@ -423,7 +430,7 @@ typedef struct
 
 typedef struct
 {
-    LPWSTR pNameAlgorithm;
+    PWSTR pNameAlgorithm;
     PBYTE pAlgorithmPacket;
     PBYTE pKey;
     PBYTE pOtherData;
@@ -442,7 +449,7 @@ DECL_WINELIB_TYPE_AW(PDNS_TKEY_DATA)
 
 typedef struct
 {
-    LPSTR pNameAlgorithm;
+    PSTR pNameAlgorithm;
     PBYTE pAlgorithmPacket;
     PBYTE pSignature;
     PBYTE pOtherData;
@@ -458,7 +465,7 @@ typedef struct
 
 typedef struct
 {
-    LPWSTR pNameAlgorithm;
+    PWSTR pNameAlgorithm;
     PBYTE pAlgorithmPacket;
     PBYTE pSignature;
     PBYTE pOtherData;
@@ -486,7 +493,7 @@ typedef struct
     DWORD dwMappingFlag;
     DWORD dwLookupTimeout;
     DWORD dwCacheTimeout;
-    LPSTR pNameResultDomain;
+    PSTR pNameResultDomain;
 } DNS_WINSR_DATAA, *PDNS_WINSR_DATAA;
 
 typedef struct
@@ -494,7 +501,7 @@ typedef struct
     DWORD dwMappingFlag;
     DWORD dwLookupTimeout;
     DWORD dwCacheTimeout;
-    LPWSTR pNameResultDomain;
+    PWSTR pNameResultDomain;
 } DNS_WINSR_DATAW, *PDNS_WINSR_DATAW;
 
 DECL_WINELIB_TYPE_AW(DNS_WINSR_DATA)
@@ -503,7 +510,7 @@ DECL_WINELIB_TYPE_AW(PDNS_WINSR_DATA)
 typedef struct _DnsRecordA
 {
     struct _DnsRecordA *pNext;
-    LPSTR pName;
+    PSTR pName;
     WORD wType;
     WORD wDataLength;
     union
@@ -533,13 +540,13 @@ typedef struct _DnsRecordA
         DNS_TSIG_DATAA TSIG, Tsig;
         DNS_WINS_DATA WINS, Wins;
         DNS_WINSR_DATAA WINSR, WinsR, NBSTAT, Nbstat;
-        } Data;
+    } Data;
 } DNS_RECORDA, *PDNS_RECORDA;
 
 typedef struct _DnsRecordW
 {
     struct _DnsRecordW *pNext;
-    LPWSTR pName;
+    PWSTR pName;
     WORD wType;
     WORD wDataLength;
     union
@@ -569,7 +576,7 @@ typedef struct _DnsRecordW
         DNS_TSIG_DATAW TSIG, Tsig;
         DNS_WINS_DATA WINS, Wins;
         DNS_WINSR_DATAW WINSR, WinsR, NBSTAT, Nbstat;
-        } Data;
+    } Data;
 } DNS_RECORDW, *PDNS_RECORDW;
 
 #if defined(__WINESRC__) || defined(UNICODE)
@@ -607,34 +614,40 @@ typedef struct _DnsRRSet
     _prrset->pLastRR->pNext = NULL;  \
 }
 
-DNS_STATUS WINAPI DnsAcquireContextHandle_A(DWORD,PVOID,HANDLE*);
-DNS_STATUS WINAPI DnsAcquireContextHandle_W(DWORD,PVOID,HANDLE*);
+DNS_STATUS WINAPI DnsAcquireContextHandle_A(DWORD,PVOID,PHANDLE);
+DNS_STATUS WINAPI DnsAcquireContextHandle_W(DWORD,PVOID,PHANDLE);
+#define DnsAcquireContextHandle WINELIB_NAME_AW(DnsAcquireContextHandle_)
 DNS_STATUS WINAPI DnsExtractRecordsFromMessage_W(PDNS_MESSAGE_BUFFER,WORD,PDNS_RECORDW*);
 DNS_STATUS WINAPI DnsExtractRecordsFromMessage_UTF8(PDNS_MESSAGE_BUFFER,WORD,PDNS_RECORDA*);
-DNS_STATUS WINAPI DnsModifyRecordsInSet_A(PDNS_RECORDA,PDNS_RECORDA,DWORD,HANDLE,PIP4_ARRAY,PVOID);
-DNS_STATUS WINAPI DnsModifyRecordsInSet_W(PDNS_RECORDW,PDNS_RECORDW,DWORD,HANDLE,PIP4_ARRAY,PVOID);
-DNS_STATUS WINAPI DnsModifyRecordsInSet_UTF8(PDNS_RECORDA,PDNS_RECORDA,DWORD,HANDLE,PIP4_ARRAY,PVOID);
-BOOL WINAPI DnsNameCompare_A(LPSTR,LPSTR);
-BOOL WINAPI DnsNameCompare_W(LPWSTR,LPWSTR);
-DNS_STATUS WINAPI DnsQuery_A(PCSTR,WORD,DWORD,PIP4_ARRAY,PDNS_RECORDA*,PVOID*);
-DNS_STATUS WINAPI DnsQuery_W(PCWSTR,WORD,DWORD,PIP4_ARRAY,PDNS_RECORDW*,PVOID*);
-DNS_STATUS WINAPI DnsQuery_UTF8(PCSTR,WORD,DWORD,PIP4_ARRAY,PDNS_RECORDA*,PVOID*);
-DNS_STATUS WINAPI DnsQueryConfig(DNS_CONFIG_TYPE,DWORD,PWSTR,PVOID,PVOID,PDWORD);
+DNS_STATUS WINAPI DnsModifyRecordsInSet_A(PDNS_RECORDA,PDNS_RECORDA,DWORD,HANDLE,PVOID,PVOID);
+DNS_STATUS WINAPI DnsModifyRecordsInSet_W(PDNS_RECORDW,PDNS_RECORDW,DWORD,HANDLE,PVOID,PVOID);
+DNS_STATUS WINAPI DnsModifyRecordsInSet_UTF8(PDNS_RECORDA,PDNS_RECORDA,DWORD,HANDLE,PVOID,PVOID);
+#define DnsModifyRecordsInSet WINELIB_NAME_AW(DnsModifyRecordsInSet_)
+BOOL WINAPI DnsNameCompare_A(PCSTR,PCSTR);
+BOOL WINAPI DnsNameCompare_W(PCWSTR,PCWSTR);
+#define DnsNameCompare WINELIB_NAME_AW(DnsNameCompare_)
+DNS_STATUS WINAPI DnsQuery_A(PCSTR,WORD,DWORD,PVOID,PDNS_RECORDA*,PVOID*);
+DNS_STATUS WINAPI DnsQuery_W(PCWSTR,WORD,DWORD,PVOID,PDNS_RECORDW*,PVOID*);
+DNS_STATUS WINAPI DnsQuery_UTF8(PCSTR,WORD,DWORD,PVOID,PDNS_RECORDA*,PVOID*);
+#define DnsQuery WINELIB_NAME_AW(DnsQuery_)
+DNS_STATUS WINAPI DnsQueryConfig(DNS_CONFIG_TYPE,DWORD,PCWSTR,PVOID,PVOID,PDWORD);
 BOOL WINAPI DnsRecordCompare(PDNS_RECORD,PDNS_RECORD);
 PDNS_RECORD WINAPI DnsRecordCopyEx(PDNS_RECORD,DNS_CHARSET,DNS_CHARSET);
-void WINAPI DnsRecordListFree(PDNS_RECORD,DNS_FREE_TYPE);
+VOID WINAPI DnsRecordListFree(PDNS_RECORD,DNS_FREE_TYPE);
 BOOL WINAPI DnsRecordSetCompare(PDNS_RECORD,PDNS_RECORD,PDNS_RECORD*,PDNS_RECORD*);
 PDNS_RECORD WINAPI DnsRecordSetCopyEx(PDNS_RECORD,DNS_CHARSET,DNS_CHARSET);
 PDNS_RECORD WINAPI DnsRecordSetDetach(PDNS_RECORD);
 void WINAPI DnsReleaseContextHandle(HANDLE);
-DNS_STATUS WINAPI DnsReplaceRecordSetA(PDNS_RECORDA,DWORD,HANDLE,PIP4_ARRAY,PVOID);
-DNS_STATUS WINAPI DnsReplaceRecordSetW(PDNS_RECORDW,DWORD,HANDLE,PIP4_ARRAY,PVOID);
-DNS_STATUS WINAPI DnsReplaceRecordSetUTF8(PDNS_RECORDA,DWORD,HANDLE,PIP4_ARRAY,PVOID);
-DNS_STATUS WINAPI DnsValidateName_A(LPCSTR,DNS_NAME_FORMAT);
-DNS_STATUS WINAPI DnsValidateName_W(LPCWSTR, DNS_NAME_FORMAT);
-DNS_STATUS WINAPI DnsValidateName_UTF8(LPCSTR,DNS_NAME_FORMAT);
-BOOL WINAPI DnsWriteQuestionToBuffer_W(PDNS_MESSAGE_BUFFER,LPDWORD,LPWSTR,WORD,WORD,BOOL);
-BOOL WINAPI DnsWriteQuestionToBuffer_UTF8(PDNS_MESSAGE_BUFFER,LPDWORD,LPSTR,WORD,WORD,BOOL);
+DNS_STATUS WINAPI DnsReplaceRecordSetA(PDNS_RECORDA,DWORD,HANDLE,PVOID,PVOID);
+DNS_STATUS WINAPI DnsReplaceRecordSetW(PDNS_RECORDW,DWORD,HANDLE,PVOID,PVOID);
+DNS_STATUS WINAPI DnsReplaceRecordSetUTF8(PDNS_RECORDA,DWORD,HANDLE,PVOID,PVOID);
+#define DnsReplaceRecordSet WINELIB_NAME_AW(DnsReplaceRecordSet)
+DNS_STATUS WINAPI DnsValidateName_A(PCSTR,DNS_NAME_FORMAT);
+DNS_STATUS WINAPI DnsValidateName_W(PCWSTR, DNS_NAME_FORMAT);
+DNS_STATUS WINAPI DnsValidateName_UTF8(PCSTR,DNS_NAME_FORMAT);
+#define DnsValidateName WINELIB_NAME_AW(DnsValidateName_)
+BOOL WINAPI DnsWriteQuestionToBuffer_W(PDNS_MESSAGE_BUFFER,PDWORD,PCWSTR,WORD,WORD,BOOL);
+BOOL WINAPI DnsWriteQuestionToBuffer_UTF8(PDNS_MESSAGE_BUFFER,PDWORD,PCSTR,WORD,WORD,BOOL);
 
 #ifdef __cplusplus
 }

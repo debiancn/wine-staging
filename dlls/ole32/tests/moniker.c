@@ -657,10 +657,54 @@ static void test_ROT(void)
     todo_wine {
     ok(hr == CO_E_WRONG_SERVER_IDENTITY, "IRunningObjectTable_Register should have returned CO_E_WRONG_SERVER_IDENTITY instead of 0x%08x\n", hr);
     }
+    if (hr == S_OK) IRunningObjectTable_Revoke(pROT, dwCookie);
 
     hr = IRunningObjectTable_Register(pROT, 0xdeadbeef,
         (IUnknown*)&Test_ClassFactory, pMoniker, &dwCookie);
     ok(hr == E_INVALIDARG, "IRunningObjectTable_Register should have returned E_INVALIDARG instead of 0x%08x\n", hr);
+
+    IMoniker_Release(pMoniker);
+
+    IRunningObjectTable_Release(pROT);
+}
+
+static void test_ROT_multiple_entries(void)
+{
+    HRESULT hr;
+    IMoniker *pMoniker = NULL;
+    IRunningObjectTable *pROT = NULL;
+    DWORD dwCookie1, dwCookie2;
+    IUnknown *pObject = NULL;
+    static const WCHAR moniker_path[] =
+        {'\\', 'w','i','n','d','o','w','s','\\','s','y','s','t','e','m','\\','t','e','s','t','1','.','d','o','c',0};
+
+    hr = GetRunningObjectTable(0, &pROT);
+    ok_ole_success(hr, GetRunningObjectTable);
+
+    hr = CreateFileMoniker(moniker_path, &pMoniker);
+    ok_ole_success(hr, CreateFileMoniker);
+
+    hr = IRunningObjectTable_Register(pROT, 0, (IUnknown *)&Test_ClassFactory, pMoniker, &dwCookie1);
+    ok_ole_success(hr, IRunningObjectTable_Register);
+
+    hr = IRunningObjectTable_Register(pROT, 0, (IUnknown *)&Test_ClassFactory, pMoniker, &dwCookie2);
+    ok(hr == MK_S_MONIKERALREADYREGISTERED, "IRunningObjectTable_Register should have returned MK_S_MONIKERALREADYREGISTERED instead of 0x%08x\n", hr);
+
+    ok(dwCookie1 != dwCookie2, "cookie returned for registering duplicate object shouldn't match cookie of original object (0x%x)\n", dwCookie1);
+
+    hr = IRunningObjectTable_GetObject(pROT, pMoniker, &pObject);
+    ok_ole_success(hr, IRunningObjectTable_GetObject);
+    IUnknown_Release(pObject);
+
+    hr = IRunningObjectTable_Revoke(pROT, dwCookie1);
+    ok_ole_success(hr, IRunningObjectTable_Revoke);
+
+    hr = IRunningObjectTable_GetObject(pROT, pMoniker, &pObject);
+    ok_ole_success(hr, IRunningObjectTable_GetObject);
+    IUnknown_Release(pObject);
+
+    hr = IRunningObjectTable_Revoke(pROT, dwCookie2);
+    ok_ole_success(hr, IRunningObjectTable_Revoke);
 
     IMoniker_Release(pMoniker);
 
@@ -878,6 +922,7 @@ static void test_MkParseDisplayName(void)
         ok_ole_success(hr, IMoniker_BindToObject);
 
         IUnknown_Release(object);
+        IMoniker_Release(pmk);
     }
     IBindCtx_Release(pbc);
 
@@ -934,7 +979,7 @@ static void test_MkParseDisplayName(void)
 
     IRunningObjectTable_Revoke(pprot,pdwReg1);
     IRunningObjectTable_Revoke(pprot,pdwReg2);
-    IEnumMoniker_Release(spEM1);
+    IUnknown_Release(lpEM1);
     IEnumMoniker_Release(spEM1);
     IEnumMoniker_Release(spEM2);
     IEnumMoniker_Release(spEM3);
@@ -1310,7 +1355,7 @@ static void test_class_moniker(void)
     ok(hr == MK_E_UNAVAILABLE, "IMoniker_GetTimeOfLastChange should return MK_E_UNAVAILABLE, not 0x%08x\n", hr);
 
     hr = IMoniker_BindToObject(moniker, bindctx, NULL, &IID_IUnknown, (void **)&unknown);
-    ok_ole_success(hr, IMoniker_BindToStorage);
+    ok_ole_success(hr, IMoniker_BindToObject);
     IUnknown_Release(unknown);
 
     hr = IMoniker_BindToStorage(moniker, bindctx, NULL, &IID_IUnknown, (void **)&unknown);
@@ -1588,6 +1633,113 @@ static void test_generic_composite_moniker(void)
     IMoniker_Release(moniker);
 }
 
+static void test_pointer_moniker(void)
+{
+    HRESULT hr;
+    IMoniker *moniker;
+    DWORD moniker_type;
+    DWORD hash;
+    IBindCtx *bindctx;
+    FILETIME filetime;
+    IMoniker *inverse;
+    IUnknown *unknown;
+    IStream *stream;
+    IROTData *rotdata;
+    LPOLESTR display_name;
+
+    cLocks = 0;
+
+    hr = CreatePointerMoniker((IUnknown *)&Test_ClassFactory, NULL);
+    ok(hr == E_INVALIDARG, "CreatePointerMoniker(x, NULL) should have returned E_INVALIDARG instead of 0x%08x\n", hr);
+
+    hr = CreatePointerMoniker((IUnknown *)&Test_ClassFactory, &moniker);
+    ok_ole_success(hr, CreatePointerMoniker);
+    if (!moniker) return;
+
+    ok_more_than_one_lock();
+
+    /* Display Name */
+
+    hr = CreateBindCtx(0, &bindctx);
+    ok_ole_success(hr, CreateBindCtx);
+
+    hr = IMoniker_GetDisplayName(moniker, bindctx, NULL, &display_name);
+    ok(hr == E_NOTIMPL, "IMoniker_GetDisplayName should have returned E_NOTIMPL instead of 0x%08x\n", hr);
+
+    IBindCtx_Release(bindctx);
+
+    hr = IMoniker_IsDirty(moniker);
+    ok(hr == S_FALSE, "IMoniker_IsDirty should return S_FALSE, not 0x%08x\n", hr);
+
+    /* IROTData::GetComparisonData test */
+
+    hr = IMoniker_QueryInterface(moniker, &IID_IROTData, (void **)&rotdata);
+    ok(hr == E_NOINTERFACE, "IMoniker_QueryInterface(IID_IROTData) should have returned E_NOINTERFACE instead of 0x%08x\n", hr);
+
+    /* Saving */
+
+    hr = CreateStreamOnHGlobal(NULL, TRUE, &stream);
+    ok_ole_success(hr, CreateStreamOnHGlobal);
+
+    hr = IMoniker_Save(moniker, stream, TRUE);
+    ok(hr == E_NOTIMPL, "IMoniker_Save should have returned E_NOTIMPL instead of 0x%08x\n", hr);
+
+    IStream_Release(stream);
+
+    /* Hashing */
+    hr = IMoniker_Hash(moniker, &hash);
+    ok_ole_success(hr, IMoniker_Hash);
+    ok(hash == (DWORD)&Test_ClassFactory,
+        "Hash value should have been 0x%08x, instead of 0x%08x\n",
+        (DWORD)&Test_ClassFactory, hash);
+
+    /* IsSystemMoniker test */
+    hr = IMoniker_IsSystemMoniker(moniker, &moniker_type);
+    ok_ole_success(hr, IMoniker_IsSystemMoniker);
+    ok(moniker_type == MKSYS_POINTERMONIKER,
+        "dwMkSys != MKSYS_POINTERMONIKER, instead was 0x%08x\n",
+        moniker_type);
+
+    hr = IMoniker_Inverse(moniker, &inverse);
+    ok_ole_success(hr, IMoniker_Inverse);
+    IMoniker_Release(inverse);
+
+    hr = CreateBindCtx(0, &bindctx);
+    ok_ole_success(hr, CreateBindCtx);
+
+    /* IsRunning test */
+    hr = IMoniker_IsRunning(moniker, bindctx, NULL, NULL);
+    ok(hr == S_OK, "IMoniker_IsRunning should return S_OK, not 0x%08x\n", hr);
+
+    hr = IMoniker_GetTimeOfLastChange(moniker, bindctx, NULL, &filetime);
+    ok(hr == E_NOTIMPL, "IMoniker_GetTimeOfLastChange should return E_NOTIMPL, not 0x%08x\n", hr);
+
+    hr = IMoniker_BindToObject(moniker, bindctx, NULL, &IID_IUnknown, (void **)&unknown);
+    ok_ole_success(hr, IMoniker_BindToObject);
+    IUnknown_Release(unknown);
+
+    hr = IMoniker_BindToStorage(moniker, bindctx, NULL, &IID_IUnknown, (void **)&unknown);
+    ok_ole_success(hr, IMoniker_BindToStorage);
+    IUnknown_Release(unknown);
+
+    IMoniker_Release(moniker);
+
+    ok_no_locks();
+
+    hr = CreatePointerMoniker(NULL, &moniker);
+    ok_ole_success(hr, CreatePointerMoniker);
+
+    hr = IMoniker_BindToObject(moniker, bindctx, NULL, &IID_IUnknown, (void **)&unknown);
+    ok(hr == E_UNEXPECTED, "IMoniker_BindToObject should have returned E_UNEXPECTED instead of 0x%08x\n", hr);
+
+    hr = IMoniker_BindToStorage(moniker, bindctx, NULL, &IID_IUnknown, (void **)&unknown);
+    ok(hr == E_UNEXPECTED, "IMoniker_BindToStorage should have returned E_UNEXPECTED instead of 0x%08x\n", hr);
+
+    IBindCtx_Release(bindctx);
+
+    IMoniker_Release(moniker);
+}
+
 static void test_bind_context(void)
 {
     HRESULT hr;
@@ -1693,12 +1845,14 @@ START_TEST(moniker)
     CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
 
     test_ROT();
+    test_ROT_multiple_entries();
     test_MkParseDisplayName();
     test_class_moniker();
     test_file_monikers();
     test_item_moniker();
     test_anti_moniker();
     test_generic_composite_moniker();
+    test_pointer_moniker();
 
     /* FIXME: test moniker creation funcs and parsing other moniker formats */
 

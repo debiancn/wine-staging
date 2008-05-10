@@ -17,12 +17,15 @@
  * License along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
- 
+
+#define COBJMACROS
+
+#include "config.h"
+#include "wine/port.h"
+
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
-
-#define COBJMACROS
 
 #include "windef.h"
 #include "winbase.h"
@@ -309,9 +312,9 @@ HRESULT IDirectMusicUtils_IPersistStream_ParseReference (LPPERSISTSTREAM iface, 
     }
     TRACE_(dmfile)(": ListCount[0] = %d < ListSize[0] = %d\n", ListCount[0], ListSize[0]);
   } while (ListCount[0] < ListSize[0]);
-  
+
   ref_desc.dwValidData |= DMUS_OBJ_CLASS;
-  memcpy(&ref_desc.guidClass, &ref.guidClassID, sizeof(ref.guidClassID));
+  ref_desc.guidClass = ref.guidClassID;
 
   TRACE_(dmfile)("** DM Reference Begin of Load ***\n");
   TRACE_(dmfile)("With Desc:\n");

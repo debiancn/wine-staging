@@ -31,7 +31,6 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(text);
 
-#define SWAP_INT(a,b)  { int t = a; a = b; b = t; }
 #define IROUND(x) (int)((x)>0? (x)+0.5 : (x) - 0.5)
 
 
@@ -75,7 +74,7 @@ X11DRV_ExtTextOut( X11DRV_PDEVICE *physDev, INT x, INT y, UINT flags,
 
     if (flags & ETO_OPAQUE)
     {
-        X11DRV_LockDIBSection( physDev, DIB_Status_GdiMod, FALSE );
+        X11DRV_LockDIBSection( physDev, DIB_Status_GdiMod );
         dibUpdateFlag = TRUE;
         wine_tsx11_lock();
         XSetForeground( gdi_display, physDev->gc, physDev->backgroundPixel );
@@ -105,7 +104,7 @@ X11DRV_ExtTextOut( X11DRV_PDEVICE *physDev, INT x, INT y, UINT flags,
 
     if (!dibUpdateFlag)
     {
-        X11DRV_LockDIBSection( physDev, DIB_Status_GdiMod, FALSE );
+        X11DRV_LockDIBSection( physDev, DIB_Status_GdiMod );
         dibUpdateFlag = TRUE;
     }
 
