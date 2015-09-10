@@ -1738,8 +1738,22 @@ then
                       AC_DEFINE_UNQUOTED(HAVE_OPENAL,1,[Define to 1 if OpenAL is available])],,)
 fi
 WINE_NOTICE_WITH(openal,[test "x$ac_cv_lib_openal" != xyes],
-                 [libopenal ${notice_platform}development files not found (or too old), OpenAL won't be supported.])
+                 [libopenal ${notice_platform}development files not found (or too old), OpenAL won't be supported])
 test "x$ac_cv_lib_openal" = xyes || enable_openal32=${enable_openal32:-no}
+
+dnl **** Check for openal-soft ****
+if test "x$ac_cv_lib_openal" = xyes
+then
+    AC_CACHE_CHECK([for openal-soft], ac_cv_have_openalsoft,
+        AC_COMPILE_IFELSE([AC_LANG_PROGRAM(
+            [[#include <AL/alext.h>
+LPALCRENDERSAMPLESSOFT x;]])],[ac_cv_have_openalsoft=yes],[ac_cv_have_openalsoft=no]))
+fi
+if test "x$ac_cv_have_openalsoft" != xyes
+then
+    WINE_NOTICE([openal-soft ${notice_platform}development files not found (or too old), XAudio2 won't be supported])
+    enable_xaudio2_7=${enable_xaudio2_7:-no}
+fi
 
 dnl **** Check for libkstat ****
 if test "$ac_cv_header_kstat_h" = "yes"
@@ -2755,6 +2769,21 @@ WINE_CONFIG_DLL(api-ms-win-core-winrt-error-l1-1-1)
 WINE_CONFIG_DLL(api-ms-win-core-winrt-l1-1-0)
 WINE_CONFIG_DLL(api-ms-win-core-winrt-string-l1-1-0)
 WINE_CONFIG_DLL(api-ms-win-core-xstate-l2-1-0)
+WINE_CONFIG_DLL(api-ms-win-crt-conio-l1-1-0)
+WINE_CONFIG_DLL(api-ms-win-crt-convert-l1-1-0)
+WINE_CONFIG_DLL(api-ms-win-crt-environment-l1-1-0)
+WINE_CONFIG_DLL(api-ms-win-crt-filesystem-l1-1-0)
+WINE_CONFIG_DLL(api-ms-win-crt-heap-l1-1-0)
+WINE_CONFIG_DLL(api-ms-win-crt-locale-l1-1-0)
+WINE_CONFIG_DLL(api-ms-win-crt-math-l1-1-0)
+WINE_CONFIG_DLL(api-ms-win-crt-multibyte-l1-1-0)
+WINE_CONFIG_DLL(api-ms-win-crt-private-l1-1-0)
+WINE_CONFIG_DLL(api-ms-win-crt-process-l1-1-0)
+WINE_CONFIG_DLL(api-ms-win-crt-runtime-l1-1-0)
+WINE_CONFIG_DLL(api-ms-win-crt-stdio-l1-1-0)
+WINE_CONFIG_DLL(api-ms-win-crt-string-l1-1-0)
+WINE_CONFIG_DLL(api-ms-win-crt-time-l1-1-0)
+WINE_CONFIG_DLL(api-ms-win-crt-utility-l1-1-0)
 WINE_CONFIG_DLL(api-ms-win-downlevel-advapi32-l1-1-0)
 WINE_CONFIG_DLL(api-ms-win-downlevel-advapi32-l2-1-0)
 WINE_CONFIG_DLL(api-ms-win-downlevel-normaliz-l1-1-0)
@@ -2837,6 +2866,7 @@ WINE_CONFIG_DLL(d3d10_1,,[implib])
 WINE_CONFIG_DLL(d3d10core,,[implib])
 WINE_CONFIG_TEST(dlls/d3d10core/tests)
 WINE_CONFIG_DLL(d3d11,,[implib])
+WINE_CONFIG_TEST(dlls/d3d11/tests)
 WINE_CONFIG_DLL(d3d8,,[implib])
 WINE_CONFIG_TEST(dlls/d3d8/tests)
 WINE_CONFIG_DLL(d3d9,,[implib])
@@ -3303,6 +3333,7 @@ WINE_CONFIG_DLL(twain.dll16,enable_win16)
 WINE_CONFIG_DLL(twain_32)
 WINE_CONFIG_TEST(dlls/twain_32/tests)
 WINE_CONFIG_DLL(typelib.dll16,enable_win16)
+WINE_CONFIG_DLL(ucrtbase)
 WINE_CONFIG_DLL(unicows,,[implib])
 WINE_CONFIG_DLL(updspapi)
 WINE_CONFIG_DLL(url,,[implib])
@@ -3425,6 +3456,7 @@ WINE_CONFIG_DLL(xapofx1_3)
 WINE_CONFIG_DLL(xapofx1_4)
 WINE_CONFIG_DLL(xapofx1_5)
 WINE_CONFIG_DLL(xaudio2_7,,[clean])
+WINE_CONFIG_TEST(dlls/xaudio2_7/tests)
 WINE_CONFIG_DLL(xaudio2_8)
 WINE_CONFIG_DLL(xinput1_1)
 WINE_CONFIG_DLL(xinput1_2)

@@ -1408,16 +1408,25 @@ static void test_ThreadErrorMode(void)
     pSetThreadErrorMode(oldmode, NULL);
 }
 
-#if defined(__GNUC__) && (defined(__i386__) || defined(__x86_64__))
+#if (defined(__GNUC__) && (defined(__i386__) || defined(__x86_64__))) || (defined(_MSC_VER) && defined(__i386__))
 static inline void set_fpu_cw(WORD cw)
 {
+#ifdef _MSC_VER
+    __asm { fnclex }
+    __asm { fldcw [cw] }
+#else
     __asm__ volatile ("fnclex; fldcw %0" : : "m" (cw));
+#endif
 }
 
 static inline WORD get_fpu_cw(void)
 {
     WORD cw = 0;
+#ifdef _MSC_VER
+    __asm { fnstcw [cw] }
+#else
     __asm__ volatile ("fnstcw %0" : "=m" (cw));
+#endif
     return cw;
 }
 
@@ -1716,7 +1725,7 @@ static void test_thread_info(void)
         /* FIXME: Add remaining classes */
     };
     HANDLE thread;
-    ULONG i, status, ret_len, size;
+    ULONG i, status, ret_len;
 
     if (!pOpenThread)
     {
@@ -1739,8 +1748,19 @@ static void test_thread_info(void)
 
     for (i = 0; i < sizeof(info_size)/sizeof(info_size[0]); i++)
     {
-        size = info_size[i];
-        if (!size) size = sizeof(buf);
+        memset(buf, 0, sizeof(buf));
+
+#ifdef __i386__
+        if (i == ThreadDescriptorTableEntry)
+        {
+            CONTEXT ctx;
+            THREAD_DESCRIPTOR_INFORMATION *tdi = (void *)buf;
+
+            ctx.ContextFlags = CONTEXT_SEGMENTS;
+            GetThreadContext(GetCurrentThread(), &ctx);
+            tdi->Selector = ctx.SegDs;
+        }
+#endif
         ret_len = 0;
         status = pNtQueryInformationThread(thread, i, buf, info_size[i], &ret_len);
         if (status == STATUS_NOT_IMPLEMENTED) continue;
@@ -1755,12 +1775,18 @@ static void test_thread_info(void)
             ok(status == STATUS_SUCCESS, "for info %u expected STATUS_SUCCESS, got %08x (ret_len %u)\n", i, status, ret_len);
             break;
 
+#ifdef __i386__
+        case ThreadDescriptorTableEntry:
+            ok(status == STATUS_SUCCESS || broken(status == STATUS_ACCESS_DENIED) /* testbot VM is broken */,
+               "for info %u expected STATUS_SUCCESS, got %08x (ret_len %u)\n", i, status, ret_len);
+            break;
+#endif
+
         case ThreadTimes:
 todo_wine
             ok(status == STATUS_SUCCESS, "for info %u expected STATUS_SUCCESS, got %08x (ret_len %u)\n", i, status, ret_len);
             break;
 
-        case ThreadDescriptorTableEntry:
         case ThreadAffinityMask:
         case ThreadQuerySetWin32StartAddress:
 todo_wine
@@ -1871,7 +1897,7 @@ START_TEST(thread)
    test_RegisterWaitForSingleObject();
    test_TLS();
    test_ThreadErrorMode();
-#if defined(__GNUC__) && (defined(__i386__) || defined(__x86_64__))
+#if (defined(__GNUC__) && (defined(__i386__) || defined(__x86_64__))) || (defined(_MSC_VER) && defined(__i386__))
    test_thread_fpu_cw();
 #endif
    test_thread_actctx();

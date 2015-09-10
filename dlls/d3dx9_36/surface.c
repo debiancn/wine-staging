@@ -77,7 +77,7 @@ static const GUID *d3dformat_to_wic_guid(D3DFORMAT format)
 /* dds_header.flags */
 #define DDS_CAPS 0x1
 #define DDS_HEIGHT 0x2
-#define DDS_WIDTH 0x2
+#define DDS_WIDTH 0x4
 #define DDS_PITCH 0x8
 #define DDS_PIXELFORMAT 0x1000
 #define DDS_MIPMAPCOUNT 0x20000
@@ -146,15 +146,15 @@ static D3DFORMAT dds_fourcc_to_d3dformat(DWORD fourcc)
 {
     unsigned int i;
     static const DWORD known_fourcc[] = {
-        MAKEFOURCC('U','Y','V','Y'),
-        MAKEFOURCC('Y','U','Y','2'),
-        MAKEFOURCC('R','G','B','G'),
-        MAKEFOURCC('G','R','G','B'),
-        MAKEFOURCC('D','X','T','1'),
-        MAKEFOURCC('D','X','T','2'),
-        MAKEFOURCC('D','X','T','3'),
-        MAKEFOURCC('D','X','T','4'),
-        MAKEFOURCC('D','X','T','5'),
+        D3DFMT_UYVY,
+        D3DFMT_YUY2,
+        D3DFMT_R8G8_B8G8,
+        D3DFMT_G8R8_G8B8,
+        D3DFMT_DXT1,
+        D3DFMT_DXT2,
+        D3DFMT_DXT3,
+        D3DFMT_DXT4,
+        D3DFMT_DXT5,
         D3DFMT_R16F,
         D3DFMT_G16R16F,
         D3DFMT_A16B16G16R16F,
@@ -390,7 +390,7 @@ static HRESULT get_image_info_from_dds(const void *buffer, UINT length, D3DXIMAG
     info->Width = header->width;
     info->Height = header->height;
     info->Depth = 1;
-    info->MipLevels = (header->flags & DDS_MIPMAPCOUNT) ?  header->miplevels : 1;
+    info->MipLevels = header->miplevels ? header->miplevels : 1;
 
     info->Format = dds_pixel_format_to_d3dformat(&header->pixel_format);
     if (info->Format == D3DFMT_UNKNOWN)

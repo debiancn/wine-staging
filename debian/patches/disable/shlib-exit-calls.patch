@@ -85,7 +85,7 @@ author: Michael Gilbert <mgilbert@debian.org>
  /* malloc wrapper */
 --- a/libs/wine/debug.c
 +++ b/libs/wine/debug.c
-@@ -185,7 +185,7 @@ static void debug_usage(void)
+@@ -186,7 +186,7 @@ static void debug_usage(void)
          "    turns on all messages except warning heap messages\n"
          "Available message classes: err, warn, fixme, trace\n";
      write( 2, usage, sizeof(usage) - 1 );

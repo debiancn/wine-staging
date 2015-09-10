@@ -1,3 +1,14 @@
+wine-development (1.7.51-1) unstable; urgency=medium
+
+  * New upstream release 1.7.51, released Sep 4, 2015.
+    - XAudio2 implementation using OpenAL Soft.
+    - Support for the new Universal C Runtime DLL.
+    - Dropdown menu support in the standard Open Dialog.
+    - Grayscale rendering mode in DirectWrite.
+    - Various bug fixes.
+
+ -- Michael Gilbert <mgilbert@debian.org>  Fri, 04 Sep 2015 22:51:43 +0000
+
 wine-development (1.7.50-3~bpo8+1) jessie-backports; urgency=medium
 
   * Rebuild for jessie-backports.
