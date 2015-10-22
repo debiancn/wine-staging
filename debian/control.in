@@ -86,15 +86,18 @@ Depends:
  x11-utils,
  libncurses5,
  libfreetype6,
- libwineVERSION (>= ${source:Version}),
- libwineVERSION (<< ${source:Version}.1~),
+ libwineVERSION (= ${binary:Version}),
 Recommends:
- wineVERSION,
+ wineVERSION (= ${source:Version}),
  libgl1-mesa-dri,
  libwine-gecko-2.40 [!armhf !arm64],
  libasound2-plugins,
 Suggests:
- wine32VERSION-preloader,
+ dosbox (>= 0.74-4.2~),
+ wine32VERSION-preloader (= ${binary:Version}),
+Breaks:
+ wineVERSION (<< 1.7.50-3~),
+ wine32VERSION-preloader (<< 1.7.51-2~),
 Description: Windows API implementation - 32-bit binary loader
  Wine is a free MS-Windows API implementation.
  This is still a work in progress and many applications may still not work.
@@ -103,19 +106,23 @@ Description: Windows API implementation - 32-bit binary loader
 
 Package: wine64VERSION
 Architecture: amd64 arm64
+Multi-Arch: foreign
 Depends:
  ${misc:Depends},
  ${shlibs:Depends},
  x11-utils,
- libwineVERSION (>= ${source:Version}),
- libwineVERSION (<< ${source:Version}.1~),
+ libwineVERSION (= ${binary:Version}),
 Recommends:
- wineVERSION,
+ wineVERSION (= ${source:Version}),
  wine32VERSION (>= ${source:Version}),
- libwine-gecko-2.36 [!armhf !arm64],
+ wine32VERSION (<< ${source:Version}.1~),
+ libwine-gecko-2.40 [!armhf !arm64],
  libasound2-plugins,
 Suggests:
- wine64VERSION-preloader,
+ wine64VERSION-preloader (= ${binary:Version}),
+Breaks:
+ wineVERSION (<< 1.7.50-3~),
+ wine64VERSION-preloader (<< 1.7.51-2~),
 Description: Windows API implementation - 64-bit binary loader
  Wine is a free MS-Windows API implementation.
  This is still a work in progress and many applications may still not work.
@@ -124,9 +131,10 @@ Description: Windows API implementation - 64-bit binary loader
 
 Package: wine32VERSION-preloader
 Architecture: i386 powerpc armhf
+Multi-Arch: foreign
 Depends:
  ${misc:Depends},
- wine32VERSION,
+ wine32VERSION (= ${binary:Version}),
 Description: Windows API implementation - prelinked 32-bit binary loader
  Wine is a free MS-Windows API implementation.
  This is still a work in progress and many applications may still not work.
@@ -135,9 +143,10 @@ Description: Windows API implementation - prelinked 32-bit binary loader
 
 Package: wine64VERSION-preloader
 Architecture: amd64
+Multi-Arch: foreign
 Depends:
  ${misc:Depends},
- wine64VERSION,
+ wine64VERSION (= ${binary:Version}),
 Description: Windows API implementation - prelinked 64-bit binary loader
  Wine is a free MS-Windows API implementation.
  This is still a work in progress and many applications may still not work.
@@ -163,6 +172,7 @@ Description: Windows API implementation - 32-bit developer tools
 Package: wine64VERSION-tools
 Architecture: amd64 arm64
 Section: libdevel
+Multi-Arch: foreign
 Depends:
  gcc [amd64],
  ${perl:Depends},
@@ -182,9 +192,9 @@ Multi-Arch: foreign
 Depends:
  ${misc:Depends},
 Replaces:
- libwineVERSION (<< 1.7.41-2),
+ libwineVERSION (<< 1.7.41-2~),
 Breaks:
- libwineVERSION (<< 1.7.41-2),
+ libwineVERSION (<< 1.7.41-2~),
 Description: Windows API implementation - fonts
  Wine is a free MS-Windows API implementation.
  This is still a work in progress and many applications may still not work.
@@ -222,7 +232,7 @@ Depends:
  libwineVERSION (= ${binary:Version}),
  libc6-dev,
 Recommends:
- wine32VERSION-tools | wine64VERSION-tools,
+ wine32VERSION-tools (= ${binary:Version}) | wine64VERSION-tools (= ${binary:Version}),
 Description: Windows API implementation - development files
  Wine is a free MS-Windows API implementation.
  This is still a work in progress and many applications may still not work.

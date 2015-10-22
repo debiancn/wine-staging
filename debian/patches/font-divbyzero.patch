@@ -2,7 +2,7 @@ description: avoid divide-by-zero condition for certain font files and warn abou
 
 --- a/dlls/gdi32/freetype.c
 +++ b/dlls/gdi32/freetype.c
-@@ -5445,6 +5445,13 @@ found_face:
+@@ -5537,6 +5537,13 @@ found_face:
          if (scale > 2 && scaled_height - height > face->size.height / 4) scale--;
          /* The jump between unscaled and doubled is delayed by 1 */
          else if (scale == 2 && scaled_height - height > (face->size.height / 4 - 1)) scale--;

@@ -37,7 +37,7 @@ author: Michael Gilbert <mgilbert@debian.org>
 --Anwendung an, die genutzt wird, um Windows-Programme zu laden. Wenn
 +\-Anwendung an, die genutzt wird, um Windows-Programme zu laden. Wenn
   diese Variable nicht gesetzt ist, wird versucht,
- .B @bindir@/wineserver
+ .B @bindir@/wine
  zu laden. Wenn auch dies nicht funktioniert, wird in $PATH und anderen
 @@ -118,7 +118,7 @@ Wenn
  nicht angegeben ist, werden alle Debugmeldungen dieses Kanals

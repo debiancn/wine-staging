@@ -1,3 +1,24 @@
+wine-development (1.7.52-1) unstable; urgency=medium
+
+  [ Michael Gilbert ]
+  * New upstream release 1.7.52, released Oct 2, 2015.
+    - Unicode data updated to Unicode 8.0.0.
+    - Some implementation of the Web Services DLL.
+    - More Direct3D 11 interfaces.
+    - A few more functions in the C++ runtime.
+    - Output standard glyph names in the PostScript driver.
+    - Various bug fixes.
+
+  [ Jens Reyer ]
+  * Make Breaks/Replaces backports safe.
+  * Add a Multi-Arch field to every package.
+  * Refactor intra-source-package dependency versioning.
+  * Break older packages before a hard reverse version requirement was added.
+  * Add bug control file.
+  * Suggest to install dosbox.
+
+ -- Michael Gilbert <mgilbert@debian.org>  Sat, 17 Oct 2015 20:58:49 +0000
+
 wine-development (1.7.51-1~bpo8+1) jessie-backports; urgency=medium
 
   [ Jens Reyer ]

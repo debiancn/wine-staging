@@ -46,7 +46,8 @@ CONFLAGS+=--enable-win64
 endif
 
 # additional files to generate
-INSTALLS=$(shell ls debian/*VERSION* | sed s/VERSION/$(VERSION)/)
+INSTALLS=$(shell ls debian/*VERSION* | sed s/VERSION/$(VERSION)/) \
+         debian/bug-control \
 
 debian/control: debian/control.in
 	sed s/VERSION/$(VERSION)/g < $< > $@
@@ -66,6 +67,9 @@ debian/libwine$(VERSION)%: debian/libwineVERSION%
 debian/fonts-wine$(VERSION)%: debian/fonts-wineVERSION%
 	sed s/VERSION/$(VERSION)/g < $< > $@
 
+debian/bug-control: debian/bug-control.in
+	sed s/VERSION/$(VERSION)/g < $< > $@
+
 %:
 	dh $@ --parallel --with autoreconf
 
@@ -74,6 +78,9 @@ override_dh_auto_configure:
 	ln -s /usr/share/misc/config.sub tools
 	ln -s /usr/share/misc/config.guess tools
 	dh_auto_configure -- $(CONFLAGS)
+
+override_dh_bugfiles:
+	dh_bugfiles -A
 
 override_dh_install: $(INSTALLS)
 	mkdir -p debian/tmp
