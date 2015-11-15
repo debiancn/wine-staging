@@ -1,4 +1,5 @@
 description: avoid unneeded libGL dependency for glu32
+author: Michael Gilbert <mgilbert@debian.org>
 
 --- a/dlls/glu32/Makefile.in
 +++ b/dlls/glu32/Makefile.in

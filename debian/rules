@@ -75,11 +75,13 @@ debian/bug-control: debian/bug-control.in
 
 override_dh_auto_configure:
 	./tools/make_fir
+	cp debian/unicode/cptable.c libs/wine
+	./tools/make_unicode
 	cp debian/requests/* server
 	./tools/make_requests
 	cd dlls/opengl32 && ./make_opengl
-	ln -s /usr/share/misc/config.sub tools
-	ln -s /usr/share/misc/config.guess tools
+	ln -s /usr/share/misc/config.sub tools || true
+	ln -s /usr/share/misc/config.guess tools || true
 	./configure $(CONFLAGS)
 
 override_dh_bugfiles:
@@ -108,7 +110,20 @@ override_dh_install: $(INSTALLS)
 override_dh_strip:
 	dh_strip -Xwine-pthread -Xwine-kthread --dbg-package=libwine$(VERSION)-dbg
 
-override_dh_auto_clean:
-	touch dlls/rpcrt4/tests/generated.c
-	dh_auto_clean -- $(INSTALLS)
+override_dh_gencontrol:
+	dh_gencontrol -- -VBuilt-Using="$(shell dpkg-query -f '$${source:Package} (= $${source:Version}), ' -W khronos-api unicode-data)"
+
+override_dh_clean:
+	if [ ! -e configure ]; then \
+	    QUILT_PATCHES=debian/patches quilt push -af || true; \
+	    dh_autoreconf || true; \
+	    make -f debian/rules override_dh_auto_configure; \
+	fi
+	make clean
+	make distclean
+	dh_autoreconf_clean || true
+	dh_clean -- $(INSTALLS)
 	make -f debian/rules debian/control
+
+override_dh_auto_clean:
+	# disabled

@@ -1,5 +1,7 @@
 makefile.patch
 manpages.patch
+kfreebsd.patch
+unicode.patch
 
 disable/shlib-exit-calls.patch
 disable/external-installers.patch
@@ -7,18 +9,13 @@ disable/external-installers.patch
 development/winegcc.patch
 development/winemenubuilder.patch
 
-printer-resolution.patch
+addons.patch
+apploader.patch
 
-wineapploader.patch
-
-addons-path.patch
-
-glu32-link.patch
-
+glu32.patch
 opengl.patch
 openal.patch
 
-kfreebsd-include.patch
-
 file-handling.patch
 font-divbyzero.patch
+printer-resolution.patch

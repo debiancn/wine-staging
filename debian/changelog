@@ -8,6 +8,8 @@ wine-development (1.7.55-1) unstable; urgency=medium
     - Improvements to the Makefile generation.
     - Various bug fixes.
   * Build on armel (closes: #803480).
+  * Make the clean rule more reliable.
+  * Add Built-Using fields to the control file.
   * Remove more automatically generated files from the upstream tarball.
 
  -- Michael Gilbert <mgilbert@debian.org>  Sun, 15 Nov 2015 03:49:13 +0000
