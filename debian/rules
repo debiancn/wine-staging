@@ -75,6 +75,8 @@ debian/bug-control: debian/bug-control.in
 
 override_dh_auto_configure:
 	./tools/make_fir
+	cp debian/requests/* server
+	./tools/make_requests
 	cd dlls/opengl32 && ./make_opengl
 	ln -s /usr/share/misc/config.sub tools
 	ln -s /usr/share/misc/config.guess tools
@@ -106,6 +108,7 @@ override_dh_install: $(INSTALLS)
 override_dh_strip:
 	dh_strip -Xwine-pthread -Xwine-kthread --dbg-package=libwine$(VERSION)-dbg
 
-override_dh_clean:
-	dh_clean -- $(INSTALLS)
+override_dh_auto_clean:
+	touch dlls/rpcrt4/tests/generated.c
+	dh_auto_clean -- $(INSTALLS)
 	make -f debian/rules debian/control

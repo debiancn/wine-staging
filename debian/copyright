@@ -5,6 +5,11 @@ Files-Excluded:
  tools/config.*
  include/config.h.in
  include/wine/wgl*
+ include/wine/server_protocol.h
+ server/trace.c
+ server/requests.h
+ dlls/dsound/fir.h
+ dlls/*/tests/generated.c
  dlls/opengl32/opengl_ext.c
  dlls/opengl32/opengl_norm.c
  dlls/opengl32/opengl32.spec

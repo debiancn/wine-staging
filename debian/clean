@@ -8,6 +8,11 @@ programs/cscript/ihost.h
 tools/winemaker/*.man
 
 dlls/dsound/fir.h
+dlls/*/tests/generated.c
+
+server/trace.c
+server/requests.h
+include/wine/server_protocol.h
 
 # automatically generated opengl spec files
 include/wine/wgl*

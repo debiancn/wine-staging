@@ -14,7 +14,7 @@ author: Michael Gilbert <mgilbert@debian.org>
  
 --- a/dlls/mshtml/nsembed.c
 +++ b/dlls/mshtml/nsembed.c
-@@ -771,8 +771,7 @@ BOOL load_gecko(void)
+@@ -772,8 +772,7 @@ BOOL load_gecko(void)
      if(!loading_thread) {
          loading_thread = GetCurrentThreadId();
  
