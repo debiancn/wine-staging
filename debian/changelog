@@ -1,3 +1,14 @@
+wine (1.8-2~bpo8+1) jessie-backports; urgency=medium
+
+  * Rebuild for jessie-backports.
+  * Add myself to Uploaders.
+  * Don't build -dbg or -dbgsym packages.
+    Drop versioned build-dependency on debhelper.
+    Don't override dh_strip. Binaries are stripped, but the debug
+    symbols are discarded.
+
+ -- Jens Reyer <jre.winesim@gmail.com>  Fri, 15 Jan 2016 20:09:52 +0100
+
 wine (1.8-2) unstable; urgency=medium
 
   [ Michael Gilbert ]
