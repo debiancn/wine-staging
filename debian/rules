@@ -118,9 +118,6 @@ override_dh_install: $(INSTALLS)
 	    cp winegcc.1 winegcc$(DEB_BUILD_ARCH_BITS)$(VERSION).1
 	dh_install
 
-override_dh_strip:
-	dh_strip -Xwine-pthread -Xwine-kthread --ddeb-migration='libwine$(VERSION)-dbg (<< 1.8-2~)'
-
 override_dh_gencontrol:
 	dh_gencontrol -- \
 	    -Vbuilt:Using="$(shell dpkg-query -f '$${source:Package} (= $${source:Version}), ' -W khronos-api unicode-data)" \
