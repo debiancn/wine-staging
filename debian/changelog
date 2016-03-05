@@ -1,3 +1,10 @@
+wine-development (1.9.4-2~bpo8+1) jessie-backports; urgency=medium
+
+  * Rebuild for jessie-backports.
+  * Don't build -dbg or -dbgsym packages.
+
+ -- Jens Reyer <jre.winesim@gmail.com>  Sat, 05 Mar 2016 02:10:06 +0100
+
 wine-development (1.9.4-2) unstable; urgency=medium
 
   [ Michael Gilbert ]
