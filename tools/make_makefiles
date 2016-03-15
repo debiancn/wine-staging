@@ -55,7 +55,7 @@ my %ignored_source_files = (
     "tools/makedep.c" => 1,
 );
 
-my (@linguas, @makefiles, %makefiles);
+my (@makefiles, %makefiles);
 
 sub dirname($)
 {
@@ -211,7 +211,7 @@ sub parse_makefile($)
             ${$make{"=flags"}}{"implib"} = 1 if $var eq "IMPORTLIB";
             next;
         }
-        if (/^\s*(BISON_SRCS|LEX_SRCS|IDL_SRCS|C_SRCS|OBJC_SRCS|MC_SRCS|RC_SRCS|SVG_SRCS|FONT_SRCS|IN_SRCS|PROGRAMS|EXTRA_TARGETS|MANPAGES|EXTRA_OBJS|INSTALL_LIB|INSTALL_DEV)\s*=\s*(.*)/)
+        if (/^\s*(BISON_SRCS|LEX_SRCS|IDL_SRCS|C_SRCS|OBJC_SRCS|MC_SRCS|RC_SRCS|SVG_SRCS|FONT_SRCS|IN_SRCS|PO_SRCS|PROGRAMS|EXTRA_TARGETS|MANPAGES|EXTRA_OBJS|INSTALL_LIB|INSTALL_DEV)\s*=\s*(.*)/)
         {
             my $var = $1;
             my @list = split(/\s+/, $2);
@@ -380,13 +380,18 @@ sub assign_sources_to_makefiles(@)
         }
         elsif ($name =~ /\.rc$/)
         {
-            ${${$make}{"=flags"}}{"po"} = 1 if defined $flags{"po"};
+            ${${$make}{"=flags"}}{"clean"} = 1 if defined $flags{"po"};
             push @{${$make}{"=RC_SRCS"}}, $name;
         }
         elsif ($name =~ /\.mc$/)
         {
             push @{${$make}{"=MC_SRCS"}}, $name;
-            ${${$make}{"=flags"}}{"mc"} = 1;
+            ${${$make}{"=flags"}}{"clean"} = 1;
+        }
+        elsif ($name =~ /\.po$/)
+        {
+            push @{${$make}{"=PO_SRCS"}}, $name;
+            ${${$make}{"=flags"}}{"clean"} = 1;
         }
         elsif ($name =~ /\.idl$/)
         {
@@ -502,8 +507,6 @@ sub update_makefiles(@)
         }
     }
 
-    push @lines, "\nAC_SUBST([LINGUAS],[\"\\\n", join( " \\\n", sort @linguas ), "\"])\n\n";
-
     # update the source variables in all the makefiles
 
     foreach my $file (sort @_)
@@ -519,6 +522,7 @@ sub update_makefiles(@)
         replace_makefile_variable( $file, "IDL_SRCS" );
         replace_makefile_variable( $file, "HEADER_SRCS" );
         replace_makefile_variable( $file, "XTEMPLATE_SRCS" );
+        replace_makefile_variable( $file, "PO_SRCS" );
         replace_makefile_variable( $file, "IN_SRCS" );
         replace_makefile_variable( $file, "MANPAGES" );
     }
@@ -528,20 +532,10 @@ sub update_makefiles(@)
 }
 
 
-################################################################
-# update the LINGUAS file
-
-sub update_linguas(@)
-{
-    replace_in_file( "po/LINGUAS", undef, undef, join("\n", sort @_), "\n" );
-}
-
-
 my $git_dir = $ENV{GIT_DIR} || ".git";
 die "needs to be run from a git checkout" unless -d $git_dir;
 
 my @all_files = split /\0/, `git ls-files -c -z`;
-@linguas = map { (my $ret = $_) =~ s/^po\/(.*)\.po/$1/; $ret; } grep /^po\/.*\.po$/, @all_files;
 @makefiles = map { (my $ret = $_) =~ s/\.in$//; $ret; } grep /Makefile.in$/, @all_files;
 
 foreach my $file (sort @makefiles)
@@ -551,5 +545,4 @@ foreach my $file (sort @makefiles)
 }
 
 assign_sources_to_makefiles( @all_files );
-update_linguas( @linguas );
 update_makefiles( @makefiles );

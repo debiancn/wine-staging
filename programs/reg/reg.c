@@ -19,6 +19,7 @@
 #include <windows.h>
 #include <wine/unicode.h>
 #include <wine/debug.h>
+#include <errno.h>
 #include "reg.h"
 
 #define ARRAY_SIZE(A) (sizeof(A)/sizeof(*A))
@@ -150,6 +151,7 @@ static BOOL ask_confirm(unsigned int msgid, WCHAR *reg_info)
     WCHAR Nbuffer[4];
     WCHAR defval[32];
     WCHAR answer[MAX_PATH];
+    WCHAR *str;
     DWORD count;
 
     hmod = GetModuleHandleW(NULL);
@@ -157,9 +159,11 @@ static BOOL ask_confirm(unsigned int msgid, WCHAR *reg_info)
     LoadStringW(hmod, STRING_NO,  Nbuffer, ARRAY_SIZE(Nbuffer));
     LoadStringW(hmod, STRING_DEFAULT_VALUE, defval, ARRAY_SIZE(defval));
 
+    str = (reg_info && strlenW(reg_info)) ? reg_info : defval;
+
     while (1)
     {
-        output_message(msgid, reg_info ? reg_info : defval);
+        output_message(msgid, str);
         output_message(STRING_YESNO);
         ReadConsoleW(GetStdHandle(STD_INPUT_HANDLE), answer, ARRAY_SIZE(answer), &count, NULL);
         answer[0] = toupperW(answer[0]);
@@ -243,8 +247,8 @@ static LPBYTE get_regdata(LPWSTR data, DWORD reg_type, WCHAR separator, DWORD *r
         {
             LPWSTR rest;
             DWORD val;
-            val = strtoulW(data, &rest, (data[1] == 'x') ? 16 : 10);
-            if (*rest || data[0] == '-') {
+            val = strtoulW(data, &rest, (tolowerW(data[1]) == 'x') ? 16 : 10);
+            if (*rest || data[0] == '-' || (val == ~0u && errno == ERANGE)) {
                 output_message(STRING_MISSING_INTEGER);
                 break;
             }
@@ -283,7 +287,35 @@ static LPBYTE get_regdata(LPWSTR data, DWORD reg_type, WCHAR separator, DWORD *r
             break;
         }
         case REG_MULTI_SZ:
-            /* FIXME: Needs handling */
+        {
+            int i, destindex, len = strlenW(data);
+            WCHAR *buffer = HeapAlloc(GetProcessHeap(), 0, (len + 2) * sizeof(WCHAR));
+
+            for (i = 0, destindex = 0; i < len; i++, destindex++)
+            {
+                if (!separator && data[i] == '\\' && data[i + 1] == '0')
+                {
+                    buffer[destindex] = 0;
+                    i++;
+                }
+                else if (data[i] == separator)
+                    buffer[destindex] = 0;
+                else
+                    buffer[destindex] = data[i];
+
+                if (destindex && !buffer[destindex - 1] && (!buffer[destindex] || destindex == 1))
+                {
+                    HeapFree(GetProcessHeap(), 0, buffer);
+                    output_message(STRING_INVALID_STRING);
+                    return NULL;
+                }
+            }
+            buffer[destindex] = 0;
+            if (destindex && buffer[destindex - 1])
+                buffer[++destindex] = 0;
+            *reg_count = (destindex + 1) * sizeof(WCHAR);
+            return (BYTE *)buffer;
+        }
         default:
             output_message(STRING_UNHANDLED_TYPE, reg_type, data);
     }
@@ -346,7 +378,7 @@ static int reg_add(WCHAR *key_name, WCHAR *value_name, BOOL value_empty,
         return 1;
     }
 
-    if (value_name || data)
+    if (value_name || value_empty || data)
     {
         DWORD reg_type;
         DWORD reg_count = 0;
@@ -372,7 +404,7 @@ static int reg_add(WCHAR *key_name, WCHAR *value_name, BOOL value_empty,
             output_message(STRING_UNSUPPORTED_TYPE, type);
             return 1;
         }
-        if (reg_type == REG_DWORD && !data)
+        if ((reg_type == REG_DWORD || reg_type == REG_DWORD_BIG_ENDIAN) && !data)
         {
              RegCloseKey(subkey);
              output_message(STRING_INVALID_CMDLINE);
@@ -496,18 +528,14 @@ static int reg_delete(WCHAR *key_name, WCHAR *value_name, BOOL value_empty,
             /* FIXME  delete failed */
         }
     }
-    else if (value_name)
+    else if (value_name || value_empty)
     {
-        if (RegDeleteValueW(subkey,value_name) != ERROR_SUCCESS)
+        if (RegDeleteValueW(subkey, value_empty ? NULL : value_name) != ERROR_SUCCESS)
         {
             RegCloseKey(subkey);
             output_message(STRING_CANNOT_FIND);
             return 1;
         }
-    }
-    else if (value_empty)
-    {
-        RegSetValueExW(subkey,NULL,0,REG_SZ,NULL,0);
     }
 
     RegCloseKey(subkey);

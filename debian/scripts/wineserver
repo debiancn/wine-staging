@@ -15,10 +15,4 @@ else
     exit 1
 fi
 
-dist=$(cat /etc/debian_version)
-arch=$(dpkg --print-architecture)
-version=$($wineserver --version 2>&1 | cut -d- -f2)
-
-echo "Executing $script ($(basename $wineserver)) $version on Debian $dist ($arch)."
-
 exec $wineserver -p0 "$@"

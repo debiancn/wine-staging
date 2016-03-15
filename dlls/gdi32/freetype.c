@@ -6439,7 +6439,7 @@ static inline BYTE get_max_level( UINT format )
     return 255;
 }
 
-extern const unsigned short vertical_orientation_table[];
+extern const unsigned short vertical_orientation_table[] DECLSPEC_HIDDEN;
 
 static BOOL check_unicode_tategaki(WCHAR uchar)
 {
@@ -7458,7 +7458,7 @@ static BOOL get_bitmap_text_metrics(GdiFont *font)
         TM.tmUnderlined = font->underline;
         TM.tmStruckOut = font->strikeout;
         /* NB inverted meaning of TMPF_FIXED_PITCH */
-        TM.tmPitchAndFamily = ft_face->face_flags & FT_FACE_FLAG_FIXED_WIDTH ? 0 : TMPF_FIXED_PITCH;
+        TM.tmPitchAndFamily = FT_IS_FIXED_WIDTH(ft_face) ? 0 : TMPF_FIXED_PITCH;
         TM.tmCharSet = font->charset;
     }
 #undef TM

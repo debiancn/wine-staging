@@ -752,16 +752,6 @@ enum wined3d_sysval_semantic
     WINED3D_SV_INSTANCEID = 8,
     WINED3D_SV_ISFRONTFACE = 9,
     WINED3D_SV_SAMPLEINDEX = 10,
-
-    WINED3D_SV_DEPTH = 0xffffffff,
-    WINED3D_SV_TARGET0 = 0,
-    WINED3D_SV_TARGET1 = 1,
-    WINED3D_SV_TARGET2 = 2,
-    WINED3D_SV_TARGET3 = 3,
-    WINED3D_SV_TARGET4 = 4,
-    WINED3D_SV_TARGET5 = 5,
-    WINED3D_SV_TARGET6 = 6,
-    WINED3D_SV_TARGET7 = 7,
 };
 
 enum wined3d_scanline_ordering
@@ -1635,6 +1625,19 @@ struct wined3d_resource_desc
     UINT size;
 };
 
+struct wined3d_sub_resource_desc
+{
+    enum wined3d_format_id format;
+    enum wined3d_multisample_type multisample_type;
+    UINT multisample_quality;
+    DWORD usage;
+    enum wined3d_pool pool;
+    UINT width;
+    UINT height;
+    UINT depth;
+    UINT size;
+};
+
 struct wined3d_clip_status
 {
    DWORD clip_union;
@@ -2445,8 +2448,8 @@ void * __cdecl wined3d_texture_get_parent(const struct wined3d_texture *texture)
 void __cdecl wined3d_texture_get_pitch(const struct wined3d_texture *texture,
         unsigned int level, unsigned int *row_pitch, unsigned int *slice_pitch);
 struct wined3d_resource * __cdecl wined3d_texture_get_resource(struct wined3d_texture *texture);
-struct wined3d_resource * __cdecl wined3d_texture_get_sub_resource(const struct wined3d_texture *texture,
-        UINT sub_resource_idx);
+HRESULT __cdecl wined3d_texture_get_sub_resource_desc(const struct wined3d_texture *texture,
+        unsigned int sub_resource_idx, struct wined3d_sub_resource_desc *desc);
 void * __cdecl wined3d_texture_get_sub_resource_parent(struct wined3d_texture *texture, unsigned int sub_resource_idx);
 ULONG __cdecl wined3d_texture_incref(struct wined3d_texture *texture);
 void __cdecl wined3d_texture_preload(struct wined3d_texture *texture);
@@ -2458,6 +2461,8 @@ HRESULT __cdecl wined3d_texture_set_color_key(struct wined3d_texture *texture,
 DWORD __cdecl wined3d_texture_set_lod(struct wined3d_texture *texture, DWORD lod);
 HRESULT __cdecl wined3d_texture_set_overlay_position(struct wined3d_texture *texture,
         unsigned int sub_resource_idx, LONG x, LONG y);
+void __cdecl wined3d_texture_set_sub_resource_parent(struct wined3d_texture *texture,
+        unsigned int sub_resource_idx, void *parent);
 HRESULT __cdecl wined3d_texture_update_desc(struct wined3d_texture *texture,
         UINT width, UINT height, enum wined3d_format_id format_id,
         enum wined3d_multisample_type multisample_type, UINT multisample_quality,

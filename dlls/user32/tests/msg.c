@@ -1394,6 +1394,33 @@ static const struct message WmModalDialogSeq[] = {
     { WM_NCDESTROY, sent },
     { 0 }
 };
+static const struct message WmModalDialogSeq_2[] = {
+    { WM_CANCELMODE, sent },
+    { HCBT_SETFOCUS, hook },
+    { EVENT_OBJECT_FOCUS, winevent_hook|wparam|lparam, OBJID_CLIENT, 0 },
+    { WM_KILLFOCUS, sent },
+    { WM_IME_SETCONTEXT, sent|parent|wparam|optional, 0 },
+    { EVENT_OBJECT_STATECHANGE, winevent_hook|wparam|lparam, 0, 0 },
+    { WM_ENABLE, sent|wparam, 0 },
+    { HCBT_CREATEWND, hook },
+    { EVENT_OBJECT_REORDER, winevent_hook|wparam|lparam, 0, 0 },
+    { EVENT_OBJECT_CREATE, winevent_hook|wparam|lparam, 0, 0 },
+    { WM_SETFONT, sent },
+    { WM_INITDIALOG, sent },
+    { WM_CHANGEUISTATE, sent|optional },
+    { WM_UPDATEUISTATE, sent|optional },
+    { WM_ENABLE, sent|wparam, 1 },
+    { WM_WINDOWPOSCHANGING, sent|wparam, SWP_HIDEWINDOW|SWP_NOSIZE|SWP_NOMOVE|SWP_NOACTIVATE },
+    { EVENT_OBJECT_HIDE, winevent_hook|wparam|lparam, 0, 0 },
+    { WM_CHANGEUISTATE, sent|optional },
+    { WM_UPDATEUISTATE, sent|optional },
+    { HCBT_DESTROYWND, hook },
+    { 0x0090, sent|optional },
+    { EVENT_OBJECT_DESTROY, winevent_hook|wparam|lparam, 0, 0 },
+    { WM_DESTROY, sent },
+    { WM_NCDESTROY, sent },
+    { 0 }
+};
 /* SetMenu for NonVisible windows with size change*/
 static const struct message WmSetMenuNonVisibleSizeChangeSeq[] = {
     { WM_WINDOWPOSCHANGING, sent|wparam, SWP_FRAMECHANGED|SWP_NOACTIVATE|SWP_NOSIZE|SWP_NOMOVE },
@@ -2339,6 +2366,28 @@ static const struct message WmCreateMDIchildVisibleSeq[] = {
     { WM_IME_SETCONTEXT, sent|wparam|optional, 0 }, /* in MDI client */
     { WM_IME_SETCONTEXT, sent|wparam|defwinproc|optional, 1 },
     { EVENT_OBJECT_FOCUS, winevent_hook|wparam|lparam, OBJID_CLIENT, 0 },
+    { WM_SETFOCUS, sent|defwinproc },
+    { WM_MDIACTIVATE, sent|defwinproc },
+    { 0 }
+};
+/* WM_CHILDACTIVATE sent to disabled window */
+static const struct message WmChildActivateDisabledWindowSeq[] = {
+    { WM_CHILDACTIVATE, sent|wparam|lparam, 0, 0 },
+    { 0 }
+};
+/* WM_CHILDACTIVATE sent to enabled window */
+static const struct message WmChildActivateWindowSeq[] = {
+    { WM_CHILDACTIVATE, sent|wparam|lparam, 0, 0 },
+    { WM_NCACTIVATE, sent|wparam|defwinproc, 0 },
+    { WM_MDIACTIVATE, sent|defwinproc },
+    { WM_WINDOWPOSCHANGING, sent|wparam|defwinproc, SWP_NOACTIVATE|SWP_NOSIZE|SWP_NOMOVE },
+    { WM_WINDOWPOSCHANGED, sent|wparam|defwinproc, SWP_NOACTIVATE|SWP_NOSIZE|SWP_NOMOVE|SWP_NOCLIENTSIZE|SWP_NOCLIENTMOVE },
+    { WM_NCACTIVATE, sent|wparam|defwinproc, 1 },
+    { HCBT_SETFOCUS, hook },
+    { WM_KILLFOCUS, sent|defwinproc },
+    { WM_SETFOCUS, sent },
+    { HCBT_SETFOCUS, hook },
+    { WM_KILLFOCUS, sent },
     { WM_SETFOCUS, sent|defwinproc },
     { WM_MDIACTIVATE, sent|defwinproc },
     { 0 }
@@ -3380,6 +3429,7 @@ static void test_mdi_messages(void)
     BOOL zoomed;
     RECT rc;
     HMENU hMenu = CreateMenu();
+    LONG val;
 
     if (!mdi_RegisterWindowClasses()) assert(0);
 
@@ -3408,8 +3458,9 @@ static void test_mdi_messages(void)
                                  rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top,
                                  mdi_frame, 0, GetModuleHandleA(0), &client_cs);
     assert(mdi_client);
-    ok_sequence(WmCreateMDIclientSeq, "Create visible MDI client window", FALSE);
+    SetWindowLongA(mdi_client, 0, 0xdeadbeef);
 
+    ok_sequence(WmCreateMDIclientSeq, "Create visible MDI client window", FALSE);
     ok(GetActiveWindow() == mdi_frame, "wrong active window %p\n", GetActiveWindow());
     ok(GetFocus() == mdi_frame, "input focus should be on MDI frame not on %p\n", GetFocus());
 
@@ -3615,6 +3666,50 @@ static void test_mdi_messages(void)
 
     ok(GetActiveWindow() == mdi_frame, "wrong active window %p\n", GetActiveWindow());
     ok(GetFocus() == 0, "wrong focus window %p\n", GetFocus());
+
+    trace("Testing WM_CHILDACTIVATE\n");
+
+    mdi_child = CreateWindowExA(WS_EX_MDICHILD, "MDI_child_class", "MDI child",
+                                WS_CHILD | WS_VISIBLE | WS_MAXIMIZEBOX | WS_DISABLED,
+                                0, 0, CW_USEDEFAULT, CW_USEDEFAULT,
+                                mdi_client, 0, GetModuleHandleA(0), NULL);
+
+    mdi_child2 = CreateWindowExA(WS_EX_MDICHILD, "MDI_child_class", "MDI child",
+                                 WS_CHILD | WS_VISIBLE | WS_MAXIMIZEBOX,
+                                 0, 0, CW_USEDEFAULT, CW_USEDEFAULT,
+                                 mdi_client, 0, GetModuleHandleA(0), NULL);
+
+    active_child = (HWND)SendMessageA(mdi_client, WM_MDIGETACTIVE, 0, (LPARAM)&zoomed);
+    ok(active_child == mdi_child2, "wrong active MDI child %p\n", active_child);
+    ok(!zoomed, "wrong zoomed state %d\n", zoomed);
+
+    flush_sequence();
+    SendMessageW(mdi_child, WM_CHILDACTIVATE, 0, 0);
+    ok_sequence(WmChildActivateDisabledWindowSeq, "WM_CHILDACTIVATE sent to disabled window", FALSE);
+
+    active_child = (HWND)SendMessageA(mdi_client, WM_MDIGETACTIVE, 0, (LPARAM)&zoomed);
+    ok(active_child == mdi_child2, "wrong active MDI child %p\n", active_child);
+    ok(!zoomed, "wrong zoomed state %d\n", zoomed);
+    flush_sequence();
+
+    EnableWindow(mdi_child, TRUE);
+
+    active_child = (HWND)SendMessageA(mdi_client, WM_MDIGETACTIVE, 0, (LPARAM)&zoomed);
+    ok(active_child == mdi_child2, "wrong active MDI child %p\n", active_child);
+    ok(!zoomed, "wrong zoomed state %d\n", zoomed);
+
+    flush_sequence();
+    SendMessageW(mdi_child, WM_CHILDACTIVATE, 0, 0);
+    ok_sequence(WmChildActivateWindowSeq, "WM_CHILDACTIVATE sent to enabled window", FALSE);
+
+    active_child = (HWND)SendMessageA(mdi_client, WM_MDIGETACTIVE, 0, (LPARAM)&zoomed);
+    ok(active_child == mdi_child, "wrong active MDI child %p\n", active_child);
+    ok(!zoomed, "wrong zoomed state %d\n", zoomed);
+    flush_sequence();
+
+    DestroyWindow(mdi_child);
+    DestroyWindow(mdi_child2);
+    flush_sequence();
 
     /* test for maximized MDI children */
     trace("creating maximized visible MDI child window 1\n");
@@ -3867,6 +3962,8 @@ static void test_mdi_messages(void)
     SetFocus(0);
     flush_sequence();
 
+    val = GetWindowLongA(mdi_client, 0);
+    ok(val == 0xdeadbeef || broken(val == 0) /* >= Win Vista */, "Expected 0xdeadbeef, got 0x%x\n", val);
     DestroyWindow(mdi_client);
     ok_sequence(WmDestroyMDIclientSeq, "Destroy MDI client window", FALSE);
 
@@ -3964,6 +4061,36 @@ static INT_PTR CALLBACK TestModalDlgProcA(HWND hwnd, UINT message, WPARAM wParam
 
     if (message == WM_INITDIALOG) SetTimer( hwnd, 1, 100, NULL );
     if (message == WM_TIMER) EndDialog( hwnd, 0 );
+    return 0;
+}
+
+static INT_PTR CALLBACK TestModalDlgProc2(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    struct recvd_message msg;
+
+    if (ignore_message( message )) return 0;
+
+    switch (message)
+    {
+	/* ignore */
+	case WM_MOUSEMOVE:
+	case WM_NCMOUSEMOVE:
+	case WM_NCMOUSELEAVE:
+	case WM_SETCURSOR:
+            return 0;
+        case WM_NCHITTEST:
+            return HTCLIENT;
+    }
+
+    msg.hwnd = hwnd;
+    msg.message = message;
+    msg.flags = sent|wparam|lparam;
+    msg.wParam = wParam;
+    msg.lParam = lParam;
+    msg.descr = "dialog";
+    add_message(&msg);
+
+    if (message == WM_INITDIALOG) EndDialog( hwnd, 0 );
     return 0;
 }
 
@@ -12091,7 +12218,7 @@ static const struct message WmCreateDialogParamSeq_4[] = {
 static void test_dialog_messages(void)
 {
     WNDCLASSA cls;
-    HWND hdlg, hedit1, hedit2, hfocus;
+    HWND hdlg, hedit1, hedit2, hfocus, parent, child, child2;
     LRESULT ret;
 
 #define set_selection(hctl, start, end) \
@@ -12208,11 +12335,88 @@ static void test_dialog_messages(void)
     flush_sequence();
 
     UnregisterClassA(cls.lpszClassName, cls.hInstance);
+
+    parent = CreateWindowExA(0, "TestParentClass", "Test parent",
+                             WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                             100, 100, 200, 200, 0, 0, 0, NULL);
+    ok (parent != 0, "Failed to create parent window\n");
+
+    /* This child has no parent set. We will later call SetParent on it,
+     * so that it will have a parent set, but no WS_CHILD style. */
+    child = CreateWindowExA(0, "TestWindowClass", "Test child",
+                            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                            100, 100, 200, 200, 0, 0, 0, NULL);
+    ok (child != 0, "Failed to create child window\n");
+
+    /* This is a regular child window. When used as an owner, the other
+     * child window will be used. */
+    child2 = CreateWindowExA(0, "SimpleWindowClass", "Test child2",
+                             WS_OVERLAPPEDWINDOW | WS_VISIBLE | WS_CHILD,
+                             100, 100, 200, 200, child, 0, 0, NULL);
+    ok (child2 != 0, "Failed to create child window\n");
+
+    SetParent(child, parent);
+    SetFocus(child);
+
+    flush_sequence();
+    DialogBoxA( 0, "TEST_DIALOG", child2, TestModalDlgProc2 );
+    ok_sequence(WmModalDialogSeq_2, "ModalDialog2", TRUE);
+
+    DestroyWindow(child2);
+    DestroyWindow(child);
+    DestroyWindow(parent);
+    flush_sequence();
+}
+
+static void test_enddialog_seq(HWND dialog, HWND owner)
+{
+    const struct message seq[] = {
+        { WM_ENABLE, sent },
+        { WM_WINDOWPOSCHANGING, sent|wparam, SWP_HIDEWINDOW|SWP_NOACTIVATE|SWP_NOSIZE|SWP_NOMOVE },
+        { HCBT_ACTIVATE, hook|wparam, (WPARAM)owner },
+        { WM_NCACTIVATE, sent|wparam|lparam, WA_INACTIVE, (LPARAM)owner },
+        { WM_ACTIVATE, sent|wparam|lparam, WA_INACTIVE, (LPARAM)owner },
+        /* FIXME: Following two are optional because Wine sends WM_QUERYNEWPALETTE instead of WM_WINDOWPOSCHANGING */
+        { WM_WINDOWPOSCHANGING, sent|wparam|optional, SWP_NOSIZE|SWP_NOMOVE },
+        { WM_QUERYNEWPALETTE, sent|optional },
+        { WM_NCACTIVATE, sent|wparam|lparam, WA_ACTIVE, (LPARAM)dialog },
+        { WM_GETTEXT, sent|optional|defwinproc },
+        { WM_ACTIVATE, sent|wparam|lparam, WA_ACTIVE, (LPARAM)dialog },
+        { HCBT_SETFOCUS, hook|wparam, (WPARAM)owner },
+        { WM_KILLFOCUS, sent|wparam, (WPARAM)owner },
+        { WM_SETFOCUS, sent|defwinproc|wparam, (WPARAM)dialog },
+        { 0 }
+    };
+
+    flush_sequence();
+    EndDialog(dialog, 0);
+    ok_sequence(seq, "EndDialog", FALSE);
+}
+
+static void test_enddialog_seq2(HWND dialog, HWND owner)
+{
+    const struct message seq[] = {
+        { WM_ENABLE, parent|sent },
+        { WM_WINDOWPOSCHANGING, sent|wparam, SWP_HIDEWINDOW|SWP_NOACTIVATE|SWP_NOSIZE|SWP_NOMOVE },
+        { HCBT_ACTIVATE, hook|wparam, (WPARAM)owner },
+        { WM_NCACTIVATE, sent|wparam|lparam, WA_INACTIVE, (LPARAM)owner },
+        { WM_ACTIVATE, sent|wparam|lparam, WA_INACTIVE, (LPARAM)owner },
+        { WM_WINDOWPOSCHANGING, sent|optional|wparam, SWP_NOACTIVATE|SWP_NOSIZE|SWP_NOMOVE },
+        { WM_WINDOWPOSCHANGING, sent|optional|wparam, SWP_NOACTIVATE|SWP_NOSIZE|SWP_NOMOVE },
+        { HCBT_SETFOCUS, hook|wparam, (WPARAM)owner },
+        { WM_KILLFOCUS, sent|wparam, (WPARAM)owner },
+        { WM_SETFOCUS, sent|parent|defwinproc|wparam, (WPARAM)dialog },
+        { 0 }
+    };
+
+    flush_sequence();
+    EndDialog(dialog, 0);
+    ok_sequence(seq, "EndDialog2", FALSE);
 }
 
 static void test_EndDialog(void)
 {
-    HWND hparent, hother, hactive, hdlg;
+    HWND hparent, hother, hactive, hdlg, hchild;
     WNDCLASSA cls;
 
     hparent = CreateWindowExA(0, "TestParentClass", "Test parent",
@@ -12222,7 +12426,7 @@ static void test_EndDialog(void)
 
     hother = CreateWindowExA(0, "TestParentClass", "Test parent 2",
                               WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-                              100, 100, 200, 200, 0, 0, 0, NULL);
+                              200, 100, 200, 200, 0, 0, 0, NULL);
     ok (hother != 0, "Failed to create parent window\n");
 
     ok(GetClassInfoA(0, "#32770", &cls), "GetClassInfo failed\n");
@@ -12236,22 +12440,91 @@ static void test_EndDialog(void)
     hactive = GetForegroundWindow();
     ok(hother == hactive, "Wrong window has focus (%p != %p)\n", hother, hactive);
 
-    /* create a dialog where the parent is disabled, this parent should still
-       receive the focus when the dialog exits (even though "normally" a
-       disabled window should not receive the focus) */
+    /* create a dialog where the parent is disabled, this parent should be
+     * enabled and receive focus when dialog exits */
     hdlg = CreateDialogParamA(0, "CLASS_TEST_DIALOG_2", hparent, test_dlg_proc, 0);
     ok(IsWindow(hdlg), "CreateDialogParam failed\n");
     SetForegroundWindow(hdlg);
     hactive = GetForegroundWindow();
     ok(hdlg == hactive, "Wrong window has focus (%p != %p)\n", hdlg, hactive);
     EndDialog(hdlg, 0);
+    ok(IsWindowEnabled(hparent), "parent is not enabled\n");
     hactive = GetForegroundWindow();
     ok(hparent == hactive, "Wrong window has focus (parent != active) (active: %p, parent: %p, dlg: %p, other: %p)\n", hactive, hparent, hdlg, hother);
     DestroyWindow(hdlg);
     flush_sequence();
 
-    DestroyWindow( hother );
+    /* create a dialog where the parent is disabled and set active window to other window before calling EndDialog */
+    EnableWindow(hparent, FALSE);
+    hdlg = CreateWindowExA(0, "TestDialogClass", NULL,
+                          WS_VISIBLE|WS_CAPTION|WS_SYSMENU|WS_DLGFRAME,
+                          0, 0, 100, 100, hparent, 0, 0, NULL);
+    ok(IsWindow(hdlg), "CreateDialogParam failed\n");
+    flush_sequence();
+    SetForegroundWindow(hother);
+    flush_sequence();
+    hactive = GetForegroundWindow();
+    ok(hactive == hother, "Wrong foreground (%p != %p)\n", hactive, hother);
+    hactive = GetActiveWindow();
+    ok(hactive == hother, "Wrong active window (%p != %p)\n", hactive, hother);
+    EndDialog(hdlg, 0);
+    ok(IsWindowEnabled(hparent), "parent is not enabled\n");
+    hactive = GetForegroundWindow();
+    ok(hother == hactive, "Wrong window has focus (other != active) (active: %p, parent: %p, dlg: %p, other: %p)\n", hactive, hparent, hdlg, hother);
+    DestroyWindow(hdlg);
+    flush_sequence();
+
     DestroyWindow( hparent );
+
+    hparent = CreateWindowExA(0, "TestParentClass", "Test parent",
+                              WS_POPUP | WS_VISIBLE | WS_DISABLED,
+                              100, 100, 200, 200, 0, 0, 0, NULL);
+    ok (hparent != 0, "Failed to create parent window\n");
+
+    hchild = CreateWindowExA(0, "TestWindowClass", "Test child",
+                             WS_OVERLAPPEDWINDOW | WS_VISIBLE | WS_DISABLED,
+                             0, 0, 0, 0, 0, 0, 0, NULL);
+    ok (hchild != 0, "Failed to create child window\n");
+
+    SetParent(hchild, hparent);
+
+    flush_sequence();
+    SetForegroundWindow(hother);
+    hactive = GetForegroundWindow();
+    ok(hother == hactive, "Wrong foreground window (%p != %p)\n", hother, hactive);
+
+    hdlg = CreateDialogParamA(0, "CLASS_TEST_DIALOG_2", hchild, test_dlg_proc, 0);
+    ok(IsWindow(hdlg), "CreateDialogParam failed\n");
+
+    SetForegroundWindow(hdlg);
+    test_enddialog_seq(hdlg, hchild);
+
+    hactive = GetForegroundWindow();
+    ok(hactive == hchild, "Wrong foreground window (active: %p, parent: %p, dlg: %p, other: %p child: %p)\n", hactive, hparent, hdlg, hother, hchild);
+
+    DestroyWindow(hdlg);
+
+    /* Now set WS_CHILD style flag so that it's a real child and its parent will be dialog's owner. */
+    SetWindowLongW(hchild, GWL_STYLE, GetWindowLongW(hchild, GWL_STYLE) | WS_CHILD);
+
+    SetForegroundWindow(hother);
+    hactive = GetForegroundWindow();
+    ok(hother == hactive, "Wrong foreground window (%p != %p)\n", hother, hactive);
+
+    hdlg = CreateDialogParamA(0, "CLASS_TEST_DIALOG_2", hchild, test_dlg_proc, 0);
+    ok(IsWindow(hdlg), "CreateDialogParam failed\n");
+
+    SetForegroundWindow(hdlg);
+    test_enddialog_seq2(hdlg, hparent);
+
+    hactive = GetForegroundWindow();
+    ok(hactive == hparent, "Wrong foreground window (active: %p, parent: %p, dlg: %p, other: %p child: %p)\n", hactive, hparent, hdlg, hother, hchild);
+    DestroyWindow(hdlg);
+    DestroyWindow(hchild);
+    DestroyWindow(hparent);
+    DestroyWindow(hother);
+    flush_sequence();
+
     UnregisterClassA(cls.lpszClassName, cls.hInstance);
 }
 
@@ -13985,12 +14258,7 @@ static void test_WaitForInputIdle( char *argv0 )
                         broken(ret == wait_idle_expect[i].broken),
                         "%u: WaitForInputIdle error %08x expected %08x\n",
                         i, ret, wait_idle_expect[i].exp );
-                else if (wait_idle_expect[i].todo)
-                    todo_wine
-                    ok( ret == wait_idle_expect[i].exp || broken(ret == wait_idle_expect[i].broken),
-                        "%u: WaitForInputIdle error %08x expected %08x\n",
-                        i, ret, wait_idle_expect[i].exp );
-                else
+                else todo_wine_if (wait_idle_expect[i].todo)
                     ok( ret == wait_idle_expect[i].exp || broken(ret == wait_idle_expect[i].broken),
                         "%u: WaitForInputIdle error %08x expected %08x\n",
                         i, ret, wait_idle_expect[i].exp );

@@ -7658,21 +7658,21 @@ static HRESULT arbfp_blit_set(void *blit_priv, struct wined3d_context *context, 
 {
     GLenum shader;
     float size[4] = {(float) surface->pow2Width, (float) surface->pow2Height, 1.0f, 1.0f};
+    const struct wined3d_texture *texture = surface->container;
     struct arbfp_blit_priv *priv = blit_priv;
     enum complex_fixup fixup;
     const struct wined3d_gl_info *gl_info = context->gl_info;
-    GLenum gl_texture_type = surface->container->target;
     struct wine_rb_entry *entry;
     struct arbfp_blit_type type;
     struct arbfp_blit_desc *desc;
     struct wined3d_color float_color_key[2];
 
-    if (is_complex_fixup(surface->resource.format->color_fixup))
-        fixup = get_complex_fixup(surface->resource.format->color_fixup);
+    if (is_complex_fixup(texture->resource.format->color_fixup))
+        fixup = get_complex_fixup(texture->resource.format->color_fixup);
     else
         fixup = COMPLEX_FIXUP_NONE;
 
-    switch (gl_texture_type)
+    switch (texture->target)
     {
         case GL_TEXTURE_1D:
             type.res_type = WINED3D_GL_RES_TYPE_TEX_1D;
@@ -7695,7 +7695,7 @@ static HRESULT arbfp_blit_set(void *blit_priv, struct wined3d_context *context, 
             break;
 
         default:
-            ERR("Unexpected GL texture type %x.\n", gl_texture_type);
+            ERR("Unexpected GL texture type %#x.\n", texture->target);
             type.res_type = WINED3D_GL_RES_TYPE_TEX_2D;
     }
     type.fixup = fixup;
@@ -7713,7 +7713,7 @@ static HRESULT arbfp_blit_set(void *blit_priv, struct wined3d_context *context, 
         switch (fixup)
         {
             case COMPLEX_FIXUP_NONE:
-                if (!is_identity_fixup(surface->resource.format->color_fixup))
+                if (!is_identity_fixup(texture->resource.format->color_fixup))
                     FIXME("Implement support for sign or swizzle fixups.\n");
                 shader = arbfp_gen_plain_shader(priv, gl_info, &type);
                 break;
@@ -7756,7 +7756,7 @@ err_out:
     }
 
     if (fixup == COMPLEX_FIXUP_P8)
-        upload_palette(surface->container, context);
+        upload_palette(texture, context);
 
     gl_info->gl_ops.gl.p_glEnable(GL_FRAGMENT_PROGRAM_ARB);
     checkGLcall("glEnable(GL_FRAGMENT_PROGRAM_ARB)");
@@ -7766,7 +7766,7 @@ err_out:
     checkGLcall("glProgramLocalParameter4fvARB");
     if (type.use_color_key)
     {
-        wined3d_format_get_float_color_key(surface->resource.format, color_key, float_color_key);
+        wined3d_format_get_float_color_key(texture->resource.format, color_key, float_color_key);
         GL_EXTCALL(glProgramLocalParameter4fvARB(GL_FRAGMENT_PROGRAM_ARB,
                 ARBFP_BLIT_PARAM_COLOR_KEY_LOW, &float_color_key[0].r));
         GL_EXTCALL(glProgramLocalParameter4fvARB(GL_FRAGMENT_PROGRAM_ARB,
@@ -7863,6 +7863,8 @@ static void arbfp_blit_surface(struct wined3d_device *device, enum wined3d_blit_
         struct wined3d_surface *dst_surface, const RECT *dst_rect_in,
         const struct wined3d_color_key *color_key)
 {
+    struct wined3d_texture *src_texture = src_surface->container;
+    struct wined3d_texture *dst_texture = dst_surface->container;
     struct wined3d_context *context;
     RECT src_rect = *src_rect_in;
     RECT dst_rect = *dst_rect_in;
@@ -7875,7 +7877,7 @@ static void arbfp_blit_surface(struct wined3d_device *device, enum wined3d_blit_
     if (wined3d_settings.offscreen_rendering_mode != ORM_FBO
             && (src_surface->locations & (WINED3D_LOCATION_TEXTURE_RGB | WINED3D_LOCATION_DRAWABLE))
             == WINED3D_LOCATION_DRAWABLE
-            && !wined3d_resource_is_offscreen(&src_surface->container->resource))
+            && !wined3d_resource_is_offscreen(&src_texture->resource))
     {
         /* Without FBO blits transferring from the drawable to the texture is
          * expensive, because we have to flip the data in sysmem. Since we can
@@ -7888,16 +7890,16 @@ static void arbfp_blit_surface(struct wined3d_device *device, enum wined3d_blit_
         src_rect.bottom = src_surface->resource.height - src_rect.bottom;
     }
     else
-        wined3d_texture_load(src_surface->container, context, FALSE);
+        wined3d_texture_load(src_texture, context, FALSE);
 
     context_apply_blit_state(context, device);
 
-    if (!wined3d_resource_is_offscreen(&dst_surface->container->resource))
+    if (!wined3d_resource_is_offscreen(&dst_texture->resource))
         surface_translate_drawable_coords(dst_surface, context->win_handle, &dst_rect);
 
     if (op == WINED3D_BLIT_OP_COLOR_BLIT_ALPHATEST)
     {
-        const struct wined3d_format *fmt = src_surface->resource.format;
+        const struct wined3d_format *fmt = src_texture->resource.format;
         alpha_test_key.color_space_low_value = 0;
         alpha_test_key.color_space_high_value = ~(((1u << fmt->alpha_size) - 1) << fmt->alpha_offset);
         color_key = &alpha_test_key;
@@ -7912,14 +7914,13 @@ static void arbfp_blit_surface(struct wined3d_device *device, enum wined3d_blit_
     arbfp_blit_unset(context->gl_info);
 
     if (wined3d_settings.strict_draw_ordering
-            || (dst_surface->container->swapchain
-            && (dst_surface->container->swapchain->front_buffer == dst_surface->container)))
+            || (dst_texture->swapchain && (dst_texture->swapchain->front_buffer == dst_texture)))
         context->gl_info->gl_ops.gl.p_glFlush(); /* Flush to ensure ordering across contexts. */
 
     context_release(context);
 
-    surface_validate_location(dst_surface, dst_surface->container->resource.draw_binding);
-    surface_invalidate_location(dst_surface, ~dst_surface->container->resource.draw_binding);
+    surface_validate_location(dst_surface, dst_texture->resource.draw_binding);
+    surface_invalidate_location(dst_surface, ~dst_texture->resource.draw_binding);
 }
 
 static HRESULT arbfp_blit_color_fill(struct wined3d_device *device, struct wined3d_rendertarget_view *view,

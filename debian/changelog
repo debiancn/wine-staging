@@ -1,3 +1,33 @@
+wine-development (1.9.5-3) unstable; urgency=medium
+
+  * Re-upload with the previous change actually applied.
+
+ -- Michael Gilbert <mgilbert@debian.org>  Sat, 05 Mar 2016 23:32:42 +0000
+
+wine-development (1.9.5-2) unstable; urgency=medium
+
+  * Change gstreamer build dependency to libgstreamer-plugins-base1.0-dev.
+
+ -- Michael Gilbert <mgilbert@debian.org>  Sat, 05 Mar 2016 19:51:23 +0000
+
+wine-development (1.9.5-1) unstable; urgency=medium
+
+  [ Michael Gilbert ]
+  * New upstream release 1.9.5, released Mar 4, 2016.
+    - Beginnings of the WineD3D command stream.
+    - Support for effect states in Direct3DX.
+    - Drag & drop improvements.
+    - Various bug fixes.
+  * Drop version output (closes: #816432).
+  * Support recent upstream changes to wine_port.
+
+  [ Jens Reyer ]
+  * Add symlinks in /usr/bin for installed tools.
+  * Install winegcc script again to specify WINEBUILD.
+  * dh_strip: Use the current name dbgsym-migration.
+
+ -- Michael Gilbert <mgilbert@debian.org>  Sat, 05 Mar 2016 00:40:42 +0000
+
 wine-development (1.9.4-2~bpo8+1) jessie-backports; urgency=medium
 
   * Rebuild for jessie-backports.
@@ -8,7 +38,7 @@ wine-development (1.9.4-2~bpo8+1) jessie-backports; urgency=medium
 wine-development (1.9.4-2) unstable; urgency=medium
 
   [ Michael Gilbert ]
-  * Reenable "err" level output by default.
+  * Re-enable "err" level output by default.
   * Shorten the version blurb and output it to stdout.
 
   [ Jens Reyer ]

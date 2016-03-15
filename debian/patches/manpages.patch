@@ -3,12 +3,13 @@ author: Michael Gilbert <mgilbert@debian.org>
 
 --- a/tools/makedep.c
 +++ b/tools/makedep.c
-@@ -2868,6 +2868,8 @@ static struct strarray output_sources( c
-         output( "\n" );
-     }
- 
-+    output( "install-man:: $(shell echo ${MANPAGES} | sed s/\\\\.in//g)\n" );
+@@ -3048,6 +3048,9 @@ static struct strarray output_sources( c
+             output_filenames_obj_dir( make, all_targets );
+             output( "\n" );
+         }
 +
-     strarray_addall( &uninstall_files, output_install_rules( make, install_rules[INSTALL_LIB],
-                                                              "install-lib", &phony_targets ));
-     strarray_addall( &uninstall_files, output_install_rules( make, install_rules[INSTALL_DEV],
++        output( "install-man:: $(shell echo ${MANPAGES} | sed s/\\\\.in//g)\n" );
++
+         strarray_addall( &uninstall_files, output_install_rules( make, install_rules[INSTALL_LIB],
+                                                                  "install-lib", &phony_targets ));
+         strarray_addall( &uninstall_files, output_install_rules( make, install_rules[INSTALL_DEV],

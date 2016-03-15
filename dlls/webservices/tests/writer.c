@@ -787,8 +787,11 @@ static void test_WsWriteElement(void)
     f.mapping = WS_ATTRIBUTE_FIELD_MAPPING;
 
     /* requires localName and ns to be set */
-    hr = WsWriteElement( writer, &desc, WS_WRITE_REQUIRED_POINTER, NULL, 0, NULL );
+    hr = WsWriteElement( writer, &desc, WS_WRITE_REQUIRED_POINTER, &test, sizeof(test), NULL );
     ok( hr == E_INVALIDARG, "got %08x\n", hr );
+
+    hr = set_output( writer );
+    ok( hr == S_OK, "got %08x\n", hr );
 
     f.localName = &localname;
     f.ns        = &ns;
@@ -1019,6 +1022,385 @@ static void test_WsWriteStartCData(void)
     WsFreeWriter( writer );
 }
 
+static void check_output_buffer( WS_XML_BUFFER *buffer, const char *expected, unsigned int line )
+{
+    WS_XML_WRITER *writer;
+    WS_BYTES bytes;
+    ULONG size = sizeof(bytes);
+    int len = strlen(expected);
+    HRESULT hr;
+
+    hr = WsCreateWriter( NULL, 0, &writer, NULL ) ;
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = set_output( writer );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsWriteXmlBuffer( writer, buffer, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    memset( &bytes, 0, sizeof(bytes) );
+    hr = WsGetWriterProperty( writer, WS_XML_WRITER_PROPERTY_BYTES, &bytes, size, NULL );
+    ok( hr == S_OK, "%u: got %08x\n", line, hr );
+    ok( bytes.length == len, "%u: got %u expected %u\n", line, bytes.length, len );
+    if (bytes.length != len) return;
+    ok( !memcmp( bytes.bytes, expected, len ), "%u: got %s expected %s\n", line, bytes.bytes, expected );
+
+    WsFreeWriter( writer );
+}
+
+static void prepare_xmlns_test( WS_XML_WRITER *writer, WS_HEAP **heap, WS_XML_BUFFER **buffer )
+{
+    WS_XML_STRING prefix = {6, (BYTE *)"prefix"}, localname = {1, (BYTE *)"t"}, ns = {2, (BYTE *)"ns"};
+    HRESULT hr;
+
+    hr = WsCreateHeap( 1 << 16, 0, NULL, 0, heap, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsCreateXmlBuffer( *heap, NULL, 0, buffer, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsSetOutputToBuffer( writer, *buffer, NULL, 0, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsWriteStartElement( writer, &prefix, &localname, &ns, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+}
+
+static void test_WsWriteXmlnsAttribute(void)
+{
+    WS_XML_STRING ns = {2, (BYTE *)"ns"}, ns2 = {3, (BYTE *)"ns2"};
+    WS_XML_STRING prefix = {6, (BYTE *)"prefix"}, prefix2 = {7, (BYTE *)"prefix2"};
+    WS_XML_STRING xmlns = {6, (BYTE *)"xmlns"}, attr = {4, (BYTE *)"attr"};
+    WS_HEAP *heap;
+    WS_XML_BUFFER *buffer;
+    WS_XML_WRITER *writer;
+    HRESULT hr;
+
+    hr = WsCreateHeap( 1 << 16, 0, NULL, 0, &heap, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsCreateXmlBuffer( heap, NULL, 0, &buffer, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsCreateWriter( NULL, 0, &writer, NULL ) ;
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsWriteXmlnsAttribute( NULL, NULL, NULL, FALSE, NULL );
+    ok( hr == E_INVALIDARG, "got %08x\n", hr );
+    WsFreeHeap( heap );
+
+    prepare_xmlns_test( writer, &heap, &buffer );
+    hr = WsWriteXmlnsAttribute( writer, NULL, NULL, FALSE, NULL );
+    ok( hr == E_INVALIDARG, "got %08x\n", hr );
+    WsFreeHeap( heap );
+
+    prepare_xmlns_test( writer, &heap, &buffer );
+    hr = WsWriteXmlnsAttribute( writer, &prefix2, NULL, FALSE, NULL );
+    ok( hr == E_INVALIDARG, "got %08x\n", hr );
+
+    hr = WsSetOutputToBuffer( writer, buffer, NULL, 0, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsWriteXmlnsAttribute( writer, NULL, &ns, FALSE, NULL );
+    ok( hr == WS_E_INVALID_OPERATION, "got %08x\n", hr );
+    WsFreeHeap( heap );
+
+    /* no prefix */
+    prepare_xmlns_test( writer, &heap, &buffer );
+    hr = WsWriteXmlnsAttribute( writer, NULL, &ns2, FALSE, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsWriteEndElement( writer, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    check_output_buffer( buffer, "<prefix:t xmlns:prefix=\"ns\" xmlns=\"ns2\"/>", __LINE__ );
+    WsFreeHeap( heap );
+
+    /* prefix */
+    prepare_xmlns_test( writer, &heap, &buffer );
+    hr = WsWriteXmlnsAttribute( writer, &prefix2, &ns2, FALSE, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsWriteEndElement( writer, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    check_output_buffer( buffer, "<prefix:t xmlns:prefix2=\"ns2\" xmlns:prefix=\"ns\"/>", __LINE__ );
+    WsFreeHeap( heap );
+
+    /* implicitly set element prefix namespace */
+    prepare_xmlns_test( writer, &heap, &buffer );
+    hr = WsWriteEndElement( writer, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    check_output_buffer( buffer, "<prefix:t xmlns:prefix=\"ns\"/>", __LINE__ );
+    WsFreeHeap( heap );
+
+    /* explicitly set element prefix namespace */
+    prepare_xmlns_test( writer, &heap, &buffer );
+    hr = WsWriteXmlnsAttribute( writer, &prefix, &ns, TRUE, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsWriteEndElement( writer, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    check_output_buffer( buffer, "<prefix:t xmlns:prefix='ns'/>", __LINE__ );
+    WsFreeHeap( heap );
+
+    /* repeated calls, same namespace */
+    prepare_xmlns_test( writer, &heap, &buffer );
+    hr = WsWriteXmlnsAttribute( writer, &prefix2, &ns, FALSE, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsWriteXmlnsAttribute( writer, &prefix2, &ns, FALSE, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsWriteEndElement( writer, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    check_output_buffer( buffer, "<prefix:t xmlns:prefix2=\"ns\" xmlns:prefix=\"ns\"/>", __LINE__ );
+    WsFreeHeap( heap );
+
+    /* repeated calls, different namespace */
+    prepare_xmlns_test( writer, &heap, &buffer );
+    hr = WsWriteXmlnsAttribute( writer, &prefix2, &ns, FALSE, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsWriteXmlnsAttribute( writer, &prefix2, &ns2, FALSE, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsWriteEndElement( writer, NULL );
+    todo_wine ok( hr == WS_E_INVALID_FORMAT, "got %08x\n", hr );
+    WsFreeHeap( heap );
+
+    /* single quotes */
+    prepare_xmlns_test( writer, &heap, &buffer );
+    hr = WsWriteXmlnsAttribute( writer, &prefix2, &ns, TRUE, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsWriteEndElement( writer, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    check_output_buffer( buffer, "<prefix:t xmlns:prefix2='ns' xmlns:prefix=\"ns\"/>", __LINE__ );
+    WsFreeHeap( heap );
+
+    /* different namespace, different prefix */
+    prepare_xmlns_test( writer, &heap, &buffer );
+    hr = WsWriteXmlnsAttribute( writer, &prefix2, &ns2, TRUE, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsWriteEndElement( writer, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    check_output_buffer( buffer, "<prefix:t xmlns:prefix2='ns2' xmlns:prefix=\"ns\"/>", __LINE__ );
+    WsFreeHeap( heap );
+
+    /* different namespace, same prefix */
+    prepare_xmlns_test( writer, &heap, &buffer );
+    hr = WsWriteXmlnsAttribute( writer, &prefix, &ns2, TRUE, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsWriteEndElement( writer, NULL );
+    todo_wine ok( hr == WS_E_INVALID_FORMAT, "got %08x\n", hr );
+    WsFreeHeap( heap );
+
+    /* regular attribute */
+    prepare_xmlns_test( writer, &heap, &buffer );
+    hr = WsWriteStartAttribute( writer, &xmlns, &prefix2, &ns2, TRUE, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsWriteEndAttribute( writer, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsWriteEndElement( writer, NULL );
+    todo_wine ok( hr == WS_E_INVALID_FORMAT, "got %08x\n", hr );
+    WsFreeHeap( heap );
+
+    /* attribute order */
+    prepare_xmlns_test( writer, &heap, &buffer );
+    hr = WsWriteXmlnsAttribute( writer, &prefix, &ns, TRUE, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsWriteStartAttribute( writer, &prefix, &attr, &ns, TRUE, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsWriteEndAttribute( writer, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsWriteXmlnsAttribute( writer, &prefix2, &ns2, TRUE, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsWriteEndElement( writer, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    check_output_buffer( buffer, "<prefix:t prefix:attr='' xmlns:prefix='ns' xmlns:prefix2='ns2'/>", __LINE__ );
+    WsFreeHeap( heap );
+
+    WsFreeWriter( writer );
+}
+
+static void prepare_prefix_test( WS_XML_WRITER *writer )
+{
+    const WS_XML_STRING p = {1, (BYTE *)"p"}, localname = {1, (BYTE *)"t"}, ns = {2, (BYTE *)"ns"};
+    HRESULT hr;
+
+    hr = set_output( writer );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsWriteStartElement( writer, &p, &localname, &ns, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsWriteEndStartElement( writer, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+}
+
+static void test_WsGetPrefixFromNamespace(void)
+{
+    const WS_XML_STRING p = {1, (BYTE *)"p"}, localname = {1, (BYTE *)"t"}, *prefix;
+    const WS_XML_STRING ns = {2, (BYTE *)"ns"}, ns2 = {3, (BYTE *)"ns2"};
+    WS_XML_WRITER *writer;
+    HRESULT hr;
+
+    hr = WsCreateWriter( NULL, 0, &writer, NULL ) ;
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = set_output( writer );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsWriteStartElement( writer, &p, &localname, &ns, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsGetPrefixFromNamespace( NULL, NULL, FALSE, NULL, NULL );
+    ok( hr == E_INVALIDARG, "got %08x\n", hr );
+
+    hr = WsGetPrefixFromNamespace( NULL, NULL, FALSE, &prefix, NULL );
+    ok( hr == E_INVALIDARG, "got %08x\n", hr );
+
+    hr = WsGetPrefixFromNamespace( writer, NULL, FALSE, &prefix, NULL );
+    ok( hr == E_INVALIDARG, "got %08x\n", hr );
+
+    /* element must be committed */
+    hr = set_output( writer );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsWriteStartElement( writer, &p, &localname, &ns, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsGetPrefixFromNamespace( writer, &ns, TRUE, &prefix, NULL );
+    ok( hr == WS_E_INVALID_FORMAT, "got %08x\n", hr );
+
+    /* but writer can't be positioned on end element node */
+    hr = set_output( writer );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsWriteStartElement( writer, &p, &localname, &ns, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsWriteEndElement( writer, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsGetPrefixFromNamespace( writer, &ns, TRUE, &prefix, NULL );
+    ok( hr == WS_E_INVALID_FORMAT, "got %08x\n", hr );
+
+    /* required = TRUE */
+    prefix = NULL;
+    prepare_prefix_test( writer );
+    hr = WsGetPrefixFromNamespace( writer, &ns, TRUE, &prefix, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    ok( prefix != NULL, "prefix not set\n" );
+    if (prefix)
+    {
+        ok( prefix->length == 1, "got %u\n", prefix->length );
+        ok( !memcmp( prefix->bytes, "p", 1 ), "wrong prefix\n" );
+    }
+
+    prefix = (const WS_XML_STRING *)0xdeadbeef;
+    hr = WsGetPrefixFromNamespace( writer, &ns2, TRUE, &prefix, NULL );
+    ok( hr == WS_E_INVALID_FORMAT, "got %08x\n", hr );
+    ok( prefix == (const WS_XML_STRING *)0xdeadbeef, "prefix set\n" );
+
+    /* required = FALSE */
+    prefix = NULL;
+    prepare_prefix_test( writer );
+    hr = WsGetPrefixFromNamespace( writer, &ns, FALSE, &prefix, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    ok( prefix != NULL, "prefix not set\n" );
+    if (prefix)
+    {
+        ok( prefix->length == 1, "got %u\n", prefix->length );
+        ok( !memcmp( prefix->bytes, "p", 1 ), "wrong prefix\n" );
+    }
+
+    prefix = (const WS_XML_STRING *)0xdeadbeef;
+    hr = WsGetPrefixFromNamespace( writer, &ns2, FALSE, &prefix, NULL );
+    ok( hr == S_FALSE, "got %08x\n", hr );
+    ok( prefix == NULL, "prefix not set\n" );
+
+    WsFreeWriter( writer );
+}
+
+static void test_complex_struct_type(void)
+{
+    static const char expected[] =
+        "<o:OfficeConfig xmlns:o=\"urn:schemas-microsoft-com:office:office\">"
+        "<o:services o:GenerationTime=\"2015-09-03T18:47:54\"/>"
+        "</o:OfficeConfig>";
+    static const WCHAR timestampW[] =
+        {'2','0','1','5','-','0','9','-','0','3','T','1','8',':','4','7',':','5','4',0};
+    WS_XML_STRING str_officeconfig = {12, (BYTE *)"OfficeConfig"};
+    WS_XML_STRING str_services = {8, (BYTE *)"services"};
+    WS_XML_STRING str_generationtime = {14, (BYTE *)"GenerationTime"};
+    WS_XML_STRING ns = {39, (BYTE *)"urn:schemas-microsoft-com:office:office"};
+    WS_XML_STRING prefix = {1, (BYTE *)"o"};
+    DWORD size;
+    HRESULT hr;
+    WS_HEAP *heap;
+    WS_XML_BUFFER *buffer;
+    WS_XML_WRITER *writer;
+    WS_STRUCT_DESCRIPTION s, s2;
+    WS_FIELD_DESCRIPTION f, f2, *fields[1], *fields2[1];
+    struct services
+    {
+        const WCHAR *generationtime;
+    };
+    struct officeconfig
+    {
+        struct services *services;
+    } *test;
+
+    hr = WsCreateWriter( NULL, 0, &writer, NULL ) ;
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsCreateHeap( 1 << 16, 0, NULL, 0, &heap, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsCreateXmlBuffer( heap, NULL, 0, &buffer, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsSetOutputToBuffer( writer, buffer, NULL, 0, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsWriteStartElement( writer, &prefix, &str_officeconfig, &ns, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    memset( &f2, 0, sizeof(f2) );
+    f2.mapping         = WS_ATTRIBUTE_FIELD_MAPPING;
+    f2.localName       = &str_generationtime;
+    f2.ns              = &ns;
+    f2.type            = WS_WSZ_TYPE;
+    f2.options         = WS_FIELD_OPTIONAL;
+    fields2[0] = &f2;
+
+    memset( &s2, 0, sizeof(s2) );
+    s2.size          = sizeof(*test->services);
+    s2.alignment     = 4;
+    s2.fields        = fields2;
+    s2.fieldCount    = 1;
+    s2.typeLocalName = &str_services;
+    s2.typeNs        = &ns;
+
+    memset( &f, 0, sizeof(f) );
+    f.mapping         = WS_ELEMENT_FIELD_MAPPING;
+    f.localName       = &str_services;
+    f.ns              = &ns;
+    f.type            = WS_STRUCT_TYPE;
+    f.typeDescription = &s2;
+    f.options         = WS_FIELD_POINTER;
+    fields[0] = &f;
+
+    memset( &s, 0, sizeof(s) );
+    s.size          = sizeof(*test);
+    s.alignment     = 4;
+    s.fields        = fields;
+    s.fieldCount    = 1;
+    s.typeLocalName = &str_officeconfig;
+    s.typeNs        = &ns;
+
+    size = sizeof(struct officeconfig) + sizeof(struct services);
+    test = HeapAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY, size );
+    test->services = (struct services *)(test + 1);
+    test->services->generationtime = timestampW;
+    hr = WsWriteType( writer, WS_ELEMENT_CONTENT_TYPE_MAPPING, WS_STRUCT_TYPE, &s,
+                      WS_WRITE_REQUIRED_POINTER, &test, sizeof(test), NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsWriteEndElement( writer, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    check_output_buffer( buffer, expected, __LINE__ );
+
+    HeapFree( GetProcessHeap(), 0, test );
+    WsFreeWriter( writer );
+    WsFreeHeap( heap );
+}
+
+
 START_TEST(writer)
 {
     test_WsCreateWriter();
@@ -1034,4 +1416,7 @@ START_TEST(writer)
     test_WsWriteValue();
     test_WsWriteAttribute();
     test_WsWriteStartCData();
+    test_WsWriteXmlnsAttribute();
+    test_WsGetPrefixFromNamespace();
+    test_complex_struct_type();
 }

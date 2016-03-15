@@ -3,7 +3,7 @@ author: Michael Gilbert <mgilbert@debian.org>
 
 --- a/configure.ac
 +++ b/configure.ac
-@@ -3435,7 +3435,6 @@ WINE_CONFIG_TEST(dlls/xmllite/tests)
+@@ -3422,7 +3422,6 @@ WINE_CONFIG_TEST(dlls/xmllite/tests)
  WINE_CONFIG_DLL(xolehlp)
  WINE_CONFIG_DLL(xpsprint)
  WINE_CONFIG_DLL(xpssvcs)
@@ -11,7 +11,7 @@ author: Michael Gilbert <mgilbert@debian.org>
  WINE_CONFIG_MAKEFILE([include],,[clean,install-dev])
  WINE_CONFIG_MAKEFILE([libs/port])
  WINE_CONFIG_MAKEFILE([libs/wine],,[clean,implib,install-dev,install-lib])
-@@ -3536,7 +3535,6 @@ WINE_CONFIG_PROGRAM(xcopy,,[install,po])
+@@ -3525,7 +3524,6 @@ WINE_CONFIG_PROGRAM(xcopy,,[clean,instal
  WINE_CONFIG_TEST(programs/xcopy/tests)
  WINE_CONFIG_MAKEFILE([server],,[clean,install-lib])
  WINE_CONFIG_TOOL(tools,[clean])
@@ -21,16 +21,23 @@ author: Michael Gilbert <mgilbert@debian.org>
  WINE_CONFIG_TOOL(tools/winedump,[clean,install-dev])
 --- a/Makefile.in
 +++ b/Makefile.in
-@@ -142,11 +142,10 @@ __builddeps__: __tooldeps__ include
+@@ -135,10 +135,9 @@ __builddeps__: __tooldeps__ libs/wine in
  dummy:
  loader: libs/port libs/wine tools
  server: libs/port libs/wine tools include
 -fonts: tools/sfnt2fon
  include: tools tools/widl
  libs/wine tools: libs/port
- tools/wmc tools/wrc: tools
--tools/sfnt2fon tools/wmc tools/wrc: libs/wine
-+tools/wmc tools/wrc: libs/wine
+-tools/sfnt2fon tools/wmc tools/wrc: tools
++tools/wmc tools/wrc: tools
  tools/widl tools/wmc tools/wrc: libs/wpp
  libs/port libs/wine libs/wpp: include/config.h
  
+--- a/tools/sfnt2fon/Makefile.in
++++ b/tools/sfnt2fon/Makefile.in
+@@ -3,4 +3,4 @@ PROGRAMS = sfnt2fon
+ C_SRCS = sfnt2fon.c
+ 
+ EXTRAINCL = $(FREETYPE_CFLAGS)
+-EXTRALIBS = $(FREETYPE_LIBS)
++EXTRALIBS = $(FREETYPE_LIBS) -L../../libs/port

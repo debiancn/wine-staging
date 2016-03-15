@@ -1,0 +1,7 @@
+#!/bin/sh -e
+
+if test -z "$WINEBUILD"; then
+    export WINEBUILD="/BINDIR/winebuild"
+fi
+
+exec /BINDIR/winegcc $@

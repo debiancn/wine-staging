@@ -1642,6 +1642,22 @@ BOOL WINAPI AddAccessAllowedAceEx(
 }
 
 /******************************************************************************
+ *  AddAccessAllowedObjectAce [ADVAPI32.@]
+ */
+BOOL WINAPI AddAccessAllowedObjectAce(
+        IN OUT PACL pAcl,
+        IN DWORD dwAceRevision,
+        IN DWORD dwAceFlags,
+        IN DWORD dwAccessMask,
+        IN GUID* pObjectTypeGuid,
+        IN GUID* pInheritedObjectTypeGuid,
+        IN PSID pSid)
+{
+    return set_ntstatus(RtlAddAccessAllowedObjectAce(pAcl, dwAceRevision, dwAceFlags, dwAccessMask,
+                        pObjectTypeGuid, pInheritedObjectTypeGuid, pSid));
+}
+
+/******************************************************************************
  *  AddAccessDeniedAce [ADVAPI32.@]
  */
 BOOL WINAPI AddAccessDeniedAce(
@@ -2669,6 +2685,24 @@ BOOL WINAPI AddAuditAccessAceEx(
 {
     return set_ntstatus( RtlAddAuditAccessAceEx(pAcl, dwAceRevision, dwAceFlags, dwAccessMask, pSid,
                                               bAuditSuccess, bAuditFailure) );
+}
+
+/******************************************************************************
+ *  AddAuditAccessObjectAce [ADVAPI32.@]
+ */
+BOOL WINAPI AddAuditAccessObjectAce(
+    IN OUT PACL pAcl,
+    IN DWORD dwAceRevision,
+    IN DWORD dwAceFlags,
+    IN DWORD dwAccessMask,
+    IN GUID* pObjectTypeGuid,
+    IN GUID* pInheritedObjectTypeGuid,
+    IN PSID pSid,
+    IN BOOL bAuditSuccess,
+    IN BOOL bAuditFailure)
+{
+    return set_ntstatus( RtlAddAuditAccessObjectAce(pAcl, dwAceRevision, dwAceFlags, dwAccessMask,
+           pObjectTypeGuid, pInheritedObjectTypeGuid, pSid, bAuditSuccess, bAuditFailure) );
 }
 
 /******************************************************************************

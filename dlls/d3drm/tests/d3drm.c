@@ -1212,18 +1212,43 @@ static void test_Frame(void)
     IDirect3DRM_Release(d3drm);
 }
 
+struct destroy_context
+{
+    IDirect3DRMObject *obj;
+    int called;
+};
+
+static void CDECL destroy_callback(IDirect3DRMObject *obj, void *arg)
+{
+    struct destroy_context *ctxt = arg;
+    ok(ctxt->called == 1 || ctxt->called == 2, "got called counter %d\n", ctxt->called);
+    ok(obj == ctxt->obj, "called with %p, expected %p\n", obj, ctxt->obj);
+    ctxt->called++;
+}
+
+static void CDECL destroy_callback1(IDirect3DRMObject *obj, void *arg)
+{
+    struct destroy_context *ctxt = (struct destroy_context*)arg;
+    ok(ctxt->called == 0, "got called counter %d\n", ctxt->called);
+    ok(obj == ctxt->obj, "called with %p, expected %p\n", obj, ctxt->obj);
+    ctxt->called++;
+}
+
 static void test_Viewport(void)
 {
+    struct destroy_context context;
     IDirectDrawClipper *pClipper;
     HRESULT hr;
     IDirect3DRM *d3drm;
     IDirect3DRMDevice *device;
     IDirect3DRMFrame *frame;
     IDirect3DRMViewport *viewport;
+    IDirect3DRMViewport2 *viewport2;
+    IDirect3DRMObject *obj, *obj2;
     GUID driver;
     HWND window;
     RECT rc;
-    DWORD size;
+    DWORD size, data;
     CHAR cname[64] = {0};
 
     window = CreateWindowA("static", "d3drm_test", WS_OVERLAPPEDWINDOW, 0, 0, 300, 200, 0, 0, 0, 0);
@@ -1248,6 +1273,22 @@ static void test_Viewport(void)
     hr = IDirect3DRM_CreateViewport(d3drm, device, frame, rc.left, rc.top, rc.right, rc.bottom, &viewport);
     ok(hr == D3DRM_OK, "Cannot get IDirect3DRMViewport interface (hr = %x)\n", hr);
 
+    hr = IDirect3DRMViewport_QueryInterface(viewport, &IID_IDirect3DRMObject, (void**)&obj);
+    ok(hr == D3DRM_OK, "expected D3DRM_OK (hr = %x)\n", hr);
+    ok((IDirect3DRMObject*)viewport == obj, "got object pointer %p, expected %p\n", obj, viewport);
+
+    hr = IDirect3DRMViewport_QueryInterface(viewport, &IID_IDirect3DRMViewport2, (void**)&viewport2);
+    ok(hr == D3DRM_OK, "expected D3DRM_OK (hr = %x)\n", hr);
+
+    hr = IDirect3DRMViewport2_QueryInterface(viewport2, &IID_IDirect3DRMObject, (void**)&obj2);
+    ok(hr == D3DRM_OK, "expected D3DRM_OK (hr = %x)\n", hr);
+    ok(obj == obj2, "got object pointer %p, expected %p\n", obj2, obj);
+    ok((IUnknown*)viewport != (IUnknown*)viewport2, "got viewport1 %p, viewport2 %p\n", viewport, viewport2);
+
+    IDirect3DRMViewport2_Release(viewport2);
+    IDirect3DRMObject_Release(obj);
+    IDirect3DRMObject_Release(obj2);
+
     hr = IDirect3DRMViewport_GetClassName(viewport, NULL, cname);
     ok(hr == E_INVALIDARG, "GetClassName failed with %x\n", hr);
     hr = IDirect3DRMViewport_GetClassName(viewport, NULL, NULL);
@@ -1261,7 +1302,143 @@ static void test_Viewport(void)
     ok(size == sizeof("Viewport"), "wrong size: %u\n", size);
     ok(!strcmp(cname, "Viewport"), "Expected cname to be \"Viewport\", but got \"%s\"\n", cname);
 
+    /* AppData */
+    hr = IDirect3DRMViewport_SetAppData(viewport, 0);
+    ok(hr == D3DRM_OK, "expected D3DRM_OK (hr = %x)\n", hr);
+
+    hr = IDirect3DRMViewport_SetAppData(viewport, 0);
+    ok(hr == D3DRM_OK, "expected D3DRM_OK (hr = %x)\n", hr);
+
+    hr = IDirect3DRMViewport_SetAppData(viewport, 1);
+    ok(hr == D3DRM_OK, "expected D3DRM_OK (hr = %x)\n", hr);
+
+    hr = IDirect3DRMViewport_SetAppData(viewport, 1);
+    ok(hr == D3DRM_OK, "expected D3DRM_OK (hr = %x)\n", hr);
+
+    hr = IDirect3DRMViewport_QueryInterface(viewport, &IID_IDirect3DRMViewport2, (void**)&viewport2);
+    ok(hr == D3DRM_OK, "expected D3DRM_OK (hr = %x)\n", hr);
+
+    data = IDirect3DRMViewport2_GetAppData(viewport2);
+    ok(data == 1, "got %x\n", data);
+    IDirect3DRMViewport2_Release(viewport2);
+
+    /* destroy callback */
+    context.called = 0;
+    hr = IDirect3DRMViewport_QueryInterface(viewport, &IID_IDirect3DRMObject, (void**)&context.obj);
+    ok(hr == D3DRM_OK, "expected D3DRM_OK (hr = %x)\n", hr);
+    IDirect3DRMObject_Release(context.obj);
+
+    hr = IDirect3DRMViewport_AddDestroyCallback(viewport, NULL, &context);
+    ok(hr == D3DRMERR_BADVALUE, "expected D3DRMERR_BADVALUE (hr = %x)\n", hr);
+
+    hr = IDirect3DRMViewport_AddDestroyCallback(viewport, destroy_callback, &context);
+    ok(hr == D3DRM_OK, "expected D3DRM_OK (hr = %x)\n", hr);
+
+    /* same callback added twice */
+    hr = IDirect3DRMViewport_AddDestroyCallback(viewport, destroy_callback, &context);
+    ok(hr == D3DRM_OK, "expected D3DRM_OK (hr = %x)\n", hr);
+
+    hr = IDirect3DRMViewport_DeleteDestroyCallback(viewport, destroy_callback1, NULL);
+    ok(hr == D3DRM_OK, "expected D3DRM_OK (hr = %x)\n", hr);
+
+    hr = IDirect3DRMViewport_DeleteDestroyCallback(viewport, destroy_callback1, &context);
+    ok(hr == D3DRM_OK, "expected D3DRM_OK (hr = %x)\n", hr);
+
+    /* add one more */
+    hr = IDirect3DRMViewport_AddDestroyCallback(viewport, destroy_callback1, &context);
+    ok(hr == D3DRM_OK, "expected D3DRM_OK (hr = %x)\n", hr);
+
+    hr = IDirect3DRMViewport_DeleteDestroyCallback(viewport, NULL, NULL);
+    ok(hr == D3DRMERR_BADVALUE, "expected D3DRM_BADVALUE (hr = %x)\n", hr);
+
+    context.called = 0;
     IDirect3DRMViewport_Release(viewport);
+    ok(context.called == 3, "got %d, expected 3\n", context.called);
+
+    /* test this pattern - add cb1, add cb2, add cb1, delete cb1 */
+    hr = IDirect3DRM_CreateViewport(d3drm, device, frame, rc.left, rc.top, rc.right, rc.bottom, &viewport);
+    ok(hr == D3DRM_OK, "Cannot get IDirect3DRMViewport interface (hr = %x)\n", hr);
+
+    hr = IDirect3DRMViewport_AddDestroyCallback(viewport, destroy_callback, &context);
+    ok(hr == D3DRM_OK, "expected D3DRM_OK (hr = %x)\n", hr);
+
+    hr = IDirect3DRMViewport_AddDestroyCallback(viewport, destroy_callback1, &context);
+    ok(hr == D3DRM_OK, "expected D3DRM_OK (hr = %x)\n", hr);
+
+    hr = IDirect3DRMViewport_AddDestroyCallback(viewport, destroy_callback, &context);
+    ok(hr == D3DRM_OK, "expected D3DRM_OK (hr = %x)\n", hr);
+
+    hr = IDirect3DRMViewport_DeleteDestroyCallback(viewport, destroy_callback, &context);
+    ok(hr == D3DRM_OK, "expected D3DRM_OK (hr = %x)\n", hr);
+
+    context.called = 0;
+    IDirect3DRMViewport_Release(viewport);
+    ok(context.called == 2, "got %d, expected 2\n", context.called);
+
+    /* destroy from Viewport2 */
+    hr = IDirect3DRM_CreateViewport(d3drm, device, frame, rc.left, rc.top, rc.right, rc.bottom, &viewport);
+    ok(hr == D3DRM_OK, "Cannot get IDirect3DRMViewport interface (hr = %x)\n", hr);
+
+    hr = IDirect3DRMViewport_QueryInterface(viewport, &IID_IDirect3DRMViewport2, (void**)&viewport2);
+    ok(hr == D3DRM_OK, "expected D3DRM_OK (hr = %x)\n", hr);
+    IDirect3DRMViewport_Release(viewport);
+
+    context.called = 0;
+    hr = IDirect3DRMViewport2_QueryInterface(viewport2, &IID_IDirect3DRMObject, (void**)&context.obj);
+    ok(hr == D3DRM_OK, "expected D3DRM_OK (hr = %x)\n", hr);
+    IDirect3DRMObject_Release(context.obj);
+
+    hr = IDirect3DRMViewport2_AddDestroyCallback(viewport2, NULL, &context);
+    ok(hr == D3DRMERR_BADVALUE, "expected D3DRMERR_BADVALUE (hr = %x)\n", hr);
+
+    hr = IDirect3DRMViewport2_AddDestroyCallback(viewport2, destroy_callback, &context);
+    ok(hr == D3DRM_OK, "expected D3DRM_OK (hr = %x)\n", hr);
+
+    /* same callback added twice */
+    hr = IDirect3DRMViewport2_AddDestroyCallback(viewport2, destroy_callback, &context);
+    ok(hr == D3DRM_OK, "expected D3DRM_OK (hr = %x)\n", hr);
+
+    hr = IDirect3DRMViewport2_DeleteDestroyCallback(viewport2, destroy_callback1, NULL);
+    ok(hr == D3DRM_OK, "expected D3DRM_OK (hr = %x)\n", hr);
+
+    hr = IDirect3DRMViewport2_DeleteDestroyCallback(viewport2, destroy_callback1, &context);
+    ok(hr == D3DRM_OK, "expected D3DRM_OK (hr = %x)\n", hr);
+
+    /* add one more */
+    hr = IDirect3DRMViewport2_AddDestroyCallback(viewport2, destroy_callback1, &context);
+    ok(hr == D3DRM_OK, "expected D3DRM_OK (hr = %x)\n", hr);
+
+    hr = IDirect3DRMViewport2_DeleteDestroyCallback(viewport2, NULL, NULL);
+    ok(hr == D3DRMERR_BADVALUE, "expected D3DRM_BADVALUE (hr = %x)\n", hr);
+
+    context.called = 0;
+    IDirect3DRMViewport2_Release(viewport2);
+    ok(context.called == 3, "got %d, expected 3\n", context.called);
+
+    /* test this pattern - add cb1, add cb2, add cb1, delete cb1 */
+    hr = IDirect3DRM_CreateViewport(d3drm, device, frame, rc.left, rc.top, rc.right, rc.bottom, &viewport);
+    ok(hr == D3DRM_OK, "Cannot get IDirect3DRMViewport interface (hr = %x)\n", hr);
+
+    hr = IDirect3DRMViewport_QueryInterface(viewport, &IID_IDirect3DRMViewport2, (void**)&viewport2);
+    ok(hr == D3DRM_OK, "expected D3DRM_OK (hr = %x)\n", hr);
+    IDirect3DRMViewport_Release(viewport);
+
+    hr = IDirect3DRMViewport2_AddDestroyCallback(viewport2, destroy_callback, &context);
+    ok(hr == D3DRM_OK, "expected D3DRM_OK (hr = %x)\n", hr);
+
+    hr = IDirect3DRMViewport2_AddDestroyCallback(viewport2, destroy_callback1, &context);
+    ok(hr == D3DRM_OK, "expected D3DRM_OK (hr = %x)\n", hr);
+
+    hr = IDirect3DRMViewport2_AddDestroyCallback(viewport2, destroy_callback, &context);
+    ok(hr == D3DRM_OK, "expected D3DRM_OK (hr = %x)\n", hr);
+
+    hr = IDirect3DRMViewport2_DeleteDestroyCallback(viewport2, destroy_callback, &context);
+    ok(hr == D3DRM_OK, "expected D3DRM_OK (hr = %x)\n", hr);
+
+    context.called = 0;
+    IDirect3DRMViewport2_Release(viewport2);
+    ok(context.called == 2, "got %d, expected 2\n", context.called);
+
     IDirect3DRMFrame_Release(frame);
     IDirect3DRMDevice_Release(device);
     IDirectDrawClipper_Release(pClipper);

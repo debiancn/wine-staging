@@ -8,8 +8,6 @@ tools/make_makefiles
 include/config.h.in
 programs/cscript/ihost.h
 
-tools/winemaker/*.man
-
 # automatically generated files
 dlls/dsound/fir.h
 dlls/*/tests/generated.c
@@ -54,3 +52,7 @@ fonts/Makefile
 tools/sfnt2fon/sfnt2fon
 tools/sfnt2fon/sfnt2fon.o
 tools/sfnt2fon/Makefile
+
+# things that wine's clean doesn't clean
+po/LINGUAS
+tools/winemaker/*.man

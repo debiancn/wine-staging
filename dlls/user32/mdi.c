@@ -127,6 +127,7 @@ typedef struct
      * states it must keep coherency with USER32 on its own. This is true for
      * Windows as well.
      */
+    LONG      reserved;
     UINT      nActiveChildren;
     HWND      hwndChildMaximized;
     HWND      hwndActiveChild;
@@ -1484,7 +1485,8 @@ LRESULT WINAPI DefMDIChildProcW( HWND hwnd, UINT message,
         break;
 
     case WM_CHILDACTIVATE:
-        MDI_ChildActivate( client, hwnd );
+        if (IsWindowEnabled( hwnd ))
+            MDI_ChildActivate( client, hwnd );
         return 0;
 
     case WM_SYSCOMMAND:

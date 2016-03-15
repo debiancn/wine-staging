@@ -285,21 +285,16 @@ static void WINAPI d3d9_texture_2d_GenerateMipSubLevels(IDirect3DTexture9 *iface
 static HRESULT WINAPI d3d9_texture_2d_GetLevelDesc(IDirect3DTexture9 *iface, UINT level, D3DSURFACE_DESC *desc)
 {
     struct d3d9_texture *texture = impl_from_IDirect3DTexture9(iface);
-    struct wined3d_resource *sub_resource;
-    HRESULT hr = D3D_OK;
+    struct wined3d_sub_resource_desc wined3d_desc;
+    HRESULT hr;
 
     TRACE("iface %p, level %u, desc %p.\n", iface, level, desc);
 
     wined3d_mutex_lock();
-    if (!(sub_resource = wined3d_texture_get_sub_resource(texture->wined3d_texture, level)))
-        hr = D3DERR_INVALIDCALL;
-    else
+    if (SUCCEEDED(hr = wined3d_texture_get_sub_resource_desc(texture->wined3d_texture, level, &wined3d_desc)))
     {
-        struct wined3d_resource_desc wined3d_desc;
-
-        wined3d_resource_get_desc(sub_resource, &wined3d_desc);
         desc->Format = d3dformat_from_wined3dformat(wined3d_desc.format);
-        desc->Type = wined3d_desc.resource_type;
+        desc->Type = D3DRTYPE_SURFACE;
         desc->Usage = wined3d_desc.usage & WINED3DUSAGE_MASK;
         desc->Pool = wined3d_desc.pool;
         desc->MultiSampleType = wined3d_desc.multisample_type;
@@ -316,19 +311,17 @@ static HRESULT WINAPI d3d9_texture_2d_GetSurfaceLevel(IDirect3DTexture9 *iface,
         UINT level, IDirect3DSurface9 **surface)
 {
     struct d3d9_texture *texture = impl_from_IDirect3DTexture9(iface);
-    struct wined3d_resource *sub_resource;
     struct d3d9_surface *surface_impl;
 
     TRACE("iface %p, level %u, surface %p.\n", iface, level, surface);
 
     wined3d_mutex_lock();
-    if (!(sub_resource = wined3d_texture_get_sub_resource(texture->wined3d_texture, level)))
+    if (!(surface_impl = wined3d_texture_get_sub_resource_parent(texture->wined3d_texture, level)))
     {
         wined3d_mutex_unlock();
         return D3DERR_INVALIDCALL;
     }
 
-    surface_impl = wined3d_resource_get_parent(sub_resource);
     *surface = &surface_impl->IDirect3DSurface9_iface;
     IDirect3DSurface9_AddRef(*surface);
     wined3d_mutex_unlock();
@@ -340,7 +333,6 @@ static HRESULT WINAPI d3d9_texture_2d_LockRect(IDirect3DTexture9 *iface,
         UINT level, D3DLOCKED_RECT *locked_rect, const RECT *rect, DWORD flags)
 {
     struct d3d9_texture *texture = impl_from_IDirect3DTexture9(iface);
-    struct wined3d_resource *sub_resource;
     struct d3d9_surface *surface_impl;
     HRESULT hr;
 
@@ -348,13 +340,10 @@ static HRESULT WINAPI d3d9_texture_2d_LockRect(IDirect3DTexture9 *iface,
             iface, level, locked_rect, rect, flags);
 
     wined3d_mutex_lock();
-    if (!(sub_resource = wined3d_texture_get_sub_resource(texture->wined3d_texture, level)))
+    if (!(surface_impl = wined3d_texture_get_sub_resource_parent(texture->wined3d_texture, level)))
         hr = D3DERR_INVALIDCALL;
     else
-    {
-        surface_impl = wined3d_resource_get_parent(sub_resource);
         hr = IDirect3DSurface9_LockRect(&surface_impl->IDirect3DSurface9_iface, locked_rect, rect, flags);
-    }
     wined3d_mutex_unlock();
 
     return hr;
@@ -363,20 +352,16 @@ static HRESULT WINAPI d3d9_texture_2d_LockRect(IDirect3DTexture9 *iface,
 static HRESULT WINAPI d3d9_texture_2d_UnlockRect(IDirect3DTexture9 *iface, UINT level)
 {
     struct d3d9_texture *texture = impl_from_IDirect3DTexture9(iface);
-    struct wined3d_resource *sub_resource;
     struct d3d9_surface *surface_impl;
     HRESULT hr;
 
     TRACE("iface %p, level %u.\n", iface, level);
 
     wined3d_mutex_lock();
-    if (!(sub_resource = wined3d_texture_get_sub_resource(texture->wined3d_texture, level)))
+    if (!(surface_impl = wined3d_texture_get_sub_resource_parent(texture->wined3d_texture, level)))
         hr = D3DERR_INVALIDCALL;
     else
-    {
-        surface_impl = wined3d_resource_get_parent(sub_resource);
         hr = IDirect3DSurface9_UnlockRect(&surface_impl->IDirect3DSurface9_iface);
-    }
     wined3d_mutex_unlock();
 
     return hr;
@@ -690,9 +675,9 @@ static void WINAPI d3d9_texture_cube_GenerateMipSubLevels(IDirect3DCubeTexture9 
 static HRESULT WINAPI d3d9_texture_cube_GetLevelDesc(IDirect3DCubeTexture9 *iface, UINT level, D3DSURFACE_DESC *desc)
 {
     struct d3d9_texture *texture = impl_from_IDirect3DCubeTexture9(iface);
-    struct wined3d_resource *sub_resource;
-    HRESULT hr = D3D_OK;
+    struct wined3d_sub_resource_desc wined3d_desc;
     DWORD level_count;
+    HRESULT hr;
 
     TRACE("iface %p, level %u, desc %p.\n", iface, level, desc);
 
@@ -704,15 +689,10 @@ static HRESULT WINAPI d3d9_texture_cube_GetLevelDesc(IDirect3DCubeTexture9 *ifac
         return D3DERR_INVALIDCALL;
     }
 
-    if (!(sub_resource = wined3d_texture_get_sub_resource(texture->wined3d_texture, level)))
-        hr = D3DERR_INVALIDCALL;
-    else
+    if (SUCCEEDED(hr = wined3d_texture_get_sub_resource_desc(texture->wined3d_texture, level, &wined3d_desc)))
     {
-        struct wined3d_resource_desc wined3d_desc;
-
-        wined3d_resource_get_desc(sub_resource, &wined3d_desc);
         desc->Format = d3dformat_from_wined3dformat(wined3d_desc.format);
-        desc->Type = wined3d_desc.resource_type;
+        desc->Type = D3DRTYPE_SURFACE;
         desc->Usage = wined3d_desc.usage & WINED3DUSAGE_MASK;
         desc->Pool = wined3d_desc.pool;
         desc->MultiSampleType = wined3d_desc.multisample_type;
@@ -729,7 +709,6 @@ static HRESULT WINAPI d3d9_texture_cube_GetCubeMapSurface(IDirect3DCubeTexture9 
         D3DCUBEMAP_FACES face, UINT level, IDirect3DSurface9 **surface)
 {
     struct d3d9_texture *texture = impl_from_IDirect3DCubeTexture9(iface);
-    struct wined3d_resource *sub_resource;
     struct d3d9_surface *surface_impl;
     UINT sub_resource_idx;
     DWORD level_count;
@@ -745,13 +724,12 @@ static HRESULT WINAPI d3d9_texture_cube_GetCubeMapSurface(IDirect3DCubeTexture9 
     }
 
     sub_resource_idx = level_count * face + level;
-    if (!(sub_resource = wined3d_texture_get_sub_resource(texture->wined3d_texture, sub_resource_idx)))
+    if (!(surface_impl = wined3d_texture_get_sub_resource_parent(texture->wined3d_texture, sub_resource_idx)))
     {
         wined3d_mutex_unlock();
         return D3DERR_INVALIDCALL;
     }
 
-    surface_impl = wined3d_resource_get_parent(sub_resource);
     *surface = &surface_impl->IDirect3DSurface9_iface;
     IDirect3DSurface9_AddRef(*surface);
     wined3d_mutex_unlock();
@@ -764,7 +742,6 @@ static HRESULT WINAPI d3d9_texture_cube_LockRect(IDirect3DCubeTexture9 *iface,
         DWORD flags)
 {
     struct d3d9_texture *texture = impl_from_IDirect3DCubeTexture9(iface);
-    struct wined3d_resource *sub_resource;
     struct d3d9_surface *surface_impl;
     UINT sub_resource_idx;
     HRESULT hr;
@@ -774,13 +751,10 @@ static HRESULT WINAPI d3d9_texture_cube_LockRect(IDirect3DCubeTexture9 *iface,
 
     wined3d_mutex_lock();
     sub_resource_idx = wined3d_texture_get_level_count(texture->wined3d_texture) * face + level;
-    if (!(sub_resource = wined3d_texture_get_sub_resource(texture->wined3d_texture, sub_resource_idx)))
+    if (!(surface_impl = wined3d_texture_get_sub_resource_parent(texture->wined3d_texture, sub_resource_idx)))
         hr = D3DERR_INVALIDCALL;
     else
-    {
-        surface_impl = wined3d_resource_get_parent(sub_resource);
         hr = IDirect3DSurface9_LockRect(&surface_impl->IDirect3DSurface9_iface, locked_rect, rect, flags);
-    }
     wined3d_mutex_unlock();
 
     return hr;
@@ -790,7 +764,6 @@ static HRESULT WINAPI d3d9_texture_cube_UnlockRect(IDirect3DCubeTexture9 *iface,
         D3DCUBEMAP_FACES face, UINT level)
 {
     struct d3d9_texture *texture = impl_from_IDirect3DCubeTexture9(iface);
-    struct wined3d_resource *sub_resource;
     struct d3d9_surface *surface_impl;
     UINT sub_resource_idx;
     HRESULT hr;
@@ -799,13 +772,10 @@ static HRESULT WINAPI d3d9_texture_cube_UnlockRect(IDirect3DCubeTexture9 *iface,
 
     wined3d_mutex_lock();
     sub_resource_idx = wined3d_texture_get_level_count(texture->wined3d_texture) * face + level;
-    if (!(sub_resource = wined3d_texture_get_sub_resource(texture->wined3d_texture, sub_resource_idx)))
+    if (!(surface_impl = wined3d_texture_get_sub_resource_parent(texture->wined3d_texture, sub_resource_idx)))
         hr = D3DERR_INVALIDCALL;
     else
-    {
-        surface_impl = wined3d_resource_get_parent(sub_resource);
         hr = IDirect3DSurface9_UnlockRect(&surface_impl->IDirect3DSurface9_iface);
-    }
     wined3d_mutex_unlock();
 
     return hr;
@@ -1107,21 +1077,16 @@ static void WINAPI d3d9_texture_3d_GenerateMipSubLevels(IDirect3DVolumeTexture9 
 static HRESULT WINAPI d3d9_texture_3d_GetLevelDesc(IDirect3DVolumeTexture9 *iface, UINT level, D3DVOLUME_DESC *desc)
 {
     struct d3d9_texture *texture = impl_from_IDirect3DVolumeTexture9(iface);
-    struct wined3d_resource *sub_resource;
-    HRESULT hr = D3D_OK;
+    struct wined3d_sub_resource_desc wined3d_desc;
+    HRESULT hr;
 
     TRACE("iface %p, level %u, desc %p.\n", iface, level, desc);
 
     wined3d_mutex_lock();
-    if (!(sub_resource = wined3d_texture_get_sub_resource(texture->wined3d_texture, level)))
-        hr = D3DERR_INVALIDCALL;
-    else
+    if (SUCCEEDED(hr = wined3d_texture_get_sub_resource_desc(texture->wined3d_texture, level, &wined3d_desc)))
     {
-        struct wined3d_resource_desc wined3d_desc;
-
-        wined3d_resource_get_desc(sub_resource, &wined3d_desc);
         desc->Format = d3dformat_from_wined3dformat(wined3d_desc.format);
-        desc->Type = wined3d_desc.resource_type;
+        desc->Type = D3DRTYPE_VOLUME;
         desc->Usage = wined3d_desc.usage & WINED3DUSAGE_MASK;
         desc->Pool = wined3d_desc.pool;
         desc->Width = wined3d_desc.width;
@@ -1137,19 +1102,17 @@ static HRESULT WINAPI d3d9_texture_3d_GetVolumeLevel(IDirect3DVolumeTexture9 *if
         UINT level, IDirect3DVolume9 **volume)
 {
     struct d3d9_texture *texture = impl_from_IDirect3DVolumeTexture9(iface);
-    struct wined3d_resource *sub_resource;
     struct d3d9_volume *volume_impl;
 
     TRACE("iface %p, level %u, volume %p.\n", iface, level, volume);
 
     wined3d_mutex_lock();
-    if (!(sub_resource = wined3d_texture_get_sub_resource(texture->wined3d_texture, level)))
+    if (!(volume_impl = wined3d_texture_get_sub_resource_parent(texture->wined3d_texture, level)))
     {
         wined3d_mutex_unlock();
         return D3DERR_INVALIDCALL;
     }
 
-    volume_impl = wined3d_resource_get_parent(sub_resource);
     *volume = &volume_impl->IDirect3DVolume9_iface;
     IDirect3DVolume9_AddRef(*volume);
     wined3d_mutex_unlock();
@@ -1161,7 +1124,6 @@ static HRESULT WINAPI d3d9_texture_3d_LockBox(IDirect3DVolumeTexture9 *iface,
         UINT level, D3DLOCKED_BOX *locked_box, const D3DBOX *box, DWORD flags)
 {
     struct d3d9_texture *texture = impl_from_IDirect3DVolumeTexture9(iface);
-    struct wined3d_resource *sub_resource;
     struct d3d9_volume *volume_impl;
     HRESULT hr;
 
@@ -1169,13 +1131,10 @@ static HRESULT WINAPI d3d9_texture_3d_LockBox(IDirect3DVolumeTexture9 *iface,
             iface, level, locked_box, box, flags);
 
     wined3d_mutex_lock();
-    if (!(sub_resource = wined3d_texture_get_sub_resource(texture->wined3d_texture, level)))
+    if (!(volume_impl = wined3d_texture_get_sub_resource_parent(texture->wined3d_texture, level)))
         hr = D3DERR_INVALIDCALL;
     else
-    {
-        volume_impl = wined3d_resource_get_parent(sub_resource);
         hr = IDirect3DVolume9_LockBox(&volume_impl->IDirect3DVolume9_iface, locked_box, box, flags);
-    }
     wined3d_mutex_unlock();
 
     return hr;
@@ -1184,20 +1143,16 @@ static HRESULT WINAPI d3d9_texture_3d_LockBox(IDirect3DVolumeTexture9 *iface,
 static HRESULT WINAPI d3d9_texture_3d_UnlockBox(IDirect3DVolumeTexture9 *iface, UINT level)
 {
     struct d3d9_texture *texture = impl_from_IDirect3DVolumeTexture9(iface);
-    struct wined3d_resource *sub_resource;
     struct d3d9_volume *volume_impl;
     HRESULT hr;
 
     TRACE("iface %p, level %u.\n", iface, level);
 
     wined3d_mutex_lock();
-    if (!(sub_resource = wined3d_texture_get_sub_resource(texture->wined3d_texture, level)))
+    if (!(volume_impl = wined3d_texture_get_sub_resource_parent(texture->wined3d_texture, level)))
         hr = D3DERR_INVALIDCALL;
     else
-    {
-        volume_impl = wined3d_resource_get_parent(sub_resource);
         hr = IDirect3DVolume9_UnlockBox(&volume_impl->IDirect3DVolume9_iface);
-    }
     wined3d_mutex_unlock();
 
     return hr;

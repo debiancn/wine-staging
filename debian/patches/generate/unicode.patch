@@ -38,7 +38,7 @@ author: Michael Gilbert <mgilbert@debian.org>
      return *FILE;
  }
  
-@@ -2483,9 +2476,10 @@ dump_vertical( "dlls/gdi32/vertical.c" )
+@@ -2490,9 +2483,10 @@ dump_vertical( "dlls/gdi32/vertical.c" )
  dump_vertical( "dlls/wineps.drv/vertical.c" );
  dump_nameprep( "dlls/kernel32/nameprep.c" );
  

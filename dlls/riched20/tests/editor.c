@@ -3281,11 +3281,12 @@ static void test_EM_SETUNDOLIMIT(void)
   
   SendMessageA(hwndRichEdit, WM_SETTEXT, 0, (LPARAM)"x");
   cr.cpMin = 0;
-  cr.cpMax = 1;
+  cr.cpMax = -1;
+  SendMessageA(hwndRichEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
+
   SendMessageA(hwndRichEdit, WM_COPY, 0, 0);
     /*Load "x" into the clipboard. Paste is an easy, undo'able operation.
       also, multiple pastes don't combine like WM_CHAR would */
-  SendMessageA(hwndRichEdit, EM_EXSETSEL, 0, (LPARAM)&cr);
 
   /* first case - check the default */
   SendMessageA(hwndRichEdit,EM_EMPTYUNDOBUFFER, 0,0);
@@ -5403,9 +5404,10 @@ static void test_EM_STREAMIN(void)
   EDITSTREAM es;
   char buffer[1024] = {0}, tmp[16];
   CHARRANGE range;
+  PARAFORMAT2 fmt;
 
-  const char * streamText0 = "{\\rtf1 TestSomeText}";
-  const char * streamText0a = "{\\rtf1 TestSomeText\\par}";
+  const char * streamText0 = "{\\rtf1\\fi100\\li200\\rtlpar\\qr TestSomeText}";
+  const char * streamText0a = "{\\rtf1\\fi100\\li200\\rtlpar\\qr TestSomeText\\par}";
   const char * streamText0b = "{\\rtf1 TestSomeText\\par\\par}";
   const char * ptr;
 
@@ -5462,6 +5464,17 @@ static void test_EM_STREAMIN(void)
   ok (result  == 0,
       "EM_STREAMIN: Test 0 set wrong text: Result: %s\n",buffer);
   ok(es.dwError == 0, "EM_STREAMIN: Test 0 set error %d, expected %d\n", es.dwError, 0);
+  /* Show that para fmts are ignored */
+  range.cpMin = 2;
+  range.cpMax = 2;
+  result = SendMessageA(hwndRichEdit, EM_EXSETSEL, 0, (LPARAM)&range);
+  memset(&fmt, 0xcc, sizeof(fmt));
+  fmt.cbSize = sizeof(fmt);
+  result = SendMessageA(hwndRichEdit, EM_GETPARAFORMAT, 0, (LPARAM)&fmt);
+  ok(fmt.dxStartIndent == 0, "got %d\n", fmt.dxStartIndent);
+  ok(fmt.dxOffset == 0, "got %d\n", fmt.dxOffset);
+  ok(fmt.wAlignment == PFA_LEFT, "got %d\n", fmt.wAlignment);
+  ok((fmt.wEffects & PFE_RTLPARA) == 0, "got %x\n", fmt.wEffects);
 
   /* Native richedit 2.0 ignores last \par */
   ptr = streamText0a;
@@ -5478,6 +5491,17 @@ static void test_EM_STREAMIN(void)
   ok (result  == 0,
       "EM_STREAMIN: Test 0-a set wrong text: Result: %s\n",buffer);
   ok(es.dwError == 0, "EM_STREAMIN: Test 0-a set error %d, expected %d\n", es.dwError, 0);
+  /* This time para fmts are processed */
+  range.cpMin = 2;
+  range.cpMax = 2;
+  result = SendMessageA(hwndRichEdit, EM_EXSETSEL, 0, (LPARAM)&range);
+  memset(&fmt, 0xcc, sizeof(fmt));
+  fmt.cbSize = sizeof(fmt);
+  result = SendMessageA(hwndRichEdit, EM_GETPARAFORMAT, 0, (LPARAM)&fmt);
+  ok(fmt.dxStartIndent == 300, "got %d\n", fmt.dxStartIndent);
+  ok(fmt.dxOffset == -100, "got %d\n", fmt.dxOffset);
+  ok(fmt.wAlignment == PFA_RIGHT, "got %d\n", fmt.wAlignment);
+  ok((fmt.wEffects & PFE_RTLPARA) == PFE_RTLPARA, "got %x\n", fmt.wEffects);
 
   /* Native richedit 2.0 ignores last \par, next-to-last \par appears */
   es.dwCookie = (DWORD_PTR)&streamText0b;
@@ -8219,7 +8243,7 @@ static void test_alignment_style(void)
     pf.cbSize = sizeof(PARAFORMAT2);
     pf.dwMask = -1;
     SendMessageW(richedit, EM_GETPARAFORMAT, SCF_SELECTION, (LPARAM)&pf);
-    ok(pf.wAlignment == ES_CENTER, "got %d expected ES_CENTER\n", pf.wAlignment);
+    ok(pf.wAlignment == PFA_LEFT, "got %d expected PFA_LEFT\n", pf.wAlignment);
     DestroyWindow(richedit);
 }
 
@@ -8253,6 +8277,31 @@ static void test_WM_GETTEXTLENGTH(void)
 
     DestroyWindow(hwndRichEdit);
 }
+
+static void test_rtf_specials(void)
+{
+    const char *specials = "{\\rtf1\\emspace\\enspace\\bullet\\lquote"
+        "\\rquote\\ldblquote\\rdblquote\\ltrmark\\rtlmark\\zwj\\zwnj}";
+    const WCHAR expect_specials[] = {' ',' ',0x2022,0x2018,0x2019,0x201c,
+                                     0x201d,0x200e,0x200f,0x200d,0x200c};
+    HWND edit = new_richeditW( NULL );
+    EDITSTREAM es;
+    WCHAR buf[80];
+    LRESULT result;
+
+    es.dwCookie = (DWORD_PTR)&specials;
+    es.dwError = 0;
+    es.pfnCallback = test_EM_STREAMIN_esCallback;
+    result = SendMessageA( edit, EM_STREAMIN, SF_RTF, (LPARAM)&es );
+    ok( result == 11, "got %ld\n", result );
+
+    result = SendMessageW( edit, WM_GETTEXT, sizeof(buf)/sizeof(buf[0]), (LPARAM)buf );
+    ok( result == sizeof(expect_specials)/sizeof(expect_specials[0]), "got %ld\n", result );
+    ok( !memcmp( buf, expect_specials, sizeof(expect_specials) ), "got %s\n", wine_dbgstr_w(buf) );
+
+    DestroyWindow( edit );
+}
+
 
 START_TEST( editor )
 {
@@ -8323,6 +8372,7 @@ START_TEST( editor )
   test_EM_SETREADONLY();
   test_EM_SETFONTSIZE();
   test_alignment_style();
+  test_rtf_specials();
 
   /* Set the environment variable WINETEST_RICHED20 to keep windows
    * responsive and open for 30 seconds. This is useful for debugging.

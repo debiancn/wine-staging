@@ -4790,6 +4790,7 @@ static void _get_attr_node_value(unsigned line, IHTMLDOMAttribute *attr, VARIANT
 {
     HRESULT hres;
 
+    V_VT(v) = VT_EMPTY;
     hres = IHTMLDOMAttribute_get_nodeValue(attr, v);
     ok_(__FILE__,line) (hres == S_OK, "get_nodeValue failed: %08x\n", hres);
     ok_(__FILE__,line) (V_VT(v) == vt, "vt=%d, expected %d\n", V_VT(v), vt);
@@ -6598,6 +6599,28 @@ static void test_dom_implementation(IHTMLDocument2 *doc)
     IHTMLDOMImplementation_Release(dom_implementation);
 }
 
+static void test_xhr(IHTMLDocument2 *doc)
+{
+    IHTMLWindow2 *window;
+    IDispatchEx *dispex;
+    DISPID id;
+    BSTR str;
+    HRESULT hres;
+
+    hres = IHTMLDocument2_get_parentWindow(doc, &window);
+    ok(hres == S_OK, "get_parentWindow failed: %08x\n", hres);
+
+    hres = IHTMLWindow2_QueryInterface(window, &IID_IDispatchEx, (void**)&dispex);
+    ok(hres == S_OK, "Could not get IDispatchEx iface: %08x\n", hres);
+
+    str = a2bstr("XMLHttpRequest");
+    hres = IDispatchEx_GetDispID(dispex, str, 0, &id);
+    ok(hres == S_OK, "GetDispID failed: %08x\n", hres);
+    SysFreeString(str);
+
+    IHTMLWindow2_Release(window);
+}
+
 static void test_defaults(IHTMLDocument2 *doc)
 {
     IHTMLStyleSheetsCollection *stylesheetcol;
@@ -6669,6 +6692,8 @@ static void test_defaults(IHTMLDocument2 *doc)
         test_elem_collection((IUnknown*)collection, NULL, 0);
         IHTMLElementCollection_Release(collection);
     }
+
+    test_xhr(doc);
 
     hres = IHTMLElement_QueryInterface(elem, &IID_IHTMLBodyElement, (void**)&body);
     ok(hres == S_OK, "Could not get IHTMBodyElement: %08x\n", hres);
@@ -8890,11 +8915,27 @@ static void test_create_elems(IHTMLDocument2 *doc)
         ok(hres == S_OK, "createAttribute dailed: %08x\n", hres);
         SysFreeString(str);
         if(SUCCEEDED(hres)) {
+            VARIANT v;
+
             test_disp((IUnknown*)attr, &DIID_DispHTMLDOMAttribute, "[object]");
             test_ifaces((IUnknown*)attr, attr_iids);
             test_no_iface((IUnknown*)attr, &IID_IHTMLDOMNode);
 
             test_attr_node_name(attr, "Test");
+            test_attr_expando(attr, VARIANT_FALSE);
+
+            get_attr_node_value(attr, &v, VT_EMPTY);
+
+            V_VT(&v) = VT_I4;
+            V_I4(&v) = 1;
+            put_attr_node_value(attr, v);
+
+            get_attr_node_value(attr, &v, VT_I4);
+            ok(V_I4(&v) == 1, "nodeValue = %d\n", V_I4(&v));
+
+            V_VT(&v) = VT_EMPTY;
+            put_attr_node_value(attr, v);
+            get_attr_node_value(attr, &v, VT_EMPTY);
 
             IHTMLDOMAttribute_Release(attr);
         }

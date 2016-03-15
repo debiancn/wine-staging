@@ -40,43 +40,45 @@ static const DWORD surface_simple_locations =
         WINED3D_LOCATION_SYSMEM | WINED3D_LOCATION_USER_MEMORY
         | WINED3D_LOCATION_DIB | WINED3D_LOCATION_BUFFER;
 
-static void surface_cleanup(struct wined3d_surface *surface)
+static unsigned int surface_get_sub_resource_idx(const struct wined3d_surface *surface)
+{
+    return surface->texture_layer * surface->container->level_count + surface->texture_level;
+}
+
+void wined3d_surface_cleanup(struct wined3d_surface *surface)
 {
     struct wined3d_surface *overlay, *cur;
 
     TRACE("surface %p.\n", surface);
 
-    if (surface->pbo || surface->rb_multisample
-            || surface->rb_resolved || !list_empty(&surface->renderbuffers))
+    if (surface->rb_multisample || surface->rb_resolved || !list_empty(&surface->renderbuffers))
     {
         struct wined3d_renderbuffer_entry *entry, *entry2;
         const struct wined3d_gl_info *gl_info;
         struct wined3d_context *context;
+        struct wined3d_device *device = surface->resource.device;
 
-        context = context_acquire(surface->resource.device, NULL);
+        context = context_acquire(device, NULL);
         gl_info = context->gl_info;
-
-        if (surface->pbo)
-        {
-            TRACE("Deleting PBO %u.\n", surface->pbo);
-            GL_EXTCALL(glDeleteBuffers(1, &surface->pbo));
-        }
 
         if (surface->rb_multisample)
         {
             TRACE("Deleting multisample renderbuffer %u.\n", surface->rb_multisample);
+            context_gl_resource_released(device, surface->rb_multisample, TRUE);
             gl_info->fbo_ops.glDeleteRenderbuffers(1, &surface->rb_multisample);
         }
 
         if (surface->rb_resolved)
         {
             TRACE("Deleting resolved renderbuffer %u.\n", surface->rb_resolved);
+            context_gl_resource_released(device, surface->rb_resolved, TRUE);
             gl_info->fbo_ops.glDeleteRenderbuffers(1, &surface->rb_resolved);
         }
 
         LIST_FOR_EACH_ENTRY_SAFE(entry, entry2, &surface->renderbuffers, struct wined3d_renderbuffer_entry, entry)
         {
             TRACE("Deleting renderbuffer %u.\n", entry->id);
+            context_gl_resource_released(device, entry->id, TRUE);
             gl_info->fbo_ops.glDeleteRenderbuffers(1, &entry->id);
             HeapFree(GetProcessHeap(), 0, entry);
         }
@@ -101,15 +103,6 @@ static void surface_cleanup(struct wined3d_surface *surface)
     }
 
     resource_cleanup(&surface->resource);
-}
-
-void wined3d_surface_destroy(struct wined3d_surface *surface)
-{
-    TRACE("surface %p.\n", surface);
-
-    surface_cleanup(surface);
-    surface->resource.parent_ops->wined3d_object_destroyed(surface->resource.parent);
-    HeapFree(GetProcessHeap(), 0, surface);
 }
 
 void surface_get_drawable_size(const struct wined3d_surface *surface, const struct wined3d_context *context,
@@ -469,7 +462,7 @@ static void surface_get_memory(const struct wined3d_surface *surface, struct win
     if (location & WINED3D_LOCATION_BUFFER)
     {
         data->addr = NULL;
-        data->buffer_object = surface->pbo;
+        data->buffer_object = surface->container->sub_resources[surface_get_sub_resource_idx(surface)].buffer_object;
         return;
     }
     if (location & WINED3D_LOCATION_USER_MEMORY)
@@ -496,38 +489,6 @@ static void surface_get_memory(const struct wined3d_surface *surface, struct win
     data->buffer_object = 0;
 }
 
-static void surface_prepare_buffer(struct wined3d_surface *surface)
-{
-    struct wined3d_context *context;
-    GLenum error;
-    const struct wined3d_gl_info *gl_info;
-
-    if (surface->pbo)
-        return;
-
-    context = context_acquire(surface->resource.device, NULL);
-    gl_info = context->gl_info;
-
-    GL_EXTCALL(glGenBuffers(1, &surface->pbo));
-    error = gl_info->gl_ops.gl.p_glGetError();
-    if (!surface->pbo || error != GL_NO_ERROR)
-        ERR("Failed to create a PBO with error %s (%#x).\n", debug_glerror(error), error);
-
-    TRACE("Binding PBO %u.\n", surface->pbo);
-
-    GL_EXTCALL(glBindBuffer(GL_PIXEL_UNPACK_BUFFER, surface->pbo));
-    checkGLcall("glBindBuffer");
-
-    GL_EXTCALL(glBufferData(GL_PIXEL_UNPACK_BUFFER, surface->resource.size + 4,
-            NULL, GL_STREAM_DRAW));
-    checkGLcall("glBufferData");
-
-    GL_EXTCALL(glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0));
-    checkGLcall("glBindBuffer");
-
-    context_release(context);
-}
-
 static void surface_prepare_system_memory(struct wined3d_surface *surface)
 {
     TRACE("surface %p.\n", surface);
@@ -546,6 +507,9 @@ static void surface_prepare_system_memory(struct wined3d_surface *surface)
 
 void surface_prepare_map_memory(struct wined3d_surface *surface)
 {
+    struct wined3d_texture *texture = surface->container;
+    struct wined3d_context *context;
+
     switch (surface->resource.map_binding)
     {
         case WINED3D_LOCATION_SYSMEM:
@@ -553,7 +517,7 @@ void surface_prepare_map_memory(struct wined3d_surface *surface)
             break;
 
         case WINED3D_LOCATION_USER_MEMORY:
-            if (!surface->container->user_memory)
+            if (!texture->user_memory)
                 ERR("Map binding is set to WINED3D_LOCATION_USER_MEMORY but surface->user_memory is NULL.\n");
             break;
 
@@ -563,7 +527,10 @@ void surface_prepare_map_memory(struct wined3d_surface *surface)
             break;
 
         case WINED3D_LOCATION_BUFFER:
-            surface_prepare_buffer(surface);
+            context = context_acquire(texture->resource.device, NULL);
+            wined3d_texture_prepare_buffer_object(texture,
+                    surface_get_sub_resource_idx(surface), context->gl_info);
+            context_release(context);
             break;
 
         default:
@@ -666,54 +633,6 @@ static HRESULT surface_private_setup(struct wined3d_surface *surface)
         surface->resource.map_binding = WINED3D_LOCATION_BUFFER;
 
     return WINED3D_OK;
-}
-
-static void surface_unmap(struct wined3d_surface *surface)
-{
-    struct wined3d_device *device = surface->resource.device;
-    const struct wined3d_gl_info *gl_info;
-    struct wined3d_context *context;
-
-    TRACE("surface %p.\n", surface);
-
-    memset(&surface->lockedRect, 0, sizeof(surface->lockedRect));
-
-    switch (surface->resource.map_binding)
-    {
-        case WINED3D_LOCATION_SYSMEM:
-        case WINED3D_LOCATION_USER_MEMORY:
-        case WINED3D_LOCATION_DIB:
-            break;
-
-        case WINED3D_LOCATION_BUFFER:
-            context = context_acquire(device, NULL);
-            gl_info = context->gl_info;
-
-            GL_EXTCALL(glBindBuffer(GL_PIXEL_UNPACK_BUFFER, surface->pbo));
-            GL_EXTCALL(glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER));
-            GL_EXTCALL(glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0));
-            checkGLcall("glUnmapBuffer");
-            context_release(context);
-            break;
-
-        default:
-            ERR("Unexpected map binding %s.\n", wined3d_debug_location(surface->resource.map_binding));
-    }
-
-    if (surface->locations & (WINED3D_LOCATION_DRAWABLE | WINED3D_LOCATION_TEXTURE_RGB))
-    {
-        TRACE("Not dirtified, nothing to do.\n");
-        return;
-    }
-
-    if (surface->container->swapchain && surface->container->swapchain->front_buffer == surface->container)
-    {
-        context = context_acquire(device, surface);
-        surface_load_location(surface, context, surface->container->resource.draw_binding);
-        context_release(context);
-    }
-    else if (surface->container->resource.format_flags & (WINED3DFMT_FLAG_DEPTH | WINED3DFMT_FLAG_STENCIL))
-        FIXME("Depth / stencil buffer locking is not implemented.\n");
 }
 
 static BOOL surface_is_full_rect(const struct wined3d_surface *surface, const RECT *r)
@@ -1077,16 +996,6 @@ static HRESULT wined3d_surface_depth_blt(struct wined3d_surface *src_surface, DW
     return WINED3D_OK;
 }
 
-/* Context activation is done by the caller. */
-static void surface_remove_pbo(struct wined3d_surface *surface, const struct wined3d_gl_info *gl_info)
-{
-    GL_EXTCALL(glDeleteBuffers(1, &surface->pbo));
-    checkGLcall("glDeleteBuffers(1, &surface->pbo)");
-
-    surface->pbo = 0;
-    surface_invalidate_location(surface, WINED3D_LOCATION_BUFFER);
-}
-
 static ULONG surface_resource_incref(struct wined3d_resource *resource)
 {
     struct wined3d_surface *surface = surface_from_resource(resource);
@@ -1149,16 +1058,13 @@ static void surface_unload(struct wined3d_resource *resource)
         surface_invalidate_location(surface, ~surface->resource.map_binding);
     }
 
-    /* Destroy PBOs, but load them into real sysmem before */
-    if (surface->pbo)
-        surface_remove_pbo(surface, gl_info);
-
     /* Destroy fbo render buffers. This is needed for implicit render targets, for
      * all application-created targets the application has to release the surface
      * before calling _Reset
      */
     LIST_FOR_EACH_ENTRY_SAFE(entry, entry2, &surface->renderbuffers, struct wined3d_renderbuffer_entry, entry)
     {
+        context_gl_resource_released(device, entry->id, TRUE);
         gl_info->fbo_ops.glDeleteRenderbuffers(1, &entry->id);
         list_remove(&entry->entry);
         HeapFree(GetProcessHeap(), 0, entry);
@@ -1168,11 +1074,13 @@ static void surface_unload(struct wined3d_resource *resource)
 
     if (surface->rb_multisample)
     {
+        context_gl_resource_released(device, surface->rb_multisample, TRUE);
         gl_info->fbo_ops.glDeleteRenderbuffers(1, &surface->rb_multisample);
         surface->rb_multisample = 0;
     }
     if (surface->rb_resolved)
     {
+        context_gl_resource_released(device, surface->rb_resolved, TRUE);
         gl_info->fbo_ops.glDeleteRenderbuffers(1, &surface->rb_resolved);
         surface->rb_resolved = 0;
     }
@@ -1207,7 +1115,6 @@ static const struct wined3d_resource_ops surface_resource_ops =
 static const struct wined3d_surface_ops surface_ops =
 {
     surface_private_setup,
-    surface_unmap,
 };
 
 /*****************************************************************************
@@ -1251,21 +1158,9 @@ static HRESULT gdi_surface_private_setup(struct wined3d_surface *surface)
     return WINED3D_OK;
 }
 
-static void gdi_surface_unmap(struct wined3d_surface *surface)
-{
-    TRACE("surface %p.\n", surface);
-
-    /* Tell the swapchain to update the screen. */
-    if (surface->container->swapchain && surface->container == surface->container->swapchain->front_buffer)
-        x11_copy_to_screen(surface->container->swapchain, &surface->lockedRect);
-
-    memset(&surface->lockedRect, 0, sizeof(RECT));
-}
-
 static const struct wined3d_surface_ops gdi_surface_ops =
 {
     gdi_surface_private_setup,
-    gdi_surface_unmap,
 };
 
 /* This call just downloads data, the caller is responsible for binding the
@@ -2229,6 +2124,11 @@ do { \
 
 HRESULT wined3d_surface_unmap(struct wined3d_surface *surface)
 {
+    struct wined3d_device *device = surface->resource.device;
+    struct wined3d_texture *texture = surface->container;
+    const struct wined3d_gl_info *gl_info;
+    struct wined3d_context *context;
+
     TRACE("surface %p.\n", surface);
 
     if (!surface->resource.map_count)
@@ -2238,7 +2138,37 @@ HRESULT wined3d_surface_unmap(struct wined3d_surface *surface)
     }
     --surface->resource.map_count;
 
-    surface->surface_ops->surface_unmap(surface);
+    switch (surface->resource.map_binding)
+    {
+        case WINED3D_LOCATION_SYSMEM:
+        case WINED3D_LOCATION_USER_MEMORY:
+        case WINED3D_LOCATION_DIB:
+            break;
+
+        case WINED3D_LOCATION_BUFFER:
+            context = context_acquire(device, NULL);
+            gl_info = context->gl_info;
+
+            GL_EXTCALL(glBindBuffer(GL_PIXEL_UNPACK_BUFFER,
+                    texture->sub_resources[surface_get_sub_resource_idx(surface)].buffer_object));
+            GL_EXTCALL(glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER));
+            GL_EXTCALL(glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0));
+            checkGLcall("glUnmapBuffer");
+            context_release(context);
+            break;
+
+        default:
+            ERR("Unexpected map binding %s.\n", wined3d_debug_location(surface->resource.map_binding));
+            break;
+    }
+
+    if (!(surface->locations & (WINED3D_LOCATION_DRAWABLE | WINED3D_LOCATION_TEXTURE_RGB)))
+    {
+        if (texture->swapchain && texture->swapchain->front_buffer == texture)
+            texture->swapchain->swapchain_ops->swapchain_frontbuffer_updated(texture->swapchain);
+        else if (texture->resource.format_flags & (WINED3DFMT_FLAG_DEPTH | WINED3DFMT_FLAG_STENCIL))
+            FIXME("Depth / stencil buffer locking is not implemented.\n");
+    }
 
     return WINED3D_OK;
 }
@@ -2246,9 +2176,10 @@ HRESULT wined3d_surface_unmap(struct wined3d_surface *surface)
 HRESULT wined3d_surface_map(struct wined3d_surface *surface, struct wined3d_map_desc *map_desc,
         const struct wined3d_box *box, DWORD flags)
 {
-    const struct wined3d_format *format = surface->resource.format;
-    unsigned int fmt_flags = surface->container->resource.format_flags;
-    struct wined3d_device *device = surface->resource.device;
+    struct wined3d_texture *texture = surface->container;
+    const struct wined3d_format *format = texture->resource.format;
+    struct wined3d_device *device = texture->resource.device;
+    unsigned int fmt_flags = texture->resource.format_flags;
     struct wined3d_context *context;
     const struct wined3d_gl_info *gl_info;
     BYTE *base_memory;
@@ -2263,7 +2194,7 @@ HRESULT wined3d_surface_map(struct wined3d_surface *surface, struct wined3d_map_
     }
 
     if ((fmt_flags & WINED3DFMT_FLAG_BLOCKS) && box
-            && !wined3d_texture_check_block_align(surface->container, surface->texture_level, box))
+            && !wined3d_texture_check_block_align(texture, surface->texture_level, box))
     {
         WARN("Map box %s is misaligned for %ux%u blocks.\n",
                 debug_box(box), format->block_width, format->block_height);
@@ -2282,13 +2213,13 @@ HRESULT wined3d_surface_map(struct wined3d_surface *surface, struct wined3d_map_
      * the need to download the surface from OpenGL all the time. The surface
      * is still downloaded if the OpenGL texture is changed. Note that this
      * only really makes sense for managed textures.*/
-    if (!(surface->container->flags & WINED3D_TEXTURE_DYNAMIC_MAP)
+    if (!(texture->flags & WINED3D_TEXTURE_DYNAMIC_MAP)
             && surface->resource.map_binding == WINED3D_LOCATION_SYSMEM)
     {
         if (++surface->lockCount > MAXLOCKCOUNT)
         {
             TRACE("Surface is mapped regularly, not freeing the system memory copy any more.\n");
-            surface->container->flags |= WINED3D_TEXTURE_DYNAMIC_MAP;
+            texture->flags |= WINED3D_TEXTURE_DYNAMIC_MAP;
         }
     }
 
@@ -2323,7 +2254,7 @@ HRESULT wined3d_surface_map(struct wined3d_surface *surface, struct wined3d_map_
             break;
 
         case WINED3D_LOCATION_USER_MEMORY:
-            base_memory = surface->container->user_memory;
+            base_memory = texture->user_memory;
             break;
 
         case WINED3D_LOCATION_DIB:
@@ -2334,7 +2265,8 @@ HRESULT wined3d_surface_map(struct wined3d_surface *surface, struct wined3d_map_
             context = context_acquire(device, NULL);
             gl_info = context->gl_info;
 
-            GL_EXTCALL(glBindBuffer(GL_PIXEL_UNPACK_BUFFER, surface->pbo));
+            GL_EXTCALL(glBindBuffer(GL_PIXEL_UNPACK_BUFFER,
+                    texture->sub_resources[surface_get_sub_resource_idx(surface)].buffer_object));
             base_memory = GL_EXTCALL(glMapBuffer(GL_PIXEL_UNPACK_BUFFER, GL_READ_WRITE));
             GL_EXTCALL(glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0));
             checkGLcall("map PBO");
@@ -2354,17 +2286,13 @@ HRESULT wined3d_surface_map(struct wined3d_surface *surface, struct wined3d_map_
     }
     else
     {
-        wined3d_texture_get_pitch(surface->container, surface->texture_level,
+        wined3d_texture_get_pitch(texture, surface->texture_level,
                 &map_desc->row_pitch, &map_desc->slice_pitch);
     }
 
     if (!box)
     {
         map_desc->data = base_memory;
-        surface->lockedRect.left = 0;
-        surface->lockedRect.top = 0;
-        surface->lockedRect.right = surface->resource.width;
-        surface->lockedRect.bottom = surface->resource.height;
     }
     else
     {
@@ -2382,13 +2310,19 @@ HRESULT wined3d_surface_map(struct wined3d_surface *surface, struct wined3d_map_
                     + (map_desc->row_pitch * box->top)
                     + (box->left * format->byte_count);
         }
-        surface->lockedRect.left = box->left;
-        surface->lockedRect.top = box->top;
-        surface->lockedRect.right = box->right;
-        surface->lockedRect.bottom = box->bottom;
     }
 
-    TRACE("Locked rect %s.\n", wine_dbgstr_rect(&surface->lockedRect));
+    if (texture->swapchain && texture->swapchain->front_buffer == texture)
+    {
+        RECT *r = &texture->swapchain->front_buffer_update;
+
+        if (!box)
+            SetRect(r, 0, 0, texture->resource.width, texture->resource.height);
+        else
+            SetRect(r, box->left, box->top, box->right, box->bottom);
+        TRACE("Mapped front buffer %s.\n", wine_dbgstr_rect(r));
+    }
+
     TRACE("Returning memory %p, pitch %u.\n", map_desc->data, map_desc->row_pitch);
 
     return WINED3D_OK;
@@ -2428,7 +2362,7 @@ static void read_from_framebuffer(struct wined3d_surface *surface,
         /* Mapping the primary render target which is not on a swapchain.
          * Read from the back buffer. */
         TRACE("Mapping offscreen render target.\n");
-        gl_info->gl_ops.gl.p_glReadBuffer(device->offscreenBuffer);
+        gl_info->gl_ops.gl.p_glReadBuffer(context_get_offscreen_gl_buffer(context));
         srcIsUpsideDown = TRUE;
     }
     else
@@ -2534,7 +2468,7 @@ void surface_load_fb_texture(struct wined3d_surface *surface, BOOL srgb, struct 
     TRACE("Reading back offscreen render target %p.\n", surface);
 
     if (wined3d_resource_is_offscreen(&surface->container->resource))
-        gl_info->gl_ops.gl.p_glReadBuffer(device->offscreenBuffer);
+        gl_info->gl_ops.gl.p_glReadBuffer(context_get_offscreen_gl_buffer(context));
     else
         gl_info->gl_ops.gl.p_glReadBuffer(surface_get_gl_buffer(surface));
     checkGLcall("glReadBuffer");
@@ -2639,7 +2573,7 @@ static void fb_copy_to_texture_direct(struct wined3d_surface *dst_surface, struc
     {
         TRACE("Reading from an offscreen target\n");
         upsidedown = !upsidedown;
-        gl_info->gl_ops.gl.p_glReadBuffer(device->offscreenBuffer);
+        gl_info->gl_ops.gl.p_glReadBuffer(context_get_offscreen_gl_buffer(context));
     }
     else
     {
@@ -2728,6 +2662,7 @@ static void fb_copy_to_texture_hwstretch(struct wined3d_surface *dst_surface, st
     const struct wined3d_gl_info *gl_info;
     struct wined3d_context *context;
     GLenum drawBuffer = GL_BACK;
+    GLenum offscreen_buffer;
     GLenum texture_target;
     BOOL noBackBufferBackup;
     BOOL src_offscreen;
@@ -2740,6 +2675,8 @@ static void fb_copy_to_texture_hwstretch(struct wined3d_surface *dst_surface, st
     gl_info = context->gl_info;
     context_apply_blit_state(context, device);
     wined3d_texture_load(dst_surface->container, context, FALSE);
+
+    offscreen_buffer = context_get_offscreen_gl_buffer(context);
 
     src_offscreen = wined3d_resource_is_offscreen(&src_surface->container->resource);
     noBackBufferBackup = src_offscreen && wined3d_settings.offscreen_rendering_mode == ORM_FBO;
@@ -2757,7 +2694,7 @@ static void fb_copy_to_texture_hwstretch(struct wined3d_surface *dst_surface, st
         /* Got more than one aux buffer? Use the 2nd aux buffer */
         drawBuffer = GL_AUX1;
     }
-    else if ((!src_offscreen || device->offscreenBuffer == GL_BACK) && context->aux_buffers >= 1)
+    else if ((!src_offscreen || offscreen_buffer == GL_BACK) && context->aux_buffers >= 1)
     {
         /* Only one aux buffer, but it isn't used (Onscreen rendering, or non-aux orm)? Use it! */
         drawBuffer = GL_AUX0;
@@ -2798,7 +2735,7 @@ static void fb_copy_to_texture_hwstretch(struct wined3d_surface *dst_surface, st
     {
         TRACE("Reading from an offscreen target\n");
         upsidedown = !upsidedown;
-        gl_info->gl_ops.gl.p_glReadBuffer(device->offscreenBuffer);
+        gl_info->gl_ops.gl.p_glReadBuffer(offscreen_buffer);
     }
     else
     {
@@ -3715,7 +3652,8 @@ static HRESULT surface_load_texture(struct wined3d_surface *surface,
     /* Don't use PBOs for converted surfaces. During PBO conversion we look at
      * WINED3D_TEXTURE_CONVERTED but it isn't set (yet) in all cases it is
      * getting called. */
-    if ((format.convert || conversion) && surface->pbo)
+    if ((format.convert || conversion)
+            && texture->sub_resources[surface_get_sub_resource_idx(surface)].buffer_object)
     {
         TRACE("Removing the pbo attached to surface %p.\n", surface);
 
@@ -3726,7 +3664,7 @@ static HRESULT surface_load_texture(struct wined3d_surface *surface,
 
         surface_prepare_map_memory(surface);
         surface_load_location(surface, context, surface->resource.map_binding);
-        surface_remove_pbo(surface, gl_info);
+        wined3d_texture_remove_buffer_object(texture, surface_get_sub_resource_idx(surface), gl_info);
     }
 
     surface_get_memory(surface, &data, surface->locations);
@@ -4685,7 +4623,7 @@ static HRESULT cpu_blit_color_fill(struct wined3d_device *device, struct wined3d
     static const RECT src_rect;
     struct wined3d_blt_fx fx;
 
-    fx.fill_color = wined3d_format_convert_from_float(surface, color);
+    fx.fill_color = wined3d_format_convert_from_float(view->format, color);
     return surface_cpu_blt(surface, rect, NULL, &src_rect,
             WINED3D_BLT_COLOR_FILL, &fx, WINED3D_TEXF_POINT);
 }
@@ -5025,7 +4963,7 @@ cpu:
     return surface_cpu_blt(dst_surface, dst_rect, src_surface, src_rect, flags, fx, filter);
 }
 
-static HRESULT surface_init(struct wined3d_surface *surface, struct wined3d_texture *container,
+HRESULT wined3d_surface_init(struct wined3d_surface *surface, struct wined3d_texture *container,
         const struct wined3d_resource_desc *desc, GLenum target, unsigned int level, unsigned int layer, DWORD flags)
 {
     struct wined3d_device *device = container->resource.device;
@@ -5103,7 +5041,7 @@ static HRESULT surface_init(struct wined3d_surface *surface, struct wined3d_text
     if (FAILED(hr = surface->surface_ops->surface_private_setup(surface)))
     {
         ERR("Private setup failed, hr %#x.\n", hr);
-        surface_cleanup(surface);
+        wined3d_surface_cleanup(surface);
         return hr;
     }
 
@@ -5120,48 +5058,6 @@ static HRESULT surface_init(struct wined3d_surface *surface, struct wined3d_text
         surface_validate_location(surface, WINED3D_LOCATION_DIB);
         surface_invalidate_location(surface, WINED3D_LOCATION_SYSMEM);
     }
-
-    return hr;
-}
-
-HRESULT wined3d_surface_create(struct wined3d_texture *container, const struct wined3d_resource_desc *desc,
-        GLenum target, unsigned int level, unsigned int layer, DWORD flags, struct wined3d_surface **surface)
-{
-    struct wined3d_device_parent *device_parent = container->resource.device->device_parent;
-    const struct wined3d_parent_ops *parent_ops;
-    struct wined3d_surface *object;
-    void *parent;
-    HRESULT hr;
-
-    TRACE("container %p, width %u, height %u, format %s, usage %s (%#x), pool %s, "
-            "multisample_type %#x, multisample_quality %u, target %#x, level %u, layer %u, flags %#x, surface %p.\n",
-            container, desc->width, desc->height, debug_d3dformat(desc->format),
-            debug_d3dusage(desc->usage), desc->usage, debug_d3dpool(desc->pool),
-            desc->multisample_type, desc->multisample_quality, target, level, layer, flags, surface);
-
-    if (!(object = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*object))))
-        return E_OUTOFMEMORY;
-
-    if (FAILED(hr = surface_init(object, container, desc, target, level, layer, flags)))
-    {
-        WARN("Failed to initialize surface, returning %#x.\n", hr);
-        HeapFree(GetProcessHeap(), 0, object);
-        return hr;
-    }
-
-    if (FAILED(hr = device_parent->ops->surface_created(device_parent,
-            container, layer * container->level_count + level, &parent, &parent_ops)))
-    {
-        WARN("Failed to create surface parent, hr %#x.\n", hr);
-        wined3d_surface_destroy(object);
-        return hr;
-    }
-
-    TRACE("Created surface %p, parent %p, parent_ops %p.\n", object, parent, parent_ops);
-
-    object->resource.parent = parent;
-    object->resource.parent_ops = parent_ops;
-    *surface = object;
 
     return hr;
 }

@@ -70,6 +70,7 @@ static HRESULT (WINAPI * pCoSwitchCallContext)(IUnknown *pObject, IUnknown **ppO
 static HRESULT (WINAPI * pCoGetTreatAsClass)(REFCLSID clsidOld, LPCLSID pClsidNew);
 static HRESULT (WINAPI * pCoTreatAsClass)(REFCLSID clsidOld, REFCLSID pClsidNew);
 static HRESULT (WINAPI * pCoGetContextToken)(ULONG_PTR *token);
+static HRESULT (WINAPI * pCoGetApartmentType)(APTTYPE *type, APTTYPEQUALIFIER *qualifier);
 static LONG (WINAPI * pRegDeleteKeyExA)(HKEY, LPCSTR, REGSAM, DWORD);
 static LONG (WINAPI * pRegOverridePredefKey)(HKEY key, HKEY override);
 
@@ -2879,6 +2880,208 @@ if (0) /* crashes on native */
     IMalloc_Release(imalloc);
 }
 
+static void test_CoGetApartmentType(void)
+{
+    APTTYPEQUALIFIER qualifier;
+    APTTYPE type;
+    HRESULT hr;
+
+    if (!pCoGetApartmentType)
+    {
+        win_skip("CoGetApartmentType not present\n");
+        return;
+    }
+
+    hr = pCoGetApartmentType(NULL, NULL);
+    ok(hr == E_INVALIDARG, "CoGetApartmentType succeeded, error: 0x%08x\n", hr);
+
+    type = 0xdeadbeef;
+    hr = pCoGetApartmentType(&type, NULL);
+    ok(hr == E_INVALIDARG, "CoGetApartmentType succeeded, error: 0x%08x\n", hr);
+    ok(type == 0xdeadbeef, "Expected 0xdeadbeef, got %u\n", type);
+
+    qualifier = 0xdeadbeef;
+    hr = pCoGetApartmentType(NULL, &qualifier);
+    ok(hr == E_INVALIDARG, "CoGetApartmentType succeeded, error: 0x%08x\n", hr);
+    ok(qualifier == 0xdeadbeef, "Expected 0xdeadbeef, got %u\n", qualifier);
+
+    type = 0xdeadbeef;
+    qualifier = 0xdeadbeef;
+    hr = pCoGetApartmentType(&type, &qualifier);
+    ok(hr == CO_E_NOTINITIALIZED, "CoGetApartmentType succeeded, error: 0x%08x\n", hr);
+    ok(type == APTTYPE_CURRENT, "Expected APTTYPE_CURRENT, got %u\n", type);
+    ok(qualifier == APTTYPEQUALIFIER_NONE, "Expected APTTYPEQUALIFIER_NONE, got %u\n", qualifier);
+
+    type = 0xdeadbeef;
+    qualifier = 0xdeadbeef;
+    hr = pCoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+    ok(hr == S_OK, "CoInitializeEx failed, error: 0x%08x\n", hr);
+    hr = pCoGetApartmentType(&type, &qualifier);
+    ok(hr == S_OK, "CoGetApartmentType failed, error: 0x%08x\n", hr);
+    ok(type == APTTYPE_MAINSTA, "Expected APTTYPE_MAINSTA, got %u\n", type);
+    ok(qualifier == APTTYPEQUALIFIER_NONE, "Expected APTTYPEQUALIFIER_NONE, got %u\n", qualifier);
+    CoUninitialize();
+
+    type = 0xdeadbeef;
+    qualifier = 0xdeadbeef;
+    hr = pCoInitializeEx(NULL, COINIT_MULTITHREADED);
+    ok(hr == S_OK, "CoInitializeEx failed, error: 0x%08x\n", hr);
+    hr = pCoGetApartmentType(&type, &qualifier);
+    ok(hr == S_OK, "CoGetApartmentType failed, error: 0x%08x\n", hr);
+    ok(type == APTTYPE_MTA, "Expected APTTYPE_MTA, got %u\n", type);
+    ok(qualifier == APTTYPEQUALIFIER_NONE, "Expected APTTYPEQUALIFIER_NONE, got %u\n", qualifier);
+    CoUninitialize();
+}
+
+
+static HRESULT WINAPI testspy_QI(IMallocSpy *iface, REFIID riid, void **obj)
+{
+    if (IsEqualIID(riid, &IID_IMallocSpy) || IsEqualIID(riid, &IID_IUnknown))
+    {
+        *obj = iface;
+        IMallocSpy_AddRef(iface);
+        return S_OK;
+    }
+
+    return E_NOINTERFACE;
+}
+
+static ULONG WINAPI testspy_AddRef(IMallocSpy *iface)
+{
+    return 2;
+}
+
+static ULONG WINAPI testspy_Release(IMallocSpy *iface)
+{
+    return 1;
+}
+
+static SIZE_T WINAPI testspy_PreAlloc(IMallocSpy *iface, SIZE_T cb)
+{
+    ok(0, "unexpected call\n");
+    return 0;
+}
+
+static void* WINAPI testspy_PostAlloc(IMallocSpy *iface, void *ptr)
+{
+    ok(0, "unexpected call\n");
+    return NULL;
+}
+
+static void* WINAPI testspy_PreFree(IMallocSpy *iface, void *ptr, BOOL spyed)
+{
+    ok(0, "unexpected call\n");
+    return NULL;
+}
+
+static void WINAPI testspy_PostFree(IMallocSpy *iface, BOOL spyed)
+{
+    ok(0, "unexpected call\n");
+}
+
+static SIZE_T WINAPI testspy_PreRealloc(IMallocSpy *iface, void *ptr, SIZE_T cb, void **newptr, BOOL spyed)
+{
+    ok(0, "unexpected call\n");
+    return 0;
+}
+
+static void* WINAPI testspy_PostRealloc(IMallocSpy *iface, void *ptr, BOOL spyed)
+{
+    ok(0, "unexpected call\n");
+    return NULL;
+}
+
+static void* WINAPI testspy_PreGetSize(IMallocSpy *iface, void *ptr, BOOL spyed)
+{
+    ok(0, "unexpected call\n");
+    return NULL;
+}
+
+static SIZE_T WINAPI testspy_PostGetSize(IMallocSpy *iface, SIZE_T actual, BOOL spyed)
+{
+    ok(0, "unexpected call\n");
+    return 0;
+}
+
+static void* WINAPI testspy_PreDidAlloc(IMallocSpy *iface, void *ptr, BOOL spyed)
+{
+    ok(0, "unexpected call\n");
+    return NULL;
+}
+
+static int WINAPI testspy_PostDidAlloc(IMallocSpy *iface, void *ptr, BOOL spyed, int actual)
+{
+    ok(0, "unexpected call\n");
+    return 0;
+}
+
+static void WINAPI testspy_PreHeapMinimize(IMallocSpy *iface)
+{
+    ok(0, "unexpected call\n");
+}
+
+static void WINAPI testspy_PostHeapMinimize(IMallocSpy *iface)
+{
+    ok(0, "unexpected call\n");
+}
+
+static const IMallocSpyVtbl testspyvtbl =
+{
+    testspy_QI,
+    testspy_AddRef,
+    testspy_Release,
+    testspy_PreAlloc,
+    testspy_PostAlloc,
+    testspy_PreFree,
+    testspy_PostFree,
+    testspy_PreRealloc,
+    testspy_PostRealloc,
+    testspy_PreGetSize,
+    testspy_PostGetSize,
+    testspy_PreDidAlloc,
+    testspy_PostDidAlloc,
+    testspy_PreHeapMinimize,
+    testspy_PostHeapMinimize
+};
+
+static IMallocSpy testspy = { &testspyvtbl };
+
+static void test_IMallocSpy(void)
+{
+    IMalloc *imalloc;
+    HRESULT hr;
+
+    hr = CoRegisterMallocSpy(NULL);
+    ok(hr == E_INVALIDARG, "got 0x%08x\n", hr);
+
+    hr = CoRevokeMallocSpy();
+    ok(hr == CO_E_OBJNOTREG, "got 0x%08x\n", hr);
+
+    hr = CoRegisterMallocSpy(&testspy);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+
+    hr = CoRegisterMallocSpy(NULL);
+    ok(hr == E_INVALIDARG, "got 0x%08x\n", hr);
+
+    hr = CoRegisterMallocSpy(&testspy);
+    ok(hr == CO_E_OBJISREG, "got 0x%08x\n", hr);
+
+    imalloc = NULL;
+    hr = CoGetMalloc(MEMCTX_TASK, &imalloc);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+    ok(imalloc != NULL, "got %p\n", imalloc);
+
+    IMalloc_Free(imalloc, NULL);
+
+    IMalloc_Release(imalloc);
+
+    hr = CoRevokeMallocSpy();
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+
+    hr = CoRevokeMallocSpy();
+    ok(hr == CO_E_OBJNOTREG, "got 0x%08x\n", hr);
+}
+
 static void init_funcs(void)
 {
     HMODULE hOle32 = GetModuleHandleA("ole32");
@@ -2890,6 +3093,7 @@ static void init_funcs(void)
     pCoGetTreatAsClass = (void*)GetProcAddress(hOle32,"CoGetTreatAsClass");
     pCoTreatAsClass = (void*)GetProcAddress(hOle32,"CoTreatAsClass");
     pCoGetContextToken = (void*)GetProcAddress(hOle32, "CoGetContextToken");
+    pCoGetApartmentType = (void*)GetProcAddress(hOle32, "CoGetApartmentType");
     pRegDeleteKeyExA = (void*)GetProcAddress(hAdvapi32, "RegDeleteKeyExA");
     pRegOverridePredefKey = (void*)GetProcAddress(hAdvapi32, "RegOverridePredefKey");
     pCoInitializeEx = (void*)GetProcAddress(hOle32, "CoInitializeEx");
@@ -2944,4 +3148,6 @@ START_TEST(compobj)
     test_CoWaitForMultipleHandles();
     test_CoGetMalloc();
     test_OleRegGetUserType();
+    test_CoGetApartmentType();
+    test_IMallocSpy();
 }

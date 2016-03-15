@@ -100,6 +100,7 @@ static const struct wined3d_format_channels formats[] =
     {WINED3DFMT_R8G8_SNORM_Cx,              0,  0,  0,  0,   0,  0,  0,  0,    2,   0,     0},
     {WINED3DFMT_R16G16_SINT,               16, 16,  0,  0,   0, 16,  0,  0,    4,   0,     0},
     {WINED3DFMT_R16G16B16A16_SINT,         16, 16, 16, 16,   0, 16, 32, 48,    8,   0,     0},
+    {WINED3DFMT_R11G11B10_FLOAT,           11, 11, 10,  0,   0, 11, 22,  0,    4,   0,     0},
     /* Palettized formats */
     {WINED3DFMT_P8_UINT_A8_UNORM,           0,  0,  0,  8,   0,  0,  0,  8,    2,   0,     0},
     {WINED3DFMT_P8_UINT,                    0,  0,  0,  0,   0,  0,  0,  0,    1,   0,     0},
@@ -241,6 +242,8 @@ static const struct wined3d_typed_format_info typed_formats[] =
     {WINED3DFMT_BC2_UNORM,              WINED3DFMT_BC2_TYPELESS,          ""},
     {WINED3DFMT_BC3_UNORM_SRGB,         WINED3DFMT_BC3_TYPELESS,          ""},
     {WINED3DFMT_BC3_UNORM,              WINED3DFMT_BC3_TYPELESS,          ""},
+    {WINED3DFMT_BC4_UNORM,              WINED3DFMT_BC4_TYPELESS,          ""},
+    {WINED3DFMT_BC5_UNORM,              WINED3DFMT_BC5_TYPELESS,          ""},
     {WINED3DFMT_B8G8R8A8_UNORM_SRGB,    WINED3DFMT_B8G8R8A8_TYPELESS,     "uuuu"},
     {WINED3DFMT_B8G8R8A8_UNORM,         WINED3DFMT_B8G8R8A8_TYPELESS,     "uuuu"},
     {WINED3DFMT_B8G8R8X8_UNORM_SRGB,    WINED3DFMT_B8G8R8X8_TYPELESS,     "uuu"},
@@ -271,6 +274,7 @@ static const struct wined3d_format_base_flags format_base_flags[] =
     {WINED3DFMT_R8G8B8X8_UNORM,     WINED3DFMT_FLAG_GETDC},
     {WINED3DFMT_ATI1N,              WINED3DFMT_FLAG_BROKEN_PITCH},
     {WINED3DFMT_ATI2N,              WINED3DFMT_FLAG_BROKEN_PITCH},
+    {WINED3DFMT_R11G11B10_FLOAT,    WINED3DFMT_FLAG_FLOAT},
     {WINED3DFMT_D32_FLOAT,          WINED3DFMT_FLAG_FLOAT},
     {WINED3DFMT_S8_UINT_D24_FLOAT,  WINED3DFMT_FLAG_FLOAT},
 };
@@ -294,6 +298,8 @@ static const struct wined3d_format_block_info format_block_info[] =
     {WINED3DFMT_BC1_UNORM, 4,  4,  8,  TRUE},
     {WINED3DFMT_BC2_UNORM, 4,  4,  16, TRUE},
     {WINED3DFMT_BC3_UNORM, 4,  4,  16, TRUE},
+    {WINED3DFMT_BC4_UNORM, 4,  4,  8,  TRUE},
+    {WINED3DFMT_BC5_UNORM, 4,  4,  16, TRUE},
     {WINED3DFMT_ATI1N,     4,  4,  8,  FALSE},
     {WINED3DFMT_ATI2N,     4,  4,  16, FALSE},
     {WINED3DFMT_YUY2,      2,  1,  4,  FALSE},
@@ -1053,6 +1059,16 @@ static const struct wined3d_format_texture_info format_texture_info[] =
             WINED3DFMT_FLAG_TEXTURE | WINED3DFMT_FLAG_POSTPIXELSHADER_BLENDING | WINED3DFMT_FLAG_FILTERING
             | WINED3DFMT_FLAG_COMPRESSED,
             EXT_TEXTURE_COMPRESSION_S3TC, NULL},
+    {WINED3DFMT_BC4_UNORM,              GL_COMPRESSED_RED_RGTC1,          GL_COMPRESSED_RED_RGTC1,                0,
+            GL_RED,                     GL_UNSIGNED_BYTE,                 0,
+            WINED3DFMT_FLAG_TEXTURE | WINED3DFMT_FLAG_POSTPIXELSHADER_BLENDING | WINED3DFMT_FLAG_FILTERING
+            | WINED3DFMT_FLAG_COMPRESSED,
+            ARB_TEXTURE_COMPRESSION_RGTC, NULL},
+    {WINED3DFMT_BC5_UNORM,              GL_COMPRESSED_RG_RGTC2,           GL_COMPRESSED_RG_RGTC2,                 0,
+            GL_RG,                      GL_UNSIGNED_BYTE,                 0,
+            WINED3DFMT_FLAG_TEXTURE | WINED3DFMT_FLAG_POSTPIXELSHADER_BLENDING | WINED3DFMT_FLAG_FILTERING
+            | WINED3DFMT_FLAG_COMPRESSED,
+            ARB_TEXTURE_COMPRESSION_RGTC, NULL},
     /* IEEE formats */
     {WINED3DFMT_R32_FLOAT,              GL_RGB32F_ARB,                    GL_RGB32F_ARB,                          0,
             GL_RED,                     GL_FLOAT,                         0,
@@ -1100,6 +1116,10 @@ static const struct wined3d_format_texture_info format_texture_info[] =
             WINED3DFMT_FLAG_TEXTURE | WINED3DFMT_FLAG_POSTPIXELSHADER_BLENDING | WINED3DFMT_FLAG_RENDERTARGET
             | WINED3DFMT_FLAG_VTF,
             ARB_TEXTURE_FLOAT,          NULL},
+    {WINED3DFMT_R11G11B10_FLOAT,        GL_R11F_G11F_B10F,                GL_R11F_G11F_B10F,                      0,
+            GL_RGB,                     GL_UNSIGNED_INT_10F_11F_11F_REV,  0,
+            WINED3DFMT_FLAG_TEXTURE | WINED3DFMT_FLAG_POSTPIXELSHADER_BLENDING | WINED3DFMT_FLAG_RENDERTARGET,
+            EXT_PACKED_FLOAT},
     /* Palettized formats */
     {WINED3DFMT_P8_UINT,                GL_ALPHA8,                        GL_ALPHA8,                              0,
             GL_ALPHA,                   GL_UNSIGNED_BYTE,                 0,
@@ -3948,6 +3968,35 @@ const char *debug_d3dpool(enum wined3d_pool pool)
     }
 }
 
+const char *debug_fboattachment(GLenum attachment)
+{
+    switch(attachment)
+    {
+#define WINED3D_TO_STR(x) case x: return #x
+        WINED3D_TO_STR(GL_COLOR_ATTACHMENT0);
+        WINED3D_TO_STR(GL_COLOR_ATTACHMENT1);
+        WINED3D_TO_STR(GL_COLOR_ATTACHMENT2);
+        WINED3D_TO_STR(GL_COLOR_ATTACHMENT3);
+        WINED3D_TO_STR(GL_COLOR_ATTACHMENT4);
+        WINED3D_TO_STR(GL_COLOR_ATTACHMENT5);
+        WINED3D_TO_STR(GL_COLOR_ATTACHMENT6);
+        WINED3D_TO_STR(GL_COLOR_ATTACHMENT7);
+        WINED3D_TO_STR(GL_COLOR_ATTACHMENT8);
+        WINED3D_TO_STR(GL_COLOR_ATTACHMENT9);
+        WINED3D_TO_STR(GL_COLOR_ATTACHMENT10);
+        WINED3D_TO_STR(GL_COLOR_ATTACHMENT11);
+        WINED3D_TO_STR(GL_COLOR_ATTACHMENT12);
+        WINED3D_TO_STR(GL_COLOR_ATTACHMENT13);
+        WINED3D_TO_STR(GL_COLOR_ATTACHMENT14);
+        WINED3D_TO_STR(GL_COLOR_ATTACHMENT15);
+        WINED3D_TO_STR(GL_DEPTH_ATTACHMENT);
+        WINED3D_TO_STR(GL_STENCIL_ATTACHMENT);
+#undef WINED3D_TO_STR
+        default:
+            return wine_dbg_sprintf("Unknown FBO attachment %#x", attachment);
+    }
+}
+
 const char *debug_fbostatus(GLenum status) {
     switch(status) {
 #define FBOSTATUS_TO_STR(u) case u: return #u
@@ -4393,7 +4442,7 @@ void get_fog_start_end(const struct wined3d_context *context, const struct wined
 /* Note: It's the caller's responsibility to ensure values can be expressed
  * in the requested format. UNORM formats for example can only express values
  * in the range 0.0f -> 1.0f. */
-DWORD wined3d_format_convert_from_float(const struct wined3d_surface *surface, const struct wined3d_color *color)
+DWORD wined3d_format_convert_from_float(const struct wined3d_format *format, const struct wined3d_color *color)
 {
     static const struct
     {
@@ -4426,7 +4475,6 @@ DWORD wined3d_format_convert_from_float(const struct wined3d_surface *surface, c
         {WINED3DFMT_R10G10B10A2_UNORM, 1023.0f, 1023.0f, 1023.0f,    3.0f,  0, 10, 20, 30},
         {WINED3DFMT_P8_UINT,              0.0f,    0.0f,    0.0f,  255.0f,  0,  0,  0,  0},
     };
-    const struct wined3d_format *format = surface->resource.format;
     unsigned int i;
 
     TRACE("Converting color {%.8e %.8e %.8e %.8e} to format %s.\n",

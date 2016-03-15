@@ -3,6 +3,7 @@ kfreebsd.patch
 sfnt2fon.patch
 manpages.patch
 
+disable/tests.patch
 disable/shlib-exit-calls.patch
 disable/external-installers.patch
 
@@ -18,5 +19,4 @@ openal.patch
 addons.patch
 
 font-divbyzero.patch
-manpages-errors.patch
 printer-resolution.patch

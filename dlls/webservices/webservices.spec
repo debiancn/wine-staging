@@ -75,11 +75,11 @@
 @ stub WsGetMetadataEndpoints
 @ stub WsGetMetadataProperty
 @ stub WsGetMissingMetadataDocumentAddress
-@ stub WsGetNamespaceFromPrefix
+@ stdcall WsGetNamespaceFromPrefix(ptr ptr long ptr ptr)
 @ stub WsGetOperationContextProperty
 @ stub WsGetPolicyAlternativeCount
 @ stub WsGetPolicyProperty
-@ stub WsGetPrefixFromNamespace
+@ stdcall WsGetPrefixFromNamespace(ptr ptr long ptr ptr)
 @ stdcall WsGetReaderNode(ptr ptr ptr)
 @ stub WsGetReaderPosition
 @ stdcall WsGetReaderProperty(ptr long ptr long ptr)
@@ -189,5 +189,5 @@
 @ stdcall WsWriteValue(ptr long ptr long ptr)
 @ stdcall WsWriteXmlBuffer(ptr ptr ptr)
 @ stdcall WsWriteXmlBufferToBytes(ptr ptr ptr ptr long ptr ptr ptr ptr)
-@ stub WsWriteXmlnsAttribute
+@ stdcall WsWriteXmlnsAttribute(ptr ptr ptr long ptr)
 @ stdcall WsXmlStringEquals(ptr ptr ptr)

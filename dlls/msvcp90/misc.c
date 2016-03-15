@@ -675,7 +675,6 @@ DEFINE_THISCALL_WRAPPER(custom_category_message, 12)
 basic_string_char* __thiscall custom_category_message(const custom_category *this,
         basic_string_char *ret, int err)
 {
-    if(err == 1) return MSVCP_basic_string_char_ctor_cstr(ret, "iostream error");
     return MSVCP_basic_string_char_ctor_cstr(ret, strerror(err));
 }
 
@@ -703,6 +702,14 @@ MSVCP_bool __thiscall custom_category_equivalent_code(custom_category *this,
     return FALSE;
 }
 
+DEFINE_THISCALL_WRAPPER(iostream_category_message, 12)
+basic_string_char* __thiscall iostream_category_message(const custom_category *this,
+        basic_string_char *ret, int err)
+{
+    if(err == 1) return MSVCP_basic_string_char_ctor_cstr(ret, "iostream error");
+    return MSVCP_basic_string_char_ctor_cstr(ret, strerror(err));
+}
+
 /* ?iostream_category@std@@YAABVerror_category@1@XZ */
 /* ?iostream_category@std@@YAAEBVerror_category@1@XZ */
 const error_category* __cdecl std_iostream_category(void)
@@ -711,19 +718,43 @@ const error_category* __cdecl std_iostream_category(void)
     return &iostream_category.base;
 }
 
-#ifndef __GNUC__
-void __asm_dummy_vtables(void) {
-#endif
-    __ASM_VTABLE(iostream_category,
-            VTABLE_ADD_FUNC(custom_category_vector_dtor)
-            VTABLE_ADD_FUNC(custom_category_name)
-            VTABLE_ADD_FUNC(custom_category_message)
-            VTABLE_ADD_FUNC(custom_category_default_error_condition)
-            VTABLE_ADD_FUNC(custom_category_equivalent)
-            VTABLE_ADD_FUNC(custom_category_equivalent_code));
-#ifndef __GNUC__
+static custom_category system_category;
+DEFINE_RTTI_DATA1(system_category, 0, &error_category_rtti_base_descriptor, ".?AV_System_error_category@std@@")
+
+extern const vtable_ptr MSVCP_system_category_vtable;
+
+static void system_category_ctor(custom_category *this)
+{
+    this->base.vtable = &MSVCP_system_category_vtable;
+    this->type = "system";
 }
-#endif
+
+/* ?system_category@std@@YAABVerror_category@1@XZ */
+/* ?system_category@std@@YAAEBVerror_category@1@XZ */
+const error_category* __cdecl std_system_category(void)
+{
+    TRACE("()\n");
+    return &system_category.base;
+}
+
+static custom_category generic_category;
+DEFINE_RTTI_DATA1(generic_category, 0, &error_category_rtti_base_descriptor, ".?AV_Generic_error_category@std@@")
+
+extern const vtable_ptr MSVCP_generic_category_vtable;
+
+static void generic_category_ctor(custom_category *this)
+{
+    this->base.vtable = &MSVCP_generic_category_vtable;
+    this->type = "generic";
+}
+
+/* ?generic_category@std@@YAABVerror_category@1@XZ */
+/* ?generic_category@std@@YAAEBVerror_category@1@XZ */
+const error_category* __cdecl std_generic_category(void)
+{
+    TRACE("()\n");
+    return &generic_category.base;
+}
 #endif
 
 #if _MSVCP_VER >= 110
@@ -765,28 +796,6 @@ void __cdecl _Do_call(void *this)
     CALL_VTBL_FUNC(this, 0, void, (void*), (this));
 }
 #endif
-
-void init_misc(void *base)
-{
-#ifdef __x86_64__
-#if _MSVCP_VER == 100
-    init_error_category_rtti(base);
-    init_iostream_category_rtti(base);
-#endif
-#endif
-
-#if _MSVCP_VER == 100
-    iostream_category_ctor(&iostream_category);
-#endif
-}
-
-void free_misc(void)
-{
-#if _MSVCP_VER >= 110
-    if(keyed_event)
-        NtClose(keyed_event);
-#endif
-}
 
 #if _MSVCP_VER >= 110
 typedef struct
@@ -872,10 +881,211 @@ int __cdecl _Thrd_join(_Thrd_t thr, int *code)
     return 0;
 }
 
-int __cdecl _Thrd_create(_Thrd_t *thr, _Thrd_start_t proc, void *arg)
+int __cdecl _Thrd_start(_Thrd_t *thr, LPTHREAD_START_ROUTINE proc, void *arg)
 {
     TRACE("(%p %p %p)\n", thr, proc, arg);
-    thr->hnd = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)proc, arg, 0, &thr->id);
-    return !thr->hnd;
+    thr->hnd = CreateThread(NULL, 0, proc, arg, 0, &thr->id);
+    return thr->hnd ? 0 : _THRD_ERROR;
+}
+
+typedef struct
+{
+    _Thrd_start_t proc;
+    void *arg;
+} thread_proc_arg;
+
+static DWORD WINAPI thread_proc_wrapper(void *arg)
+{
+    thread_proc_arg wrapped_arg = *((thread_proc_arg*)arg);
+    free(arg);
+    return wrapped_arg.proc(wrapped_arg.arg);
+}
+
+int __cdecl _Thrd_create(_Thrd_t *thr, _Thrd_start_t proc, void *arg)
+{
+    thread_proc_arg *wrapped_arg;
+    int ret;
+
+    TRACE("(%p %p %p)\n", thr, proc, arg);
+
+    wrapped_arg = malloc(sizeof(*wrapped_arg));
+    if(!wrapped_arg)
+        return _THRD_ERROR; /* TODO: probably different error should be returned here */
+
+    wrapped_arg->proc = proc;
+    wrapped_arg->arg = arg;
+    ret = _Thrd_start(thr, thread_proc_wrapper, wrapped_arg);
+    if(ret) free(wrapped_arg);
+    return ret;
+}
+
+int __cdecl _Thrd_detach(_Thrd_t thr)
+{
+    return CloseHandle(thr.hnd) ? 0 : _THRD_ERROR;
+}
+
+typedef struct
+{
+    const vtable_ptr *vtable;
+    _Cnd_t cnd;
+    _Mtx_t mtx;
+    MSVCP_bool launched;
+} _Pad;
+
+DEFINE_RTTI_DATA0(_Pad, 0, ".?AV_Pad@std@@")
+
+/* ??_7_Pad@std@@6B@ */
+extern const vtable_ptr MSVCP__Pad_vtable;
+
+/* ??0_Pad@std@@QAE@XZ */
+/* ??0_Pad@std@@QEAA@XZ */
+DEFINE_THISCALL_WRAPPER(_Pad_ctor, 4)
+_Pad* __thiscall _Pad_ctor(_Pad *this)
+{
+    TRACE("(%p)\n", this);
+
+    this->vtable = &MSVCP__Pad_vtable;
+    _Cnd_init(&this->cnd);
+    _Mtx_init(&this->mtx, 0);
+    this->launched = FALSE;
+    _Mtx_lock(&this->mtx);
+    return this;
+}
+
+/* ??4_Pad@std@@QAEAAV01@ABV01@@Z */
+/* ??4_Pad@std@@QEAAAEAV01@AEBV01@@Z */
+DEFINE_THISCALL_WRAPPER(_Pad_op_assign, 8)
+_Pad* __thiscall _Pad_op_assign(_Pad *this, const _Pad *copy)
+{
+    TRACE("(%p %p)\n", this, copy);
+
+    this->cnd = copy->cnd;
+    this->mtx = copy->mtx;
+    this->launched = copy->launched;
+    return this;
+}
+
+/* ??0_Pad@std@@QAE@ABV01@@Z */
+/* ??0_Pad@std@@QEAA@AEBV01@@Z */
+DEFINE_THISCALL_WRAPPER(_Pad_copy_ctor, 8)
+_Pad* __thiscall _Pad_copy_ctor(_Pad *this, const _Pad *copy)
+{
+    TRACE("(%p %p)\n", this, copy);
+
+    this->vtable = &MSVCP__Pad_vtable;
+    return _Pad_op_assign(this, copy);
+}
+
+/* ??1_Pad@std@@QAE@XZ */
+/* ??1_Pad@std@@QEAA@XZ */
+DEFINE_THISCALL_WRAPPER(_Pad_dtor, 4)
+void __thiscall _Pad_dtor(_Pad *this)
+{
+    TRACE("(%p)\n", this);
+
+    _Mtx_unlock(&this->mtx);
+    _Mtx_destroy(&this->mtx);
+    _Cnd_destroy(&this->cnd);
+}
+
+DEFINE_THISCALL_WRAPPER(_Pad__Go, 4)
+#define call__Pad__Go(this) CALL_VTBL_FUNC(this, 0, unsigned int, (_Pad*), (this))
+unsigned int __thiscall _Pad__Go(_Pad *this)
+{
+    ERR("(%p) should not be called\n", this);
+    return 0;
+}
+
+static DWORD WINAPI launch_thread_proc(void *arg)
+{
+    _Pad *this = arg;
+    return call__Pad__Go(this);
+}
+
+/* ?_Launch@_Pad@std@@QAEXPAU_Thrd_imp_t@@@Z */
+/* ?_Launch@_Pad@std@@QEAAXPEAU_Thrd_imp_t@@@Z */
+DEFINE_THISCALL_WRAPPER(_Pad__Launch, 8)
+void __thiscall _Pad__Launch(_Pad *this, _Thrd_t *thr)
+{
+    TRACE("(%p %p)\n", this, thr);
+
+    _Thrd_start(thr, launch_thread_proc, this);
+    _Cnd_wait(&this->cnd, &this->mtx);
+}
+
+/* ?_Release@_Pad@std@@QAEXXZ */
+/* ?_Release@_Pad@std@@QEAAXXZ */
+DEFINE_THISCALL_WRAPPER(_Pad__Release, 4)
+void __thiscall _Pad__Release(_Pad *this)
+{
+    TRACE("(%p)\n", this);
+
+    _Mtx_lock(&this->mtx);
+    this->launched = TRUE;
+    _Cnd_signal(&this->cnd);
+    _Mtx_unlock(&this->mtx);
 }
 #endif
+
+#ifndef __GNUC__
+void __asm_dummy_vtables(void) {
+#endif
+#if _MSVCP_VER == 100
+    __ASM_VTABLE(iostream_category,
+            VTABLE_ADD_FUNC(custom_category_vector_dtor)
+            VTABLE_ADD_FUNC(custom_category_name)
+            VTABLE_ADD_FUNC(iostream_category_message)
+            VTABLE_ADD_FUNC(custom_category_default_error_condition)
+            VTABLE_ADD_FUNC(custom_category_equivalent)
+            VTABLE_ADD_FUNC(custom_category_equivalent_code));
+    __ASM_VTABLE(system_category,
+            VTABLE_ADD_FUNC(custom_category_vector_dtor)
+            VTABLE_ADD_FUNC(custom_category_name)
+            VTABLE_ADD_FUNC(custom_category_message)
+            VTABLE_ADD_FUNC(custom_category_default_error_condition)
+            VTABLE_ADD_FUNC(custom_category_equivalent)
+            VTABLE_ADD_FUNC(custom_category_equivalent_code));
+    __ASM_VTABLE(generic_category,
+            VTABLE_ADD_FUNC(custom_category_vector_dtor)
+            VTABLE_ADD_FUNC(custom_category_name)
+            VTABLE_ADD_FUNC(custom_category_message)
+            VTABLE_ADD_FUNC(custom_category_default_error_condition)
+            VTABLE_ADD_FUNC(custom_category_equivalent)
+            VTABLE_ADD_FUNC(custom_category_equivalent_code));
+#endif
+#if _MSVCP_VER >= 110
+    __ASM_VTABLE(_Pad,
+            VTABLE_ADD_FUNC(_Pad__Go));
+#endif
+#ifndef __GNUC__
+}
+#endif
+
+void init_misc(void *base)
+{
+#ifdef __x86_64__
+#if _MSVCP_VER == 100
+    init_error_category_rtti(base);
+    init_iostream_category_rtti(base);
+    init_system_category_rtti(base);
+    init_generic_category_rtti(base);
+#endif
+#if _MSVCP_VER >= 110
+    init__Pad_rtti(base);
+#endif
+#endif
+
+#if _MSVCP_VER == 100
+    iostream_category_ctor(&iostream_category);
+    system_category_ctor(&system_category);
+    generic_category_ctor(&generic_category);
+#endif
+}
+
+void free_misc(void)
+{
+#if _MSVCP_VER >= 110
+    if(keyed_event)
+        NtClose(keyed_event);
+#endif
+}

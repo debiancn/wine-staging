@@ -652,6 +652,31 @@ static void test_parent_owner(void)
     DestroyWindow( child );
     DestroyWindow( test );
     DestroyWindow( owner );
+
+    /* Test that owner window takes into account WS_CHILD flag even if parent is set by SetParent. */
+    owner = create_tool_window( WS_VISIBLE | WS_OVERLAPPEDWINDOW, desktop );
+    SetParent(owner, hwndMain);
+    check_parents( owner, hwndMain, hwndMain, NULL, NULL, hwndMain, owner );
+    test = create_tool_window( WS_VISIBLE | WS_OVERLAPPEDWINDOW, owner );
+    check_parents( test, desktop, owner, NULL, owner, test, test );
+    DestroyWindow( owner );
+    DestroyWindow( test );
+
+    owner = create_tool_window( WS_VISIBLE | WS_CHILD, desktop );
+    SetParent(owner, hwndMain);
+    check_parents( owner, hwndMain, hwndMain, hwndMain, NULL, hwndMain, hwndMain );
+    test = create_tool_window( WS_VISIBLE | WS_OVERLAPPEDWINDOW, owner );
+    check_parents( test, desktop, hwndMain, NULL, hwndMain, test, test );
+    DestroyWindow( owner );
+    DestroyWindow( test );
+
+    owner = create_tool_window( WS_VISIBLE | WS_POPUP | WS_CHILD, desktop );
+    SetParent(owner, hwndMain);
+    check_parents( owner, hwndMain, hwndMain, NULL, NULL, hwndMain, owner );
+    test = create_tool_window( WS_VISIBLE | WS_OVERLAPPEDWINDOW, owner );
+    check_parents( test, desktop, owner, NULL, owner, test, test );
+    DestroyWindow( owner );
+    DestroyWindow( test );
 }
 
 static BOOL CALLBACK enum_proc( HWND hwnd, LPARAM lParam)
@@ -1386,7 +1411,6 @@ static void test_MDI_create(HWND parent, HWND mdi_client, INT_PTR first_id)
     id = GetWindowLongPtrA(mdi_child, GWLP_ID);
     ok(id == first_id, "wrong child id %ld\n", id);
     hwnd = (HWND)SendMessageA(mdi_client, WM_MDIGETACTIVE, 0, 0);
-todo_wine
     ok(!hwnd, "WM_MDIGETACTIVE should return 0, got %p\n", hwnd);
     SendMessageA(mdi_client, WM_MDIDESTROY, (WPARAM)mdi_child, 0);
     ok(!IsWindow(mdi_child), "WM_MDIDESTROY failed\n");
@@ -1403,7 +1427,6 @@ todo_wine
         id = GetWindowLongPtrA(mdi_child, GWLP_ID);
         ok(id == first_id, "wrong child id %ld\n", id);
         hwnd = (HWND)SendMessageA(mdi_client, WM_MDIGETACTIVE, 0, 0);
-todo_wine
         ok(!hwnd, "WM_MDIGETACTIVE should return 0, got %p\n", hwnd);
         SendMessageA(mdi_client, WM_MDIDESTROY, (WPARAM)mdi_child, 0);
         ok(!IsWindow(mdi_child), "WM_MDIDESTROY failed\n");
@@ -1459,7 +1482,6 @@ todo_wine
     id = GetWindowLongPtrA(mdi_child, GWLP_ID);
     ok(id == first_id, "wrong child id %ld\n", id);
     hwnd = (HWND)SendMessageA(mdi_client, WM_MDIGETACTIVE, 0, 0);
-todo_wine
     ok(!hwnd, "WM_MDIGETACTIVE should return 0, got %p\n", hwnd);
     SendMessageA(mdi_client, WM_MDIDESTROY, (WPARAM)mdi_child, 0);
     ok(!IsWindow(mdi_child), "WM_MDIDESTROY failed\n");
@@ -1480,7 +1502,6 @@ todo_wine
         id = GetWindowLongPtrA(mdi_child, GWLP_ID);
         ok(id == first_id, "wrong child id %ld\n", id);
         hwnd = (HWND)SendMessageA(mdi_client, WM_MDIGETACTIVE, 0, 0);
-todo_wine
         ok(!hwnd, "WM_MDIGETACTIVE should return 0, got %p\n", hwnd);
         SendMessageA(mdi_client, WM_MDIDESTROY, (WPARAM)mdi_child, 0);
         ok(!IsWindow(mdi_child), "WM_MDIDESTROY failed\n");
@@ -1537,7 +1558,6 @@ todo_wine
     id = GetWindowLongPtrA(mdi_child, GWLP_ID);
     ok(id == first_id, "wrong child id %ld\n", id);
     hwnd = (HWND)SendMessageA(mdi_client, WM_MDIGETACTIVE, 0, 0);
-todo_wine
     ok(!hwnd, "WM_MDIGETACTIVE should return 0, got %p\n", hwnd);
     SendMessageA(mdi_client, WM_MDIDESTROY, (WPARAM)mdi_child, 0);
     ok(!IsWindow(mdi_child), "WM_MDIDESTROY failed\n");
@@ -1558,7 +1578,6 @@ todo_wine
         id = GetWindowLongPtrA(mdi_child, GWLP_ID);
         ok(id == first_id, "wrong child id %ld\n", id);
         hwnd = (HWND)SendMessageA(mdi_client, WM_MDIGETACTIVE, 0, 0);
-todo_wine
         ok(!hwnd, "WM_MDIGETACTIVE should return 0, got %p\n", hwnd);
         SendMessageA(mdi_client, WM_MDIDESTROY, (WPARAM)mdi_child, 0);
         ok(!IsWindow(mdi_child), "WM_MDIDESTROY failed\n");
@@ -4179,10 +4198,8 @@ static void check_window_style(DWORD dwStyleIn, DWORD dwExStyleIn, DWORD dwStyle
         dwExStyleOut = dwExStyleIn & ~WS_EX_WINDOWEDGE;
     ok(dwActualStyle == dwStyleOut, "expected style %#x, got %#x\n", dwStyleOut, dwActualStyle);
     /* FIXME: Remove the condition below once Wine is fixed */
-    if (dwActualExStyle != dwExStyleOut)
-    todo_wine ok(dwActualExStyle == dwExStyleOut, "expected ex_style %#x, got %#x\n", dwExStyleOut, dwActualExStyle);
-    else
-    ok(dwActualExStyle == dwExStyleOut, "expected ex_style %#x, got %#x\n", dwExStyleOut, dwActualExStyle);
+    todo_wine_if (dwActualExStyle != dwExStyleOut)
+        ok(dwActualExStyle == dwExStyleOut, "expected ex_style %#x, got %#x\n", dwExStyleOut, dwActualExStyle);
 
     DestroyWindow(hwnd);
     if (hwndParent) DestroyWindow(hwndParent);
@@ -4309,10 +4326,8 @@ static void check_dialog_style(DWORD style_in, DWORD ex_style_in, DWORD style_ou
     else
         ex_style_out = ex_style_in & ~WS_EX_WINDOWEDGE;
     /* FIXME: Remove the condition below once Wine is fixed */
-    if (ex_style != ex_style_out)
-    todo_wine ok(ex_style == ex_style_out, "expected ex_style %#x, got %#x\n", ex_style_out, ex_style);
-    else
-    ok(ex_style == ex_style_out, "expected ex_style %#x, got %#x\n", ex_style_out, ex_style);
+    todo_wine_if (ex_style != ex_style_out)
+        ok(ex_style == ex_style_out, "expected ex_style %#x, got %#x\n", ex_style_out, ex_style);
 
     DestroyWindow(hwnd);
     DestroyWindow(parent);
@@ -5001,8 +5016,8 @@ static void zero_parentdc_test(struct parentdc_test *t)
       t.w.r.f, got.w.r.f)
 
 #define parentdc_todo_field_ok(t, w, r, f, got) \
-  if (t.w##_todo.r.f) todo_wine { parentdc_field_ok(t, w, r, f, got); } \
-  else parentdc_field_ok(t, w, r, f, got)
+  todo_wine_if (t.w##_todo.r.f) \
+      parentdc_field_ok(t, w, r, f, got);
 
 #define parentdc_rect_ok(t, w, r, got) \
   parentdc_todo_field_ok(t, w, r, left, got); \
@@ -5672,7 +5687,7 @@ static void test_CreateWindow(void)
     DestroyWindow(hwnd);
 
     expected_cx = expected_cy = -10;
-    SetRect( &expected_rect, 0, 0, 0, 0 );
+    SetRectEmpty(&expected_rect);
     SetRect( &broken_rect, 0, 0, -10, -10 );
     hwnd = CreateWindowExA(0, "Sizes_WndClass", NULL, WS_CHILD, -20, -20, -10, -10, parent, 0, 0, NULL);
     ok( hwnd != 0, "creation failed err %u\n", GetLastError());
@@ -5682,7 +5697,7 @@ static void test_CreateWindow(void)
     DestroyWindow(hwnd);
 
     expected_cx = expected_cy = -200000;
-    SetRect( &expected_rect, 0, 0, 0, 0 );
+    SetRectEmpty(&expected_rect);
     SetRect( &broken_rect, 0, 0, -200000, -200000 );
     hwnd = CreateWindowExA(0, "Sizes_WndClass", NULL, WS_CHILD, -300000, -300000, -200000, -200000, parent, 0, 0, NULL);
     ok( hwnd != 0, "creation failed err %u\n", GetLastError());
@@ -6234,7 +6249,7 @@ static void test_GetUpdateRect(void)
     flush_events( TRUE );
 
     ShowWindow(hchild, SW_HIDE);
-    SetRect(&rc2, 0, 0, 0, 0);
+    SetRectEmpty(&rc2);
     ret = GetUpdateRect(hgrandparent, &rc1, FALSE);
     ok(!ret, "GetUpdateRect returned not empty region\n");
     ok(EqualRect(&rc1, &rc2), "rects do not match (%d,%d,%d,%d) / (%d,%d,%d,%d)\n",
@@ -6298,7 +6313,7 @@ static void test_GetUpdateRect(void)
 
     ShowWindow(hchild, SW_HIDE);
 
-    SetRect(&rc2, 0, 0, 0, 0);
+    SetRectEmpty(&rc2);
     ret = GetUpdateRect(hgrandparent, &rc1, FALSE);
     ok(!ret, "GetUpdateRect returned not empty region\n");
     ok(EqualRect(&rc1, &rc2), "rects do not match (%d,%d,%d,%d) / (%d,%d,%d,%d)\n",
@@ -6423,9 +6438,7 @@ static void run_NCRedrawLoop(UINT flags)
         DispatchMessageA(&msg);
         MsgWaitForMultipleObjects(0, NULL, FALSE, 100, QS_ALLINPUT);
     }
-    if (flags == (RDW_INVALIDATE | RDW_FRAME))
-        todo_wine ok(loopcount < 100, "Detected infinite WM_PAINT loop (%x).\n", flags);
-    else
+    todo_wine_if (flags == (RDW_INVALIDATE | RDW_FRAME))
         ok(loopcount < 100, "Detected infinite WM_PAINT loop (%x).\n", flags);
     DestroyWindow(hwnd);
 }

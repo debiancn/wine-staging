@@ -31,6 +31,15 @@ struct scmdatabase
     CRITICAL_SECTION cs;
 };
 
+struct process_entry
+{
+    HANDLE process;
+    HANDLE control_mutex;
+    HANDLE control_pipe;
+    HANDLE overlapped_event;
+    HANDLE status_changed_event;
+};
+
 struct service_entry
 {
     struct list entry;
@@ -43,11 +52,8 @@ struct service_entry
     LPWSTR description;
     LPWSTR dependOnServices;
     LPWSTR dependOnGroups;
-    HANDLE process;
-    HANDLE control_mutex;
-    HANDLE control_pipe;
-    HANDLE overlapped_event;
-    HANDLE status_changed_event;
+    struct process_entry *process;
+    BOOL force_shutdown;
     BOOL marked_for_delete;
     BOOL is_wow64;
 };
@@ -63,8 +69,7 @@ DWORD scmdatabase_add_service(struct scmdatabase *db, struct service_entry *entr
 DWORD scmdatabase_lock_startup(struct scmdatabase *db);
 void scmdatabase_unlock_startup(struct scmdatabase *db);
 
-void scmdatabase_lock_shared(struct scmdatabase *db);
-void scmdatabase_lock_exclusive(struct scmdatabase *db);
+void scmdatabase_lock(struct scmdatabase *db);
 void scmdatabase_unlock(struct scmdatabase *db);
 
 /* Service functions */
@@ -75,13 +80,14 @@ BOOL validate_service_config(struct service_entry *entry);
 DWORD save_service_config(struct service_entry *entry);
 void free_service_entry(struct service_entry *entry);
 void release_service(struct service_entry *service);
-void service_lock_shared(struct service_entry *service);
-void service_lock_exclusive(struct service_entry *service);
+void service_lock(struct service_entry *service);
 void service_unlock(struct service_entry *service);
 DWORD service_start(struct service_entry *service, DWORD service_argc, LPCWSTR *service_argv);
 void service_terminate(struct service_entry *service);
-BOOL service_send_command( struct service_entry *service, HANDLE pipe,
-                           const void *data, DWORD size, DWORD *result );
+
+/* Process functions */
+
+BOOL process_send_command(struct process_entry *process, const void *data, DWORD size, DWORD *result);
 
 extern HANDLE g_hStartedEvent;
 

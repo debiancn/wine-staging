@@ -41,6 +41,8 @@
 # @ stub DbgUiStopDebugging
 @ stub DbgUiWaitStateChange
 @ stdcall DbgUserBreakPoint()
+@ stdcall EtwRegisterTraceGuidsA(ptr ptr ptr long ptr str str ptr)
+@ stdcall EtwRegisterTraceGuidsW(ptr ptr ptr long ptr wstr wstr ptr)
 # @ stub KiFastSystemCall
 # @ stub KiFastSystemCallRet
 # @ stub KiIntSystemCall
@@ -405,7 +407,7 @@
 @ stub RtlActivateActivationContextUnsafeFast
 @ stdcall RtlAddAccessAllowedAce(ptr long long ptr)
 @ stdcall RtlAddAccessAllowedAceEx(ptr long long long ptr)
-# @ stub RtlAddAccessAllowedObjectAce
+@ stdcall RtlAddAccessAllowedObjectAce(ptr long long long ptr ptr ptr)
 @ stdcall RtlAddAccessDeniedAce(ptr long long ptr)
 @ stdcall RtlAddAccessDeniedAceEx(ptr long long long ptr)
 # @ stub RtlAddAccessDeniedObjectAce
@@ -415,7 +417,7 @@
 @ stub RtlAddAttributeActionToRXact
 @ stdcall RtlAddAuditAccessAce(ptr long long ptr long long)
 @ stdcall RtlAddAuditAccessAceEx(ptr long long long ptr long long)
-# @ stub RtlAddAuditAccessObjectAce
+@ stdcall RtlAddAuditAccessObjectAce(ptr long long long ptr ptr ptr long long)
 # @ stub RtlAddCompoundAce
 # @ stub RtlAddRange
 @ cdecl -arch=arm,x86_64 RtlAddFunctionTable(ptr long long)

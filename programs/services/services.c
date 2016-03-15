@@ -68,8 +68,30 @@ static const WCHAR SZ_DESCRIPTION[]       = {'D','e','s','c','r','i','p','t','i'
 static const WCHAR SZ_PRESHUTDOWN[]       = {'P','r','e','s','h','u','t','d','o','w','n','T','i','m','e','o','u','t',0};
 static const WCHAR SZ_WOW64[]             = {'W','O','W','6','4',0};
 
+static DWORD process_create(struct process_entry **entry)
+{
+    *entry = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(**entry));
+    if (!*entry)
+        return ERROR_NOT_ENOUGH_SERVER_MEMORY;
+    (*entry)->control_pipe = INVALID_HANDLE_VALUE;
+    /* all other fields are zero */
+    return ERROR_SUCCESS;
+}
+
+static void free_process_entry(struct process_entry *entry)
+{
+    CloseHandle(entry->process);
+    CloseHandle(entry->control_mutex);
+    CloseHandle(entry->control_pipe);
+    CloseHandle(entry->overlapped_event);
+    CloseHandle(entry->status_changed_event);
+    HeapFree(GetProcessHeap(), 0, entry);
+}
+
 DWORD service_create(LPCWSTR name, struct service_entry **entry)
 {
+    DWORD err;
+
     *entry = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(**entry));
     if (!*entry)
         return ERROR_NOT_ENOUGH_SERVER_MEMORY;
@@ -79,7 +101,12 @@ DWORD service_create(LPCWSTR name, struct service_entry **entry)
         HeapFree(GetProcessHeap(), 0, *entry);
         return ERROR_NOT_ENOUGH_SERVER_MEMORY;
     }
-    (*entry)->control_pipe = INVALID_HANDLE_VALUE;
+    if ((err = process_create(&(*entry)->process)) != ERROR_SUCCESS)
+    {
+        HeapFree(GetProcessHeap(), 0, (*entry)->process);
+        HeapFree(GetProcessHeap(), 0, *entry);
+        return err;
+    }
     (*entry)->status.dwCurrentState = SERVICE_STOPPED;
     (*entry)->status.dwWin32ExitCode = ERROR_SERVICE_NEVER_STARTED;
     (*entry)->preshutdown_timeout = default_preshutdown_timeout;
@@ -98,11 +125,7 @@ void free_service_entry(struct service_entry *entry)
     HeapFree(GetProcessHeap(), 0, entry->description);
     HeapFree(GetProcessHeap(), 0, entry->dependOnServices);
     HeapFree(GetProcessHeap(), 0, entry->dependOnGroups);
-    CloseHandle(entry->process);
-    CloseHandle(entry->control_mutex);
-    CloseHandle(entry->control_pipe);
-    CloseHandle(entry->overlapped_event);
-    CloseHandle(entry->status_changed_event);
+    free_process_entry(entry->process);
     HeapFree(GetProcessHeap(), 0, entry);
 }
 
@@ -281,7 +304,7 @@ static void scmdatabase_autostart_services(struct scmdatabase *db)
     if (!services_list)
         return;
 
-    scmdatabase_lock_shared(db);
+    scmdatabase_lock(db);
 
     LIST_FOR_EACH_ENTRY(service, &db->services, struct service_entry, entry)
     {
@@ -299,7 +322,7 @@ static void scmdatabase_autostart_services(struct scmdatabase *db)
                 services_list = slist_new;
             }
             services_list[i] = service;
-            service->ref_count++;
+            InterlockedIncrement(&service->ref_count);
             i++;
         }
     }
@@ -326,19 +349,20 @@ static void scmdatabase_wait_terminate(struct scmdatabase *db)
     struct service_entry *service;
     BOOL run = TRUE;
 
-    scmdatabase_lock_shared(db);
+    scmdatabase_lock(db);
     while(run)
     {
         run = FALSE;
         LIST_FOR_EACH_ENTRY(service, &db->services, struct service_entry, entry)
         {
-            if(service->process)
+            struct process_entry *process = service->process;
+            if (process->process)
             {
                 scmdatabase_unlock(db);
-                WaitForSingleObject(service->process, INFINITE);
-                scmdatabase_lock_shared(db);
-                CloseHandle(service->process);
-                service->process = NULL;
+                WaitForSingleObject(process->process, INFINITE);
+                scmdatabase_lock(db);
+                CloseHandle(process->process);
+                process->process = NULL;
                 run = TRUE;
                 break;
             }
@@ -434,10 +458,8 @@ void release_service(struct service_entry *service)
 {
     if (InterlockedDecrement(&service->ref_count) == 0 && is_marked_for_delete(service))
     {
-        scmdatabase_lock_exclusive(service->db);
-        service_lock_exclusive(service);
+        scmdatabase_lock(service->db);
         scmdatabase_remove_service(service->db, service);
-        service_unlock(service);
         scmdatabase_unlock(service->db);
         free_service_entry(service);
     }
@@ -549,12 +571,7 @@ void scmdatabase_unlock_startup(struct scmdatabase *db)
     InterlockedCompareExchange(&db->service_start_lock, FALSE, TRUE);
 }
 
-void scmdatabase_lock_shared(struct scmdatabase *db)
-{
-    EnterCriticalSection(&db->cs);
-}
-
-void scmdatabase_lock_exclusive(struct scmdatabase *db)
+void scmdatabase_lock(struct scmdatabase *db)
 {
     EnterCriticalSection(&db->cs);
 }
@@ -564,12 +581,7 @@ void scmdatabase_unlock(struct scmdatabase *db)
     LeaveCriticalSection(&db->cs);
 }
 
-void service_lock_shared(struct service_entry *service)
-{
-    EnterCriticalSection(&service->db->cs);
-}
-
-void service_lock_exclusive(struct service_entry *service)
+void service_lock(struct service_entry *service)
 {
     EnterCriticalSection(&service->db->cs);
 }
@@ -699,7 +711,7 @@ static DWORD service_start_process(struct service_entry *service_entry, HANDLE *
     DWORD err;
     BOOL r;
 
-    service_lock_exclusive(service_entry);
+    service_lock(service_entry);
 
     if (!env)
     {
@@ -734,14 +746,14 @@ static DWORD service_start_process(struct service_entry *service_entry, HANDLE *
     HeapFree(GetProcessHeap(),0,path);
     if (!r)
     {
-        service_lock_exclusive(service_entry);
+        service_lock(service_entry);
         service_entry->status.dwCurrentState = SERVICE_STOPPED;
         service_unlock(service_entry);
         return GetLastError();
     }
 
     service_entry->status.dwProcessId = pi.dwProcessId;
-    service_entry->process = pi.hProcess;
+    service_entry->process->process = pi.hProcess;
     *process = pi.hProcess;
     CloseHandle( pi.hThread );
 
@@ -750,7 +762,7 @@ static DWORD service_start_process(struct service_entry *service_entry, HANDLE *
 
 static DWORD service_wait_for_startup(struct service_entry *service_entry, HANDLE process_handle)
 {
-    HANDLE handles[2] = { service_entry->status_changed_event, process_handle };
+    HANDLE handles[2] = { service_entry->process->status_changed_event, process_handle };
     DWORD state, ret;
 
     WINE_TRACE("%p\n", service_entry);
@@ -758,7 +770,7 @@ static DWORD service_wait_for_startup(struct service_entry *service_entry, HANDL
     ret = WaitForMultipleObjects( 2, handles, FALSE, service_pipe_timeout );
     if (ret != WAIT_OBJECT_0)
         return ERROR_SERVICE_REQUEST_TIMEOUT;
-    service_lock_shared(service_entry);
+    service_lock(service_entry);
     state = service_entry->status.dwCurrentState;
     service_unlock(service_entry);
     if (state == SERVICE_START_PENDING)
@@ -781,6 +793,7 @@ static DWORD service_wait_for_startup(struct service_entry *service_entry, HANDL
 static BOOL service_send_start_message(struct service_entry *service, HANDLE process_handle,
                                        LPCWSTR *argv, DWORD argc)
 {
+    struct process_entry *process = service->process;
     OVERLAPPED overlapped;
     DWORD i, len, result;
     service_start_info *ssi;
@@ -789,16 +802,16 @@ static BOOL service_send_start_message(struct service_entry *service, HANDLE pro
 
     WINE_TRACE("%s %p %d\n", wine_dbgstr_w(service->name), argv, argc);
 
-    overlapped.hEvent = service->overlapped_event;
-    if (!ConnectNamedPipe(service->control_pipe, &overlapped))
+    overlapped.hEvent = process->overlapped_event;
+    if (!ConnectNamedPipe(process->control_pipe, &overlapped))
     {
         if (GetLastError() == ERROR_IO_PENDING)
         {
             HANDLE handles[2];
-            handles[0] = service->overlapped_event;
+            handles[0] = process->overlapped_event;
             handles[1] = process_handle;
             if (WaitForMultipleObjects( 2, handles, FALSE, service_pipe_timeout ) != WAIT_OBJECT_0)
-                CancelIo( service->control_pipe );
+                CancelIo(process->control_pipe);
             if (!HasOverlappedIoCompleted( &overlapped ))
             {
                 WINE_ERR( "service %s failed to start\n", wine_dbgstr_w( service->name ));
@@ -834,7 +847,7 @@ static BOOL service_send_start_message(struct service_entry *service, HANDLE pro
     }
     *p=0;
 
-    r = service_send_command( service, service->control_pipe, ssi, ssi->total_size, &result );
+    r = process_send_command( process, ssi, ssi->total_size, &result );
     if (r && result)
     {
         SetLastError(result);
@@ -848,6 +861,7 @@ static BOOL service_send_start_message(struct service_entry *service, HANDLE pro
 
 DWORD service_start(struct service_entry *service, DWORD service_argc, LPCWSTR *service_argv)
 {
+    struct process_entry *process = service->process;
     DWORD err;
     LPWSTR name;
     HANDLE process_handle = NULL;
@@ -856,25 +870,26 @@ DWORD service_start(struct service_entry *service, DWORD service_argc, LPCWSTR *
     if (err != ERROR_SUCCESS)
         return err;
 
-    if (WaitForSingleObject(service->process, 0) == WAIT_TIMEOUT)
+    if (WaitForSingleObject(process->process, 0) == WAIT_TIMEOUT)
     {
         scmdatabase_unlock_startup(service->db);
         return ERROR_SERVICE_ALREADY_RUNNING;
     }
 
-    CloseHandle(service->control_pipe);
-    service->control_mutex = CreateMutexW(NULL, TRUE, NULL);
+    CloseHandle(process->control_pipe);
+    process->control_mutex = CreateMutexW(NULL, TRUE, NULL);
+    service->force_shutdown = FALSE;
 
-    if (!service->status_changed_event)
-        service->status_changed_event = CreateEventW(NULL, FALSE, FALSE, NULL);
-    if (!service->overlapped_event)
-        service->overlapped_event = CreateEventW(NULL, TRUE, FALSE, NULL);
+    if (!process->status_changed_event)
+        process->status_changed_event = CreateEventW(NULL, FALSE, FALSE, NULL);
+    if (!process->overlapped_event)
+        process->overlapped_event = CreateEventW(NULL, TRUE, FALSE, NULL);
 
     name = service_get_pipe_name();
-    service->control_pipe = CreateNamedPipeW(name, PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+    process->control_pipe = CreateNamedPipeW(name, PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
                   PIPE_TYPE_BYTE|PIPE_WAIT, 1, 256, 256, 10000, NULL );
     HeapFree(GetProcessHeap(), 0, name);
-    if (service->control_pipe==INVALID_HANDLE_VALUE)
+    if (process->control_pipe == INVALID_HANDLE_VALUE)
     {
         WINE_ERR("failed to create pipe for %s, error = %d\n",
             wine_dbgstr_w(service->name), GetLastError());
@@ -894,7 +909,7 @@ DWORD service_start(struct service_entry *service, DWORD service_argc, LPCWSTR *
     }
 
     if (err == ERROR_SUCCESS)
-        ReleaseMutex(service->control_mutex);
+        ReleaseMutex(process->control_mutex);
     else
         service_terminate(service);
     scmdatabase_unlock_startup(service->db);
@@ -906,16 +921,18 @@ DWORD service_start(struct service_entry *service, DWORD service_argc, LPCWSTR *
 
 void service_terminate(struct service_entry *service)
 {
-    service_lock_exclusive(service);
-    TerminateProcess(service->process, 0);
-    CloseHandle(service->process);
-    service->process = NULL;
-    CloseHandle(service->status_changed_event);
-    service->status_changed_event = NULL;
-    CloseHandle(service->control_mutex);
-    service->control_mutex = NULL;
-    CloseHandle(service->control_pipe);
-    service->control_pipe = INVALID_HANDLE_VALUE;
+    struct process_entry *process = service->process;
+
+    service_lock(service);
+    TerminateProcess(process->process, 0);
+    CloseHandle(process->process);
+    process->process = NULL;
+    CloseHandle(process->status_changed_event);
+    process->status_changed_event = NULL;
+    CloseHandle(process->control_mutex);
+    process->control_mutex = NULL;
+    CloseHandle(process->control_pipe);
+    process->control_pipe = INVALID_HANDLE_VALUE;
 
     service->status.dwProcessId = 0;
     service->status.dwCurrentState = SERVICE_STOPPED;

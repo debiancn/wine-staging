@@ -1266,7 +1266,7 @@ static HRESULT WINAPI DECLSPEC_HOTPATCH ddraw_surface7_Flip(IDirectDrawSurface7 
             wined3d_device_set_rendertarget_view(dst_impl->ddraw->wined3d_device, 0, src_rtv, FALSE);
         wined3d_rendertarget_view_set_parent(src_rtv, dst_impl);
         dst_impl->wined3d_rtv = src_rtv;
-        wined3d_resource_set_parent(wined3d_texture_get_sub_resource(src_impl->wined3d_texture, 0), dst_impl);
+        wined3d_texture_set_sub_resource_parent(src_impl->wined3d_texture, 0, dst_impl);
         prev_ddraw_texture = wined3d_texture_get_parent(src_impl->wined3d_texture);
         wined3d_resource_set_parent(wined3d_texture_get_resource(src_impl->wined3d_texture), ddraw_texture);
         if (src_impl->sub_resource_idx)
@@ -1297,7 +1297,7 @@ static HRESULT WINAPI DECLSPEC_HOTPATCH ddraw_surface7_Flip(IDirectDrawSurface7 
                 wined3d_device_set_rendertarget_view(dst_impl->ddraw->wined3d_device, 0, src_rtv, FALSE);
             wined3d_rendertarget_view_set_parent(src_rtv, dst_impl);
             dst_impl->wined3d_rtv = src_rtv;
-            wined3d_resource_set_parent(wined3d_texture_get_sub_resource(src_impl->wined3d_texture, 0), dst_impl);
+            wined3d_texture_set_sub_resource_parent(src_impl->wined3d_texture, 0, dst_impl);
             prev_ddraw_texture = wined3d_texture_get_parent(src_impl->wined3d_texture);
             wined3d_resource_set_parent(wined3d_texture_get_resource(src_impl->wined3d_texture), ddraw_texture);
             ddraw_texture = prev_ddraw_texture;
@@ -1314,7 +1314,7 @@ static HRESULT WINAPI DECLSPEC_HOTPATCH ddraw_surface7_Flip(IDirectDrawSurface7 
         wined3d_device_set_rendertarget_view(dst_impl->ddraw->wined3d_device, 0, tmp_rtv, FALSE);
     wined3d_rendertarget_view_set_parent(tmp_rtv, src_impl);
     src_impl->wined3d_rtv = tmp_rtv;
-    wined3d_resource_set_parent(wined3d_texture_get_sub_resource(texture, 0), src_impl);
+    wined3d_texture_set_sub_resource_parent(texture, 0, src_impl);
     wined3d_resource_set_parent(wined3d_texture_get_resource(texture), ddraw_texture);
     src_impl->wined3d_texture = texture;
 
@@ -1436,7 +1436,7 @@ static HRESULT ddraw_surface_blt_clipped(struct ddraw_surface *dst_surface, cons
     }
     else
     {
-        SetRect(&src_rect, 0, 0, 0, 0);
+        SetRectEmpty(&src_rect);
         wined3d_src_texture = NULL;
         src_sub_resource_idx = 0;
     }
@@ -5686,10 +5686,10 @@ static HRESULT CDECL ddraw_reset_enum_callback(struct wined3d_resource *resource
 HRESULT ddraw_surface_create(struct ddraw *ddraw, const DDSURFACEDESC2 *surface_desc,
         struct ddraw_surface **surface, IUnknown *outer_unknown, unsigned int version)
 {
-    struct wined3d_resource_desc wined3d_desc, wined3d_mip_desc;
+    struct wined3d_sub_resource_desc wined3d_mip_desc;
     struct ddraw_surface *root, *mip, **attach;
+    struct wined3d_resource_desc wined3d_desc;
     struct wined3d_texture *wined3d_texture;
-    struct wined3d_resource *resource;
     struct wined3d_display_mode mode;
     DDSURFACEDESC2 *desc, *mip_desc;
     struct ddraw_texture *texture;
@@ -6145,8 +6145,7 @@ HRESULT ddraw_surface_create(struct ddraw *ddraw, const DDSURFACEDESC2 *surface_
 
             if (j)
             {
-                resource = wined3d_texture_get_sub_resource(wined3d_texture, i * levels + j);
-                wined3d_resource_get_desc(resource, &wined3d_mip_desc);
+                wined3d_texture_get_sub_resource_desc(wined3d_texture, i * levels + j, &wined3d_mip_desc);
                 mip_desc->dwWidth = wined3d_mip_desc.width;
                 mip_desc->dwHeight = wined3d_mip_desc.height;
 

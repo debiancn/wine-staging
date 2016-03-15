@@ -613,8 +613,35 @@ static HRESULT WINAPI HTMLXMLHttpRequest_getResponseHeader(IHTMLXMLHttpRequest *
 static HRESULT WINAPI HTMLXMLHttpRequest_setRequestHeader(IHTMLXMLHttpRequest *iface, BSTR bstrHeader, BSTR bstrValue)
 {
     HTMLXMLHttpRequest *This = impl_from_IHTMLXMLHttpRequest(iface);
-    FIXME("(%p)->(%s %s)\n", This, debugstr_w(bstrHeader), debugstr_w(bstrValue));
-    return E_NOTIMPL;
+    char *header_u, *value_u;
+    nsACString header, value;
+    nsresult nsres;
+
+    TRACE("(%p)->(%s %s)\n", This, debugstr_w(bstrHeader), debugstr_w(bstrValue));
+
+    header_u = heap_strdupWtoU(bstrHeader);
+    if(bstrHeader && !header_u)
+        return E_OUTOFMEMORY;
+
+    value_u = heap_strdupWtoU(bstrValue);
+    if(bstrValue && !value_u) {
+        heap_free(header_u);
+        return E_OUTOFMEMORY;
+    }
+
+    nsACString_InitDepend(&header, header_u);
+    nsACString_InitDepend(&value, value_u);
+    nsres = nsIXMLHttpRequest_SetRequestHeader(This->nsxhr, &header, &value);
+    nsACString_Finish(&header);
+    nsACString_Finish(&value);
+    heap_free(header_u);
+    heap_free(value_u);
+    if(NS_FAILED(nsres)) {
+        ERR("SetRequestHeader failed: %08x\n", nsres);
+        return E_FAIL;
+    }
+
+    return S_OK;
 }
 
 static const IHTMLXMLHttpRequestVtbl HTMLXMLHttpRequestVtbl = {
@@ -828,12 +855,44 @@ static const IHTMLXMLHttpRequestFactoryVtbl HTMLXMLHttpRequestFactoryVtbl = {
     HTMLXMLHttpRequestFactory_create
 };
 
+static inline HTMLXMLHttpRequestFactory *factory_from_DispatchEx(DispatchEx *iface)
+{
+    return CONTAINING_RECORD(iface, HTMLXMLHttpRequestFactory, dispex);
+}
+
+static HRESULT HTMLXMLHttpRequestFactory_value(DispatchEx *iface, LCID lcid, WORD flags, DISPPARAMS *params,
+        VARIANT *res, EXCEPINFO *ei, IServiceProvider *caller)
+{
+    HTMLXMLHttpRequestFactory *This = factory_from_DispatchEx(iface);
+    IHTMLXMLHttpRequest *xhr;
+    HRESULT hres;
+
+    TRACE("\n");
+
+    if(flags != DISPATCH_CONSTRUCT) {
+        FIXME("flags %x not supported\n", flags);
+        return E_NOTIMPL;
+    }
+
+    hres = IHTMLXMLHttpRequestFactory_create(&This->IHTMLXMLHttpRequestFactory_iface, &xhr);
+    if(FAILED(hres))
+        return hres;
+
+    V_VT(res) = VT_DISPATCH;
+    V_DISPATCH(res) = (IDispatch*)xhr;
+    return S_OK;
+}
+
+static const dispex_static_data_vtbl_t HTMLXMLHttpRequestFactory_dispex_vtbl = {
+    HTMLXMLHttpRequestFactory_value
+};
+
 static const tid_t HTMLXMLHttpRequestFactory_iface_tids[] = {
     IHTMLXMLHttpRequestFactory_tid,
     0
 };
 static dispex_static_data_t HTMLXMLHttpRequestFactory_dispex = {
-    NULL,
+    &HTMLXMLHttpRequestFactory_dispex_vtbl,
     IHTMLXMLHttpRequestFactory_tid,
     NULL,
     HTMLXMLHttpRequestFactory_iface_tids

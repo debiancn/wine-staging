@@ -1222,6 +1222,7 @@ static void test_CreateFileA(void)
     {NULL, 0, -1, 0, FALSE}
     };
     BY_HANDLE_FILE_INFORMATION  Finfo;
+    WCHAR curdir[MAX_PATH];
 
     ret = GetTempPathA(MAX_PATH, temp_path);
     ok(ret != 0, "GetTempPathA error %d\n", GetLastError());
@@ -1286,6 +1287,7 @@ static void test_CreateFileA(void)
     ret = CreateDirectoryA(dirname, NULL);
     ok( ret, "Createdirectory failed, gle=%d\n", GetLastError() );
     /* set current drive & directory to known location */
+    GetCurrentDirectoryW( MAX_PATH, curdir);
     SetCurrentDirectoryA( temp_path );
     i = 0;
     while (p[i].file)
@@ -1340,7 +1342,7 @@ static void test_CreateFileA(void)
     }
     ret = RemoveDirectoryA(dirname);
     ok(ret, "RemoveDirectoryA: error %d\n", GetLastError());
-
+    SetCurrentDirectoryW(curdir);
 
     /* test opening directory as a directory */
     hFile = CreateFileA( temp_path, GENERIC_READ,
@@ -3754,17 +3756,13 @@ static void test_CreateFile(void)
         if (i == 0 || i == 5)
         {
 /* FIXME: remove once Wine is fixed */
-if (i == 5) todo_wine
-            ok(GetLastError() == ERROR_INVALID_PARAMETER, "%d: expected ERROR_INVALID_PARAMETER, got %d\n", i, GetLastError());
-else
+todo_wine_if (i == 5)
             ok(GetLastError() == ERROR_INVALID_PARAMETER, "%d: expected ERROR_INVALID_PARAMETER, got %d\n", i, GetLastError());
         }
         else
         {
 /* FIXME: remove once Wine is fixed */
-if (i == 1) todo_wine
-            ok(GetLastError() == ERROR_ACCESS_DENIED, "%d: expected ERROR_ACCESS_DENIED, got %d\n", i, GetLastError());
-else
+todo_wine_if (i == 1)
             ok(GetLastError() == ERROR_ACCESS_DENIED, "%d: expected ERROR_ACCESS_DENIED, got %d\n", i, GetLastError());
         }
 
@@ -3776,9 +3774,7 @@ else
         else
         {
 /* FIXME: remove once Wine is fixed */
-if (i == 1) todo_wine
-            ok(GetLastError() == ERROR_ACCESS_DENIED, "%d: expected ERROR_ACCESS_DENIED, got %d\n", i, GetLastError());
-else
+todo_wine_if (i == 1)
             ok(GetLastError() == ERROR_ACCESS_DENIED, "%d: expected ERROR_ACCESS_DENIED, got %d\n", i, GetLastError());
         }
     }

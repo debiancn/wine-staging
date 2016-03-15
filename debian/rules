@@ -24,9 +24,6 @@ export DEB_BUILD_MAINT_OPTIONS=hardening=+all,-pie,-fortify
 # linker options
 export DEB_LDFLAGS_MAINT_APPEND+=-Wl,-rpath,/$(LIBDIR)
 
-# gstreamer libs
-export GSTREAMER_LIBS=-lgstreamer-video-1.0 -lgstreamer-audio-1.0 $(shell pkg-config --libs gstreamer-1.0)
-
 # configure options
 CONFLAGS=--with-gnutls \
          --without-hal \
@@ -99,13 +96,10 @@ override_dh_auto_configure:
 	./configure $(CONFLAGS)
 
 override_dh_auto_build-indep:
-	./tools/makedep tools tools/sfnt2fon libs/port libs/wine fonts
+	./tools/makedep libs/port tools/sfnt2fon fonts
 	make -C libs/port
-	make -C libs/wine
 	make -C tools/sfnt2fon
 	make -C fonts
-	make -C tools wineapploader
-	chmod 755 tools/wineapploader
 
 override_dh_auto_install-indep: $(INSTALLS)
 	mkdir -p debian/tmp
@@ -128,6 +122,7 @@ override_dh_auto_install-arch: $(INSTALLS)
 	cp ANNOUNCE debian/tmp/changelog
 	cp tools/winedump/README debian/tmp/README.winedump
 	cp server/wineserver debian/tmp/wineserver$(DEB_BUILD_ARCH_BITS)
+	sed "s|BINDIR|$(BINDIR)|g" debian/scripts/winegcc > debian/tmp/winegcc$(VERSION)
 	dh_auto_install
 	for file in $$(find . ! -path "./debian/*" -name \*.man); do \
 	    rename=$$(basename $$file | sed "s/\\./$(VERSION)./;s/UTF-8\\.//"); \
