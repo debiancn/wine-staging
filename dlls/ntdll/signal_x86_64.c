@@ -1800,11 +1800,12 @@ __ASM_GLOBAL_FUNC( RtlCaptureContext,
                    "ret" );
 
 /***********************************************************************
- *           set_cpu_context
+ *           set_full_cpu_context
  *
  * Set the new CPU context.
  */
-__ASM_GLOBAL_FUNC( set_cpu_context,
+extern void set_full_cpu_context( const CONTEXT *context );
+__ASM_GLOBAL_FUNC( set_full_cpu_context,
                    "subq $40,%rsp\n\t"
                    __ASM_CFI(".cfi_adjust_cfa_offset 40\n\t")
                    "ldmxcsr 0x34(%rdi)\n\t"         /* context->MxCsr */
@@ -1851,6 +1852,25 @@ __ASM_GLOBAL_FUNC( set_cpu_context,
                    "movq 0x78(%rdi),%rax\n\t"       /* context->Rax */
                    "movq 0xb0(%rdi),%rdi\n\t"       /* context->Rdi */
                    "iretq" );
+
+
+/***********************************************************************
+ *           set_cpu_context
+ *
+ * Set the new CPU context. Used by NtSetContextThread.
+ */
+void set_cpu_context( const CONTEXT *context )
+{
+    DWORD flags = context->ContextFlags & ~CONTEXT_AMD64;
+    if (flags & CONTEXT_FULL)
+    {
+        if (!(flags & CONTEXT_CONTROL))
+            FIXME( "setting partial context (%x) not supported\n", flags );
+        else
+            set_full_cpu_context( context );
+    }
+}
+
 
 /***********************************************************************
  *           copy_context
@@ -2147,6 +2167,17 @@ static EXCEPTION_RECORD *setup_exception( ucontext_t *sigcontext, raise_func fun
     EFL_sig(sigcontext) &= ~(0x100|0x400|0x40000);
 
     return &stack->rec;
+}
+
+
+/***********************************************************************
+ *           get_exception_context
+ *
+ * Get a pointer to the context built by setup_exception.
+ */
+static inline CONTEXT *get_exception_context( EXCEPTION_RECORD *rec )
+{
+    return (CONTEXT *)rec - 1;  /* cf. stack_layout structure */
 }
 
 
@@ -2451,6 +2482,9 @@ static NTSTATUS raise_exception( EXCEPTION_RECORD *rec, CONTEXT *context, BOOL f
         if (status == DBG_CONTINUE || status == DBG_EXCEPTION_HANDLED)
             return STATUS_SUCCESS;
 
+        /* fix up instruction pointer in context for EXCEPTION_BREAKPOINT */
+        if (rec->ExceptionCode == EXCEPTION_BREAKPOINT) context->Rip--;
+
         if (call_vectored_handlers( rec, context ) == EXCEPTION_CONTINUE_EXECUTION)
             return STATUS_SUCCESS;
 
@@ -2493,9 +2527,20 @@ static void raise_segv_exception( EXCEPTION_RECORD *rec, CONTEXT *context )
                 set_cpu_context( context );
         }
         break;
+    case EXCEPTION_BREAKPOINT:
+        switch (rec->ExceptionInformation[0])
+        {
+            case 1: /* BREAKPOINT_PRINT */
+            case 3: /* BREAKPOINT_LOAD_SYMBOLS */
+            case 4: /* BREAKPOINT_UNLOAD_SYMBOLS */
+            case 5: /* BREAKPOINT_COMMAND_STRING (>= Win2003) */
+                goto done;
+        }
+        break;
     }
     status = raise_exception( rec, context, TRUE );
     if (status) raise_status( status, rec );
+done:
     set_cpu_context( context );
 }
 
@@ -2510,6 +2555,28 @@ static void raise_generic_exception( EXCEPTION_RECORD *rec, CONTEXT *context )
     NTSTATUS status = raise_exception( rec, context, TRUE );
     if (status) raise_status( status, rec );
     set_cpu_context( context );
+}
+
+
+/***********************************************************************
+ *           handle_interrupt
+ *
+ * Handle an interrupt.
+ */
+static inline BOOL handle_interrupt( unsigned int interrupt, EXCEPTION_RECORD *rec, CONTEXT *context )
+{
+    switch(interrupt)
+    {
+    case 0x2d:
+        context->Rip += 3;
+        rec->ExceptionCode = EXCEPTION_BREAKPOINT;
+        rec->ExceptionAddress = (void *)context->Rip;
+        rec->NumberParameters = 1;
+        rec->ExceptionInformation[0] = context->Rax;
+        return TRUE;
+    default:
+        return FALSE;
+    }
 }
 
 
@@ -2540,8 +2607,13 @@ static void segv_handler( int signal, siginfo_t *siginfo, void *sigcontext )
     case TRAP_x86_SEGNPFLT:  /* Segment not present exception */
     case TRAP_x86_PROTFLT:   /* General protection fault */
     case TRAP_x86_UNKNOWN:   /* Unknown fault code */
-        rec->ExceptionCode = ERROR_sig(ucontext) ? EXCEPTION_ACCESS_VIOLATION : EXCEPTION_PRIV_INSTRUCTION;
-        rec->ExceptionCode = EXCEPTION_ACCESS_VIOLATION;
+        {
+            CONTEXT *win_context = get_exception_context( rec );
+            WORD err = ERROR_sig(ucontext);
+            if ((err & 7) == 2 && handle_interrupt( err >> 3, rec, win_context )) break;
+            rec->ExceptionCode = err ? EXCEPTION_ACCESS_VIOLATION : EXCEPTION_PRIV_INSTRUCTION;
+            rec->ExceptionCode = EXCEPTION_ACCESS_VIOLATION;
+        }
         break;
     case TRAP_x86_PAGEFLT:  /* Page fault */
         rec->ExceptionCode = EXCEPTION_ACCESS_VIOLATION;

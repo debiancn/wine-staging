@@ -1506,6 +1506,17 @@ static void init_driver_info(struct wined3d_driver_info *driver_info,
         driver = DRIVER_UNKNOWN;
     }
 
+    /**
+     * Diablo 2 crashes when the amount of video memory is greater than 0x7fffffff.
+     * In order to avoid this application bug we limit the amount of video memory
+     * to LONG_MAX for older Windows versions.
+     */
+    if (driver_model < DRIVER_MODEL_NT6X && driver_info->vram_bytes > LONG_MAX)
+    {
+        TRACE("Limiting amount of video memory to %#lx bytes for OS version older than Vista.\n", LONG_MAX);
+        driver_info->vram_bytes = LONG_MAX;
+    }
+
     if (wined3d_settings.emulated_textureram)
     {
         TRACE("Overriding amount of video memory with 0x%s bytes.\n",
@@ -4426,7 +4437,7 @@ HRESULT CDECL wined3d_check_device_multisample_type(const struct wined3d *wined3
     if (quality_levels)
     {
         if (multisample_type == WINED3D_MULTISAMPLE_NON_MASKABLE)
-            *quality_levels = gl_info->limits.samples;
+            *quality_levels = wined3d_log2i(gl_info->limits.samples);
         else
             *quality_levels = 1;
     }
@@ -4640,6 +4651,8 @@ HRESULT CDECL wined3d_check_device_format(const struct wined3d *wined3d, UINT ad
             allowed_usage = WINED3DUSAGE_DEPTHSTENCIL
                     | WINED3DUSAGE_RENDERTARGET
                     | WINED3DUSAGE_QUERY_POSTPIXELSHADER_BLENDING;
+            if (usage & WINED3DUSAGE_RENDERTARGET)
+                allowed_usage |= WINED3DUSAGE_QUERY_SRGBWRITE;
             gl_type = WINED3D_GL_RES_TYPE_RB;
             break;
 

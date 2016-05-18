@@ -2120,15 +2120,6 @@ static int read_directory_stat( int fd, IO_STATUS_BLOCK *io, void *buffer, ULONG
             }
             else io->u.Status = restart_scan ? STATUS_NO_SUCH_FILE : STATUS_NO_MORE_FILES;
         }
-        else if (!case_sensitive && ret && (errno == ENOENT || errno == ENOTDIR))
-        {
-            /* If the file does not exist, return that info.
-             * If the file DOES exist, return failure and fallback to the next
-             * read_directory_* function (we need to return the case-preserved
-             * filename stored on the filesystem). */
-            ret = 0;
-            io->u.Status = restart_scan ? STATUS_NO_SUCH_FILE : STATUS_NO_MORE_FILES;
-        }
         else
         {
             ret = -1;
@@ -2213,11 +2204,6 @@ static int read_directory_getattrlist( int fd, IO_STATUS_BLOCK *io, void *buffer
                 if (io->u.Status != STATUS_BUFFER_OVERFLOW) lseek( fd, 1, SEEK_CUR );
             }
             else io->u.Status = restart_scan ? STATUS_NO_SUCH_FILE : STATUS_NO_MORE_FILES;
-        }
-        else if ((errno == ENOENT || errno == ENOTDIR) && !get_dir_case_sensitivity("."))
-        {
-            io->u.Status = restart_scan ? STATUS_NO_SUCH_FILE : STATUS_NO_MORE_FILES;
-            ret = 0;
         }
     }
     else ret = -1;
@@ -3371,7 +3357,7 @@ NTSTATUS DIR_get_unix_cwd( char **cwd )
         attr.SecurityDescriptor = NULL;
         attr.SecurityQualityOfService = NULL;
 
-        status = NtOpenFile( &handle, 0, &attr, &io, 0,
+        status = NtOpenFile( &handle, SYNCHRONIZE, &attr, &io, 0,
                              FILE_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT );
         RtlFreeUnicodeString( &dirW );
         if (status != STATUS_SUCCESS) goto done;

@@ -43,7 +43,7 @@
 @ cdecl _Strftime(str long str ptr ptr)
 @ cdecl _W_Getdays()
 @ cdecl _W_Getmonths()
-@ stub _W_Gettnames
+@ cdecl _W_Gettnames()
 @ stub _Wcsftime
 @ cdecl __AdjustPointer(ptr ptr)
 @ stub __BuildCatchObject
@@ -1949,7 +1949,7 @@
 @ cdecl _strtime(ptr) MSVCRT__strtime
 @ cdecl _strtime_s(ptr long)
 @ cdecl _strtod_l(str ptr ptr) MSVCRT_strtod_l
-@ stub _strtof_l
+@ cdecl _strtof_l(str ptr ptr) MSVCRT__strtof_l
 @ cdecl -ret64 _strtoi64(str ptr long) MSVCRT_strtoi64
 @ cdecl -ret64 _strtoi64_l(str ptr long ptr) MSVCRT_strtoi64_l
 @ stub _strtoimax_l
@@ -2131,8 +2131,8 @@
 @ cdecl _wstrtime_s(ptr long)
 @ cdecl _wsystem(wstr)
 @ cdecl _wtempnam(wstr wstr) MSVCRT__wtempnam
-@ cdecl _wtmpnam(ptr) MSVCRT_wtmpnam
-@ stub _wtmpnam_s
+@ cdecl _wtmpnam(ptr) MSVCRT__wtmpnam
+@ cdecl _wtmpnam_s(ptr long) MSVCRT__wtmpnam_s
 @ cdecl _wtof(wstr) MSVCRT__wtof
 @ cdecl _wtof_l(wstr ptr) MSVCRT__wtof_l
 @ cdecl _wtoi(wstr) MSVCRT__wtoi
@@ -2516,7 +2516,7 @@
 @ cdecl strspn(str str) ntdll.strspn
 @ cdecl strstr(str str) MSVCRT_strstr
 @ cdecl strtod(str ptr) MSVCRT_strtod
-@ stub strtof
+@ cdecl strtof(str ptr) MSVCRT_strtof
 @ stub strtoimax
 @ cdecl strtok(str str) MSVCRT_strtok
 @ cdecl strtok_s(ptr str ptr) MSVCRT_strtok_s
@@ -2539,7 +2539,7 @@
 @ cdecl tmpfile() MSVCRT_tmpfile
 @ cdecl tmpfile_s(ptr) MSVCRT_tmpfile_s
 @ cdecl tmpnam(ptr) MSVCRT_tmpnam
-@ stub tmpnam_s
+@ cdecl tmpnam_s(ptr long) MSVCRT_tmpnam_s
 @ cdecl tolower(long) MSVCRT_tolower
 @ cdecl toupper(long) MSVCRT_toupper
 @ stub towctrans

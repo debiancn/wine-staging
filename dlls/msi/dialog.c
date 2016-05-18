@@ -556,6 +556,17 @@ static void msi_dialog_update_controls( msi_dialog *dialog, LPCWSTR property )
     }
 }
 
+static void msi_dialog_update_all_controls( msi_dialog *dialog )
+{
+    msi_control *control;
+
+    LIST_FOR_EACH_ENTRY( control, &dialog->controls, msi_control, entry )
+    {
+        if ( control->property && control->update )
+            control->update( dialog, control );
+    }
+}
+
 static void msi_dialog_set_property( MSIPACKAGE *package, LPCWSTR property, LPCWSTR value )
 {
     UINT r = msi_set_property( package->db, property, value, -1 );
@@ -2229,6 +2240,7 @@ static UINT msi_dialog_pathedit_control( msi_dialog *dialog, MSIRECORD *rec )
     control->attributes = MSI_RecordGetInteger( rec, 8 );
     prop = MSI_RecordGetString( rec, 9 );
     control->property = msi_dialog_dup_property( dialog, prop, FALSE );
+    control->update = msi_dialog_update_pathedit;
 
     info->dialog = dialog;
     info->control = control;
@@ -4388,7 +4400,11 @@ static UINT event_spawn_dialog( msi_dialog *dialog, const WCHAR *argument )
 {
     /* don't destroy a modeless dialogs that might be our parent */
     event_do_dialog( dialog->package, argument, dialog, FALSE );
-    if (dialog->package->CurrentInstallState != ERROR_SUCCESS) msi_dialog_end_dialog( dialog );
+    if (dialog->package->CurrentInstallState != ERROR_SUCCESS)
+        msi_dialog_end_dialog( dialog );
+    else
+        msi_dialog_update_all_controls(dialog);
+
     return ERROR_SUCCESS;
 }
 

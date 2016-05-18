@@ -1,12 +1,18 @@
-debian/tmp/usr/share/man/man1/wineVERSION.1
-debian/tmp/usr/share/man/man1/wineserverVERSION.1
+debian/tmp/wineVERSION.man
+debian/tmp/wineVERSION.de.man
+debian/tmp/wineVERSION.fr.man
+debian/tmp/wineVERSION.pl.man
 
-debian/tmp/usr/share/man/man1/msiexecVERSION.1
-debian/tmp/usr/share/man/man1/winecfgVERSION.1
-debian/tmp/usr/share/man/man1/winedbgVERSION.1
-debian/tmp/usr/share/man/man1/winefileVERSION.1
-debian/tmp/usr/share/man/man1/winebootVERSION.1
-debian/tmp/usr/share/man/man1/wineconsoleVERSION.1
+debian/tmp/wineserverVERSION.man
+debian/tmp/wineserverVERSION.de.man
+debian/tmp/wineserverVERSION.fr.man
 
-debian/tmp/usr/share/man/man1/regeditVERSION.1
-debian/tmp/usr/share/man/man1/regsvr32VERSION.1
+debian/tmp/msiexecVERSION.man
+debian/tmp/regeditVERSION.man
+debian/tmp/winecfgVERSION.man
+debian/tmp/winedbgVERSION.man
+debian/tmp/winebootVERSION.man
+debian/tmp/winefileVERSION.man
+debian/tmp/winepathVERSION.man
+debian/tmp/regsvr32VERSION.man
+debian/tmp/wineconsoleVERSION.man

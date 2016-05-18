@@ -1,30 +1,43 @@
 #!/bin/sh -e
 
-name=$(basename $0)
-bindir=/usr/lib/$name
+script=$(basename $0)
+bindir=/usr/lib/$script
 
 wine32=$bindir/wine
 wine64=$bindir/wine64
+
+wine32_hint () {
+    echo "it looks like $(echo $script | sed s/wine/wine32/) is missing, you should install it."
+    if [ "$(dpkg --print-architecture)" = "amd64" -a "$(dpkg --print-foreign-architectures | grep -cx "i386")" -ne 1 ]; then
+        echo "multiarch needs to be enabled first.  as root, please"
+        echo "execute \"dpkg --add-architecture i386 && apt-get update &&"
+        echo "apt-get install $(echo $script | sed s/wine/wine32/)\""
+    else
+        echo "as root, please execute \"apt-get install $(echo $script | sed s/wine/wine32/)\""
+    fi
+}
 
 if test -x $wine32; then
     wine=$wine32
 elif test -x $wine64; then
     wine=$wine64
-    if [ "$(dpkg --print-architecture)" = "amd64" -a "$(dpkg --print-foreign-architectures | grep -cx "i386")" -ne 1 ] ||
-       [ "$WINEARCH" = "win32" ]; then
-        echo "it looks like multiarch needs to be enabled.  as root, please"
-        echo "execute \"dpkg --add-architecture i386 && apt-get update &&"
-        echo "apt-get install $(echo $name | sed s/wine/wine32/)\""
+    if test -z "$WINELOADER"; then
+        export WINELOADER=$wine64
     fi
+    case "x$WINEDEBUG" in
+        x-all*|x*,-all*|x*err-all*)
+            ;;
+        *)
+            wine32_hint >&2
+            ;;
+    esac
 else
-    echo "error: unable to find wine executable.  this shouldn't happen."
+    echo "error: unable to find wine executable.  this shouldn't happen." >&2
     exit 1
 fi
 
 if test -z "$WINEDEBUG"; then
-    winedebug=-all
-else
-    winedebug=$WINEDEBUG
+    export WINEDEBUG=fixme-all
 fi
 
-WINEDEBUG=$winedebug $wine "$@"
+exec $wine "$@"

@@ -1,16 +1,13 @@
 Resources
 =========
-If you have any problems, the Wine Troubleshooting Guide is often very useful:
-http://www.winehq.com/Trouble
+If you have any problems, the Wine FAQ is often very useful:
+https://wiki.winehq.org/FAQ
 
-The Wine FAQ may also be informative:
-http://www.winehq.com/FAQ
-
-Detailed documentation about Wine and it's internals are available in the
+Detailed documentation about Wine and its internals are available in the
 various User Guides and manpages:
-http://www.winehq.org/documentation
+https://www.winehq.org/documentation
 
-For resources related to Debian wine packaging, please visit:
+For resources related to Debian Wine packaging, please visit:
 http://pkg-wine.alioth.debian.org
 
 To participate in development and/or discussion about the Debian packages,
@@ -18,22 +15,25 @@ please subscribe to the pkg-wine-party mailing list:
 http://lists.alioth.debian.org/mailman/listinfo/pkg-wine-party
 
 The Debian package repository can also be checked out with git:
-$ git clone git://anonscm.debian.org/pkg-wine/wine.git
+$ git clone https://anonscm.debian.org/git/pkg-wine/wine.git
 
 Or viewed online at:
-http://anonscm.debian.org/gitweb/?p=pkg-wine/wine.git
+https://anonscm.debian.org/git/pkg-wine/wine.git
 
 Debugging
 =========
-Debugging information is no longer output by default.  If you are interested in
-more verbose debugging output, you can set the WINEDEBUG environment variable.
+Debugging information is limited to only error messages by default.  If you
+want other types of debugging output as well, you can set the WINEDEBUG
+environment variable.
 
 Examples:
-$ WINEDEBUG=err+all wine
-$ WINEDEBUG=err+all wine-development
+$ WINEDEBUG=fixme+all wine
+$ WINEDEBUG=fixme+all wine-development
 
-If you always want verbose information, you can include an
-"export WINEDEBUG=err+all" line in your ~/.bashrc file.
+If you want this to be more permanent, you can include an
+"export WINEDEBUG=fixme+all" line in your ~/.bashrc file.
+
+For more detail about WINEDEBUG options, please see the wine manpage.
 
 Old Versions
 ============
@@ -53,11 +53,12 @@ debsnap fetches source packages by default, which you will then need to build
 Configuration
 =============
 Usually everything is automatically configured, but for fine-tuning a good tool
-is winecfg or winecfg-development.
+is winecfg (or winecfg-development).
 
 If you need to set up Wine manually, without winecfg, you can force the
 creation of a ~/.wine directory by running:
 $ wineboot
+$ wineboot-development
 
 If something goes horribly wrong, you can always completely wipe your Wine
 setup with "rm -rf ~/.wine". This will destroy everything you've installed,
@@ -66,21 +67,30 @@ please back it up first. You can then start fresh.
 
 32-/64-bit
 ==========
-Most Windows binaries are 32-bit applications. You need to install wine32 or
-wine32-development to run them. wine64 alone cannot do this.
+Most Windows binaries are 32-bit applications. You need to install wine32 (or
+wine32-development) to run them. wine64 (or wine64-development) alone cannot do
+this.
 
-On 64-bit systems you need to enable multiarch to install wine32 or
-wine32-development. As root, execute e.g.:
+On 64-bit systems you need to enable multiarch to install wine32 (or
+wine32-development). As root, execute e.g.:
 # dpkg --add-architecture i386 && apt update && apt install wine32
+# dpkg --add-architecture i386 && apt update && apt install wine32-development
 
-If you have wine32 and wine64 installed Wine will default to a shared 64-bit
-wineprefix that runs (most) 32-bit Windows applications.
+If you have wine32 and wine64 (or wine32-development and wine64-development)
+installed, Wine will default to a shared 64-bit prefix that runs most 32-bit
+Windows applications.
 
-If this causes problems for an application you may create a 32-bit wineprefix
-by running e.g.:
+If this causes problems for an application, you may create a 32-bit prefix by
+running e.g.:
 $ WINEARCH=win32 WINEPREFIX="$HOME/.wine32" wineboot
+$ WINEARCH=win32 WINEPREFIX="$HOME/.wine32" wineboot-development
 
-If you don't want 64-bit at all, just uninstall wine64.
+You have to specify this 32-bit prefix, whenever you want to use it, e.g.:
+$ WINEPREFIX="$HOME/.wine32" wine application.exe
+$ WINEPREFIX="$HOME/.wine32" wine-development application.exe
+
+If you don't want 64-bit at all, just uninstall wine64 (or
+wine-64-development).
 
 Wine Gecko
 ==========
@@ -89,8 +99,8 @@ Instead libwine-gecko-* packages are available in the official Debian archives,
 which provide Wine Gecko support.
 
 Information about which Wine Gecko should be associated with any particular
-wine version is available at:
-http://wiki.winehq.org/Gecko
+Wine version is available at:
+https://wiki.winehq.org/Gecko
 
 If the right libwine-gecko-*.deb package is not currently available, you can
 manually extract an associated upstream WineGecko tarball to
@@ -99,16 +109,14 @@ the new Debian libwine-gecko-* package that is needed.
 
 Automatically Launching Windows Executables
 ===========================================
-You can configure wine to automatically launch Windows executables from
-the command line, for example:
-
+You can configure Wine to automatically launch Windows executables from the
+command line, for example:
 $ notepad.exe
 
-To configure backend support for that, you'll need to install the
-wine-binfmt package first and then execute:
-
+To configure backend support for that, you'll need to install the wine-binfmt
+package first and then execute:
 $ sudo update-binfmts --import wine
 
-This change increases the risk of inadvertently launching Windows
-malware, so please make sure that you understand the security risks
-before blindly setting this up.
+This change increases the risk of inadvertently launching Windows malware, so
+please make sure that you understand the security risks before blindly setting
+this up.

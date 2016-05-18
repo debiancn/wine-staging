@@ -1,1 +1,8 @@
-debian/tmp/usr/share/man/man1/winegcc64VERSION.1
+debian/tmp/wmcVERSION.man
+debian/tmp/wrcVERSION.man
+debian/tmp/winegccVERSION.man
+debian/tmp/winedumpVERSION.man
+debian/tmp/winebuildVERSION.man
+debian/tmp/winemakerVERSION.man
+debian/tmp/winemakerVERSION.de.man
+debian/tmp/winemakerVERSION.fr.man

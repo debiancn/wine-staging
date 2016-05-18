@@ -4,10 +4,10 @@ debian/substvars
 config.*
 configure
 tools/config.*
+tools/make_makefiles
 include/config.h.in
 programs/cscript/ihost.h
 
-loader/wine64.man.in
 tools/winemaker/*.man
 
 # automatically generated files
@@ -42,3 +42,11 @@ include/wine/wgl*
 dlls/opengl32/opengl_ext.c
 dlls/opengl32/opengl_norm.c
 dlls/opengl32/opengl32.spec
+
+# font files
+fonts/*.fon
+fonts/*.ttf
+fonts/Makefile
+tools/sfnt2fon/sfnt2fon
+tools/sfnt2fon/sfnt2fon.o
+tools/sfnt2fon/Makefile

@@ -41,6 +41,8 @@
 # @ stub DbgUiStopDebugging
 @ stub DbgUiWaitStateChange
 @ stdcall DbgUserBreakPoint()
+@ stdcall EtwRegisterTraceGuidsA(ptr ptr ptr long ptr str str ptr)
+@ stdcall EtwRegisterTraceGuidsW(ptr ptr ptr long ptr wstr wstr ptr)
 # @ stub KiFastSystemCall
 # @ stub KiFastSystemCallRet
 # @ stub KiIntSystemCall
@@ -274,6 +276,7 @@
 @ stdcall NtQuerySystemEnvironmentValue(ptr ptr long ptr)
 @ stdcall NtQuerySystemEnvironmentValueEx(ptr ptr ptr ptr ptr)
 @ stdcall NtQuerySystemInformation(long long long long)
+@ stdcall NtQuerySystemInformationEx(long ptr long ptr long ptr)
 @ stdcall NtQuerySystemTime(ptr)
 @ stdcall NtQueryTimer(ptr long ptr long ptr)
 @ stdcall NtQueryTimerResolution(long long long)
@@ -705,7 +708,8 @@
 @ stdcall RtlInterlockedFlushSList(ptr)
 @ stdcall RtlInterlockedPopEntrySList(ptr)
 @ stdcall RtlInterlockedPushEntrySList(ptr ptr)
-@ stdcall RtlInterlockedPushListSList(ptr ptr ptr long)
+@ stdcall -norelay RtlInterlockedPushListSList(ptr ptr ptr long)
+@ stdcall RtlInterlockedPushListSListEx(ptr ptr ptr long)
 # @ stub RtlInvertRangeList
 @ stdcall RtlIpv4AddressToStringA(ptr ptr)
 @ stdcall RtlIpv4AddressToStringExA(ptr long ptr ptr)
@@ -1193,6 +1197,7 @@
 @ stdcall ZwQuerySystemEnvironmentValue(ptr ptr long ptr) NtQuerySystemEnvironmentValue
 @ stdcall ZwQuerySystemEnvironmentValueEx(ptr ptr ptr ptr ptr) NtQuerySystemEnvironmentValueEx
 @ stdcall ZwQuerySystemInformation(long long long long) NtQuerySystemInformation
+@ stdcall ZwQuerySystemInformationEx(long ptr long ptr long ptr) NtQuerySystemInformationEx
 @ stdcall ZwQuerySystemTime(ptr) NtQuerySystemTime
 @ stdcall ZwQueryTimer(ptr long ptr long ptr) NtQueryTimer
 @ stdcall ZwQueryTimerResolution(long long long) NtQueryTimerResolution

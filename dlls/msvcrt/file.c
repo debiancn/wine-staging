@@ -128,6 +128,7 @@ static int MSVCRT_umask = 0;
 
 /* INTERNAL: static data for tmpnam and _wtmpname functions */
 static int tmpnam_unique;
+static int tmpnam_s_unique;
 
 static const unsigned int EXE = 'e' << 16 | 'x' << 8 | 'e';
 static const unsigned int BAT = 'b' << 16 | 'a' << 8 | 't';
@@ -4780,15 +4781,65 @@ void CDECL MSVCRT_setbuf(MSVCRT_FILE* file, char *buf)
   MSVCRT_setvbuf(file, buf, buf ? MSVCRT__IOFBF : MSVCRT__IONBF, MSVCRT_BUFSIZ);
 }
 
+static int tmpnam_helper(char *s, MSVCRT_size_t size, int *tmpnam_unique, int tmp_max)
+{
+    char tmpstr[8];
+    char *p = s;
+    int digits;
+
+    if (!MSVCRT_CHECK_PMT(s != NULL)) return MSVCRT_EINVAL;
+
+    if (size < 3) {
+        if (size) *s = 0;
+        *MSVCRT__errno() = MSVCRT_ERANGE;
+        return MSVCRT_ERANGE;
+    }
+    *p++ = '\\';
+    *p++ = 's';
+    size -= 2;
+    digits = msvcrt_int_to_base32(GetCurrentProcessId(), tmpstr);
+    if (digits+1 > size) {
+        *s = 0;
+        *MSVCRT__errno() = MSVCRT_ERANGE;
+        return MSVCRT_ERANGE;
+    }
+    memcpy(p, tmpstr, digits*sizeof(tmpstr[0]));
+    p += digits;
+    *p++ = '.';
+    size -= digits+1;
+
+    while(1) {
+        while ((digits = *tmpnam_unique)+1 < tmp_max) {
+            if (InterlockedCompareExchange(tmpnam_unique, digits+1, digits) == digits)
+                break;
+        }
+
+        digits = msvcrt_int_to_base32(digits, tmpstr);
+        if (digits+1 > size) {
+            *s = 0;
+            *MSVCRT__errno() = MSVCRT_ERANGE;
+            return MSVCRT_ERANGE;
+        }
+        memcpy(p, tmpstr, digits*sizeof(tmpstr[0]));
+        p[digits] = 0;
+
+        if (GetFileAttributesA(s) == INVALID_FILE_ATTRIBUTES &&
+                GetLastError() == ERROR_FILE_NOT_FOUND)
+            break;
+    }
+    return 0;
+}
+
+int CDECL MSVCRT_tmpnam_s(char *s, MSVCRT_size_t size)
+{
+    return tmpnam_helper(s, size, &tmpnam_s_unique, MSVCRT_TMP_MAX_S);
+}
+
 /*********************************************************************
  *		tmpnam (MSVCRT.@)
  */
 char * CDECL MSVCRT_tmpnam(char *s)
 {
-  char tmpstr[16];
-  char *p;
-  int count, size;
-
   if (!s) {
     thread_data_t *data = msvcrt_get_thread_data();
 
@@ -4798,29 +4849,71 @@ char * CDECL MSVCRT_tmpnam(char *s)
     s = data->tmpnam_buffer;
   }
 
-  msvcrt_int_to_base32(GetCurrentProcessId(), tmpstr);
-  p = s + sprintf(s, "\\s%s.", tmpstr);
-  for (count = 0; count < MSVCRT_TMP_MAX; count++)
-  {
-    size = msvcrt_int_to_base32(tmpnam_unique++, tmpstr);
-    memcpy(p, tmpstr, size);
-    p[size] = '\0';
-    if (GetFileAttributesA(s) == INVALID_FILE_ATTRIBUTES &&
-        GetLastError() == ERROR_FILE_NOT_FOUND)
-      break;
-  }
-  return s;
+  return tmpnam_helper(s, -1, &tmpnam_unique, MSVCRT_TMP_MAX) ? NULL : s;
+}
+
+static int wtmpnam_helper(MSVCRT_wchar_t *s, MSVCRT_size_t size, int *tmpnam_unique, int tmp_max)
+{
+    MSVCRT_wchar_t tmpstr[8];
+    MSVCRT_wchar_t *p = s;
+    int digits;
+
+    if (!MSVCRT_CHECK_PMT(s != NULL)) return MSVCRT_EINVAL;
+
+    if (size < 3) {
+        if (size) *s = 0;
+        *MSVCRT__errno() = MSVCRT_ERANGE;
+        return MSVCRT_ERANGE;
+    }
+    *p++ = '\\';
+    *p++ = 's';
+    size -= 2;
+    digits = msvcrt_int_to_base32_w(GetCurrentProcessId(), tmpstr);
+    if (digits+1 > size) {
+        *s = 0;
+        *MSVCRT__errno() = MSVCRT_ERANGE;
+        return MSVCRT_ERANGE;
+    }
+    memcpy(p, tmpstr, digits*sizeof(tmpstr[0]));
+    p += digits;
+    *p++ = '.';
+    size -= digits+1;
+
+    while(1) {
+        while ((digits = *tmpnam_unique)+1 < tmp_max) {
+            if (InterlockedCompareExchange(tmpnam_unique, digits+1, digits) == digits)
+                break;
+        }
+
+        digits = msvcrt_int_to_base32_w(digits, tmpstr);
+        if (digits+1 > size) {
+            *s = 0;
+            *MSVCRT__errno() = MSVCRT_ERANGE;
+            return MSVCRT_ERANGE;
+        }
+        memcpy(p, tmpstr, digits*sizeof(tmpstr[0]));
+        p[digits] = 0;
+
+        if (GetFileAttributesW(s) == INVALID_FILE_ATTRIBUTES &&
+                GetLastError() == ERROR_FILE_NOT_FOUND)
+            break;
+    }
+    return 0;
+}
+
+/*********************************************************************
+ *              _wtmpnam_s (MSVCRT.@)
+ */
+int CDECL MSVCRT__wtmpnam_s(MSVCRT_wchar_t *s, MSVCRT_size_t size)
+{
+    return wtmpnam_helper(s, size, &tmpnam_s_unique, MSVCRT_TMP_MAX_S);
 }
 
 /*********************************************************************
  *              _wtmpnam (MSVCRT.@)
  */
-MSVCRT_wchar_t * CDECL MSVCRT_wtmpnam(MSVCRT_wchar_t *s)
+MSVCRT_wchar_t * CDECL MSVCRT__wtmpnam(MSVCRT_wchar_t *s)
 {
-    static const MSVCRT_wchar_t format[] = {'\\','s','%','s','.',0};
-    MSVCRT_wchar_t tmpstr[16];
-    MSVCRT_wchar_t *p;
-    int count, size;
     if (!s) {
         thread_data_t *data = msvcrt_get_thread_data();
 
@@ -4830,18 +4923,7 @@ MSVCRT_wchar_t * CDECL MSVCRT_wtmpnam(MSVCRT_wchar_t *s)
         s = data->wtmpnam_buffer;
     }
 
-    msvcrt_int_to_base32_w(GetCurrentProcessId(), tmpstr);
-    p = s + MSVCRT__snwprintf(s, MAX_PATH, format, tmpstr);
-    for (count = 0; count < MSVCRT_TMP_MAX; count++)
-    {
-        size = msvcrt_int_to_base32_w(tmpnam_unique++, tmpstr);
-        memcpy(p, tmpstr, size*sizeof(MSVCRT_wchar_t));
-        p[size] = '\0';
-        if (GetFileAttributesW(s) == INVALID_FILE_ATTRIBUTES &&
-                GetLastError() == ERROR_FILE_NOT_FOUND)
-            break;
-    }
-    return s;
+    return wtmpnam_helper(s, -1, &tmpnam_unique, MSVCRT_TMP_MAX) ? NULL : s;
 }
 
 /*********************************************************************

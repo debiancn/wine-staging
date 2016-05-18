@@ -132,7 +132,9 @@ typedef struct {
             char *time;
         } names;
     } str;
+#if _MSVCR_VER < 110
     LCID lcid;
+#endif
     int  unk[2];
     union {
         MSVCRT_wchar_t *wstr[43];
@@ -148,6 +150,9 @@ typedef struct {
             MSVCRT_wchar_t *time;
         } names;
     } wstr;
+#if _MSVCR_VER >= 110
+    MSVCRT_wchar_t *locname;
+#endif
     char data[1];
 } MSVCRT___lc_time_data;
 
@@ -663,6 +668,7 @@ struct MSVCRT__stat64 {
 #define MSVCRT_WEOF (MSVCRT_wint_t)(0xFFFF)
 #define MSVCRT_EOF       (-1)
 #define MSVCRT_TMP_MAX   0x7fff
+#define MSVCRT_TMP_MAX_S 0x7fffffff
 #define MSVCRT_RAND_MAX  0x7fff
 #define MSVCRT_BUFSIZ    512
 

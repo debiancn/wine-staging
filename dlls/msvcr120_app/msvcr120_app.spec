@@ -844,7 +844,7 @@
 @ cdecl _Strftime(str long str ptr ptr) msvcr120._Strftime
 @ cdecl _W_Getdays() msvcr120._W_Getdays
 @ cdecl _W_Getmonths() msvcr120._W_Getmonths
-@ stub _W_Gettnames
+@ cdecl _W_Gettnames() msvcr120._W_Gettnames
 @ stub _Wcsftime
 @ cdecl _XcptFilter(long ptr) msvcr120._XcptFilter
 @ cdecl __AdjustPointer(ptr ptr) msvcr120.__AdjustPointer
@@ -1442,7 +1442,7 @@
 @ cdecl _strtime(ptr) msvcr120._strtime
 @ cdecl _strtime_s(ptr long) msvcr120._strtime_s
 @ cdecl _strtod_l(str ptr ptr) msvcr120._strtod_l
-@ stub _strtof_l
+@ cdecl _strtof_l(str ptr ptr) msvcr120._strtof_l
 @ cdecl -ret64 _strtoi64(str ptr long) msvcr120._strtoi64
 @ cdecl -ret64 _strtoi64_l(str ptr long ptr) msvcr120._strtoi64_l
 @ stub _strtoimax_l
@@ -1656,7 +1656,7 @@
 @ cdecl _wstrtime_s(ptr long) msvcr120._wstrtime_s
 @ cdecl _wtempnam(wstr wstr) msvcr120._wtempnam
 @ cdecl _wtmpnam(ptr) msvcr120._wtmpnam
-@ stub _wtmpnam_s
+@ cdecl _wtmpnam_s(ptr long) msvcr120._wtmpnam_s
 @ cdecl _wtof(wstr) msvcr120._wtof
 @ cdecl _wtof_l(wstr ptr) msvcr120._wtof_l
 @ cdecl _wtoi(wstr) msvcr120._wtoi
@@ -2049,7 +2049,7 @@
 @ cdecl strspn(str str) msvcr120.strspn
 @ cdecl strstr(str str) msvcr120.strstr
 @ cdecl strtod(str ptr) msvcr120.strtod
-@ stub strtof
+@ cdecl strtof(str ptr) msvcr120.strtof
 @ stub strtoimax
 @ cdecl strtok(str str) msvcr120.strtok
 @ cdecl strtok_s(ptr str ptr) msvcr120.strtok_s
@@ -2073,7 +2073,7 @@
 @ cdecl tmpfile() msvcr120.tmpfile
 @ cdecl tmpfile_s(ptr) msvcr120.tmpfile_s
 @ cdecl tmpnam(ptr) msvcr120.tmpnam
-@ stub tmpnam_s
+@ cdecl tmpnam_s(ptr long) msvcr120.tmpnam_s
 @ cdecl tolower(long) msvcr120.tolower
 @ cdecl toupper(long) msvcr120.toupper
 @ stub towctrans

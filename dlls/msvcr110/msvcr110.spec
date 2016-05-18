@@ -866,7 +866,7 @@
 @ stub _Unlock_shared_ptr_spin_lock
 @ cdecl _W_Getdays()
 @ cdecl _W_Getmonths()
-@ stub _W_Gettnames
+@ cdecl _W_Gettnames()
 @ stub _Wcsftime
 @ cdecl _XcptFilter(long ptr)
 @ cdecl __AdjustPointer(ptr ptr)
@@ -1965,8 +1965,8 @@
 @ cdecl _wstrtime_s(ptr long)
 @ cdecl _wsystem(wstr)
 @ cdecl _wtempnam(wstr wstr) MSVCRT__wtempnam
-@ cdecl _wtmpnam(ptr) MSVCRT_wtmpnam
-@ stub _wtmpnam_s
+@ cdecl _wtmpnam(ptr) MSVCRT__wtmpnam
+@ cdecl _wtmpnam_s(ptr long) MSVCRT__wtmpnam_s
 @ cdecl _wtof(wstr) MSVCRT__wtof
 @ cdecl _wtof_l(wstr ptr) MSVCRT__wtof_l
 @ cdecl _wtoi(wstr) MSVCRT__wtoi
@@ -2192,7 +2192,7 @@
 @ cdecl tmpfile() MSVCRT_tmpfile
 @ cdecl tmpfile_s(ptr) MSVCRT_tmpfile_s
 @ cdecl tmpnam(ptr) MSVCRT_tmpnam
-@ stub tmpnam_s
+@ cdecl tmpnam_s(ptr long) MSVCRT_tmpnam_s
 @ cdecl tolower(long) MSVCRT_tolower
 @ cdecl toupper(long) MSVCRT_toupper
 @ cdecl towlower(long) MSVCRT_towlower

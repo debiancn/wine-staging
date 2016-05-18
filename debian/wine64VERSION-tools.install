@@ -1,10 +1,10 @@
-debian/tmp/usr/lib/*/*/wmc
-debian/tmp/usr/lib/*/*/wrc
-debian/tmp/usr/lib/*/*/winecpp
-debian/tmp/usr/lib/*/*/winegcc
-debian/tmp/usr/lib/*/*/wineg++
-debian/tmp/usr/lib/*/*/winedump
-debian/tmp/usr/lib/*/*/winebuild
-debian/tmp/usr/lib/*/*/winemaker
+usr/lib/wineVERSION/wmc
+usr/lib/wineVERSION/wrc
+usr/lib/wineVERSION/winecpp
+usr/lib/wineVERSION/winegcc
+usr/lib/wineVERSION/wineg++
+usr/lib/wineVERSION/winedump
+usr/lib/wineVERSION/winebuild
+usr/lib/wineVERSION/winemaker
 
-debian/tmp/winegcc64VERSION usr/bin
+debian/tmp/winegccVERSION usr/bin

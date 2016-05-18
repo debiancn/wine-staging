@@ -1,12 +1,13 @@
 #!/usr/bin/make -f
 
+DEB_HOST_ARCH=$(shell dpkg-architecture -qDEB_HOST_ARCH)
 DEB_BUILD_ARCH_OS=$(shell dpkg-architecture -qDEB_BUILD_ARCH_OS)
 DEB_BUILD_ARCH_BITS=$(shell dpkg-architecture -qDEB_BUILD_ARCH_BITS)
-DEB_HOST_ARCH=$(shell dpkg-architecture -qDEB_HOST_ARCH)
 
 VERSION=$(shell dpkg-parsechangelog -S Source | sed s/wine//g)
 
 MANDIR=usr/share/man
+BINDIR=usr/lib/wine$(VERSION)
 DATDIR=usr/share/wine$(VERSION)
 INCDIR=usr/include/wine$(VERSION)
 LIBDIR=usr/lib/$(shell dpkg-architecture -qDEB_HOST_MULTIARCH)/wine$(VERSION)
@@ -32,8 +33,9 @@ CONFLAGS=--with-gnutls \
          --without-gphoto \
          --without-gstreamer \
          --disable-tests \
+         --enable-maintainer-mode \
          --libdir=/$(LIBDIR) \
-         --bindir=/$(LIBDIR) \
+         --bindir=/$(BINDIR) \
          --mandir=/$(MANDIR) \
          --includedir=/$(INCDIR) \
          --datarootdir=/$(DATDIR) \
@@ -49,11 +51,14 @@ ifeq ($(DEB_BUILD_ARCH_BITS), 64)
 CONFLAGS+=--enable-win64
 endif
 
-# On armel, build for armv5t
+# on armel build for armv5t
 ifeq ($(DEB_HOST_ARCH), armel)
 export DEB_CFLAGS_MAINT_APPEND+=-march=armv5t
 export DEB_LDFLAGS_MAINT_APPEND+=-march=armv5t
 endif
+
+# override maintainer mode config
+export DEB_CFLAGS_MAINT_APPEND+=-Wno-error
 
 # additional files to generate
 INSTALLS=$(shell ls debian/*VERSION* | sed s/VERSION/$(VERSION)/) \
@@ -93,30 +98,48 @@ override_dh_auto_configure:
 	cd dlls/opengl32 && ./make_opengl
 	ln -s /usr/share/misc/config.sub tools || true
 	ln -s /usr/share/misc/config.guess tools || true
-	cp loader/wine.man.in loader/wine64.man.in
 	./configure $(CONFLAGS)
 
-override_dh_install: $(INSTALLS)
+override_dh_auto_build-indep:
+	./tools/makedep tools tools/sfnt2fon libs/port libs/wine fonts
+	make -C libs/port
+	make -C libs/wine
+	make -C tools/sfnt2fon
+	make -C fonts
+	make -C tools wineapploader
+	chmod 755 tools/wineapploader
+
+override_dh_auto_install-indep: $(INSTALLS)
 	mkdir -p debian/tmp
 	cp ANNOUNCE debian/tmp/changelog
-	cp debian/scripts/wine debian/tmp/wine$(VERSION)
-	sed 's|LIBDIR|$(LIBDIR)|g' < debian/scripts/winegcc > debian/tmp/winegcc$(DEB_BUILD_ARCH_BITS)$(VERSION)
-	cp tools/winedump/README debian/tmp/README.winedump
 	cp programs/winedbg/README debian/tmp/README.winedbg
-	cp debian/tmp/$(LIBDIR)/winecfg debian/tmp/wineapploader
-	cp debian/tmp/$(LIBDIR)/wineserver debian/tmp/$(LIBDIR)/wineserver$(DEB_BUILD_ARCH_BITS)
-	cp debian/scripts/wineserver debian/tmp/wineserver$(VERSION)
-	test -f debian/tmp/$(LIBDIR)/wine-preloader || \
-	    cp debian/scripts/wine-preloader debian/tmp/$(LIBDIR)
-	test -f debian/tmp/$(MANDIR)/man1/wine.1 || \
-	    cp debian/tmp/$(MANDIR)/man1/wine64.1 debian/tmp/$(MANDIR)/man1/wine.1
-	for file in $$(find debian/tmp/$(MANDIR) -type f); do \
-	    rename=$$(echo $$file | sed s/\\.1/$(VERSION)\\.1/); \
-	    cp $$file $$rename || true; \
+	cp debian/scripts/wine debian/tmp/wine$(VERSION)
+	for dir in loader server programs/msiexec programs/winedbg \
+	    programs/wineconsole programs/regedit programs/regsvr32 \
+	    programs/wineboot programs/winefile programs/winepath \
+	    programs/winecfg; do \
+	    ./tools/makedep $$dir; \
+	    make -C $$dir install-man; \
 	    done
-	cd debian/tmp/usr/share/man/man1 && \
-	    cp winegcc.1 winegcc$(DEB_BUILD_ARCH_BITS)$(VERSION).1
-	dh_install
+	for file in $$(find . ! -path "./debian/*" -name \*.man); do \
+	    rename=$$(basename $$file | sed "s/\\./$(VERSION)./;s/UTF-8\\.//"); \
+	    cp $$file debian/tmp/$$rename || true; \
+	    done
+
+override_dh_auto_install-arch: $(INSTALLS)
+	mkdir -p debian/tmp
+	cp ANNOUNCE debian/tmp/changelog
+	cp tools/winedump/README debian/tmp/README.winedump
+	cp server/wineserver debian/tmp/wineserver$(DEB_BUILD_ARCH_BITS)
+	sed "s|BINDIR|$(BINDIR)|g" debian/scripts/winegcc > debian/tmp/winegcc$(VERSION)
+	dh_auto_install
+	for file in $$(find . ! -path "./debian/*" -name \*.man); do \
+	    rename=$$(basename $$file | sed "s/\\./$(VERSION)./;s/UTF-8\\.//"); \
+	    cp $$file debian/tmp/$$rename || true; \
+	    done
+	cp loader/wine.man debian/tmp/usr/share/man/man1/wine64$(VERSION).1
+	test -f debian/tmp/$(BINDIR)/wine-preloader || \
+	    cp debian/scripts/wine-preloader debian/tmp/$(BINDIR)
 
 override_dh_gencontrol:
 	dh_gencontrol -- \

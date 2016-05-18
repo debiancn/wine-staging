@@ -3377,6 +3377,7 @@ static void test_mdi_messages(void)
     BOOL zoomed;
     RECT rc;
     HMENU hMenu = CreateMenu();
+    LONG val;
 
     if (!mdi_RegisterWindowClasses()) assert(0);
 
@@ -3405,8 +3406,9 @@ static void test_mdi_messages(void)
                                  rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top,
                                  mdi_frame, 0, GetModuleHandleA(0), &client_cs);
     assert(mdi_client);
-    ok_sequence(WmCreateMDIclientSeq, "Create visible MDI client window", FALSE);
+    SetWindowLongA(mdi_client, 0, 0xdeadbeef);
 
+    ok_sequence(WmCreateMDIclientSeq, "Create visible MDI client window", FALSE);
     ok(GetActiveWindow() == mdi_frame, "wrong active window %p\n", GetActiveWindow());
     ok(GetFocus() == mdi_frame, "input focus should be on MDI frame not on %p\n", GetFocus());
 
@@ -3864,6 +3866,8 @@ static void test_mdi_messages(void)
     SetFocus(0);
     flush_sequence();
 
+    val = GetWindowLongA(mdi_client, 0);
+    ok(val == 0xdeadbeef || broken(val == 0) /* >= Win Vista */, "Expected 0xdeadbeef, got 0x%x\n", val);
     DestroyWindow(mdi_client);
     ok_sequence(WmDestroyMDIclientSeq, "Destroy MDI client window", FALSE);
 
@@ -14906,6 +14910,33 @@ else
     flush_sequence();
 }
 
+static const struct message DoubleSetCaptureSeq[] =
+{
+    { WM_CAPTURECHANGED, sent },
+    { 0 }
+};
+
+static void test_DoubleSetCapture(void)
+{
+    HWND hwnd;
+
+    hwnd = CreateWindowExA(0, "TestWindowClass", "Test DoubleSetCapture",
+                           WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                           100, 100, 200, 200, 0, 0, 0, NULL);
+    ok (hwnd != 0, "Failed to create overlapped window\n");
+
+    ShowWindow( hwnd, SW_SHOW );
+    UpdateWindow( hwnd );
+    flush_events();
+    flush_sequence();
+
+    SetCapture( hwnd );
+    SetCapture( hwnd );
+    ok_sequence(DoubleSetCaptureSeq, "SetCapture( hwnd ) twice", FALSE);
+
+    DestroyWindow(hwnd);
+}
+
 static void init_funcs(void)
 {
     HMODULE hKernel32 = GetModuleHandleA("kernel32.dll");
@@ -15045,6 +15076,7 @@ START_TEST(msg)
     test_layered_window();
     test_TrackPopupMenu();
     test_TrackPopupMenuEmpty();
+    test_DoubleSetCapture();
     /* keep it the last test, under Windows it tends to break the tests
      * which rely on active/foreground windows being correct.
      */

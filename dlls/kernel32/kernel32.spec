@@ -615,7 +615,7 @@
 @ stdcall GetConsoleOutputCP()
 @ stdcall GetConsoleProcessList(ptr long)
 @ stdcall GetConsoleScreenBufferInfo(long ptr)
-# @ stub GetConsoleScreenBufferInfoEx
+@ stdcall GetConsoleScreenBufferInfoEx(long ptr)
 # @ stub GetConsoleSelectionInfo
 @ stdcall GetConsoleTitleA(ptr long)
 @ stdcall GetConsoleTitleW(ptr long)
@@ -957,7 +957,8 @@
 @ stdcall -arch=i386 InterlockedIncrement(ptr)
 @ stdcall InterlockedPopEntrySList(ptr) ntdll.RtlInterlockedPopEntrySList
 @ stdcall InterlockedPushEntrySList(ptr ptr) ntdll.RtlInterlockedPushEntrySList
-# @ stub InterlockedPushListSList
+@ stdcall -norelay InterlockedPushListSList(ptr ptr ptr long) ntdll.RtlInterlockedPushListSList
+@ stdcall InterlockedPushListSListEx(ptr ptr ptr long) ntdll.RtlInterlockedPushListSListEx
 @ stub InvalidateConsoleDIBits
 @ stdcall InvalidateNLSCache()
 @ stdcall IsBadCodePtr(ptr)
@@ -1361,7 +1362,7 @@
 @ stub SetConsoleOS2OemFormat
 @ stdcall SetConsoleOutputCP(long)
 @ stub SetConsolePalette
-# @ stub SetConsoleScreenBufferInfoEx
+@ stdcall SetConsoleScreenBufferInfoEx(long ptr)
 @ stdcall SetConsoleScreenBufferSize(long long)
 @ stdcall SetConsoleTextAttribute(long long)
 @ stdcall SetConsoleTitleA(str)

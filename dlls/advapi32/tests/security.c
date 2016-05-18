@@ -5336,17 +5336,23 @@ static void test_filemap_security(void)
     char temp_path[MAX_PATH];
     char file_name[MAX_PATH];
     DWORD ret, i, access;
-    HANDLE file, mapping, dup;
+    HANDLE file, mapping, dup, created_mapping;
     static const struct
     {
         int generic, mapped;
+        BOOL open_only;
     } map[] =
     {
         { 0, 0 },
         { GENERIC_READ, STANDARD_RIGHTS_READ | SECTION_QUERY | SECTION_MAP_READ },
         { GENERIC_WRITE, STANDARD_RIGHTS_WRITE | SECTION_MAP_WRITE },
         { GENERIC_EXECUTE, STANDARD_RIGHTS_EXECUTE | SECTION_MAP_EXECUTE },
-        { GENERIC_ALL, STANDARD_RIGHTS_REQUIRED | SECTION_ALL_ACCESS }
+        { GENERIC_ALL, STANDARD_RIGHTS_REQUIRED | SECTION_ALL_ACCESS },
+        { SECTION_MAP_READ | SECTION_MAP_WRITE, SECTION_MAP_READ | SECTION_MAP_WRITE },
+        { SECTION_MAP_WRITE, SECTION_MAP_WRITE },
+        { SECTION_MAP_READ | SECTION_QUERY, SECTION_MAP_READ | SECTION_QUERY },
+        { SECTION_QUERY, SECTION_MAP_READ, TRUE },
+        { SECTION_QUERY | SECTION_MAP_READ, SECTION_QUERY | SECTION_MAP_READ }
     };
     static const struct
     {
@@ -5375,6 +5381,8 @@ static void test_filemap_security(void)
 
     for (i = 0; i < sizeof(prot_map)/sizeof(prot_map[0]); i++)
     {
+        if (map[i].open_only) continue;
+
         SetLastError(0xdeadbeef);
         mapping = CreateFileMappingW(file, NULL, prot_map[i].prot, 0, 4096, NULL);
         if (prot_map[i].mapped)
@@ -5421,6 +5429,8 @@ static void test_filemap_security(void)
 
     for (i = 0; i < sizeof(map)/sizeof(map[0]); i++)
     {
+        if (map[i].open_only) continue;
+
         SetLastError( 0xdeadbeef );
         ret = DuplicateHandle(GetCurrentProcess(), mapping, GetCurrentProcess(), &dup,
                               map[i].generic, FALSE, 0);
@@ -5435,6 +5445,24 @@ static void test_filemap_security(void)
     CloseHandle(mapping);
     CloseHandle(file);
     DeleteFileA(file_name);
+
+    created_mapping = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, 0x1000,
+                                         "Wine Test Open Mapping");
+    ok(created_mapping != NULL, "CreateFileMapping failed with error %u\n", GetLastError());
+
+    for (i = 0; i < sizeof(map)/sizeof(map[0]); i++)
+    {
+        if (!map[i].generic) continue;
+
+        mapping = OpenFileMappingA(map[i].generic, FALSE, "Wine Test Open Mapping");
+        ok(mapping != NULL, "OpenFileMapping failed with error %d\n", GetLastError());
+        access = get_obj_access(mapping);
+        ok(access == map[i].mapped, "%d: unexpected access flags %#x, expected %#x\n",
+           i, access, map[i].mapped);
+        CloseHandle(mapping);
+    }
+
+    CloseHandle(created_mapping);
 }
 
 static void test_thread_security(void)
@@ -6070,6 +6098,57 @@ static void test_GetSidIdentifierAuthority(void)
     ok(GetLastError() == ERROR_SUCCESS, "expected ERROR_SUCCESS, got %u\n", GetLastError());
 }
 
+static void test_pseudo_tokens(void)
+{
+    TOKEN_STATISTICS statistics1, statistics2;
+    HANDLE token;
+    DWORD retlen;
+    BOOL ret;
+
+    ret = OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token);
+    ok(ret, "OpenProcessToken failed with error %u\n", GetLastError());
+    memset(&statistics1, 0x11, sizeof(statistics1));
+    ret = GetTokenInformation(token, TokenStatistics, &statistics1, sizeof(statistics1), &retlen);
+    ok(ret, "GetTokenInformation failed with %u\n", GetLastError());
+    CloseHandle(token);
+
+    /* test GetCurrentProcessToken() */
+    SetLastError(0xdeadbeef);
+    memset(&statistics2, 0x22, sizeof(statistics2));
+    ret = GetTokenInformation(GetCurrentProcessToken(), TokenStatistics,
+                              &statistics2, sizeof(statistics2), &retlen);
+    ok(ret || broken(GetLastError() == ERROR_INVALID_HANDLE),
+       "GetTokenInformation failed with %u\n", GetLastError());
+    if (ret)
+        ok(!memcmp(&statistics1, &statistics2, sizeof(statistics1)), "Token statistics do not match\n");
+    else
+        win_skip("CurrentProcessToken not supported, skipping test\n");
+
+    /* test GetCurrentThreadEffectiveToken() */
+    SetLastError(0xdeadbeef);
+    memset(&statistics2, 0x22, sizeof(statistics2));
+    ret = GetTokenInformation(GetCurrentThreadEffectiveToken(), TokenStatistics,
+                              &statistics2, sizeof(statistics2), &retlen);
+    ok(ret || broken(GetLastError() == ERROR_INVALID_HANDLE),
+       "GetTokenInformation failed with %u\n", GetLastError());
+    if (ret)
+        ok(!memcmp(&statistics1, &statistics2, sizeof(statistics1)), "Token statistics do not match\n");
+    else
+        win_skip("CurrentThreadEffectiveToken not supported, skipping test\n");
+
+    SetLastError(0xdeadbeef);
+    ret = OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, TRUE, &token);
+    ok(!ret, "OpenThreadToken should have failed\n");
+    ok(GetLastError() == ERROR_NO_TOKEN, "Expected ERROR_NO_TOKEN, got %u\n", GetLastError());
+
+    /* test GetCurrentThreadToken() */
+    SetLastError(0xdeadbeef);
+    ret = GetTokenInformation(GetCurrentThreadToken(), TokenStatistics,
+                              &statistics2, sizeof(statistics2), &retlen);
+    todo_wine ok(GetLastError() == ERROR_NO_TOKEN || broken(GetLastError() == ERROR_INVALID_HANDLE),
+                 "Expected ERROR_NO_TOKEN, got %u\n", GetLastError());
+}
+
 START_TEST(security)
 {
     init();
@@ -6115,4 +6194,5 @@ START_TEST(security)
     test_AddAce();
     test_system_security_access();
     test_GetSidIdentifierAuthority();
+    test_pseudo_tokens();
 }

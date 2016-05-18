@@ -90,6 +90,17 @@ DirectInput
 P:	Andrew Eikum <aeikum@codeweavers.com>
 F:	dlls/dinput/
 
+DirectShow
+P:	Andrew Eikum <aeikum@codeweavers.com>
+F:	dlls/amstream/
+F:	dlls/mciqtz32/
+F:	dlls/qcap/
+F:	dlls/qedit/
+F:	dlls/quartz/
+F:	dlls/strmbase/
+F:	dlls/winegstreamer/
+F:	dlls/wineqtdecoder/
+
 DirectWrite
 M:	Nikolay Sivov <nsivov@codeweavers.com>
 F:	dlls/dwrite/
@@ -266,3 +277,9 @@ F:	*/
 Stable Branch
 M:	Michael Stefaniuc <mstefani@winehq.org>
 W:	http://wiki.winehq.org/StableRules
+
+Staging Branch
+M:	Sebastian Lackner <sebastian@fds-team.de>
+M:	Michael Müller <michael@fds-team.de>
+P:	Erich E. Hoover <erich.e.hoover@wine-staging.com>
+W:	https://wine-staging.com/

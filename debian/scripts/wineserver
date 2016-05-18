@@ -1,7 +1,6 @@
 #!/bin/sh -e
 
-name="$(basename $0|sed s/server//)"
-bindir=/usr/lib/$name
+bindir="$(dirname $(readlink -f $0))"
 
 wineserver32=$bindir/wineserver32
 wineserver64=$bindir/wineserver64
@@ -11,8 +10,8 @@ if test -x "$wineserver64"; then
 elif test -x "$wineserver32"; then
     wineserver=$wineserver32
 else
-    echo "error: unable to find wineserver executable.  this shouldn't happen."
+    echo "error: unable to find wineserver executable.  this shouldn't happen." >&2
     exit 1
 fi
 
-$wineserver -p0 "$@"
+exec $wineserver -p0 "$@"

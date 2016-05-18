@@ -1,3 +1,102 @@
+wine (1.8.2-1) unstable; urgency=medium
+
+  * New upstream release 1.8.2, released Apr 12, 2016.
+    - Various bug fixes.
+    - Small translation updates.
+  * Cherrypick changes from master:
+    - Use minimal wineapploader script, instead of patching the upstream one.
+    - Install executables to bindir usr/lib/wine-development.
+      Make wine32-tools and wine64-tools conflict with each other.
+    - Install 32-bit winecpp.
+    - Update lintian overrides.
+    - Add Jens Reyer to uploaders.
+    - Suggest winetricks and playonlinux.
+    - Update copyright.
+    - Explicitly specify which manpages to install.
+    - Install manpages for all installed executables.
+    - Install winegcc script again to specify WINEBUILD.
+    - Add symlinks in /usr/bin for installed tools in wine32|64-tools.
+    - Add symlink in /usr/bin for winepath in wine.
+    - Break older wine32|64 which don't have a reverse version requirement.
+    - Re-enable "err" level output by default (closes: #816014).
+    - Drop version output (closes: #816017).
+    - wineserver script: Drop obsolete script variable.
+    - If wine32 is missing warn about it unless err output is disabled
+      (closes: #818874).
+    - Add patch to append '(Debian)' to the version string.
+  * In the VCS-* fields point to the stretch git branch.
+  * Set fontdir /usr/share/wine/fonts.
+  * Add fontdir.patch to take into account the build time configuration
+    (closes: #814844).
+  * Install wine's TrueType fonts (closes: #818925).
+  * Build wine in maintainer mode.
+  * Don't error out on build warnings.
+  * Add TrueType fonts to clean to regenerate them.
+  * Bump standards-version to 3.9.8, no changes required.
+  * Add manpages-typo.patch to fix a typo in the msiexec manpage.
+  * Update lintian overrides (changes in lintian 2.5.44).
+
+ -- Jens Reyer <jre.winesim@gmail.com>  Fri, 29 Apr 2016 03:28:50 +0200
+
+wine (1.8.1-2) unstable; urgency=medium
+
+  [ Jens Reyer ]
+  * Simplify bug-control.
+  * Use secure uri in vcs fields.
+  * Update README.debian.
+  * Depend on libfontconfig1 (thanks Johannes Stezenbach, see #813381).
+  * Send script messages to STDERR (thanks Joerg Schiermeier).
+
+  [ Michael Gilbert ]
+  * Move fonts back to /usr/share/wine (closes: #813381).
+  * Remove references to the gecko package while its missing (closes: #814350).
+
+ -- Michael Gilbert <mgilbert@debian.org>  Sat, 13 Feb 2016 18:02:54 +0000
+
+wine (1.8.1-1) unstable; urgency=medium
+
+  * New upstream release 1.8.1, released Feb 3, 2016.
+  * Output a short blurb about debugging in the launcher script.
+
+ -- Michael Gilbert <mgilbert@debian.org>  Sat, 06 Feb 2016 00:55:14 +0000
+
+wine (1.8-7) unstable; urgency=medium
+
+  * Install fonts to /usr/share/fonts.
+
+ -- Michael Gilbert <mgilbert@debian.org>  Sun, 31 Jan 2016 07:55:06 +0000
+
+wine (1.8-6) unstable; urgency=medium
+
+  * Fix installation of the wine64 loader (closes: #812319).
+
+ -- Michael Gilbert <mgilbert@debian.org>  Sun, 24 Jan 2016 17:25:33 +0000
+
+wine (1.8-5) unstable; urgency=medium
+
+  * Re-add /usr/bin wine32 and wine64 symlinks (closes: #811427).
+
+ -- Michael Gilbert <mgilbert@debian.org>  Mon, 18 Jan 2016 21:12:25 +0000
+
+wine (1.8-4) unstable; urgency=medium
+
+  * Remove wine64 manpage.
+  * Use exec in launcher scripts.
+
+ -- Michael Gilbert <mgilbert@debian.org>  Mon, 18 Jan 2016 06:18:57 +0000
+
+wine (1.8-3) unstable; urgency=medium
+
+  [ Stephen Kitt ]
+  * Make libwine recommend libfontconfig1; the latter allows system-
+    installed fonts to be used in Windows applications.
+
+  [ Michael Gilbert ]
+  * Simplify the arch:all build.
+  * Build fonts only during the arch:all build.
+
+ -- Michael Gilbert <mgilbert@debian.org>  Sun, 17 Jan 2016 21:51:02 +0000
+
 wine (1.8-2~bpo8+1) jessie-backports; urgency=medium
 
   * Rebuild for jessie-backports.

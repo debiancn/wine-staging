@@ -3,7 +3,7 @@ author: Michael Gilbert <mgilbert@debian.org>
 
 --- a/configure.ac
 +++ b/configure.ac
-@@ -675,7 +675,7 @@ AC_CHECK_HEADERS([libprocstat.h],,,
+@@ -666,7 +666,7 @@ AC_CHECK_HEADERS([libprocstat.h],,,
  
  dnl **** Check for working dll ****
  
@@ -14,11 +14,13 @@ author: Michael Gilbert <mgilbert@debian.org>
  AC_SUBST(LDRPATH_LOCAL,"")
 --- a/Makefile.in
 +++ b/Makefile.in
-@@ -29,7 +29,7 @@ datarootdir     = @datarootdir@
+@@ -28,8 +28,8 @@ libdir          = @libdir@
+ datarootdir     = @datarootdir@
  datadir         = @datadir@
  mandir          = @mandir@
- fontdir         = ${datadir}/wine/fonts
+-fontdir         = ${datadir}/wine/fonts
 -includedir      = @includedir@/wine
++fontdir         = /usr/share/wine/fonts
 +includedir      = @includedir@
  dlldir          = @dlldir@
  fakedlldir      = ${dlldir}/fakedlls
