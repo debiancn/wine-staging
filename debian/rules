@@ -108,7 +108,8 @@ override_dh_auto_install-indep: $(INSTALLS)
 	cp debian/scripts/wine debian/tmp/wine$(VERSION)
 	for dir in loader server programs/msiexec programs/winedbg \
 	    programs/wineconsole programs/regedit programs/regsvr32 \
-	    programs/wineboot programs/winefile programs/winecfg; do \
+	    programs/wineboot programs/winefile programs/winepath \
+	    programs/winecfg; do \
 	    ./tools/makedep $$dir; \
 	    make -C $$dir install-man; \
 	    done

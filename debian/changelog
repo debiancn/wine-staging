@@ -1,3 +1,48 @@
+wine-development (1.9.8-1) unstable; urgency=medium
+
+  [ Michael Gilbert ]
+  * New upstream release 1.9.8, released Apr 15, 2016.
+    - More work towards the WineD3D command stream.
+    - More WebServices reader support.
+    - Still more Shader Model 5 support.
+    - Support for gradients in metafiles.
+    - Improved table formatting in WinHelp.
+    - Various bug fixes.
+
+  [ Jens Reyer ]
+  * Add patch to append '(Debian)' to the version string.
+  * If wine32 is missing warn about it unless err output is disabled.
+
+ -- Michael Gilbert <mgilbert@debian.org>  Sat, 16 Apr 2016 00:53:27 +0000
+
+wine-development (1.9.7-1) unstable; urgency=medium
+
+  * New upstream release 1.9.7, released Apr 1, 2016.
+    - More work towards the WineD3D command stream.
+    - More support for Shader Model 5 shaders.
+    - C++ exception handling on x86-64.
+    - Support for Windows-style static import libraries.
+    - Performance fixes in the XML writer.
+    - Various bug fixes.
+
+ -- Michael Gilbert <mgilbert@debian.org>  Fri, 01 Apr 2016 19:51:23 +0000
+
+wine-development (1.9.6-1) unstable; urgency=medium
+
+  [ Michael Gilbert ]
+  * New upstream release 1.9.6, released Mar 18, 2016.
+    - Better video card detection when using Mesa.
+    - Support for Shader Model 5 shaders.
+    - C++ exception handling improvements.
+    - Various bug fixes.
+
+  [ Jens Reyer ]
+  * Add winepath symlink and manpage in wine.
+  * Break older wine32|64 which don't have a reverse version requirement.
+  * Fix wmc and wrc symlinks.
+
+ -- Michael Gilbert <mgilbert@debian.org>  Fri, 18 Mar 2016 22:09:24 +0000
+
 wine-development (1.9.5-3~bpo8+1) jessie-backports; urgency=medium
 
   * Rebuild for jessie-backports.

@@ -94,6 +94,7 @@ typedef struct event_target_t event_target_t;
     XDIID(DispHTMLGenericElement) \
     XDIID(DispHTMLFrameElement) \
     XDIID(DispHTMLHeadElement) \
+    XDIID(DispHTMLHtmlElement) \
     XDIID(DispHTMLHistory) \
     XDIID(DispHTMLIFrame) \
     XDIID(DispHTMLImg) \
@@ -162,6 +163,7 @@ typedef struct event_target_t event_target_t;
     XIID(IHTMLFrameElement3) \
     XIID(IHTMLGenericElement) \
     XIID(IHTMLHeadElement) \
+    XIID(IHTMLHtmlElement) \
     XIID(IHTMLIFrameElement) \
     XIID(IHTMLIFrameElement2) \
     XIID(IHTMLIFrameElement3) \
@@ -677,6 +679,7 @@ typedef struct {
     void (*traverse)(HTMLDOMNode*,nsCycleCollectionTraversalCallback*);
     void (*unlink)(HTMLDOMNode*);
     BOOL (*is_text_edit)(HTMLDOMNode*);
+    BOOL (*is_settable)(HTMLDOMNode*,DISPID);
 } NodeImplVtbl;
 
 struct HTMLDOMNode {
@@ -943,14 +946,17 @@ typedef struct {
 
     LONG ref;
 
-    /* name and value are valid only for detached attributes (when elem == NULL). */
-    WCHAR *name;
+    /* value is valid only for detached attributes (when elem == NULL). */
     VARIANT value;
+    /* name must be valid for detached attributes */
+    WCHAR *name;
 
     HTMLElement *elem;
     DISPID dispid;
     struct list entry;
 } HTMLDOMAttribute;
+
+HTMLDOMAttribute *unsafe_impl_from_IHTMLDOMAttribute(IHTMLDOMAttribute*) DECLSPEC_HIDDEN;
 
 HRESULT HTMLDOMAttribute_Create(const WCHAR*,HTMLElement*,DISPID,HTMLDOMAttribute**) DECLSPEC_HIDDEN;
 
@@ -964,6 +970,7 @@ HRESULT HTMLEmbedElement_Create(HTMLDocumentNode*,nsIDOMHTMLElement*,HTMLElement
 HRESULT HTMLFormElement_Create(HTMLDocumentNode*,nsIDOMHTMLElement*,HTMLElement**) DECLSPEC_HIDDEN;
 HRESULT HTMLFrameElement_Create(HTMLDocumentNode*,nsIDOMHTMLElement*,HTMLElement**) DECLSPEC_HIDDEN;
 HRESULT HTMLHeadElement_Create(HTMLDocumentNode*,nsIDOMHTMLElement*,HTMLElement**) DECLSPEC_HIDDEN;
+HRESULT HTMLHtmlElement_Create(HTMLDocumentNode*,nsIDOMHTMLElement*,HTMLElement**) DECLSPEC_HIDDEN;
 HRESULT HTMLIFrame_Create(HTMLDocumentNode*,nsIDOMHTMLElement*,HTMLElement**) DECLSPEC_HIDDEN;
 HRESULT HTMLStyleElement_Create(HTMLDocumentNode*,nsIDOMHTMLElement*,HTMLElement**) DECLSPEC_HIDDEN;
 HRESULT HTMLImgElement_Create(HTMLDocumentNode*,nsIDOMHTMLElement*,HTMLElement**) DECLSPEC_HIDDEN;
@@ -1016,11 +1023,8 @@ IHTMLElementCollection *create_all_collection(HTMLDOMNode*,BOOL) DECLSPEC_HIDDEN
 IHTMLElementCollection *create_collection_from_nodelist(HTMLDocumentNode*,nsIDOMNodeList*) DECLSPEC_HIDDEN;
 IHTMLElementCollection *create_collection_from_htmlcol(HTMLDocumentNode*,nsIDOMHTMLCollection*) DECLSPEC_HIDDEN;
 
-#define ATTRFLAG_CASESENSITIVE  0x0001
-#define ATTRFLAG_ASSTRING       0x0002
-#define ATTRFLAG_EXPANDURL      0x0004
-
-HRESULT get_elem_attr_value_by_dispid(HTMLElement*,DISPID,DWORD,VARIANT*) DECLSPEC_HIDDEN;
+HRESULT attr_value_to_string(VARIANT*) DECLSPEC_HIDDEN;
+HRESULT get_elem_attr_value_by_dispid(HTMLElement*,DISPID,VARIANT*) DECLSPEC_HIDDEN;
 HRESULT get_elem_source_index(HTMLElement*,LONG*) DECLSPEC_HIDDEN;
 
 nsresult get_elem_attr_value(nsIDOMHTMLElement*,const WCHAR*,nsAString*,const PRUnichar**) DECLSPEC_HIDDEN;

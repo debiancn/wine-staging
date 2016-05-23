@@ -80,10 +80,13 @@ struct wined3d_settings wined3d_settings =
     0,              /* The default of memory is set in init_driver_info */
     NULL,           /* No wine logo by default */
     TRUE,           /* Multisampling enabled by default. */
+    ~0u,            /* Don't force a specific sample count by default. */
     FALSE,          /* No strict draw ordering. */
     TRUE,           /* Don't try to render onscreen by default. */
     FALSE,          /* Don't range check relative addressing indices in float constants. */
     ~0U,            /* No VS shader model limit by default. */
+    ~0U,            /* No HS shader model limit by default. */
+    ~0U,            /* No DS shader model limit by default. */
     ~0U,            /* No GS shader model limit by default. */
     ~0U,            /* No PS shader model limit by default. */
     FALSE,          /* 3D support enabled by default. */
@@ -291,6 +294,9 @@ static BOOL wined3d_dll_init(HINSTANCE hInstDLL)
                 wined3d_settings.allow_multisampling = FALSE;
             }
         }
+        if (!get_config_key_dword(hkey, appkey, "SampleCount", &wined3d_settings.sample_count))
+            ERR_(winediag)("Forcing sample count to %u. This may not be compatible with all applications.\n",
+                    wined3d_settings.sample_count);
         if (!get_config_key(hkey, appkey, "StrictDrawOrdering", buffer, size)
                 && !strcmp(buffer,"enabled"))
         {
@@ -311,6 +317,10 @@ static BOOL wined3d_dll_init(HINSTANCE hInstDLL)
         }
         if (!get_config_key_dword(hkey, appkey, "MaxShaderModelVS", &wined3d_settings.max_sm_vs))
             TRACE("Limiting VS shader model to %u.\n", wined3d_settings.max_sm_vs);
+        if (!get_config_key_dword(hkey, appkey, "MaxShaderModelHS", &wined3d_settings.max_sm_hs))
+            TRACE("Limiting HS shader model to %u.\n", wined3d_settings.max_sm_hs);
+        if (!get_config_key_dword(hkey, appkey, "MaxShaderModelDS", &wined3d_settings.max_sm_ds))
+            TRACE("Limiting DS shader model to %u.\n", wined3d_settings.max_sm_ds);
         if (!get_config_key_dword(hkey, appkey, "MaxShaderModelGS", &wined3d_settings.max_sm_gs))
             TRACE("Limiting GS shader model to %u.\n", wined3d_settings.max_sm_gs);
         if (!get_config_key_dword(hkey, appkey, "MaxShaderModelPS", &wined3d_settings.max_sm_ps))

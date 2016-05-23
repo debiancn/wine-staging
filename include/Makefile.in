@@ -137,6 +137,7 @@ IDL_SRCS = \
 	servprov.idl \
 	sesprp.idl \
 	shdeprecated.idl \
+	shimgdata.idl \
 	shldisp.idl \
 	shobjidl.idl \
 	shtypes.idl \
@@ -200,6 +201,7 @@ HEADER_SRCS = \
 	atlwin.h \
 	audevcod.h \
 	audiosessiontypes.h \
+	authz.h \
 	aviriff.h \
 	avrt.h \
 	basetsd.h \
@@ -208,6 +210,8 @@ HEADER_SRCS = \
 	bdaiface_enums.h \
 	bdatypes.h \
 	bitsmsg.h \
+	bluetoothapis.h \
+	bthsdpdef.h \
 	cderr.h \
 	cfgmgr32.h \
 	cguid.h \
@@ -246,9 +250,11 @@ HEADER_SRCS = \
 	d3drmobj.h \
 	d3drmwin.h \
 	d3dtypes.h \
+	d3dukmdt.h \
 	d3dvec.inl \
 	d3dx10.h \
 	d3dx10async.h \
+	d3dx10tex.h \
 	d3dx9.h \
 	d3dx9anim.h \
 	d3dx9core.h \
@@ -271,6 +277,7 @@ HEADER_SRCS = \
 	ddeml.h \
 	ddk/compstui.h \
 	ddk/csq.h \
+	ddk/d3dkmthk.h \
 	ddk/hidclass.h \
 	ddk/hidpi.h \
 	ddk/hidport.h \
@@ -351,6 +358,7 @@ HEADER_SRCS = \
 	fdi.h \
 	fileapi.h \
 	fltdefs.h \
+	fontsub.h \
 	gdiplus.h \
 	gdipluscolor.h \
 	gdipluscolormatrix.h \
@@ -611,6 +619,7 @@ HEADER_SRCS = \
 	wfext.h \
 	wia.h \
 	wiadef.h \
+	wimgapi.h \
 	winbase.h \
 	wincon.h \
 	wincred.h \

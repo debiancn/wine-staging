@@ -42,7 +42,7 @@ WINE_DECLARE_DEBUG_CHANNEL(d3d_shader);
 
 static void state_undefined(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
 {
-    ERR("Undefined state.\n");
+    ERR("Undefined state %s (%#x).\n", debug_d3dstate(state_id), state_id);
 }
 
 void state_nop(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
@@ -260,11 +260,11 @@ static void state_zfunc(struct wined3d_context *context, const struct wined3d_st
 static void state_ambient(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
 {
     const struct wined3d_gl_info *gl_info = context->gl_info;
-    float col[4];
+    struct wined3d_color color;
 
-    D3DCOLORTOGLFLOAT4(state->render_states[WINED3D_RS_AMBIENT], col);
-    TRACE("Setting ambient to (%f,%f,%f,%f)\n", col[0], col[1], col[2], col[3]);
-    gl_info->gl_ops.gl.p_glLightModelfv(GL_LIGHT_MODEL_AMBIENT, col);
+    wined3d_color_from_d3dcolor(&color, state->render_states[WINED3D_RS_AMBIENT]);
+    TRACE("Setting ambient to %s.\n", debug_color(&color));
+    gl_info->gl_ops.gl.p_glLightModelfv(GL_LIGHT_MODEL_AMBIENT, &color.r);
     checkGLcall("glLightModel for MODEL_AMBIENT");
 }
 
@@ -367,11 +367,20 @@ static GLenum gl_blend_factor(enum wined3d_blend factor, const struct wined3d_fo
 
 static void state_blend(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
 {
-    const struct wined3d_format *rt_format = state->fb->render_targets[0]->format;
-    unsigned int rt_fmt_flags = state->fb->render_targets[0]->format_flags;
     const struct wined3d_gl_info *gl_info = context->gl_info;
-    GLenum srcBlend, dstBlend;
+    const struct wined3d_format *rt_format;
     enum wined3d_blend d3d_blend;
+    GLenum srcBlend, dstBlend;
+    unsigned int rt_fmt_flags;
+
+    if (!state->fb->render_targets[0])
+    {
+        gl_info->gl_ops.gl.p_glDisable(GL_BLEND);
+        return;
+    }
+
+    rt_format = state->fb->render_targets[0]->format;
+    rt_fmt_flags = state->fb->render_targets[0]->format_flags;
 
     /* According to the red book, GL_LINE_SMOOTH needs GL_BLEND with specific
      * blending parameters to work. */
@@ -497,12 +506,12 @@ static void state_blendfactor_w(struct wined3d_context *context, const struct wi
 static void state_blendfactor(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
 {
     const struct wined3d_gl_info *gl_info = context->gl_info;
-    float col[4];
+    struct wined3d_color color;
 
     TRACE("Setting blend factor to %#x.\n", state->render_states[WINED3D_RS_BLENDFACTOR]);
 
-    D3DCOLORTOGLFLOAT4(state->render_states[WINED3D_RS_BLENDFACTOR], col);
-    GL_EXTCALL(glBlendColor(col[0], col[1], col[2], col[3]));
+    wined3d_color_from_d3dcolor(&color, state->render_states[WINED3D_RS_BLENDFACTOR]);
+    GL_EXTCALL(glBlendColor(color.r, color.g, color.b, color.a));
     checkGLcall("glBlendColor");
 }
 
@@ -712,18 +721,10 @@ static void state_specularenable(struct wined3d_context *context, const struct w
         }
     }
 
-    TRACE("diffuse {%.8e, %.8e, %.8e, %.8e}\n",
-            state->material.diffuse.r, state->material.diffuse.g,
-            state->material.diffuse.b, state->material.diffuse.a);
-    TRACE("ambient {%.8e, %.8e, %.8e, %.8e}\n",
-            state->material.ambient.r, state->material.ambient.g,
-            state->material.ambient.b, state->material.ambient.a);
-    TRACE("specular {%.8e, %.8e, %.8e, %.8e}\n",
-            state->material.specular.r, state->material.specular.g,
-            state->material.specular.b, state->material.specular.a);
-    TRACE("emissive {%.8e, %.8e, %.8e, %.8e}\n",
-            state->material.emissive.r, state->material.emissive.g,
-            state->material.emissive.b, state->material.emissive.a);
+    TRACE("diffuse %s\n", debug_color(&state->material.diffuse));
+    TRACE("ambient %s\n", debug_color(&state->material.ambient));
+    TRACE("specular %s\n", debug_color(&state->material.specular));
+    TRACE("emissive %s\n", debug_color(&state->material.emissive));
 
     gl_info->gl_ops.gl.p_glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, (float *)&state->material.ambient);
     checkGLcall("glMaterialfv(GL_AMBIENT)");
@@ -736,12 +737,12 @@ static void state_specularenable(struct wined3d_context *context, const struct w
 static void state_texfactor(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
 {
     const struct wined3d_gl_info *gl_info = context->gl_info;
+    struct wined3d_color color;
     unsigned int i;
 
     /* Note the texture color applies to all textures whereas
      * GL_TEXTURE_ENV_COLOR applies to active only. */
-    float col[4];
-    D3DCOLORTOGLFLOAT4(state->render_states[WINED3D_RS_TEXTUREFACTOR], col);
+    wined3d_color_from_d3dcolor(&color, state->render_states[WINED3D_RS_TEXTUREFACTOR]);
 
     /* And now the default texture color as well */
     for (i = 0; i < context->d3d_info->limits.ffp_blend_stages; ++i)
@@ -750,7 +751,7 @@ static void state_texfactor(struct wined3d_context *context, const struct wined3
          * per texture, so apply it now ready to be used! */
         context_active_texture(context, gl_info, i);
 
-        gl_info->gl_ops.gl.p_glTexEnvfv(GL_TEXTURE_ENV, GL_TEXTURE_ENV_COLOR, &col[0]);
+        gl_info->gl_ops.gl.p_glTexEnvfv(GL_TEXTURE_ENV, GL_TEXTURE_ENV_COLOR, &color.r);
         checkGLcall("glTexEnvfv(GL_TEXTURE_ENV, GL_TEXTURE_ENV_COLOR, color);");
     }
 }
@@ -1125,10 +1126,10 @@ void state_fog_fragpart(struct wined3d_context *context, const struct wined3d_st
                     /* drop through */
 
                 case WINED3D_FOG_NONE:
-                    /* Both are none? According to msdn the alpha channel of the specular
-                     * color contains a fog factor. Set it in drawStridedSlow.
-                     * Same happens with Vertexfog on transformed vertices
-                     */
+                    /* Both are none? According to msdn the alpha channel of
+                     * the specular colour contains a fog factor. Set it in
+                     * draw_primitive_immediate_mode(). Same happens with
+                     * vertex fog on transformed vertices. */
                     new_source = FOGSOURCE_COORD;
                     gl_info->gl_ops.gl.p_glFogi(GL_FOG_MODE, GL_LINEAR);
                     checkGLcall("glFogi(GL_FOG_MODE, GL_LINEAR)");
@@ -1179,10 +1180,10 @@ void state_fog_fragpart(struct wined3d_context *context, const struct wined3d_st
 void state_fogcolor(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
 {
     const struct wined3d_gl_info *gl_info = context->gl_info;
-    float col[4];
+    struct wined3d_color color;
 
-    D3DCOLORTOGLFLOAT4(state->render_states[WINED3D_RS_FOGCOLOR], col);
-    gl_info->gl_ops.gl.p_glFogfv(GL_FOG_COLOR, col);
+    wined3d_color_from_d3dcolor(&color, state->render_states[WINED3D_RS_FOGCOLOR]);
+    gl_info->gl_ops.gl.p_glFogfv(GL_FOG_COLOR, &color.r);
     checkGLcall("glFog GL_FOG_COLOR");
 }
 
@@ -1352,6 +1353,14 @@ static void state_linepattern(struct wined3d_context *context, const struct wine
         gl_info->gl_ops.gl.p_glDisable(GL_LINE_STIPPLE);
         checkGLcall("glDisable(GL_LINE_STIPPLE);");
     }
+}
+
+static void state_linepattern_w(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
+{
+    static unsigned int once;
+
+    if (!once++)
+        FIXME("Setting line patterns is not supported in OpenGL core contexts.\n");
 }
 
 static void state_normalize(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
@@ -1571,7 +1580,9 @@ void state_pointsprite(struct wined3d_context *context, const struct wined3d_sta
 
 static void state_wrap(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
 {
-    if (state->render_states[WINED3D_RS_WRAP0]
+    static unsigned int once;
+
+    if ((state->render_states[WINED3D_RS_WRAP0]
             || state->render_states[WINED3D_RS_WRAP1]
             || state->render_states[WINED3D_RS_WRAP2]
             || state->render_states[WINED3D_RS_WRAP3]
@@ -1587,6 +1598,7 @@ static void state_wrap(struct wined3d_context *context, const struct wined3d_sta
             || state->render_states[WINED3D_RS_WRAP13]
             || state->render_states[WINED3D_RS_WRAP14]
             || state->render_states[WINED3D_RS_WRAP15])
+            && !once++)
         FIXME("(WINED3D_RS_WRAP0) Texture wrapping not yet supported.\n");
 }
 
@@ -3488,7 +3500,8 @@ static void wined3d_sampler_desc_from_sampler_states(struct wined3d_sampler_desc
     desc->address_u = wined3d_texture_address_mode(texture, sampler_states[WINED3D_SAMP_ADDRESS_U]);
     desc->address_v = wined3d_texture_address_mode(texture, sampler_states[WINED3D_SAMP_ADDRESS_V]);
     desc->address_w = wined3d_texture_address_mode(texture, sampler_states[WINED3D_SAMP_ADDRESS_W]);
-    D3DCOLORTOGLFLOAT4(sampler_states[WINED3D_SAMP_BORDER_COLOR], desc->border_color);
+    wined3d_color_from_d3dcolor((struct wined3d_color *)desc->border_color,
+            sampler_states[WINED3D_SAMP_BORDER_COLOR]);
     if (sampler_states[WINED3D_SAMP_MAG_FILTER] > WINED3D_TEXF_ANISOTROPIC)
         FIXME("Unrecognized or unsupported WINED3D_SAMP_MAG_FILTER %#x.\n",
                 sampler_states[WINED3D_SAMP_MAG_FILTER]);
@@ -4191,11 +4204,13 @@ static void load_vertex_data(struct wined3d_context *context,
                     warned = TRUE;
                 }
             }
-        } else {
-            /* TODO: support blends in drawStridedSlow
-             * No need to write a FIXME here, this is done after the general vertex decl decoding
-             */
-            WARN("unsupported blending in openGl\n");
+        }
+        else
+        {
+            /* TODO: Support vertex blending in immediate mode draws. No need
+             * to write a FIXME here, this is done after the general vertex
+             * declaration decoding. */
+            WARN("Vertex blending not supported.\n");
         }
     }
     else
@@ -4548,31 +4563,40 @@ static void vertexdeclaration(struct wined3d_context *context, const struct wine
 
 static void viewport_miscpart(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
 {
+    const struct wined3d_rendertarget_view *depth_stencil = state->fb->depth_stencil;
     const struct wined3d_rendertarget_view *target = state->fb->render_targets[0];
     const struct wined3d_gl_info *gl_info = context->gl_info;
     struct wined3d_viewport vp = state->viewport;
+    unsigned int width, height;
 
-    if (vp.width > target->width)
-        vp.width = target->width;
-    if (vp.height > target->height)
-        vp.height = target->height;
+    if (target)
+    {
+        if (vp.width > target->width)
+            vp.width = target->width;
+        if (vp.height > target->height)
+            vp.height = target->height;
+
+        surface_get_drawable_size(wined3d_rendertarget_view_get_surface(target), context, &width, &height);
+    }
+    else if (depth_stencil)
+    {
+        width = depth_stencil->width;
+        height = depth_stencil->height;
+    }
+    else
+    {
+        FIXME("No attachments draw calls not supported.\n");
+        return;
+    }
 
     gl_info->gl_ops.gl.p_glDepthRange(vp.min_z, vp.max_z);
     checkGLcall("glDepthRange");
     /* Note: GL requires lower left, DirectX supplies upper left. This is
      * reversed when using offscreen rendering. */
     if (context->render_offscreen)
-    {
         gl_info->gl_ops.gl.p_glViewport(vp.x, vp.y, vp.width, vp.height);
-    }
     else
-    {
-        UINT width, height;
-
-        surface_get_drawable_size(wined3d_rendertarget_view_get_surface(target), context, &width, &height);
-        gl_info->gl_ops.gl.p_glViewport(vp.x, (height - (vp.y + vp.height)),
-                vp.width, vp.height);
-    }
+        gl_info->gl_ops.gl.p_glViewport(vp.x, (height - (vp.y + vp.height)), vp.width, vp.height);
     checkGLcall("glViewport");
 }
 
@@ -4945,7 +4969,8 @@ const struct StateEntryTemplate misc_state_template[] =
     { STATE_RENDER(WINED3D_RS_WRAPU),                     { STATE_RENDER(WINED3D_RS_WRAPU),                     state_wrapu         }, WINED3D_GL_EXT_NONE             },
     { STATE_RENDER(WINED3D_RS_WRAPV),                     { STATE_RENDER(WINED3D_RS_WRAPV),                     state_wrapv         }, WINED3D_GL_EXT_NONE             },
     { STATE_RENDER(WINED3D_RS_FILLMODE),                  { STATE_RENDER(WINED3D_RS_FILLMODE),                  state_fillmode      }, WINED3D_GL_EXT_NONE             },
-    { STATE_RENDER(WINED3D_RS_LINEPATTERN),               { STATE_RENDER(WINED3D_RS_LINEPATTERN),               state_linepattern   }, WINED3D_GL_EXT_NONE             },
+    { STATE_RENDER(WINED3D_RS_LINEPATTERN),               { STATE_RENDER(WINED3D_RS_LINEPATTERN),               state_linepattern   }, WINED3D_GL_LEGACY_CONTEXT       },
+    { STATE_RENDER(WINED3D_RS_LINEPATTERN),               { STATE_RENDER(WINED3D_RS_LINEPATTERN),               state_linepattern_w }, WINED3D_GL_EXT_NONE             },
     { STATE_RENDER(WINED3D_RS_MONOENABLE),                { STATE_RENDER(WINED3D_RS_MONOENABLE),                state_monoenable    }, WINED3D_GL_EXT_NONE             },
     { STATE_RENDER(WINED3D_RS_ROP2),                      { STATE_RENDER(WINED3D_RS_ROP2),                      state_rop2          }, WINED3D_GL_EXT_NONE             },
     { STATE_RENDER(WINED3D_RS_PLANEMASK),                 { STATE_RENDER(WINED3D_RS_PLANEMASK),                 state_planemask     }, WINED3D_GL_EXT_NONE             },

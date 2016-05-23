@@ -32,6 +32,12 @@
 /* Define to 1 if you have the `asctime_r' function. */
 #undef HAVE_ASCTIME_R
 
+/* Define to 1 if you have the `asinh' function. */
+#undef HAVE_ASINH
+
+/* Define to 1 if you have the `asinhf' function. */
+#undef HAVE_ASINHF
+
 /* Define to 1 if you have the <asm/types.h> header file. */
 #undef HAVE_ASM_TYPES_H
 
@@ -719,6 +725,12 @@
 
 /* Define to 1 if you have the `readlink' function. */
 #undef HAVE_READLINK
+
+/* Define to 1 if you have the `remainder' function. */
+#undef HAVE_REMAINDER
+
+/* Define to 1 if you have the `remainderf' function. */
+#undef HAVE_REMAINDERF
 
 /* Define to 1 if the system has the type `request_sense'. */
 #undef HAVE_REQUEST_SENSE

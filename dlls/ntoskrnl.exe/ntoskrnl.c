@@ -592,15 +592,20 @@ PIRP WINAPI IoAllocateIrp( CCHAR stack_size, BOOLEAN charge_quota )
 {
     SIZE_T size;
     PIRP irp;
+    CCHAR loc_count = stack_size;
 
     TRACE( "%d, %d\n", stack_size, charge_quota );
 
-    size = sizeof(IRP) + stack_size * sizeof(IO_STACK_LOCATION);
+    if (loc_count < 8 && loc_count != 1)
+        loc_count = 8;
+
+    size = sizeof(IRP) + loc_count * sizeof(IO_STACK_LOCATION);
     irp = ExAllocatePool( NonPagedPool, size );
     if (irp == NULL)
         return NULL;
     IoInitializeIrp( irp, size, stack_size );
-    irp->AllocationFlags = IRP_ALLOCATED_FIXED_SIZE;
+    if (stack_size >= 1 && stack_size <= 8)
+        irp->AllocationFlags = IRP_ALLOCATED_FIXED_SIZE;
     if (charge_quota)
         irp->AllocationFlags |= IRP_LOOKASIDE_ALLOCATION;
     return irp;
@@ -2148,6 +2153,16 @@ NTSTATUS WINAPI PsRemoveCreateThreadNotifyRoutine( PCREATE_THREAD_NOTIFY_ROUTINE
 
 
 /***********************************************************************
+ *           PsRemoveLoadImageNotifyRoutine  (NTOSKRNL.EXE.@)
+ */
+ NTSTATUS WINAPI PsRemoveLoadImageNotifyRoutine(PLOAD_IMAGE_NOTIFY_ROUTINE NotifyRoutine)
+ {
+    FIXME( "stub: %p\n", NotifyRoutine );
+    return STATUS_SUCCESS;
+ }
+
+
+/***********************************************************************
  *           PsTerminateSystemThread   (NTOSKRNL.EXE.@)
  */
 NTSTATUS WINAPI PsTerminateSystemThread(NTSTATUS ExitStatus)
@@ -2476,5 +2491,14 @@ NTSTATUS WINAPI CmRegisterCallback(EX_CALLBACK_FUNCTION *function, void *context
 NTSTATUS WINAPI CmUnRegisterCallback(LARGE_INTEGER cookie)
 {
     FIXME("(%s): stub\n", wine_dbgstr_longlong(cookie.QuadPart));
+    return STATUS_NOT_IMPLEMENTED;
+}
+
+/***********************************************************************
+ *           KeDelayExecutionThread  (NTOSKRNL.EXE.@)
+ */
+NTSTATUS WINAPI KeDelayExecutionThread(KPROCESSOR_MODE waitmode, BOOLEAN alertable, PLARGE_INTEGER interval)
+{
+    FIXME("(%u, %u, %p): stub\n", waitmode, alertable, interval);
     return STATUS_NOT_IMPLEMENTED;
 }

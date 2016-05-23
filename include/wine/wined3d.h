@@ -46,8 +46,6 @@
 #define WINED3DERR_INVALIDCALL                                  MAKE_WINED3DHRESULT(2156)
 #define WINEDDERR_NOTAOVERLAYSURFACE                            MAKE_WINED3DHRESULT(580)
 #define WINEDDERR_NOTLOCKED                                     MAKE_WINED3DHRESULT(584)
-#define WINEDDERR_NODC                                          MAKE_WINED3DHRESULT(586)
-#define WINEDDERR_DCALREADYCREATED                              MAKE_WINED3DHRESULT(620)
 #define WINEDDERR_SURFACEBUSY                                   MAKE_WINED3DHRESULT(430)
 #define WINEDDERR_INVALIDRECT                                   MAKE_WINED3DHRESULT(150)
 #define WINEDDERR_OVERLAYNOTVISIBLE                             MAKE_WINED3DHRESULT(577)
@@ -747,11 +745,23 @@ enum wined3d_decl_usage
 
 enum wined3d_sysval_semantic
 {
-    WINED3D_SV_POSITION = 1,
-    WINED3D_SV_PRIMITIVEID = 7,
-    WINED3D_SV_INSTANCEID = 8,
-    WINED3D_SV_ISFRONTFACE = 9,
-    WINED3D_SV_SAMPLEINDEX = 10,
+    WINED3D_SV_POSITION                     = 1,
+    WINED3D_SV_PRIMITIVE_ID                 = 7,
+    WINED3D_SV_INSTANCE_ID                  = 8,
+    WINED3D_SV_IS_FRONT_FACE                = 9,
+    WINED3D_SV_SAMPLE_INDEX                 = 10,
+    WINED3D_SV_QUAD_U0_TESS_FACTOR          = 11,
+    WINED3D_SV_QUAD_V0_TESS_FACTOR          = 12,
+    WINED3D_SV_QUAD_U1_TESS_FACTOR          = 13,
+    WINED3D_SV_QUAD_V1_TESS_FACTOR          = 14,
+    WINED3D_SV_QUAD_U_INNER_TESS_FACTOR     = 15,
+    WINED3D_SV_QUAD_V_INNER_TESS_FACTOR     = 16,
+    WINED3D_SV_TRIANGLE_U_TESS_FACTOR       = 17,
+    WINED3D_SV_TRIANGLE_V_TESS_FACTOR       = 18,
+    WINED3D_SV_TRIANGLE_W_TESS_FACTOR       = 19,
+    WINED3D_SV_TRIANGLE_INNER_TESS_FACTOR   = 20,
+    WINED3D_SV_LINE_DETAIL_TESS_FACTOR      = 21,
+    WINED3D_SV_LINE_DENSITY_TESS_FACTOR     = 22,
 };
 
 enum wined3d_scanline_ordering
@@ -1458,7 +1468,7 @@ enum wined3d_display_rotation
 
 #define WINED3D_TEXTURE_CREATE_MAPPABLE                         0x00000001
 #define WINED3D_TEXTURE_CREATE_DISCARD                          0x00000002
-#define WINED3D_TEXTURE_CREATE_PIN_SYSMEM                       0x00000004
+#define WINED3D_TEXTURE_CREATE_GET_DC_LENIENT                   0x00000004
 
 #define WINED3D_APPEND_ALIGNED_ELEMENT                          0xffffffff
 
@@ -2054,7 +2064,8 @@ HRESULT __cdecl wined3d_device_begin_stateblock(struct wined3d_device *device);
 HRESULT __cdecl wined3d_device_clear(struct wined3d_device *device, DWORD rect_count, const RECT *rects, DWORD flags,
         const struct wined3d_color *color, float z, DWORD stencil);
 HRESULT __cdecl wined3d_device_clear_rendertarget_view(struct wined3d_device *device,
-        struct wined3d_rendertarget_view *view, const RECT *rect, const struct wined3d_color *color);
+        struct wined3d_rendertarget_view *view, const RECT *rect, DWORD flags,
+        const struct wined3d_color *color, float depth, DWORD stencil);
 void __cdecl wined3d_device_copy_resource(struct wined3d_device *device,
         struct wined3d_resource *dst_resource, struct wined3d_resource *src_resource);
 HRESULT __cdecl wined3d_device_copy_sub_resource_region(struct wined3d_device *device,
@@ -2372,7 +2383,11 @@ ULONG __cdecl wined3d_sampler_decref(struct wined3d_sampler *sampler);
 void * __cdecl wined3d_sampler_get_parent(const struct wined3d_sampler *sampler);
 ULONG __cdecl wined3d_sampler_incref(struct wined3d_sampler *sampler);
 
+HRESULT __cdecl wined3d_shader_create_ds(struct wined3d_device *device, const struct wined3d_shader_desc *desc,
+        void *parent, const struct wined3d_parent_ops *parent_ops, struct wined3d_shader **shader);
 HRESULT __cdecl wined3d_shader_create_gs(struct wined3d_device *device, const struct wined3d_shader_desc *desc,
+        void *parent, const struct wined3d_parent_ops *parent_ops, struct wined3d_shader **shader);
+HRESULT __cdecl wined3d_shader_create_hs(struct wined3d_device *device, const struct wined3d_shader_desc *desc,
         void *parent, const struct wined3d_parent_ops *parent_ops, struct wined3d_shader **shader);
 HRESULT __cdecl wined3d_shader_create_ps(struct wined3d_device *device, const struct wined3d_shader_desc *desc,
         void *parent, const struct wined3d_parent_ops *parent_ops, struct wined3d_shader **shader);
@@ -2418,8 +2433,7 @@ HRESULT __cdecl wined3d_swapchain_get_raster_status(const struct wined3d_swapcha
         struct wined3d_raster_status *raster_status);
 ULONG __cdecl wined3d_swapchain_incref(struct wined3d_swapchain *swapchain);
 HRESULT __cdecl wined3d_swapchain_present(struct wined3d_swapchain *swapchain,
-        const RECT *src_rect, const RECT *dst_rect, HWND dst_window_override,
-        const RGNDATA *dirty_region, DWORD flags);
+        const RECT *src_rect, const RECT *dst_rect, HWND dst_window_override, DWORD flags);
 HRESULT __cdecl wined3d_swapchain_resize_buffers(struct wined3d_swapchain *swapchain, unsigned int buffer_count,
         unsigned int width, unsigned int height, enum wined3d_format_id format_id,
         enum wined3d_multisample_type multisample_type, unsigned int multisample_quality);

@@ -1897,12 +1897,12 @@
 @ stub -arch=arm ?do_date_order@?$time_get@_WV?$istreambuf_iterator@_WU?$char_traits@_W@std@@@std@@@std@@MBA?AW4dateorder@time_base@2@XZ
 @ stub -arch=i386 ?do_date_order@?$time_get@_WV?$istreambuf_iterator@_WU?$char_traits@_W@std@@@std@@@std@@MBE?AW4dateorder@time_base@2@XZ
 @ stub -arch=win64 ?do_date_order@?$time_get@_WV?$istreambuf_iterator@_WU?$char_traits@_W@std@@@std@@@std@@MEBA?AW4dateorder@time_base@2@XZ
-@ stub -arch=arm ?do_encoding@?$codecvt@GDH@std@@MBAHXZ
-@ stub -arch=i386 ?do_encoding@?$codecvt@GDH@std@@MBEHXZ
-@ stub -arch=win64 ?do_encoding@?$codecvt@GDH@std@@MEBAHXZ
-@ stub -arch=arm ?do_encoding@?$codecvt@_WDH@std@@MBAHXZ
-@ stub -arch=i386 ?do_encoding@?$codecvt@_WDH@std@@MBEHXZ
-@ stub -arch=win64 ?do_encoding@?$codecvt@_WDH@std@@MEBAHXZ
+@ cdecl -arch=arm ?do_encoding@?$codecvt@GDH@std@@MBAHXZ(ptr) msvcp120.?do_encoding@?$codecvt@GDH@std@@MBAHXZ
+@ thiscall -arch=i386 ?do_encoding@?$codecvt@GDH@std@@MBEHXZ(ptr) msvcp120.?do_encoding@?$codecvt@GDH@std@@MBEHXZ
+@ cdecl -arch=win64 ?do_encoding@?$codecvt@GDH@std@@MEBAHXZ(ptr) msvcp120.?do_encoding@?$codecvt@GDH@std@@MEBAHXZ
+@ cdecl -arch=arm ?do_encoding@?$codecvt@_WDH@std@@MBAHXZ(ptr) msvcp120.?do_encoding@?$codecvt@_WDH@std@@MBAHXZ
+@ thiscall -arch=i386 ?do_encoding@?$codecvt@_WDH@std@@MBEHXZ(ptr) msvcp120.?do_encoding@?$codecvt@_WDH@std@@MBEHXZ
+@ cdecl -arch=win64 ?do_encoding@?$codecvt@_WDH@std@@MEBAHXZ(ptr) msvcp120.?do_encoding@?$codecvt@_WDH@std@@MEBAHXZ
 @ cdecl -arch=arm ?do_encoding@codecvt_base@std@@MBAHXZ(ptr) msvcp120.?do_encoding@codecvt_base@std@@MBAHXZ
 @ thiscall -arch=i386 ?do_encoding@codecvt_base@std@@MBEHXZ(ptr) msvcp120.?do_encoding@codecvt_base@std@@MBEHXZ
 @ cdecl -arch=win64 ?do_encoding@codecvt_base@std@@MEBAHXZ(ptr) msvcp120.?do_encoding@codecvt_base@std@@MEBAHXZ
@@ -3763,7 +3763,7 @@
 @ stub _Lock_shared_ptr_spin_lock
 @ cdecl _Mbrtowc(ptr ptr long ptr ptr) msvcp120._Mbrtowc
 @ stub _Mtx_clear_owner
-@ stub _Mtx_current_owns
+@ cdecl _Mtx_current_owns(ptr) msvcp120._Mtx_current_owns
 @ cdecl _Mtx_destroy(ptr) msvcp120._Mtx_destroy
 @ cdecl _Mtx_getconcrtcs(ptr) msvcp120._Mtx_getconcrtcs
 @ cdecl _Mtx_init(ptr long) msvcp120._Mtx_init

@@ -3207,6 +3207,20 @@ DWORD WINAPI GetConsoleAliasesLengthW(LPWSTR unknown)
     return 0;
 }
 
+DWORD WINAPI GetConsoleAliasExesLengthA(void)
+{
+    FIXME(": stub!\n");
+    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+    return 0;
+}
+
+DWORD WINAPI GetConsoleAliasExesLengthW(void)
+{
+    FIXME(": stub!\n");
+    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+    return 0;
+}
+
 VOID WINAPI ExpungeConsoleCommandHistoryA(LPCSTR unknown)
 {
     FIXME(": (%s) stub!\n", debugstr_a(unknown));
@@ -3343,6 +3357,13 @@ BOOL WINAPI GetConsoleScreenBufferInfoEx(HANDLE hConsole, CONSOLE_SCREEN_BUFFER_
 BOOL WINAPI SetConsoleScreenBufferInfoEx(HANDLE hConsole, CONSOLE_SCREEN_BUFFER_INFOEX *csbix)
 {
     FIXME("(%p %p): stub!\n", hConsole, csbix);
+    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+    return FALSE;
+}
+
+BOOL WINAPI SetCurrentConsoleFontEx(HANDLE hConsole, BOOL maxwindow, CONSOLE_FONT_INFOEX *cfix)
+{
+    FIXME("(%p %d %p): stub!\n", hConsole, maxwindow, cfix);
     SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
     return FALSE;
 }

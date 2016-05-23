@@ -40,12 +40,7 @@ WINE_DECLARE_DEBUG_CHANNEL(hid_report);
 
 static const WCHAR device_name_fmtW[] = {'\\','D','e','v','i','c','e',
     '\\','H','I','D','#','%','p','&','%','p',0};
-static const WCHAR device_regname_fmtW[] = {'H','I','D','\\',
-    'v','i','d','_','%','0','4','x','&','p','i','d','_','%',
-    '0','4','x','&','%','s','\\','%','i','&','%','s',0};
-static const WCHAR device_link_fmtW[] = {'\\','?','?','\\','h','i','d','#',
-    'v','i','d','_','%','0','4','x','&','p','i','d','_','%',
-    '0','4','x','&','%','s','#','%','i','&','%','s','#','%','s',0};
+static const WCHAR device_link_fmtW[] = {'\\','?','?','\\','%','s','#','%','s',0};
 /* GUID_DEVINTERFACE_HID */
 static const WCHAR class_guid[] = {'{','4','D','1','E','5','5','B','2',
     '-','F','1','6','F','-','1','1','C','F','-','8','8','C','B','-','0','0',
@@ -83,10 +78,10 @@ NTSTATUS HID_CreateDevice(DEVICE_OBJECT *native_device, HID_MINIDRIVER_REGISTRAT
     return S_OK;
 }
 
-NTSTATUS HID_LinkDevice(DEVICE_OBJECT *device, LPCWSTR serial, LPCWSTR index)
+NTSTATUS HID_LinkDevice(DEVICE_OBJECT *device)
 {
-    WCHAR regname[255];
     WCHAR dev_link[255];
+    WCHAR *ptr;
     SP_DEVINFO_DATA Data;
     UNICODE_STRING nameW, linkW;
     NTSTATUS status;
@@ -97,9 +92,9 @@ NTSTATUS HID_LinkDevice(DEVICE_OBJECT *device, LPCWSTR serial, LPCWSTR index)
     HidD_GetHidGuid(&hidGuid);
     ext = device->DeviceExtension;
 
-    sprintfW(dev_link, device_link_fmtW, ext->information.VendorID,
-        ext->information.ProductID, index, ext->information.VersionNumber, serial,
-        class_guid);
+    sprintfW(dev_link, device_link_fmtW, ext->instance_id, class_guid);
+    ptr = dev_link + 4;
+    do { if (*ptr == '\\') *ptr = '#'; } while (*ptr++);
     struprW(dev_link);
 
     RtlInitUnicodeString( &nameW, ext->device_name);
@@ -117,8 +112,6 @@ NTSTATUS HID_LinkDevice(DEVICE_OBJECT *device, LPCWSTR serial, LPCWSTR index)
         return status;
     }
 
-    sprintfW(regname, device_regname_fmtW, ext->information.VendorID, ext->information.ProductID, index, ext->information.VersionNumber, serial);
-
     devinfo = SetupDiGetClassDevsW(&GUID_DEVCLASS_HIDCLASS, NULL, NULL, DIGCF_DEVICEINTERFACE);
     if (!devinfo)
     {
@@ -126,7 +119,7 @@ NTSTATUS HID_LinkDevice(DEVICE_OBJECT *device, LPCWSTR serial, LPCWSTR index)
         return GetLastError();
     }
     Data.cbSize = sizeof(Data);
-    if (!SetupDiCreateDeviceInfoW(devinfo, regname, &GUID_DEVCLASS_HIDCLASS, NULL, NULL, DICD_INHERIT_CLASSDRVS, &Data))
+    if (!SetupDiCreateDeviceInfoW(devinfo, ext->instance_id, &GUID_DEVCLASS_HIDCLASS, NULL, NULL, DICD_INHERIT_CLASSDRVS, &Data))
     {
         if (GetLastError() == ERROR_DEVINST_ALREADY_EXISTS)
         {
@@ -437,11 +430,11 @@ static NTSTATUS HID_get_feature(DEVICE_OBJECT *device, IRP *irp)
     HID_XFER_PACKET *packet;
     DWORD len;
     NTSTATUS rc = STATUS_SUCCESS;
-    WCHAR *out_buffer;
+    BYTE *out_buffer;
 
     irp->IoStatus.Information = 0;
 
-    out_buffer = (WCHAR*)(((BYTE*)irp->MdlAddress->StartVa) + irp->MdlAddress->ByteOffset);
+    out_buffer = (((BYTE*)irp->MdlAddress->StartVa) + irp->MdlAddress->ByteOffset);
     TRACE_(hid_report)("Device %p Buffer length %i Buffer %p\n", device, irpsp->Parameters.DeviceIoControl.OutputBufferLength, out_buffer);
 
     len = sizeof(*packet) + irpsp->Parameters.DeviceIoControl.OutputBufferLength;
@@ -452,15 +445,20 @@ static NTSTATUS HID_get_feature(DEVICE_OBJECT *device, IRP *irp)
 
     TRACE_(hid_report)("(id %i, len %i buffer %p)\n", packet->reportId, packet->reportBufferLen, packet->reportBuffer);
 
-    rc = call_minidriver(IOCTL_HID_GET_FEATURE, device, NULL, 0, packet, len);
+    rc = call_minidriver(IOCTL_HID_GET_FEATURE, device, NULL, 0, packet, sizeof(*packet));
 
     irp->IoStatus.u.Status = rc;
     if (irp->IoStatus.u.Status == STATUS_SUCCESS)
-        irp->IoStatus.Information = irpsp->Parameters.DeviceIoControl.OutputBufferLength;
+    {
+        irp->IoStatus.Information = packet->reportBufferLen;
+        memcpy(out_buffer, packet->reportBuffer, packet->reportBufferLen);
+    }
     else
         irp->IoStatus.Information = 0;
 
     TRACE_(hid_report)("Result 0x%x get %li bytes\n", rc, irp->IoStatus.Information);
+
+    HeapFree(GetProcessHeap(), 0, packet);
 
     return rc;
 }
@@ -479,7 +477,7 @@ static NTSTATUS HID_set_feature(DEVICE_OBJECT *device, IRP *irp)
     packet.reportBufferLen = irpsp->Parameters.DeviceIoControl.InputBufferLength;
     TRACE_(hid_report)("(id %i, len %i buffer %p)\n", packet.reportId, packet.reportBufferLen, packet.reportBuffer);
 
-    rc = call_minidriver(IOCTL_HID_SET_FEATURE, device, NULL, 0, &packet, sizeof(packet));
+    rc = call_minidriver(IOCTL_HID_SET_FEATURE, device, &packet, sizeof(packet), NULL, 0);
 
     irp->IoStatus.u.Status = rc;
     if (irp->IoStatus.u.Status == STATUS_SUCCESS)

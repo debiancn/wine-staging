@@ -17,7 +17,7 @@ author: Michael Gilbert <mgilbert@debian.org>
  # Then, create the list of all OpenGL functions using the registry
  # files. This will create two hash-tables, one with all the function
  # whose category matches the one listed in '@norm_categories', the other
-@@ -734,20 +727,17 @@ sub parse_file($$)
+@@ -759,20 +752,17 @@ sub parse_file($$)
      }
  }
  

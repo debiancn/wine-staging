@@ -19,15 +19,13 @@
  *
  */
 
-#ifndef __WINE_D3DX9_36_PRIVATE_H
-#define __WINE_D3DX9_36_PRIVATE_H
+#ifndef __WINE_D3DX9_PRIVATE_H
+#define __WINE_D3DX9_PRIVATE_H
 
-#include <stdarg.h>
+#define NONAMELESSUNION
+#include "wine/debug.h"
 
 #define COBJMACROS
-#include "winbase.h"
-#include "wingdi.h"
-#include "winuser.h"
 #include "d3dx9.h"
 
 #define ARRAY_SIZE(array) (sizeof(array)/sizeof(*array))
@@ -110,4 +108,90 @@ const char *debug_d3dxparameter_registerset(D3DXREGISTER_SET r) DECLSPEC_HIDDEN;
 void set_number(void *outdata, D3DXPARAMETER_TYPE outtype,
         const void *indata, D3DXPARAMETER_TYPE intype) DECLSPEC_HIDDEN;
 
-#endif /* __WINE_D3DX9_36_PRIVATE_H */
+struct d3dx_parameter;
+
+enum pres_reg_tables
+{
+    PRES_REGTAB_IMMED,
+    PRES_REGTAB_CONST,
+    PRES_REGTAB_OCONST,
+    PRES_REGTAB_OBCONST,
+    PRES_REGTAB_OICONST,
+    PRES_REGTAB_TEMP,
+    PRES_REGTAB_COUNT,
+    PRES_REGTAB_FIRST_SHADER = PRES_REGTAB_CONST,
+};
+
+struct d3dx_const_tab
+{
+    unsigned int input_count;
+    D3DXCONSTANT_DESC *inputs;
+    struct d3dx_parameter **inputs_param;
+    ID3DXConstantTable *ctab;
+    /* TODO: do not keep input constant structure
+       (use it only at the parse stage) */
+    const enum pres_reg_tables *regset2table;
+};
+
+struct d3dx_regstore
+{
+    void *tables[PRES_REGTAB_COUNT];
+    unsigned int table_sizes[PRES_REGTAB_COUNT]; /* registers count */
+    unsigned int *table_value_set[PRES_REGTAB_COUNT];
+};
+
+struct d3dx_pres_ins;
+
+struct d3dx_preshader
+{
+    struct d3dx_regstore regs;
+
+    unsigned int ins_count;
+    struct d3dx_pres_ins *ins;
+
+    struct d3dx_const_tab inputs;
+};
+
+struct d3dx_param_eval
+{
+    D3DXPARAMETER_TYPE param_type;
+
+    struct d3dx_preshader pres;
+    struct d3dx_const_tab shader_inputs;
+};
+
+struct d3dx_parameter
+{
+    char *name;
+    char *semantic;
+    void *data;
+    D3DXPARAMETER_CLASS class;
+    D3DXPARAMETER_TYPE  type;
+    UINT rows;
+    UINT columns;
+    UINT element_count;
+    UINT annotation_count;
+    UINT member_count;
+    DWORD flags;
+    UINT bytes;
+    DWORD object_id;
+
+    D3DXHANDLE handle;
+
+    struct d3dx_parameter *annotations;
+    struct d3dx_parameter *members;
+
+    struct d3dx_parameter *referenced_param;
+    struct d3dx_param_eval *param_eval;
+};
+
+struct d3dx9_base_effect;
+
+struct d3dx_parameter *get_parameter_by_name(struct d3dx9_base_effect *base,
+        struct d3dx_parameter *parameter, const char *name) DECLSPEC_HIDDEN;
+
+void d3dx_create_param_eval(struct d3dx9_base_effect *base_effect, void *byte_code,
+        unsigned int byte_code_size, D3DXPARAMETER_TYPE type, struct d3dx_param_eval **peval) DECLSPEC_HIDDEN;
+void d3dx_free_param_eval(struct d3dx_param_eval *peval) DECLSPEC_HIDDEN;
+
+#endif /* __WINE_D3DX9_PRIVATE_H */

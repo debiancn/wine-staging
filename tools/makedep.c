@@ -413,10 +413,15 @@ static void strarray_add_uniq( struct strarray *array, const char *str )
  */
 static const char *strarray_get_value( const struct strarray *array, const char *name )
 {
-    unsigned int i;
+    int pos, res, min = 0, max = array->count / 2 - 1;
 
-    for (i = 0; i < array->count; i += 2)
-        if (!strcmp( array->str[i], name )) return array->str[i + 1];
+    while (min <= max)
+    {
+        pos = (min + max) / 2;
+        if (!(res = strcmp( array->str[pos * 2], name ))) return array->str[pos * 2 + 1];
+        if (res < 0) min = pos + 1;
+        else max = pos - 1;
+    }
     return NULL;
 }
 
@@ -428,17 +433,25 @@ static const char *strarray_get_value( const struct strarray *array, const char 
  */
 static void strarray_set_value( struct strarray *array, const char *name, const char *value )
 {
-    unsigned int i;
+    int i, pos, res, min = 0, max = array->count / 2 - 1;
 
-    /* redefining a variable replaces the previous value */
-    for (i = 0; i < array->count; i += 2)
+    while (min <= max)
     {
-        if (strcmp( array->str[i], name )) continue;
-        array->str[i + 1] = value;
-        return;
+        pos = (min + max) / 2;
+        if (!(res = strcmp( array->str[pos * 2], name )))
+        {
+            /* redefining a variable replaces the previous value */
+            array->str[pos * 2 + 1] = value;
+            return;
+        }
+        if (res < 0) min = pos + 1;
+        else max = pos - 1;
     }
-    strarray_add( array, name );
-    strarray_add( array, value );
+    strarray_add( array, NULL );
+    strarray_add( array, NULL );
+    for (i = array->count - 1; i > min * 2 + 1; i--) array->str[i] = array->str[i - 2];
+    array->str[min * 2] = name;
+    array->str[min * 2 + 1] = value;
 }
 
 
@@ -641,9 +654,9 @@ static char *top_obj_dir_path( const struct makefile *make, const char *path )
 
 
 /*******************************************************************
- *         top_dir_path
+ *         top_src_dir_path
  */
-static char *top_dir_path( const struct makefile *make, const char *path )
+static char *top_src_dir_path( const struct makefile *make, const char *path )
 {
     if (make->top_src_dir) return concat_paths( make->top_src_dir, path );
     return top_obj_dir_path( make, path );
@@ -1283,7 +1296,7 @@ static struct file *open_global_file( const struct makefile *make, const char *p
     char *src_path = root_dir_path( path );
     struct file *ret = load_file( src_path );
 
-    if (ret) *filename = top_dir_path( make, path );
+    if (ret) *filename = top_src_dir_path( make, path );
     free( src_path );
     return ret;
 }
@@ -1810,7 +1823,7 @@ static void add_generated_sources( struct makefile *make )
         if (source->file->flags & FLAG_C_IMPLIB)
         {
             if (!make->staticimplib && make->importlib && *dll_ext)
-                make->staticimplib = strmake( "lib%s.def.a", make->importlib );
+                make->staticimplib = strmake( "lib%s.a", make->importlib );
         }
         if (strendswith( source->name, ".po" ))
         {
@@ -1926,16 +1939,17 @@ static struct strarray get_local_dependencies( const struct makefile *make, cons
 
 
 /*******************************************************************
- *         has_static_lib
+ *         get_static_lib
  *
- * Check if makefile builds the named static library.
+ * Check if makefile builds the named static library and return the full lib path.
  */
-static int has_static_lib( const struct makefile *make, const char *name )
+static const char *get_static_lib( const struct makefile *make, const char *name )
 {
-    if (!make->staticlib) return 0;
-    if (strncmp( make->staticlib, "lib", 3 )) return 0;
-    if (strncmp( make->staticlib + 3, name, strlen(name) )) return 0;
-    return !strcmp( make->staticlib + 3 + strlen(name), ".a" );
+    if (!make->staticlib) return NULL;
+    if (strncmp( make->staticlib, "lib", 3 )) return NULL;
+    if (strncmp( make->staticlib + 3, name, strlen(name) )) return NULL;
+    if (strcmp( make->staticlib + 3 + strlen(name), ".a" )) return NULL;
+    return base_dir_path( make, make->staticlib );
 }
 
 
@@ -1954,7 +1968,8 @@ static struct strarray add_default_libraries( const struct makefile *make, struc
 
     for (i = 0; i < all_libs.count; i++)
     {
-        int found = 0;
+        const char *lib = NULL;
+
         if (!strncmp( all_libs.str[i], "-l", 2 ))
         {
             const char *name = all_libs.str[i] + 2;
@@ -1963,17 +1978,17 @@ static struct strarray add_default_libraries( const struct makefile *make, struc
             {
                 const struct makefile *submake = top_makefile->submakes[j];
 
-                if ((found = has_static_lib( submake, name )))
-                {
-                    const char *lib = strmake( "%s/lib%s.a",
-                                               top_obj_dir_path( make, submake->base_dir ), name );
-                    strarray_add( deps, lib );
-                    strarray_add( &ret, lib );
-                    break;
-                }
+                if ((lib = get_static_lib( submake, name ))) break;
             }
         }
-        if (!found) strarray_add( &ret, all_libs.str[i] );
+
+        if (lib)
+        {
+            lib = top_obj_dir_path( make, lib );
+            strarray_add( deps, lib );
+            strarray_add( &ret, lib );
+        }
+        else strarray_add( &ret, all_libs.str[i] );
     }
     return ret;
 }
@@ -1991,6 +2006,7 @@ static struct strarray add_import_libs( const struct makefile *make, struct stra
     for (i = 0; i < imports.count; i++)
     {
         const char *name = imports.str[i];
+        const char *lib = NULL;
 
         for (j = 0; j < top_makefile->subdirs.count; j++)
         {
@@ -1998,24 +2014,25 @@ static struct strarray add_import_libs( const struct makefile *make, struct stra
 
             if (submake->importlib && !strcmp( submake->importlib, name ))
             {
-                const char *dir = top_obj_dir_path( make, submake->base_dir );
-                const char *ext = cross ? "cross.a" : *dll_ext ? "def" : "a";
-
-                strarray_add( deps, strmake( "%s/lib%s.%s", dir, name, ext ));
-                if (!cross && submake->staticimplib)
-                    strarray_add( deps, strmake( "%s/%s", dir, submake->staticimplib ));
+                if (cross || !*dll_ext || submake->staticimplib)
+                    lib = base_dir_path( submake, strmake( "lib%s.a", name ));
+                else
+                    strarray_add( deps, top_obj_dir_path( make,
+                                            strmake( "%s/lib%s.def", submake->base_dir, name )));
                 break;
             }
 
-            if (has_static_lib( submake, name ))
-            {
-                const char *dir = top_obj_dir_path( make, submake->base_dir );
-
-                strarray_add( deps, strmake( "%s/lib%s.a", dir, name ));
-                break;
-            }
+            if ((lib = get_static_lib( submake, name ))) break;
         }
-        strarray_add( &ret, strmake( "-l%s", name ));
+
+        if (lib)
+        {
+            if (cross) lib = replace_extension( lib, ".a", ".cross.a" );
+            lib = top_obj_dir_path( make, lib );
+            strarray_add( deps, lib );
+            strarray_add( &ret, lib );
+        }
+        else strarray_add( &ret, strmake( "-l%s", name ));
     }
     return ret;
 }
@@ -2123,51 +2140,65 @@ static struct strarray output_install_rules( const struct makefile *make, struct
     if (!files.count) return uninstall;
 
     for (i = 0; i < files.count; i += 2)
-        if (strchr( "dps", files.str[i + 1][0] ))  /* only for files copied from object dir */
-            strarray_add_uniq( &targets, files.str[i] );
+    {
+        const char *file = files.str[i];
+        switch (*files.str[i + 1])
+        {
+        case 'd':  /* data file */
+        case 'p':  /* program file */
+        case 's':  /* script */
+            strarray_add_uniq( &targets, obj_dir_path( make, file ));
+            break;
+        case 't':  /* script in tools dir */
+            strarray_add_uniq( &targets, tools_dir_path( make, file ));
+            break;
+        }
+    }
 
     output( "install %s::", target );
-    output_filenames_obj_dir( make, targets );
+    output_filenames( targets );
     output( "\n" );
 
-    install_sh = top_dir_path( make, "tools/install-sh" );
+    install_sh = top_src_dir_path( make, "tools/install-sh" );
     for (i = 0; i < files.count; i += 2)
     {
         const char *file = files.str[i];
-        const char *dest = files.str[i + 1];
+        const char *dest = strmake( "$(DESTDIR)%s", files.str[i + 1] + 1 );
 
-        switch (*dest)
+        switch (*files.str[i + 1])
         {
         case 'd':  /* data file */
-            output( "\t%s -m 644 $(INSTALL_DATA_FLAGS) %s $(DESTDIR)%s\n",
-                    install_sh, obj_dir_path( make, file ), dest + 1 );
+            output( "\t%s -m 644 $(INSTALL_DATA_FLAGS) %s %s\n",
+                    install_sh, obj_dir_path( make, file ), dest );
             break;
         case 'D':  /* data file in source dir */
-            output( "\t%s -m 644 $(INSTALL_DATA_FLAGS) %s $(DESTDIR)%s\n",
-                    install_sh, src_dir_path( make, file ), dest + 1 );
+            output( "\t%s -m 644 $(INSTALL_DATA_FLAGS) %s %s\n",
+                    install_sh, src_dir_path( make, file ), dest );
             break;
         case 'p':  /* program file */
-            output( "\tSTRIPPROG=\"$(STRIP)\" %s $(INSTALL_PROGRAM_FLAGS) %s $(DESTDIR)%s\n",
-                    install_sh, obj_dir_path( make, file ), dest + 1 );
+            output( "\tSTRIPPROG=\"$(STRIP)\" %s $(INSTALL_PROGRAM_FLAGS) %s %s\n",
+                    install_sh, obj_dir_path( make, file ), dest );
             break;
         case 's':  /* script */
-            output( "\t%s $(INSTALL_SCRIPT_FLAGS) %s $(DESTDIR)%s\n",
-                    install_sh, obj_dir_path( make, file ), dest + 1 );
+            output( "\t%s $(INSTALL_SCRIPT_FLAGS) %s %s\n",
+                    install_sh, obj_dir_path( make, file ), dest );
             break;
         case 'S':  /* script in source dir */
-            output( "\t%s $(INSTALL_SCRIPT_FLAGS) %s $(DESTDIR)%s\n",
-                    install_sh, src_dir_path( make, file ), dest + 1 );
+            output( "\t%s $(INSTALL_SCRIPT_FLAGS) %s %s\n",
+                    install_sh, src_dir_path( make, file ), dest );
+            break;
+        case 't':  /* script in tools dir */
+            output( "\t%s $(INSTALL_SCRIPT_FLAGS) %s %s\n",
+                    install_sh, tools_dir_path( make, file ), dest );
             break;
         case 'y':  /* symlink */
-            output( "\trm -f $(DESTDIR)%s && %s %s $(DESTDIR)%s\n", dest + 1, ln_s, file, dest + 1 );
+            output( "\trm -f %s && %s %s %s\n", dest, ln_s, file, dest );
             break;
         default:
             assert(0);
         }
+        strarray_add( &uninstall, dest );
     }
-
-    for (i = 0; i < files.count; i += 2)
-        strarray_add( &uninstall, strmake( "$(DESTDIR)%s", files.str[i + 1] + 1 ));
 
     strarray_add_uniq( phony_targets, "install" );
     strarray_add_uniq( phony_targets, target );
@@ -2301,8 +2332,10 @@ static struct strarray output_sources( const struct makefile *make )
     if (make->src_dir) strarray_add( &includes, strmake( "-I%s", make->src_dir ));
     if (make->parent_dir) strarray_add( &includes, strmake( "-I%s", src_dir_path( make, make->parent_dir )));
     strarray_add( &includes, strmake( "-I%s", top_obj_dir_path( make, "include" )));
-    if (make->top_src_dir) strarray_add( &includes, strmake( "-I%s", top_dir_path( make, "include" )));
-    if (make->use_msvcrt) strarray_add( &includes, strmake( "-I%s", top_dir_path( make, "include/msvcrt" )));
+    if (make->top_src_dir)
+        strarray_add( &includes, strmake( "-I%s", top_src_dir_path( make, "include" )));
+    if (make->use_msvcrt)
+        strarray_add( &includes, strmake( "-I%s", top_src_dir_path( make, "include/msvcrt" )));
     for (i = 0; i < make->include_paths.count; i++)
         strarray_add( &includes, strmake( "-I%s", obj_dir_path( make, make->include_paths.str[i] )));
 
@@ -2510,7 +2543,7 @@ static struct strarray output_sources( const struct makefile *make )
             {
                 output( "%s: %s\n", ttf_file, source->filename );
                 output( "\t%s -script %s %s $@\n",
-                        fontforge, top_dir_path( make, "fonts/genttf.ff" ), source->filename );
+                        fontforge, top_src_dir_path( make, "fonts/genttf.ff" ), source->filename );
                 if (!(source->file->flags & FLAG_SFD_FONTS)) output( "all: %s\n", ttf_file );
             }
             if (source->file->flags & FLAG_INSTALL)
@@ -2543,7 +2576,7 @@ static struct strarray output_sources( const struct makefile *make )
                 output( "%s.ico %s.bmp: %s\n",
                         src_dir_path( make, obj ), src_dir_path( make, obj ), source->filename );
                 output( "\tCONVERT=\"%s\" ICOTOOL=\"%s\" RSVG=\"%s\" %s %s $@\n", convert, icotool, rsvg,
-                        top_dir_path( make, "tools/buildimage" ), source->filename );
+                        top_src_dir_path( make, "tools/buildimage" ), source->filename );
             }
         }
         else if (!strcmp( ext, "po" ))  /* po file */
@@ -2606,6 +2639,7 @@ static struct strarray output_sources( const struct makefile *make )
                 output_filenames( includes );
                 output_filenames( make->define_args );
                 output_filenames( extradefs );
+                if (make->use_msvcrt) output_filenames( msvcrt_flags );
                 output_filename( "-DWINE_CROSSTEST" );
                 output_filenames( cpp_flags );
                 output_filename( "$(CFLAGS)" );
@@ -2616,8 +2650,9 @@ static struct strarray output_sources( const struct makefile *make )
                 strarray_add( &ok_files, strmake( "%s.ok", obj ));
                 output( "%s.ok:\n", obj_dir_path( make, obj ));
                 output( "\t%s $(RUNTESTFLAGS) -T %s -M %s -p %s%s %s && touch $@\n",
-                        top_dir_path( make, "tools/runtest" ), top_obj_dir_path( make, "" ), make->testdll,
-                        replace_extension( make->testdll, ".dll", "_test.exe" ), dll_ext, obj );
+                        top_src_dir_path( make, "tools/runtest" ), top_obj_dir_path( make, "" ),
+                        make->testdll, replace_extension( make->testdll, ".dll", "_test.exe" ),
+                        dll_ext, obj );
             }
             if (!strcmp( ext, "c" ) && !(source->file->flags & FLAG_GENERATED))
                 strarray_add( &c2man_files, source->filename );
@@ -2679,6 +2714,8 @@ static struct strarray output_sources( const struct makefile *make )
         output_filenames_obj_dir( make, object_files );
         output_filenames_obj_dir( make, res_files );
         output_filenames( dep_libs );
+        output_filename( tools_path( make, "winebuild" ));
+        output_filename( tools_path( make, "winegcc" ));
         output( "\n" );
         output( "\t%s -o $@", tools_path( make, "winegcc" ));
         output_filename( strmake( "-B%s", tools_dir_path( make, "winebuild" )));
@@ -2700,7 +2737,7 @@ static struct strarray output_sources( const struct makefile *make )
         if (spec_file && make->importlib)
         {
             char *importlib_path = obj_dir_path( make, strmake( "lib%s", make->importlib ));
-            if (*dll_ext)
+            if (*dll_ext && !implib_objs.count)
             {
                 strarray_add( &clean_files, strmake( "lib%s.def", make->importlib ));
                 output( "%s.def: %s %s\n", importlib_path, tools_path( make, "winebuild" ), spec_file );
@@ -2711,21 +2748,6 @@ static struct strarray output_sources( const struct makefile *make )
                 add_install_rule( make, install_rules, make->importlib,
                                   strmake( "lib%s.def", make->importlib ),
                                   strmake( "d$(dlldir)/lib%s.def", make->importlib ));
-                if (implib_objs.count)
-                {
-                    strarray_add( &clean_files, strmake( "lib%s.def.a", make->importlib ));
-                    output( "%s.def.a:", importlib_path );
-                    output_filenames_obj_dir( make, implib_objs );
-                    output( "\n" );
-                    output( "\trm -f $@\n" );
-                    output( "\t$(AR) $(ARFLAGS) $@" );
-                    output_filenames_obj_dir( make, implib_objs );
-                    output( "\n" );
-                    output( "\t$(RANLIB) $@\n" );
-                    add_install_rule( make, install_rules, make->importlib,
-                                      strmake( "lib%s.def.a", make->importlib ),
-                                      strmake( "d$(dlldir)/lib%s.def.a", make->importlib ));
-                }
             }
             else
             {
@@ -2760,33 +2782,33 @@ static struct strarray output_sources( const struct makefile *make )
             if (c2man_files.count)
             {
                 output( "manpages::\n" );
-                output( "\t%s -w %s", top_dir_path( make, "tools/c2man.pl" ), spec_file );
-                output_filename( strmake( "-R%s", top_dir_path( make, "" )));
-                output_filename( strmake( "-I%s", top_dir_path( make, "include" )));
+                output( "\t%s -w %s", top_src_dir_path( make, "tools/c2man.pl" ), spec_file );
+                output_filename( strmake( "-R%s", top_src_dir_path( make, "" )));
+                output_filename( strmake( "-I%s", top_src_dir_path( make, "include" )));
                 output_filename( strmake( "-o %s/man%s",
                                           top_obj_dir_path( make, "documentation" ), man_ext ));
                 output_filenames( c2man_files );
                 output( "\n" );
                 output( "htmlpages::\n" );
-                output( "\t%s -Th -w %s", top_dir_path( make, "tools/c2man.pl" ), spec_file );
-                output_filename( strmake( "-R%s", top_dir_path( make, "" )));
-                output_filename( strmake( "-I%s", top_dir_path( make, "include" )));
+                output( "\t%s -Th -w %s", top_src_dir_path( make, "tools/c2man.pl" ), spec_file );
+                output_filename( strmake( "-R%s", top_src_dir_path( make, "" )));
+                output_filename( strmake( "-I%s", top_src_dir_path( make, "include" )));
                 output_filename( strmake( "-o %s",
                                           top_obj_dir_path( make, "documentation/html" )));
                 output_filenames( c2man_files );
                 output( "\n" );
                 output( "sgmlpages::\n" );
-                output( "\t%s -Ts -w %s", top_dir_path( make, "tools/c2man.pl" ), spec_file );
-                output_filename( strmake( "-R%s", top_dir_path( make, "" )));
-                output_filename( strmake( "-I%s", top_dir_path( make, "include" )));
+                output( "\t%s -Ts -w %s", top_src_dir_path( make, "tools/c2man.pl" ), spec_file );
+                output_filename( strmake( "-R%s", top_src_dir_path( make, "" )));
+                output_filename( strmake( "-I%s", top_src_dir_path( make, "include" )));
                 output_filename( strmake( "-o %s",
                                           top_obj_dir_path( make, "documentation/api-guide" )));
                 output_filenames( c2man_files );
                 output( "\n" );
                 output( "xmlpages::\n" );
-                output( "\t%s -Tx -w %s", top_dir_path( make, "tools/c2man.pl" ), spec_file );
-                output_filename( strmake( "-R%s", top_dir_path( make, "" )));
-                output_filename( strmake( "-I%s", top_dir_path( make, "include" )));
+                output( "\t%s -Tx -w %s", top_src_dir_path( make, "tools/c2man.pl" ), spec_file );
+                output_filename( strmake( "-R%s", top_src_dir_path( make, "" )));
+                output_filename( strmake( "-I%s", top_src_dir_path( make, "include" )));
                 output_filename( strmake( "-o %s",
                                           top_obj_dir_path( make, "documentation/api-guide-xml" )));
                 output_filenames( c2man_files );
@@ -2801,8 +2823,8 @@ static struct strarray output_sources( const struct makefile *make )
         else if (*dll_ext)
         {
             char *binary = replace_extension( make->module, ".exe", "" );
-            add_install_rule( make, install_rules, binary, tools_dir_path( make, "wineapploader" ),
-                              strmake( "s$(bindir)/%s", binary ));
+            add_install_rule( make, install_rules, binary, "wineapploader",
+                              strmake( "t$(bindir)/%s", binary ));
         }
     }
 
@@ -2815,6 +2837,8 @@ static struct strarray output_sources( const struct makefile *make )
         output( "\t$(AR) $(ARFLAGS) $@" );
         output_filenames_obj_dir( make, object_files );
         output( "\n\t$(RANLIB) $@\n" );
+        add_install_rule( make, install_rules, make->staticlib, make->staticlib,
+                          strmake( "d$(dlldir)/%s", make->staticlib ));
         if (crosstarget && make->module)
         {
             char *name = replace_extension( make->staticlib, ".a", ".cross.a" );
@@ -2918,6 +2942,8 @@ static struct strarray output_sources( const struct makefile *make )
         output_filenames_obj_dir( make, object_files );
         output_filenames_obj_dir( make, res_files );
         output_filenames( dep_libs );
+        output_filename( tools_path( make, "winebuild" ));
+        output_filename( tools_path( make, "winegcc" ));
         output( "\n" );
 
         if (!make->disabled)
@@ -2940,6 +2966,8 @@ static struct strarray output_sources( const struct makefile *make )
             output_filenames_obj_dir( make, crossobj_files );
             output_filenames_obj_dir( make, res_files );
             output_filenames( dep_libs );
+            output_filename( tools_path( make, "winebuild" ));
+            output_filename( tools_path( make, "winegcc" ));
             output( "\n" );
             output( "\t%s -o $@ -b %s", tools_path( make, "winegcc" ), crosstarget );
             output_filename( strmake( "-B%s", tools_dir_path( make, "winebuild" )));
@@ -3080,8 +3108,8 @@ static struct strarray output_sources( const struct makefile *make )
         {
             const struct makefile *submake = make->submakes[i];
 
-            strarray_add( &makefile_deps, top_dir_path( make, base_dir_path( submake,
-                                                         strmake ( "%s.in", output_makefile_name ))));
+            strarray_add( &makefile_deps, top_src_dir_path( make, base_dir_path( submake,
+                                                            strmake ( "%s.in", output_makefile_name ))));
             strarray_add( &distclean_files, base_dir_path( submake, output_makefile_name ));
             if (!make->src_dir) strarray_add( &distclean_files, base_dir_path( submake, ".gitignore" ));
             if (submake->testdll) strarray_add( &distclean_files, base_dir_path( submake, "testlist.c" ));
@@ -3407,7 +3435,7 @@ static void load_sources( struct makefile *make )
         make->src_dir = concat_paths( make->top_src_dir, make->base_dir );
     }
     strarray_set_value( &make->vars, "top_builddir", top_obj_dir_path( make, "" ));
-    strarray_set_value( &make->vars, "top_srcdir", top_dir_path( make, "" ));
+    strarray_set_value( &make->vars, "top_srcdir", top_src_dir_path( make, "" ));
     strarray_set_value( &make->vars, "srcdir", src_dir_path( make, "" ));
 
     make->parent_dir    = get_expanded_make_variable( make, "PARENTSRC" );
@@ -3436,7 +3464,12 @@ static void load_sources( struct makefile *make )
         make->use_msvcrt = !strncmp( make->imports.str[i], "msvcr", 5 ) ||
                            !strcmp( make->imports.str[i], "ucrtbase" );
 
-    if (make->module && !make->install_lib.count) strarray_add( &make->install_lib, make->module );
+    if (make->module && !make->install_lib.count && !make->install_dev.count)
+    {
+        if (make->importlib) strarray_add( &make->install_dev, make->importlib );
+        if (make->staticlib) strarray_add( &make->install_dev, make->staticlib );
+        else strarray_add( &make->install_lib, make->module );
+    }
 
     make->include_paths = empty_strarray;
     make->define_args = empty_strarray;

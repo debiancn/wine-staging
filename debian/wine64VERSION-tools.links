@@ -1,5 +1,11 @@
-usr/lib/wineVERSION/wmc usr/bin/winewmcVERSION
-usr/lib/wineVERSION/wrc usr/bin/winewrcVERSION
+usr/lib/wineVERSION/wmc usr/bin/wmcVERSION
+usr/lib/wineVERSION/wrc usr/bin/wrcVERSION
 usr/lib/wineVERSION/winedump usr/bin/winedumpVERSION
 usr/lib/wineVERSION/winebuild usr/bin/winebuildVERSION
 usr/lib/wineVERSION/winemaker usr/bin/winemakerVERSION
+
+usr/bin/winegccVERSION usr/bin/winecppVERSION
+usr/bin/winegccVERSION usr/bin/wineg++VERSION
+
+usr/share/man/man1/winegccVERSION.1.gz usr/share/man/man1/winecppVERSION.1.gz
+usr/share/man/man1/winegccVERSION.1.gz usr/share/man/man1/wineg++VERSION.1.gz

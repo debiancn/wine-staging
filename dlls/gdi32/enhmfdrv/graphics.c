@@ -482,40 +482,80 @@ EMFDRV_PolyPolylinegon( PHYSDEV dev, const POINT* pt, const INT* counts, UINT po
 			DWORD iType)
 {
     EMRPOLYPOLYLINE *emr;
-    DWORD cptl = 0, poly, size;
+    DWORD cptl = 0, poly, size, i;
     INT point;
-    RECTL bounds;
+    const RECTL empty = {0, 0, -1, -1};
+    RECTL bounds = empty;
     const POINT *pts;
-    BOOL ret;
-
-    bounds.left = bounds.right = pt[0].x;
-    bounds.top = bounds.bottom = pt[0].y;
+    BOOL ret, use_small_emr = TRUE, bounds_valid = TRUE;
 
     pts = pt;
     for(poly = 0; poly < polys; poly++) {
         cptl += counts[poly];
+        if(counts[poly] < 2) bounds_valid = FALSE;
 	for(point = 0; point < counts[poly]; point++) {
-	    if(bounds.left > pts->x) bounds.left = pts->x;
-	    else if(bounds.right < pts->x) bounds.right = pts->x;
-	    if(bounds.top > pts->y) bounds.top = pts->y;
-	    else if(bounds.bottom < pts->y) bounds.bottom = pts->y;
+            /* check whether all points fit in the SHORT int POINT structure */
+            if( ((pts->x+0x8000) & ~0xffff ) ||
+                ((pts->y+0x8000) & ~0xffff ) )
+                use_small_emr = FALSE;
+            if(pts == pt) {
+                bounds.left = bounds.right = pts->x;
+                bounds.top = bounds.bottom = pts->y;
+            } else {
+                if(bounds.left > pts->x) bounds.left = pts->x;
+                else if(bounds.right < pts->x) bounds.right = pts->x;
+                if(bounds.top > pts->y) bounds.top = pts->y;
+                else if(bounds.bottom < pts->y) bounds.bottom = pts->y;
+            }
 	    pts++;
 	}
     }
+    if(!cptl) bounds_valid = FALSE;
 
-    size = sizeof(EMRPOLYPOLYLINE) + (polys - 1) * sizeof(DWORD) +
-      (cptl - 1) * sizeof(POINTL);
+    size = FIELD_OFFSET(EMRPOLYPOLYLINE, aPolyCounts[polys]);
+    if(use_small_emr)
+        size += cptl * sizeof(POINTS);
+    else
+        size += cptl * sizeof(POINTL);
 
     emr = HeapAlloc( GetProcessHeap(), 0, size );
 
     emr->emr.iType = iType;
+    if(use_small_emr) emr->emr.iType += EMR_POLYPOLYLINE16 - EMR_POLYPOLYLINE;
+
     emr->emr.nSize = size;
-    emr->rclBounds = bounds;
+    if(bounds_valid)
+        emr->rclBounds = bounds;
+    else
+        emr->rclBounds = empty;
     emr->nPolys = polys;
     emr->cptl = cptl;
-    memcpy(emr->aPolyCounts, counts, polys * sizeof(DWORD));
-    memcpy(emr->aPolyCounts + polys, pt, cptl * sizeof(POINTL));
+
+    if(polys)
+    {
+        memcpy( emr->aPolyCounts, counts, polys * sizeof(DWORD) );
+        if(cptl)
+        {
+            if(use_small_emr)
+            {
+                POINTS *out_pts = (POINTS *)(emr->aPolyCounts + polys);
+                for(i = 0; i < cptl; i++ )
+                {
+                    out_pts[i].x = pt[i].x;
+                    out_pts[i].y = pt[i].y;
+                }
+            }
+            else
+                memcpy( emr->aPolyCounts + polys, pt, cptl * sizeof(POINTL) );
+        }
+    }
+
     ret = EMFDRV_WriteRecord( dev, &emr->emr );
+    if(ret && !bounds_valid)
+    {
+        ret = FALSE;
+        SetLastError( ERROR_INVALID_PARAMETER );
+    }
     if(ret)
         EMFDRV_UpdateBBox( dev, &emr->rclBounds );
     HeapFree( GetProcessHeap(), 0, emr );
@@ -813,5 +853,59 @@ BOOL EMFDRV_ExtTextOut( PHYSDEV dev, INT x, INT y, UINT flags, const RECT *lprec
 no_bounds:
     ret = EMFDRV_WriteRecord( dev, &pemr->emr );
     HeapFree( GetProcessHeap(), 0, pemr );
+    return ret;
+}
+
+/**********************************************************************
+ *          EMFDRV_GradientFill
+ */
+BOOL EMFDRV_GradientFill( PHYSDEV dev, TRIVERTEX *vert_array, ULONG nvert,
+                          void *grad_array, ULONG ngrad, ULONG mode )
+{
+    EMRGRADIENTFILL *emr;
+    ULONG i, pt, size, num_pts = ngrad * (mode == GRADIENT_FILL_TRIANGLE ? 3 : 2);
+    const ULONG *pts = (const ULONG *)grad_array;
+    BOOL ret;
+
+    size = FIELD_OFFSET(EMRGRADIENTFILL, Ver[nvert]) + num_pts * sizeof(pts[0]);
+
+    emr = HeapAlloc( GetProcessHeap(), 0, size );
+    if (!emr) return FALSE;
+
+    for (i = 0; i < num_pts; i++)
+    {
+        pt = pts[i];
+
+        if (i == 0)
+        {
+            emr->rclBounds.left = emr->rclBounds.right = vert_array[pt].x;
+            emr->rclBounds.top = emr->rclBounds.bottom = vert_array[pt].y;
+        }
+        else
+        {
+            if (vert_array[pt].x < emr->rclBounds.left)
+                emr->rclBounds.left = vert_array[pt].x;
+            else if (vert_array[pt].x > emr->rclBounds.right)
+                emr->rclBounds.right = vert_array[pt].x;
+            if (vert_array[pt].y < emr->rclBounds.top)
+                emr->rclBounds.top = vert_array[pt].y;
+            else if (vert_array[pt].y > emr->rclBounds.bottom)
+                emr->rclBounds.bottom = vert_array[pt].y;
+        }
+    }
+    emr->rclBounds.right--;
+    emr->rclBounds.bottom--;
+
+    emr->emr.iType = EMR_GRADIENTFILL;
+    emr->emr.nSize = size;
+    emr->nVer = nvert;
+    emr->nTri = ngrad;
+    emr->ulMode = mode;
+    memcpy( emr->Ver, vert_array, nvert * sizeof(vert_array[0]) );
+    memcpy( emr->Ver + nvert, pts, num_pts * sizeof(pts[0]) );
+
+    EMFDRV_UpdateBBox( dev, &emr->rclBounds );
+    ret = EMFDRV_WriteRecord( dev, &emr->emr );
+    HeapFree( GetProcessHeap(), 0, emr );
     return ret;
 }

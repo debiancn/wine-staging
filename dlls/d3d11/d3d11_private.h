@@ -60,6 +60,7 @@ extern const struct wined3d_parent_ops d3d_null_wined3d_parent_ops DECLSPEC_HIDD
 /* TRACE helper functions */
 const char *debug_d3d10_primitive_topology(D3D10_PRIMITIVE_TOPOLOGY topology) DECLSPEC_HIDDEN;
 const char *debug_dxgi_format(DXGI_FORMAT format) DECLSPEC_HIDDEN;
+const char *debug_float4(const float *values) DECLSPEC_HIDDEN;
 
 DXGI_FORMAT dxgi_format_from_wined3dformat(enum wined3d_format_id format) DECLSPEC_HIDDEN;
 enum wined3d_format_id wined3dformat_from_dxgi_format(DXGI_FORMAT format) DECLSPEC_HIDDEN;
@@ -67,6 +68,7 @@ DWORD wined3d_usage_from_d3d11(UINT bind_flags, enum D3D11_USAGE usage) DECLSPEC
 struct wined3d_resource *wined3d_resource_from_d3d11_resource(ID3D11Resource *resource) DECLSPEC_HIDDEN;
 struct wined3d_resource *wined3d_resource_from_d3d10_resource(ID3D10Resource *resource) DECLSPEC_HIDDEN;
 DWORD wined3d_map_flags_from_d3d11_map_type(D3D11_MAP map_type) DECLSPEC_HIDDEN;
+DWORD wined3d_clear_flags_from_d3d11_clear_flags(UINT clear_flags) DECLSPEC_HIDDEN;
 
 enum D3D11_USAGE d3d11_usage_from_d3d10_usage(enum D3D10_USAGE usage) DECLSPEC_HIDDEN;
 enum D3D10_USAGE d3d10_usage_from_d3d11_usage(enum D3D11_USAGE usage) DECLSPEC_HIDDEN;
@@ -248,6 +250,34 @@ HRESULT d3d_vertex_shader_create(struct d3d_device *device, const void *byte_cod
 struct d3d_vertex_shader *unsafe_impl_from_ID3D11VertexShader(ID3D11VertexShader *iface) DECLSPEC_HIDDEN;
 struct d3d_vertex_shader *unsafe_impl_from_ID3D10VertexShader(ID3D10VertexShader *iface) DECLSPEC_HIDDEN;
 
+/* ID3D11HullShader */
+struct d3d11_hull_shader
+{
+    ID3D11HullShader ID3D11HullShader_iface;
+    LONG refcount;
+
+    struct wined3d_private_store private_store;
+    struct wined3d_shader *wined3d_shader;
+    ID3D11Device *device;
+};
+
+HRESULT d3d11_hull_shader_create(struct d3d_device *device, const void *byte_code, SIZE_T byte_code_length,
+        struct d3d11_hull_shader **shader) DECLSPEC_HIDDEN;
+
+/* ID3D11DomainShader */
+struct d3d11_domain_shader
+{
+    ID3D11DomainShader ID3D11DomainShader_iface;
+    LONG refcount;
+
+    struct wined3d_private_store private_store;
+    struct wined3d_shader *wined3d_shader;
+    ID3D11Device *device;
+};
+
+HRESULT d3d11_domain_shader_create(struct d3d_device *device, const void *byte_code, SIZE_T byte_code_length,
+        struct d3d11_domain_shader **shader) DECLSPEC_HIDDEN;
+
 /* ID3D11GeometryShader, ID3D10GeometryShader */
 struct d3d_geometry_shader
 {
@@ -318,6 +348,8 @@ struct d3d_depthstencil_state
 
 HRESULT d3d_depthstencil_state_init(struct d3d_depthstencil_state *state, struct d3d_device *device,
         const D3D11_DEPTH_STENCIL_DESC *desc) DECLSPEC_HIDDEN;
+struct d3d_depthstencil_state *unsafe_impl_from_ID3D11DepthStencilState(
+        ID3D11DepthStencilState *iface) DECLSPEC_HIDDEN;
 struct d3d_depthstencil_state *unsafe_impl_from_ID3D10DepthStencilState(
         ID3D10DepthStencilState *iface) DECLSPEC_HIDDEN;
 
@@ -381,6 +413,8 @@ struct d3d11_immediate_context
 {
     ID3D11DeviceContext ID3D11DeviceContext_iface;
     LONG refcount;
+
+    struct wined3d_private_store private_store;
 };
 
 /* ID3D11Device, ID3D10Device1 */
@@ -393,6 +427,8 @@ struct d3d_device
     IWineDXGIDeviceParent IWineDXGIDeviceParent_iface;
     IUnknown *outer_unk;
     LONG refcount;
+
+    D3D_FEATURE_LEVEL feature_level;
 
     struct d3d11_immediate_context immediate_context;
 
@@ -453,10 +489,12 @@ struct dxgi_device_layer
     UINT (WINAPI *get_size)(enum dxgi_device_layer_id id, struct layer_get_size_args *args, DWORD unknown0);
     HRESULT (WINAPI *create)(enum dxgi_device_layer_id id, void **layer_base, DWORD unknown0,
             void *device_object, REFIID riid, void **device_layer);
+    void (WINAPI *set_feature_level)(enum dxgi_device_layer_id id, void *device,
+            D3D_FEATURE_LEVEL feature_level);
 };
 
 HRESULT WINAPI DXGID3D10CreateDevice(HMODULE d3d10core, IDXGIFactory *factory, IDXGIAdapter *adapter,
-        UINT flags, void *unknown0, void **device);
+        unsigned int flags, const D3D_FEATURE_LEVEL *feature_levels, unsigned int level_count, void **device);
 HRESULT WINAPI DXGID3D10RegisterLayers(const struct dxgi_device_layer *layers, UINT layer_count);
 
 #endif /* __WINE_D3D11_PRIVATE_H */

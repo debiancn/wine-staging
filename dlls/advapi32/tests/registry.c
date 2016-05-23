@@ -1987,8 +1987,30 @@ static void test_reg_query_info(void)
        "classbuffer = \"%.*s\", expected %s\n",
        (int)sizeof(classbuffer), classbuffer, expectbuffer);
 
+    memset(classbuffer, 0x55, sizeof(classbuffer));
+    classlen = 0xdeadbeef;
+    ret = RegQueryInfoKeyA(subkey, classbuffer, &classlen, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+    ok(ret == ERROR_SUCCESS, "ret = %d\n", ret);
+    ok(classlen == sizeof(subkey_class) - 1, "classlen = %u\n", classlen);
+    memset(expectbuffer, 0x55, sizeof(expectbuffer));
+    strcpy(expectbuffer, subkey_class);
+    ok(!memcmp(classbuffer, expectbuffer, sizeof(classbuffer)),
+       "classbuffer = \"%.*s\", expected %s\n",
+       (int)sizeof(classbuffer), classbuffer, expectbuffer);
+
     memset(classbufferW, 0x55, sizeof(classbufferW));
     classlen = sizeof(subkey_class);
+    ret = RegQueryInfoKeyW(subkey, classbufferW, &classlen, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+    ok(ret == ERROR_SUCCESS, "ret = %d\n", ret);
+    ok(classlen == sizeof(subkey_class) - 1, "classlen = %u\n", classlen);
+    memset(expectbufferW, 0x55, sizeof(expectbufferW));
+    lstrcpyW(expectbufferW, subkey_classW);
+    ok(!memcmp(classbufferW, expectbufferW, sizeof(classbufferW)),
+       "classbufferW = %s, expected %s\n",
+       wine_dbgstr_wn(classbufferW, sizeof(classbufferW) / sizeof(WCHAR)), wine_dbgstr_w(expectbufferW));
+
+    memset(classbufferW, 0x55, sizeof(classbufferW));
+    classlen = 0xdeadbeef;
     ret = RegQueryInfoKeyW(subkey, classbufferW, &classlen, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
     ok(ret == ERROR_SUCCESS, "ret = %d\n", ret);
     ok(classlen == sizeof(subkey_class) - 1, "classlen = %u\n", classlen);
@@ -3430,6 +3452,33 @@ static void test_RegOpenCurrentUser(void)
     RegCloseKey(key);
 }
 
+static void test_RegNotifyChangeKeyValue(void)
+{
+    HKEY key, subkey;
+    HANDLE event;
+    DWORD dwret;
+    LONG ret;
+
+    event = CreateEventW(NULL, FALSE, TRUE, NULL);
+    ok(event != NULL, "CreateEvent failed, error %u\n", GetLastError());
+    ret = RegCreateKeyA(hkey_main, "TestKey", &key);
+    ok(ret == ERROR_SUCCESS, "expected ERROR_SUCCESS, got %d\n", ret);
+
+    ret = RegNotifyChangeKeyValue(key, TRUE, REG_NOTIFY_CHANGE_NAME, event, TRUE);
+    ok(ret == ERROR_SUCCESS, "expected ERROR_SUCCESS, got %d\n", ret);
+    dwret = WaitForSingleObject(event, 0);
+    ok(dwret == WAIT_TIMEOUT, "expected WAIT_TIMEOUT, got %u\n", dwret);
+
+    ret = RegCreateKeyA(key, "SubKey", &subkey);
+    ok(ret == ERROR_SUCCESS, "expected ERROR_SUCCESS, got %d\n", ret);
+    dwret = WaitForSingleObject(event, 0);
+    ok(dwret == WAIT_OBJECT_0, "expected WAIT_OBJECT_0, got %u\n", dwret);
+
+    RegDeleteKeyA(key, "");
+    RegCloseKey(key);
+    CloseHandle(event);
+}
+
 START_TEST(registry)
 {
     /* Load pointers for functions that are not available in all Windows versions */
@@ -3464,6 +3513,7 @@ START_TEST(registry)
     test_delete_value();
     test_delete_key_value();
     test_RegOpenCurrentUser();
+    test_RegNotifyChangeKeyValue();
 
     /* cleanup */
     delete_key( hkey_main );

@@ -10,7 +10,7 @@
 @ stdcall AddAccessAllowedObjectAce(ptr long long long ptr ptr ptr) advapi32.AddAccessAllowedObjectAce
 @ stdcall AddAccessDeniedAce(ptr long long ptr) advapi32.AddAccessDeniedAce
 @ stdcall AddAccessDeniedAceEx(ptr long long long ptr) advapi32.AddAccessDeniedAceEx
-@ stub AddAccessDeniedObjectAce
+@ stdcall AddAccessDeniedObjectAce(ptr long long long ptr ptr ptr) advapi32.AddAccessDeniedObjectAce
 @ stdcall AddAce(ptr long long ptr long) advapi32.AddAce
 @ stdcall AddAuditAccessAce(ptr long long ptr long long) advapi32.AddAuditAccessAce
 @ stdcall AddAuditAccessAceEx(ptr long long long ptr long long) advapi32.AddAuditAccessAceEx
@@ -26,7 +26,7 @@
 @ stdcall ConvertToAutoInheritPrivateObjectSecurity(ptr ptr ptr ptr long ptr) advapi32.ConvertToAutoInheritPrivateObjectSecurity
 @ stdcall CopySid(long ptr ptr) advapi32.CopySid
 @ stdcall CreatePrivateObjectSecurity(ptr ptr ptr long long ptr) advapi32.CreatePrivateObjectSecurity
-@ stub CreatePrivateObjectSecurityEx
+@ stdcall CreatePrivateObjectSecurityEx(ptr ptr ptr ptr long long long ptr) advapi32.CreatePrivateObjectSecurityEx
 @ stdcall CreatePrivateObjectSecurityWithMultipleInheritance(ptr ptr ptr ptr long long long long ptr) advapi32.CreatePrivateObjectSecurityWithMultipleInheritance
 @ stdcall CreateRestrictedToken(long long long ptr long ptr long ptr ptr) advapi32.CreateRestrictedToken
 @ stdcall CreateWellKnownSid(long ptr ptr ptr) advapi32.CreateWellKnownSid

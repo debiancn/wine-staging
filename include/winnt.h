@@ -148,13 +148,13 @@ extern "C" {
 # define DECLSPEC_EXPORT __declspec(dllexport)
 #elif defined(__MINGW32__)
 # define DECLSPEC_EXPORT __attribute__((dllexport))
-#elif defined(__GNUC__) && ((__GNUC__ > 3) || ((__GNUC__ == 3) && (__GNUC_MINOR__ >= 3)))
+#elif defined(__GNUC__) && ((__GNUC__ > 3) || ((__GNUC__ == 3) && (__GNUC_MINOR__ >= 3))) && !defined(__sun)
 # define DECLSPEC_EXPORT __attribute__((visibility ("default")))
 #else
 # define DECLSPEC_EXPORT
 #endif
 
-#if defined(_MSC_VER) || defined(__MINGW32__) || defined(__CYGWIN__)
+#if defined(_MSC_VER) || defined(__MINGW32__) || defined(__CYGWIN__) || defined(__sun)
 # define DECLSPEC_HIDDEN
 #elif defined(__GNUC__) && ((__GNUC__ > 3) || ((__GNUC__ == 3) && (__GNUC_MINOR__ >= 3)))
 # define DECLSPEC_HIDDEN __attribute__((visibility ("hidden")))
@@ -5935,6 +5935,29 @@ typedef struct _TP_CALLBACK_ENVIRON_V1
 		} s;
 	} u;
 } TP_CALLBACK_ENVIRON_V1;
+
+typedef struct _TP_CALLBACK_ENVIRON_V3
+{
+    TP_VERSION Version;
+    PTP_POOL Pool;
+    PTP_CLEANUP_GROUP CleanupGroup;
+    PTP_CLEANUP_GROUP_CANCEL_CALLBACK CleanupGroupCancelCallback;
+    PVOID RaceDll;
+    struct _ACTIVATION_CONTEXT *ActivationContext;
+    PTP_SIMPLE_CALLBACK FinalizationCallback;
+    union
+    {
+        DWORD Flags;
+        struct
+        {
+            DWORD LongFunction:1;
+            DWORD Persistent:1;
+            DWORD Private:30;
+        } s;
+    } u;
+    TP_CALLBACK_PRIORITY CallbackPriority;
+    DWORD Size;
+} TP_CALLBACK_ENVIRON_V3;
 
 typedef struct _TP_WORK TP_WORK, *PTP_WORK;
 typedef struct _TP_TIMER TP_TIMER, *PTP_TIMER;

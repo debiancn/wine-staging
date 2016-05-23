@@ -13,5 +13,6 @@ debian/tmp/winecfgVERSION.man
 debian/tmp/winedbgVERSION.man
 debian/tmp/winebootVERSION.man
 debian/tmp/winefileVERSION.man
+debian/tmp/winepathVERSION.man
 debian/tmp/regsvr32VERSION.man
 debian/tmp/wineconsoleVERSION.man

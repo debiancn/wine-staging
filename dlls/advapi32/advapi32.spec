@@ -19,7 +19,7 @@
 @ stdcall AddAccessAllowedObjectAce(ptr long long long ptr ptr ptr)
 @ stdcall AddAccessDeniedAce(ptr long long ptr)
 @ stdcall AddAccessDeniedAceEx(ptr long long long ptr)
-# @ stub AddAccessDeniedObjectAce
+@ stdcall AddAccessDeniedObjectAce(ptr long long long ptr ptr ptr)
 @ stdcall AddAce(ptr long long ptr long)
 @ stdcall AddAuditAccessAce(ptr long long ptr long long)
 @ stdcall AddAuditAccessAceEx(ptr long long long ptr long long)
@@ -120,7 +120,7 @@
 @ stdcall CopySid(long ptr ptr)
 # @ stub CreateCodeAuthzLevel
 @ stdcall CreatePrivateObjectSecurity(ptr ptr ptr long long ptr)
-# @ stub CreatePrivateObjectSecurityEx
+@ stdcall CreatePrivateObjectSecurityEx(ptr ptr ptr ptr long long long ptr)
 @ stdcall CreatePrivateObjectSecurityWithMultipleInheritance(ptr ptr ptr ptr long long long long ptr)
 @ stdcall CreateProcessAsUserA(long str str ptr ptr long long ptr str ptr ptr)
 # @ stub CreateProcessAsUserSecure

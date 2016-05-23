@@ -582,8 +582,8 @@
 @ stdcall GetComputerNameW(ptr ptr)
 @ stub GetConsoleAliasA
 @ stub GetConsoleAliasExesA
-@ stub GetConsoleAliasExesLengthA
-@ stub GetConsoleAliasExesLengthW
+@ stdcall GetConsoleAliasExesLengthA()
+@ stdcall GetConsoleAliasExesLengthW()
 @ stub GetConsoleAliasExesW
 @ stdcall GetConsoleAliasW(wstr ptr long wstr)
 @ stub GetConsoleAliasesA
@@ -682,8 +682,8 @@
 @ stdcall GetFileSizeEx(long ptr)
 @ stdcall GetFileTime(long ptr ptr ptr)
 @ stdcall GetFileType(long)
-# @ stub GetFinalPathNameByHandleA
-# @ stub GetFinalPathNameByHandleW
+@ stdcall GetFinalPathNameByHandleA(long ptr long long)
+@ stdcall GetFinalPathNameByHandleW(long ptr long long)
 @ stdcall GetFirmwareEnvironmentVariableA(str str ptr long)
 @ stdcall GetFirmwareEnvironmentVariableW(wstr wstr ptr long)
 @ stdcall GetFullPathNameA(str long ptr ptr)
@@ -1369,7 +1369,7 @@
 @ stdcall SetConsoleTitleW(wstr)
 @ stdcall SetConsoleWindowInfo(long long ptr)
 @ stdcall SetCriticalSectionSpinCount(ptr long) ntdll.RtlSetCriticalSectionSpinCount
-# @ stub SetCurrentConsoleFontEx
+@ stdcall SetCurrentConsoleFontEx(long long ptr)
 @ stdcall SetCurrentDirectoryA(str)
 @ stdcall SetCurrentDirectoryW(wstr)
 @ stub SetDaylightFlag

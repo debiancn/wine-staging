@@ -95,6 +95,7 @@ static const GUID IID_Testiface6 = { 0x72222222, 0x1234, 0x1234, { 0x12, 0x34, 0
 static const GUID IID_TestPS = { 0x66666666, 0x8888, 0x7777, { 0x66, 0x66, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55 } };
 
 DEFINE_GUID(CLSID_InProcFreeMarshaler, 0x0000033a,0x0000,0x0000,0xc0,0x00,0x00,0x00,0x00,0x00,0x00,0x46);
+DEFINE_GUID(CLSID_testclsid, 0xacd014c7,0x9535,0x4fac,0x8b,0x53,0xa4,0x8c,0xa7,0xf4,0xd7,0x26);
 
 static const WCHAR stdfont[] = {'S','t','d','F','o','n','t',0};
 static const WCHAR wszNonExistent[] = {'N','o','n','E','x','i','s','t','e','n','t',0};
@@ -1293,6 +1294,12 @@ static void test_CoGetPSClsid(void)
         ok(!res, "RegCreateKeyEx returned %d\n", res);
         res = RegCreateKeyExA(hkey_iface, clsidDeadBeef,
                               0, NULL, 0, KEY_ALL_ACCESS | opposite, NULL, &hkey, NULL);
+        if (res == ERROR_ACCESS_DENIED)
+        {
+            win_skip("Failed to create a key, skipping some of CoGetPSClsid() tests\n");
+            goto cleanup;
+        }
+
         ok(!res, "RegCreateKeyEx returned %d\n", res);
         res = RegCreateKeyExA(hkey, "ProxyStubClsid32",
                               0, NULL, 0, KEY_ALL_ACCESS | opposite, NULL, &hkey_psclsid, NULL);
@@ -1310,6 +1317,8 @@ static void test_CoGetPSClsid(void)
         RegCloseKey(hkey);
         res = pRegDeleteKeyExA(hkey_iface, clsidDeadBeef, opposite, 0);
         ok(!res, "RegDeleteKeyEx returned %d\n", res);
+
+    cleanup:
         RegCloseKey(hkey_iface);
     }
 
@@ -1766,7 +1775,7 @@ static void test_CoGetObjectContext(void)
 {
     HRESULT hr;
     ULONG refs;
-    IComThreadingInfo *pComThreadingInfo;
+    IComThreadingInfo *pComThreadingInfo, *threadinginfo2;
     IContextCallback *pContextCallback;
     IObjContext *pObjContext;
     APTTYPE apttype;
@@ -1774,10 +1783,11 @@ static void test_CoGetObjectContext(void)
     struct info info;
     HANDLE thread;
     DWORD tid, exitcode;
+    GUID id, id2;
 
     if (!pCoGetObjectContext)
     {
-        skip("CoGetObjectContext not present\n");
+        win_skip("CoGetObjectContext not present\n");
         return;
     }
 
@@ -1802,6 +1812,23 @@ static void test_CoGetObjectContext(void)
     pComThreadingInfo = NULL;
     hr = pCoGetObjectContext(&IID_IComThreadingInfo, (void **)&pComThreadingInfo);
     ok(hr == S_OK, "Expected S_OK, got 0x%08x\n", hr);
+
+    threadinginfo2 = NULL;
+    hr = pCoGetObjectContext(&IID_IComThreadingInfo, (void **)&threadinginfo2);
+    ok(hr == S_OK, "Expected S_OK, got 0x%08x\n", hr);
+    ok(pComThreadingInfo == threadinginfo2, "got different instance\n");
+    IComThreadingInfo_Release(threadinginfo2);
+
+    hr = IComThreadingInfo_GetCurrentLogicalThreadId(pComThreadingInfo, NULL);
+    ok(hr == E_INVALIDARG, "got 0x%08x\n", hr);
+
+    id = id2 = GUID_NULL;
+    hr = IComThreadingInfo_GetCurrentLogicalThreadId(pComThreadingInfo, &id);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+
+    hr = CoGetCurrentLogicalThreadId(&id2);
+    ok(IsEqualGUID(&id, &id2), "got %s, expected %s\n", wine_dbgstr_guid(&id), wine_dbgstr_guid(&id2));
+
     IComThreadingInfo_Release(pComThreadingInfo);
 
     SetEvent(info.stop);
@@ -1834,11 +1861,8 @@ static void test_CoGetObjectContext(void)
     hr = pCoGetObjectContext(&IID_IContextCallback, (void **)&pContextCallback);
     ok_ole_success(hr, "CoGetObjectContext(ContextCallback)");
 
-    if (hr == S_OK)
-    {
-        refs = IContextCallback_Release(pContextCallback);
-        ok(refs == 0, "pContextCallback should have 0 refs instead of %d refs\n", refs);
-    }
+    refs = IContextCallback_Release(pContextCallback);
+    ok(refs == 0, "pContextCallback should have 0 refs instead of %d refs\n", refs);
 
     CoUninitialize();
 
@@ -1861,11 +1885,8 @@ static void test_CoGetObjectContext(void)
     hr = pCoGetObjectContext(&IID_IContextCallback, (void **)&pContextCallback);
     ok_ole_success(hr, "CoGetObjectContext(ContextCallback)");
 
-    if (hr == S_OK)
-    {
-        refs = IContextCallback_Release(pContextCallback);
-        ok(refs == 0, "pContextCallback should have 0 refs instead of %d refs\n", refs);
-    }
+    refs = IContextCallback_Release(pContextCallback);
+    ok(refs == 0, "pContextCallback should have 0 refs instead of %d refs\n", refs);
 
     hr = pCoGetObjectContext(&IID_IObjContext, (void **)&pObjContext);
     ok_ole_success(hr, "CoGetObjectContext");
@@ -1987,7 +2008,7 @@ static void test_CoGetContextToken(void)
 {
     HRESULT hr;
     ULONG refs;
-    ULONG_PTR token;
+    ULONG_PTR token, token2;
     IObjContext *ctx;
     struct info info;
     HANDLE thread;
@@ -2022,6 +2043,11 @@ static void test_CoGetContextToken(void)
     hr = pCoGetContextToken(&token);
     ok(hr == S_OK, "Expected S_OK, got 0x%08x\n", hr);
 
+    token2 = 0;
+    hr = pCoGetContextToken(&token2);
+    ok(hr == S_OK, "Expected S_OK, got 0x%08x\n", hr);
+    ok(token == token2, "got different token\n");
+
     SetEvent(info.stop);
     ok( !WaitForSingleObject(thread, 10000), "wait timed out\n" );
 
@@ -2043,18 +2069,23 @@ static void test_CoGetContextToken(void)
     ok(hr == S_OK, "Expected S_OK, got 0x%08x\n", hr);
     ok(token, "Expected token != 0\n");
 
+    token2 = 0;
+    hr = pCoGetContextToken(&token2);
+    ok(hr == S_OK, "Expected S_OK, got 0x%08x\n", hr);
+    ok(token2 == token, "got different token\n");
+
     refs = IUnknown_AddRef((IUnknown *)token);
-    todo_wine ok(refs == 1, "Expected 1, got %u\n", refs);
+    ok(refs == 1, "Expected 1, got %u\n", refs);
 
     hr = pCoGetObjectContext(&IID_IObjContext, (void **)&ctx);
     ok(hr == S_OK, "Expected S_OK, got 0x%08x\n", hr);
-    todo_wine ok(ctx == (IObjContext *)token, "Expected interface pointers to be the same\n");
+    ok(ctx == (IObjContext *)token, "Expected interface pointers to be the same\n");
 
     refs = IObjContext_AddRef(ctx);
-    todo_wine ok(refs == 3, "Expected 3, got %u\n", refs);
+    ok(refs == 3, "Expected 3, got %u\n", refs);
 
     refs = IObjContext_Release(ctx);
-    todo_wine ok(refs == 2, "Expected 2, got %u\n", refs);
+    ok(refs == 2, "Expected 2, got %u\n", refs);
 
     refs = IUnknown_Release((IUnknown *)token);
     ok(refs == 1, "Expected 1, got %u\n", refs);
@@ -2064,7 +2095,7 @@ static void test_CoGetContextToken(void)
     hr = pCoGetContextToken(&token);
     ok(hr == S_OK, "Expected S_OK, got 0x%08x\n", hr);
     ok(token, "Expected token != 0\n");
-    todo_wine ok(ctx == (IObjContext *)token, "Expected interface pointers to be the same\n");
+    ok(ctx == (IObjContext *)token, "Expected interface pointers to be the same\n");
 
     refs = IObjContext_AddRef(ctx);
     ok(refs == 2, "Expected 1, got %u\n", refs);
@@ -2098,12 +2129,11 @@ static void test_TreatAsClass(void)
     ok (IsEqualGUID(&out,&deadbeef), "expected to get same clsid back\n");
 
     lr = RegOpenKeyExA(HKEY_CLASSES_ROOT, "CLSID", 0, KEY_READ, &clsidkey);
-    ok(lr == ERROR_SUCCESS, "Couldn't open CLSID key\n");
+    ok(!lr, "Couldn't open CLSID key, error %d\n", lr);
 
     lr = RegCreateKeyExA(clsidkey, deadbeefA, 0, NULL, 0, KEY_WRITE, NULL, &deadbeefkey, NULL);
     if (lr) {
-        win_skip("CoGetTreatAsClass() tests will be skipped (failed to create a test key, error %d)\n",
-            GetLastError());
+        win_skip("CoGetTreatAsClass() tests will be skipped (failed to create a test key, error %d)\n", lr);
         RegCloseKey(clsidkey);
         return;
     }
@@ -2364,22 +2394,26 @@ static void test_OleRegGetUserType(void)
     StringFromGUID2(&CLSID_non_existent, clsidW, sizeof(clsidW)/sizeof(clsidW[0]));
 
     ret = RegCreateKeyExW(HKEY_CLASSES_ROOT, clsidkeyW, 0, NULL, 0, KEY_ALL_ACCESS, NULL, &clsidhkey, &disposition);
+    if (!ret)
+    {
+        ret = RegCreateKeyExW(clsidhkey, clsidW, 0, NULL, 0, KEY_ALL_ACCESS, NULL, &classkey, NULL);
+        if (ret)
+            RegCloseKey(clsidhkey);
+    }
+
     if (ret == ERROR_ACCESS_DENIED)
     {
-        skip("Failed to create test key, skipping some of OleRegGetUserType() tests.\n");
+        win_skip("Failed to create test key, skipping some of OleRegGetUserType() tests.\n");
         return;
     }
 
-    ok(!ret, "failed to create a key %d, error %d\n", ret, GetLastError());
-
-    ret = RegCreateKeyExW(clsidhkey, clsidW, 0, NULL, 0, KEY_ALL_ACCESS, NULL, &classkey, NULL);
-    ok(!ret, "failed to create a key %d, error %d\n", ret, GetLastError());
+    ok(!ret, "failed to create a key, error %d\n", ret);
 
     ret = RegSetValueExW(classkey, NULL, 0, REG_SZ, (const BYTE*)defvalueW, sizeof(defvalueW));
-    ok(!ret, "got %d, error %d\n", ret, GetLastError());
+    ok(!ret, "got error %d\n", ret);
 
     ret = RegCreateKeyExA(classkey, "AuxUserType", 0, NULL, 0, KEY_ALL_ACCESS, NULL, &auxhkey, NULL);
-    ok(!ret, "got %d, error %d\n", ret, GetLastError());
+    ok(!ret, "got error %d\n", ret);
 
     /* populate AuxUserType */
     for (i = 0; i <= 4; i++) {
@@ -2387,10 +2421,10 @@ static void test_OleRegGetUserType(void)
 
         sprintf(name, "AuxUserType\\%d", i);
         ret = RegCreateKeyExA(classkey, name, 0, NULL, 0, KEY_ALL_ACCESS, NULL, &hkey, NULL);
-        ok(!ret, "got %d, error %d\n", ret, GetLastError());
+        ok(!ret, "got error %d\n", ret);
 
         ret = RegSetValueExA(hkey, NULL, 0, REG_SZ, (const BYTE*)auxvalues[i], strlen(auxvalues[i]));
-        ok(!ret, "got %d, error %d\n", ret, GetLastError());
+        ok(!ret, "got error %d\n", ret);
         RegCloseKey(hkey);
     }
 
@@ -2933,7 +2967,6 @@ static void test_CoGetApartmentType(void)
     CoUninitialize();
 }
 
-
 static HRESULT WINAPI testspy_QI(IMallocSpy *iface, REFIID riid, void **obj)
 {
     if (IsEqualIID(riid, &IID_IMallocSpy) || IsEqualIID(riid, &IID_IUnknown))
@@ -3082,6 +3115,401 @@ static void test_IMallocSpy(void)
     ok(hr == CO_E_OBJNOTREG, "got 0x%08x\n", hr);
 }
 
+static void test_CoGetCurrentLogicalThreadId(void)
+{
+    HRESULT hr;
+    GUID id;
+
+    hr = CoGetCurrentLogicalThreadId(NULL);
+    ok(hr == E_INVALIDARG, "got 0x%08x\n", hr);
+
+    id = GUID_NULL;
+    hr = CoGetCurrentLogicalThreadId(&id);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+    ok(!IsEqualGUID(&id, &GUID_NULL), "got null id\n");
+}
+
+static HRESULT WINAPI testinitialize_QI(IInitializeSpy *iface, REFIID riid, void **obj)
+{
+    if (IsEqualIID(riid, &IID_IInitializeSpy) || IsEqualIID(riid, &IID_IUnknown))
+    {
+        *obj = iface;
+        IInitializeSpy_AddRef(iface);
+        return S_OK;
+    }
+
+    *obj = NULL;
+    return E_NOINTERFACE;
+}
+
+static ULONG WINAPI testinitialize_AddRef(IInitializeSpy *iface)
+{
+    return 2;
+}
+
+static ULONG WINAPI testinitialize_Release(IInitializeSpy *iface)
+{
+    return 1;
+}
+
+static HRESULT WINAPI testinitialize_PreInitialize(IInitializeSpy *iface, DWORD coinit, DWORD aptrefs)
+{
+    ok(0, "unexpected call\n");
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI testinitialize_PostInitialize(IInitializeSpy *iface, HRESULT hr, DWORD coinit, DWORD aptrefs)
+{
+    ok(0, "unexpected call\n");
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI testinitialize_PreUninitialize(IInitializeSpy *iface, DWORD aptrefs)
+{
+    ok(0, "unexpected call\n");
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI testinitialize_PostUninitialize(IInitializeSpy *iface, DWORD aptrefs)
+{
+    ok(0, "unexpected call\n");
+    return E_NOTIMPL;
+}
+
+static const IInitializeSpyVtbl testinitializevtbl =
+{
+    testinitialize_QI,
+    testinitialize_AddRef,
+    testinitialize_Release,
+    testinitialize_PreInitialize,
+    testinitialize_PostInitialize,
+    testinitialize_PreUninitialize,
+    testinitialize_PostUninitialize
+};
+
+static IInitializeSpy testinitialize = { &testinitializevtbl };
+
+static void test_IInitializeSpy(void)
+{
+    ULARGE_INTEGER cookie, cookie1, cookie2;
+    HRESULT hr;
+
+    hr = CoRegisterInitializeSpy(NULL, NULL);
+    ok(hr == E_INVALIDARG, "got 0x%08x\n", hr);
+
+    cookie.QuadPart = 1;
+    hr = CoRegisterInitializeSpy(NULL, &cookie);
+    ok(hr == E_INVALIDARG, "got 0x%08x\n", hr);
+    ok(cookie.QuadPart == 1, "got wrong cookie\n");
+
+    hr = CoRegisterInitializeSpy(&testinitialize, NULL);
+    ok(hr == E_INVALIDARG, "got 0x%08x\n", hr);
+
+    cookie.HighPart = 0;
+    cookie.LowPart = 1;
+    hr = CoRegisterInitializeSpy(&testinitialize, &cookie);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+todo_wine {
+    ok(cookie.HighPart == GetCurrentThreadId(), "got high part 0x%08x, expected 0x%08x\n", cookie.HighPart,
+        GetCurrentThreadId());
+    ok(cookie.LowPart == 0, "got wrong low part 0x%x\n", cookie.LowPart);
+}
+    /* register same instance one more time */
+    cookie1.HighPart = 0;
+    cookie1.LowPart = 0;
+    hr = CoRegisterInitializeSpy(&testinitialize, &cookie1);
+todo_wine {
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+    ok(cookie1.HighPart == GetCurrentThreadId(), "got high part 0x%08x, expected 0x%08x\n", cookie1.HighPart,
+        GetCurrentThreadId());
+    ok(cookie1.LowPart == 1, "got wrong low part 0x%x\n", cookie1.LowPart);
+}
+    cookie2.HighPart = 0;
+    cookie2.LowPart = 0;
+    hr = CoRegisterInitializeSpy(&testinitialize, &cookie2);
+todo_wine {
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+    ok(cookie2.HighPart == GetCurrentThreadId(), "got high part 0x%08x, expected 0x%08x\n", cookie2.HighPart,
+        GetCurrentThreadId());
+    ok(cookie2.LowPart == 2, "got wrong low part 0x%x\n", cookie2.LowPart);
+}
+    hr = CoRevokeInitializeSpy(cookie1);
+todo_wine
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+
+    hr = CoRevokeInitializeSpy(cookie1);
+    ok(hr == E_INVALIDARG, "got 0x%08x\n", hr);
+
+    cookie1.HighPart = 0;
+    cookie1.LowPart = 0;
+    hr = CoRegisterInitializeSpy(&testinitialize, &cookie1);
+todo_wine {
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+    ok(cookie1.HighPart == GetCurrentThreadId(), "got high part 0x%08x, expected 0x%08x\n", cookie1.HighPart,
+        GetCurrentThreadId());
+    ok(cookie1.LowPart == 1, "got wrong low part 0x%x\n", cookie1.LowPart);
+}
+    hr = CoRevokeInitializeSpy(cookie);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+
+    hr = CoRevokeInitializeSpy(cookie1);
+todo_wine
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+
+    hr = CoRevokeInitializeSpy(cookie2);
+todo_wine
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+}
+
+static HRESULT g_persistfile_qi_ret;
+static HRESULT g_persistfile_load_ret;
+static HRESULT WINAPI testinstance_QI(IPersistFile *iface, REFIID riid, void **obj)
+{
+    if (IsEqualIID(riid, &IID_IUnknown)) {
+        *obj = iface;
+        IUnknown_AddRef(iface);
+        return S_OK;
+    }
+
+    if (IsEqualIID(riid, &IID_IPersistFile)) {
+        if (SUCCEEDED(g_persistfile_qi_ret)) {
+            *obj = iface;
+            IUnknown_AddRef(iface);
+        }
+        else
+            *obj = NULL;
+        return g_persistfile_qi_ret;
+    }
+
+    ok(0, "unexpected riid %s\n", wine_dbgstr_guid(riid));
+    *obj = NULL;
+    return E_NOINTERFACE;
+}
+
+static ULONG WINAPI testinstance_AddRef(IPersistFile *iface)
+{
+    return 2;
+}
+
+static ULONG WINAPI testinstance_Release(IPersistFile *iface)
+{
+    return 1;
+}
+
+static HRESULT WINAPI testinstance_GetClassID(IPersistFile *iface, CLSID *clsid)
+{
+    ok(0, "unexpected call\n");
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI testinstance_IsDirty(IPersistFile *iface)
+{
+    ok(0, "unexpected call\n");
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI testinstance_Load(IPersistFile *iface, LPCOLESTR filename, DWORD mode)
+{
+    return g_persistfile_load_ret;
+}
+
+static HRESULT WINAPI testinstance_Save(IPersistFile *iface, LPCOLESTR filename, BOOL remember)
+{
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI testinstance_SaveCompleted(IPersistFile *iface, LPCOLESTR filename)
+{
+    ok(0, "unexpected call\n");
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI testinstance_GetCurFile(IPersistFile *iface, LPOLESTR *filename)
+{
+    ok(0, "unexpected call\n");
+    return E_NOTIMPL;
+}
+
+static const IPersistFileVtbl testpersistfilevtbl = {
+    testinstance_QI,
+    testinstance_AddRef,
+    testinstance_Release,
+    testinstance_GetClassID,
+    testinstance_IsDirty,
+    testinstance_Load,
+    testinstance_Save,
+    testinstance_SaveCompleted,
+    testinstance_GetCurFile
+};
+
+static IPersistFile testpersistfile = { &testpersistfilevtbl };
+
+static HRESULT WINAPI getinstance_cf_QI(IClassFactory *iface, REFIID riid, void **obj)
+{
+    if (IsEqualIID(riid, &IID_IUnknown) || IsEqualIID(riid, &IID_IClassFactory)) {
+        *obj = iface;
+        IClassFactory_AddRef(iface);
+        return S_OK;
+    }
+
+    *obj = NULL;
+    return E_NOINTERFACE;
+}
+
+static ULONG WINAPI getinstance_cf_AddRef(IClassFactory *iface)
+{
+    return 2;
+}
+
+static ULONG WINAPI getinstance_cf_Release(IClassFactory *iface)
+{
+    return 1;
+}
+
+static HRESULT WINAPI getinstance_cf_CreateInstance(IClassFactory *iface, IUnknown *outer,
+    REFIID riid, void **obj)
+{
+    if (IsEqualIID(riid, &IID_IUnknown)) {
+        *obj = &testpersistfile;
+        return S_OK;
+    }
+
+    ok(0, "unexpected call, riid %s\n", wine_dbgstr_guid(riid));
+    *obj = NULL;
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI getinstance_cf_LockServer(IClassFactory *iface, BOOL lock)
+{
+    ok(0, "unexpected call\n");
+    return E_NOTIMPL;
+}
+
+static const IClassFactoryVtbl getinstance_cf_vtbl = {
+    getinstance_cf_QI,
+    getinstance_cf_AddRef,
+    getinstance_cf_Release,
+    getinstance_cf_CreateInstance,
+    getinstance_cf_LockServer
+};
+
+static IClassFactory getinstance_cf = { &getinstance_cf_vtbl  };
+
+static void test_CoGetInstanceFromFile(void)
+{
+    static const WCHAR filenameW[] = {'d','u','m','m','y','p','a','t','h',0};
+    CLSID *clsid = (CLSID*)&CLSID_testclsid;
+    MULTI_QI mqi[2];
+    DWORD cookie;
+    HRESULT hr;
+
+    hr = pCoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+
+    /* CLSID is not specified, file does not exist */
+    mqi[0].pIID = &IID_IUnknown;
+    mqi[0].pItf = NULL;
+    mqi[0].hr = E_NOTIMPL;
+    hr = CoGetInstanceFromFile(NULL, NULL, NULL, CLSCTX_INPROC_SERVER, STGM_READ, (OLECHAR*)filenameW, 1, mqi);
+todo_wine
+    ok(hr == MK_E_CANTOPENFILE, "got 0x%08x\n", hr);
+    ok(mqi[0].pItf == NULL, "got %p\n", mqi[0].pItf);
+    ok(mqi[0].hr == E_NOINTERFACE, "got 0x%08x\n", mqi[0].hr);
+
+    /* class is not available */
+    mqi[0].pIID = &IID_IUnknown;
+    mqi[0].pItf = NULL;
+    mqi[0].hr = E_NOTIMPL;
+    hr = CoGetInstanceFromFile(NULL, clsid, NULL, CLSCTX_INPROC_SERVER, STGM_READ, (OLECHAR*)filenameW, 1, mqi);
+    ok(hr == REGDB_E_CLASSNOTREG, "got 0x%08x\n", hr);
+    ok(mqi[0].pItf == NULL, "got %p\n", mqi[0].pItf);
+    ok(mqi[0].hr == REGDB_E_CLASSNOTREG, "got 0x%08x\n", mqi[0].hr);
+
+    hr = CoRegisterClassObject(clsid, (IUnknown*)&getinstance_cf, CLSCTX_INPROC_SERVER, REGCLS_MULTIPLEUSE,
+        &cookie);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+
+    mqi[0].pIID = &IID_IUnknown;
+    mqi[0].pItf = (void*)0xdeadbeef;
+    mqi[0].hr = S_OK;
+    hr = CoGetInstanceFromFile(NULL, clsid, NULL, CLSCTX_INPROC_SERVER, STGM_READ, (OLECHAR*)filenameW, 1, mqi);
+todo_wine {
+    ok(hr == E_INVALIDARG, "got 0x%08x\n", hr);
+    ok(mqi[0].pItf == (void*)0xdeadbeef, "got %p\n", mqi[0].pItf);
+}
+    ok(mqi[0].hr == S_OK, "got 0x%08x\n", mqi[0].hr);
+
+    mqi[0].pIID = &IID_IUnknown;
+    mqi[0].pItf = (void*)0xdeadbeef;
+    mqi[0].hr = E_NOTIMPL;
+    hr = CoGetInstanceFromFile(NULL, clsid, NULL, CLSCTX_INPROC_SERVER, STGM_READ, (OLECHAR*)filenameW, 1, mqi);
+todo_wine {
+    ok(hr == E_INVALIDARG, "got 0x%08x\n", hr);
+    ok(mqi[0].pItf == (void*)0xdeadbeef, "got %p\n", mqi[0].pItf);
+    ok(mqi[0].hr == E_NOTIMPL, "got 0x%08x\n", mqi[0].hr);
+}
+    mqi[0].pIID = &IID_IUnknown;
+    mqi[0].pItf = NULL;
+    mqi[0].hr = E_NOTIMPL;
+    hr = CoGetInstanceFromFile(NULL, clsid, NULL, CLSCTX_INPROC_SERVER, STGM_READ, (OLECHAR*)filenameW, 1, mqi);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+    ok(mqi[0].pItf != NULL, "got %p\n", mqi[0].pItf);
+    ok(mqi[0].hr == S_OK, "got 0x%08x\n", mqi[0].hr);
+
+    mqi[0].pIID = &IID_IUnknown;
+    mqi[0].pItf = NULL;
+    mqi[0].hr = S_OK;
+    hr = CoGetInstanceFromFile(NULL, clsid, NULL, CLSCTX_INPROC_SERVER, STGM_READ, (OLECHAR*)filenameW, 1, mqi);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+    ok(mqi[0].pItf != NULL, "got %p\n", mqi[0].pItf);
+    ok(mqi[0].hr == S_OK, "got 0x%08x\n", mqi[0].hr);
+
+    mqi[0].pIID = &IID_IUnknown;
+    mqi[0].pItf = NULL;
+    mqi[0].hr = S_OK;
+    g_persistfile_qi_ret = S_FALSE;
+    hr = CoGetInstanceFromFile(NULL, clsid, NULL, CLSCTX_INPROC_SERVER, STGM_READ, (OLECHAR*)filenameW, 1, mqi);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+    ok(mqi[0].pItf != NULL, "got %p\n", mqi[0].pItf);
+    ok(mqi[0].hr == S_OK, "got 0x%08x\n", mqi[0].hr);
+    g_persistfile_qi_ret = S_OK;
+
+    mqi[0].pIID = &IID_IUnknown;
+    mqi[0].pItf = NULL;
+    mqi[0].hr = S_OK;
+    mqi[1].pIID = &IID_IUnknown;
+    mqi[1].pItf = NULL;
+    mqi[1].hr = S_OK;
+    g_persistfile_qi_ret = 0x8000efef;
+    hr = CoGetInstanceFromFile(NULL, clsid, NULL, CLSCTX_INPROC_SERVER, STGM_READ, (OLECHAR*)filenameW, 2, mqi);
+    ok(hr == 0x8000efef, "got 0x%08x\n", hr);
+    ok(mqi[0].pItf == NULL, "got %p\n", mqi[0].pItf);
+    ok(mqi[0].hr == 0x8000efef, "got 0x%08x\n", mqi[0].hr);
+    ok(mqi[1].pItf == NULL, "got %p\n", mqi[1].pItf);
+    ok(mqi[1].hr == 0x8000efef, "got 0x%08x\n", mqi[1].hr);
+    g_persistfile_qi_ret = S_OK;
+
+    mqi[0].pIID = &IID_IUnknown;
+    mqi[0].pItf = NULL;
+    mqi[0].hr = S_OK;
+    mqi[1].pIID = &IID_IUnknown;
+    mqi[1].pItf = NULL;
+    mqi[1].hr = S_OK;
+    g_persistfile_load_ret = 0x8000fefe;
+    hr = CoGetInstanceFromFile(NULL, clsid, NULL, CLSCTX_INPROC_SERVER, STGM_READ, (OLECHAR*)filenameW, 2, mqi);
+    ok(hr == 0x8000fefe, "got 0x%08x\n", hr);
+    ok(mqi[0].pItf == NULL, "got %p\n", mqi[0].pItf);
+    ok(mqi[0].hr == 0x8000fefe, "got 0x%08x\n", mqi[0].hr);
+    ok(mqi[1].pItf == NULL, "got %p\n", mqi[1].pItf);
+    ok(mqi[1].hr == 0x8000fefe, "got 0x%08x\n", mqi[1].hr);
+    g_persistfile_load_ret = S_OK;
+
+    hr = CoRevokeClassObject(cookie);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+
+    CoUninitialize();
+}
+
 static void init_funcs(void)
 {
     HMODULE hOle32 = GetModuleHandleA("ole32");
@@ -3150,4 +3578,7 @@ START_TEST(compobj)
     test_OleRegGetUserType();
     test_CoGetApartmentType();
     test_IMallocSpy();
+    test_CoGetCurrentLogicalThreadId();
+    test_IInitializeSpy();
+    test_CoGetInstanceFromFile();
 }

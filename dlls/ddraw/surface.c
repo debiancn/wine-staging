@@ -531,7 +531,14 @@ static void ddraw_surface_cleanup(struct ddraw_surface *surface)
 
 ULONG ddraw_surface_release_iface(struct ddraw_surface *This)
 {
-    ULONG iface_count = InterlockedDecrement(&This->iface_count);
+    ULONG iface_count;
+
+    /* Prevent the surface from being destroyed if it's still attached to
+     * another surface. It will be destroyed when the root is destroyed. */
+    if (This->iface_count == 1 && This->attached_iface)
+        IUnknown_AddRef(This->attached_iface);
+    iface_count = InterlockedDecrement(&This->iface_count);
+
     TRACE("%p decreasing iface count to %u.\n", This, iface_count);
 
     if (iface_count == 0)
@@ -1400,16 +1407,10 @@ static HRESULT ddraw_surface_blt_clipped(struct ddraw_surface *dst_surface, cons
     UINT i;
 
     if (!dst_rect_in)
-    {
-        dst_rect.left = 0;
-        dst_rect.top = 0;
-        dst_rect.right = dst_surface->surface_desc.dwWidth;
-        dst_rect.bottom = dst_surface->surface_desc.dwHeight;
-    }
+        SetRect(&dst_rect, 0, 0, dst_surface->surface_desc.dwWidth,
+                dst_surface->surface_desc.dwHeight);
     else
-    {
         dst_rect = *dst_rect_in;
-    }
 
     if (IsRectEmpty(&dst_rect))
         return DDERR_INVALIDRECT;
@@ -1417,16 +1418,10 @@ static HRESULT ddraw_surface_blt_clipped(struct ddraw_surface *dst_surface, cons
     if (src_surface)
     {
         if (!src_rect_in)
-        {
-            src_rect.left = 0;
-            src_rect.top = 0;
-            src_rect.right = src_surface->surface_desc.dwWidth;
-            src_rect.bottom = src_surface->surface_desc.dwHeight;
-        }
+            SetRect(&src_rect, 0, 0, src_surface->surface_desc.dwWidth,
+                    src_surface->surface_desc.dwHeight);
         else
-        {
             src_rect = *src_rect_in;
-        }
 
         if (IsRectEmpty(&src_rect))
             return DDERR_INVALIDRECT;
@@ -1975,24 +1970,29 @@ static HRESULT ddraw_surface_delete_attached_surface(struct ddraw_surface *surfa
     }
 
     /* Find the predecessor of the detached surface */
-    while (prev)
+    while (prev->next_attached != attachment)
     {
-        if (prev->next_attached == attachment)
-            break;
-        prev = prev->next_attached;
+        if (!(prev = prev->next_attached))
+        {
+            ERR("Failed to find predecessor of %p.\n", attachment);
+            wined3d_mutex_unlock();
+            return DDERR_SURFACENOTATTACHED;
+        }
     }
-
-    /* There must be a surface, otherwise there's a bug */
-    assert(prev);
 
     /* Unchain the surface */
     prev->next_attached = attachment->next_attached;
     attachment->next_attached = NULL;
     attachment->first_attached = attachment;
 
-    /* Check if the wined3d depth stencil needs updating. */
-    if (surface->ddraw->d3ddevice)
-        d3d_device_update_depth_stencil(surface->ddraw->d3ddevice);
+    /* Check if the wined3d depth stencil needs updating. Note that we don't
+     * just call d3d_device_update_depth_stencil() here since it uses
+     * QueryInterface(). Some applications, SCP - Containment Breach in
+     * particular, modify the QueryInterface() pointer in the surface vtbl
+     * but don't cleanup properly after the relevant dll is unloaded. */
+    if (attachment->surface_desc.ddsCaps.dwCaps & DDSCAPS_ZBUFFER
+            && wined3d_device_get_depth_stencil_view(surface->ddraw->wined3d_device) == surface->wined3d_rtv)
+        wined3d_device_set_depth_stencil_view(surface->ddraw->wined3d_device, NULL);
     wined3d_mutex_unlock();
 
     /* Set attached_iface to NULL before releasing it, the surface may go
@@ -2138,7 +2138,9 @@ static HRESULT WINAPI ddraw_surface7_GetDC(IDirectDrawSurface7 *iface, HDC *dc)
         return DDERR_INVALIDPARAMS;
 
     wined3d_mutex_lock();
-    if (surface->surface_desc.ddsCaps.dwCaps & DDSCAPS_PRIMARYSURFACE)
+    if (surface->dc)
+        hr = DDERR_DCALREADYCREATED;
+    else if (surface->surface_desc.ddsCaps.dwCaps & DDSCAPS_PRIMARYSURFACE)
         hr = ddraw_surface_update_frontbuffer(surface, NULL, TRUE);
     if (SUCCEEDED(hr))
         hr = wined3d_texture_get_dc(surface->wined3d_texture, surface->sub_resource_idx, dc);
@@ -2170,7 +2172,7 @@ static HRESULT WINAPI ddraw_surface7_GetDC(IDirectDrawSurface7 *iface, HDC *dc)
          * does not touch *dc. */
         case WINED3DERR_INVALIDCALL:
             *dc = NULL;
-            return DDERR_INVALIDPARAMS;
+            return DDERR_CANTCREATEDC;
 
         default:
             return hr;
@@ -2234,7 +2236,11 @@ static HRESULT WINAPI ddraw_surface7_ReleaseDC(IDirectDrawSurface7 *iface, HDC h
     TRACE("iface %p, dc %p.\n", iface, hdc);
 
     wined3d_mutex_lock();
-    if (SUCCEEDED(hr = wined3d_texture_release_dc(surface->wined3d_texture, surface->sub_resource_idx, hdc)))
+    if (!surface->dc)
+    {
+        hr = DDERR_NODC;
+    }
+    else if (SUCCEEDED(hr = wined3d_texture_release_dc(surface->wined3d_texture, surface->sub_resource_idx, hdc)))
     {
         surface->dc = NULL;
         if (surface->surface_desc.ddsCaps.dwCaps & DDSCAPS_PRIMARYSURFACE)
@@ -5623,20 +5629,10 @@ static void STDMETHODCALLTYPE ddraw_surface_wined3d_object_destroyed(void *paren
 
     TRACE("surface %p.\n", surface);
 
-    /* Check for attached surfaces and detach them. */
+    /* This shouldn't happen, ddraw_surface_release_iface() should prevent the
+     * surface from being destroyed in this case. */
     if (surface->first_attached != surface)
-    {
-        /* Well, this shouldn't happen: The surface being attached is
-         * referenced in AddAttachedSurface(), so it shouldn't be released
-         * until DeleteAttachedSurface() is called, because the refcount is
-         * held. It looks like the application released it often enough to
-         * force this. */
-        WARN("Surface is still attached to surface %p.\n", surface->first_attached);
-
-        /* The refcount will drop to -1 here */
-        if (FAILED(ddraw_surface_delete_attached_surface(surface->first_attached, surface, surface->attached_iface)))
-            ERR("DeleteAttachedSurface failed.\n");
-    }
+        ERR("Surface is still attached to surface %p.\n", surface->first_attached);
 
     while (surface->next_attached)
         if (FAILED(ddraw_surface_delete_attached_surface(surface,
@@ -6106,10 +6102,11 @@ HRESULT ddraw_surface_create(struct ddraw *ddraw, const DDSURFACEDESC2 *surface_
      * address. Some of those also assume that this address is valid even when
      * the surface isn't mapped, and that updates done this way will be
      * visible on the screen. The game Nox is such an application,
-     * Commandos: Behind Enemy Lines is another. We set
-     * WINED3D_TEXTURE_CREATE_PIN_SYSMEM because of this. */
+     * Commandos: Behind Enemy Lines is another. Setting
+     * WINED3D_TEXTURE_CREATE_GET_DC_LENIENT will ensure this. */
     if (FAILED(hr = wined3d_texture_create(ddraw->wined3d_device, &wined3d_desc, levels,
-            WINED3D_TEXTURE_CREATE_PIN_SYSMEM, NULL, texture, &ddraw_texture_wined3d_parent_ops, &wined3d_texture)))
+            WINED3D_TEXTURE_CREATE_GET_DC_LENIENT, NULL, texture,
+            &ddraw_texture_wined3d_parent_ops, &wined3d_texture)))
     {
         WARN("Failed to create wined3d texture, hr %#x.\n", hr);
         HeapFree(GetProcessHeap(), 0, texture);
@@ -6227,7 +6224,7 @@ HRESULT ddraw_surface_create(struct ddraw *ddraw, const DDSURFACEDESC2 *surface_
             desc->u5.dwBackBufferCount = 0;
 
             if (FAILED(hr = wined3d_texture_create(ddraw->wined3d_device, &wined3d_desc, 1,
-                    WINED3D_TEXTURE_CREATE_PIN_SYSMEM, NULL, texture,
+                    WINED3D_TEXTURE_CREATE_GET_DC_LENIENT, NULL, texture,
                     &ddraw_texture_wined3d_parent_ops, &wined3d_texture)))
             {
                 HeapFree(GetProcessHeap(), 0, texture);

@@ -5157,6 +5157,12 @@ static HRESULT d3d_device7_Clear(IDirect3DDevice7 *iface, DWORD count,
     TRACE("iface %p, count %u, rects %p, flags %#x, color 0x%08x, z %.8e, stencil %#x.\n",
             iface, count, rects, flags, color, z, stencil);
 
+    if (count && !rects)
+    {
+        WARN("count %u with NULL rects.\n", count);
+        count = 0;
+    }
+
     wined3d_mutex_lock();
     hr = wined3d_device_clear(This->wined3d_device, count, (RECT *)rects, flags, &c, z, stencil);
     wined3d_mutex_unlock();
@@ -6071,11 +6077,7 @@ static HRESULT d3d_device7_Load(IDirect3DDevice7 *iface, IDirectDrawSurface7 *ds
     wined3d_mutex_lock();
 
     if (!src_rect)
-    {
-        srcrect.left = srcrect.top = 0;
-        srcrect.right = src->surface_desc.dwWidth;
-        srcrect.bottom = src->surface_desc.dwHeight;
-    }
+        SetRect(&srcrect, 0, 0, src->surface_desc.dwWidth, src->surface_desc.dwHeight);
     else
         srcrect = *src_rect;
 

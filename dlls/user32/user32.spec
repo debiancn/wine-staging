@@ -291,6 +291,7 @@
 @ stdcall GetDoubleClickTime()
 @ stdcall GetFocus()
 @ stdcall GetForegroundWindow()
+@ stdcall GetGestureConfig(long long long ptr ptr long)
 @ stdcall GetGUIThreadInfo(long ptr)
 @ stdcall GetGuiResources(long long)
 @ stdcall GetIconInfo(long ptr)
@@ -445,6 +446,7 @@
 # @ stub IsHungThread
 @ stdcall IsIconic(long)
 @ stdcall IsMenu(long)
+@ stdcall IsProcessDPIAware()
 @ stdcall IsRectEmpty(ptr)
 # @ stub IsServerSideWindow
 @ stdcall IsTouchWindow(long ptr)
@@ -549,6 +551,7 @@
 # @ stub PrivateSetDbgTag
 # @ stub PrivateSetRipFlags
 @ stdcall PtInRect(ptr int64)
+@ stdcall QueryDisplayConfig(long ptr ptr ptr ptr ptr)
 @ stub QuerySendMessage
 # @ stub QueryUserCounters
 @ stdcall RealChildWindowFromPoint(long int64)

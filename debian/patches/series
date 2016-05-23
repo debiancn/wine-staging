@@ -2,6 +2,7 @@ makefile.patch
 kfreebsd.patch
 sfnt2fon.patch
 manpages.patch
+version-string.patch
 
 disable/tests.patch
 disable/shlib-exit-calls.patch

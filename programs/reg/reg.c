@@ -225,10 +225,13 @@ static inline BYTE hexchar_to_byte(WCHAR ch)
         return -1;
 }
 
-static LPBYTE get_regdata(LPWSTR data, DWORD reg_type, WCHAR separator, DWORD *reg_count)
+static LPBYTE get_regdata(const WCHAR *data, DWORD reg_type, WCHAR separator, DWORD *reg_count)
 {
+    static const WCHAR empty;
     LPBYTE out_data = NULL;
     *reg_count = 0;
+
+    if (!data) data = &empty;
 
     switch (reg_type)
     {
@@ -352,12 +355,7 @@ static int reg_add(WCHAR *key_name, WCHAR *value_name, BOOL value_empty,
         return 1;
 
     p = strchrW(key_name,'\\');
-    if (!p)
-    {
-        output_message(STRING_INVALID_KEY);
-        return 1;
-    }
-    p++;
+    if (p) p++;
 
     root = path_get_rootkey(key_name);
     if (!root)
@@ -411,7 +409,7 @@ static int reg_add(WCHAR *key_name, WCHAR *value_name, BOOL value_empty,
              return 1;
         }
 
-        if (data && !(reg_data = get_regdata(data, reg_type, separator, &reg_count)))
+        if (!(reg_data = get_regdata(data, reg_type, separator, &reg_count)))
         {
             RegCloseKey(subkey);
             return 1;
@@ -437,12 +435,7 @@ static int reg_delete(WCHAR *key_name, WCHAR *value_name, BOOL value_empty,
         return 1;
 
     p = strchrW(key_name,'\\');
-    if (!p)
-    {
-        output_message(STRING_INVALID_KEY);
-        return 1;
-    }
-    p++;
+    if (p) p++;
 
     root = path_get_rootkey(key_name);
     if (!root)
@@ -504,8 +497,8 @@ static int reg_delete(WCHAR *key_name, WCHAR *value_name, BOOL value_empty,
             &maxValue, NULL, NULL, NULL);
         if (rc != ERROR_SUCCESS)
         {
-            /* FIXME: failure */
             RegCloseKey(subkey);
+            output_message(STRING_GENERAL_FAILURE);
             return 1;
         }
         maxValue++;
@@ -519,13 +512,14 @@ static int reg_delete(WCHAR *key_name, WCHAR *value_name, BOOL value_empty,
             {
                 rc = RegDeleteValueW(subkey, szValue);
                 if (rc != ERROR_SUCCESS)
-                    break;
+                {
+                    HeapFree(GetProcessHeap(), 0, szValue);
+                    RegCloseKey(subkey);
+                    output_message(STRING_VALUEALL_FAILED, key_name);
+                    return 1;
+                }
             }
             else break;
-        }
-        if (rc != ERROR_SUCCESS)
-        {
-            /* FIXME  delete failed */
         }
     }
     else if (value_name || value_empty)
@@ -598,7 +592,13 @@ int wmain(int argc, WCHAR *argvW[])
         for (i = 1; i < argc; i++)
         {
             if (!lstrcmpiW(argvW[i], slashVW))
-                value_name = argvW[++i];
+            {
+                if (value_name || !(value_name = argvW[++i]))
+                {
+                    output_message(STRING_INVALID_CMDLINE);
+                    return 1;
+                }
+            }
             else if (!lstrcmpiW(argvW[i], slashVEW))
                 value_empty = TRUE;
             else if (!lstrcmpiW(argvW[i], slashTW))
@@ -649,7 +649,13 @@ int wmain(int argc, WCHAR *argvW[])
         for (i = 1; i < argc; i++)
         {
             if (!lstrcmpiW(argvW[i], slashVW))
-                value_name = argvW[++i];
+            {
+                if (value_name || !(value_name = argvW[++i]))
+                {
+                    output_message(STRING_INVALID_CMDLINE);
+                    return 1;
+                }
+            }
             else if (!lstrcmpiW(argvW[i], slashVEW))
                 value_empty = TRUE;
             else if (!lstrcmpiW(argvW[i], slashVAW))
@@ -680,7 +686,13 @@ int wmain(int argc, WCHAR *argvW[])
         for (i = 1; i < argc; i++)
         {
             if (!lstrcmpiW(argvW[i], slashVW))
-                value_name = argvW[++i];
+            {
+                if (value_name || !(value_name = argvW[++i]))
+                {
+                    output_message(STRING_INVALID_CMDLINE);
+                    return 1;
+                }
+            }
             else if (!lstrcmpiW(argvW[i], slashVEW))
                 value_empty = TRUE;
             else if (!lstrcmpiW(argvW[i], slashSW))

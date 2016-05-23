@@ -328,6 +328,13 @@ static const IID * const frame_iids[] = {
     NULL
 };
 
+static const IID * const html_iids[] = {
+    ELEM_IFACES,
+    &IID_IHTMLHtmlElement,
+    &IID_IConnectionPointContainer,
+    NULL
+};
+
 static const IID * const head_iids[] = {
     ELEM_IFACES,
     &IID_IHTMLHeadElement,
@@ -449,7 +456,7 @@ typedef struct {
 
 static const elem_type_info_t elem_type_infos[] = {
     {"",          none_iids,        NULL},
-    {"HTML",      elem_iids,        NULL},
+    {"HTML",      html_iids,        &DIID_DispHTMLHtmlElement},
     {"HEAD",      head_iids,        &DIID_DispHTMLHeadElement},
     {"TITLE",     title_iids,       &DIID_DispHTMLTitleElement},
     {"BODY",      body_iids,        &DIID_DispHTMLBody},
@@ -1903,6 +1910,22 @@ static void _test_comment_text(unsigned line, IUnknown *unk, const char *extext)
     SysFreeString(text);
 }
 
+#define create_attr(a,b) _create_attr(__LINE__,a,b)
+static IHTMLDOMAttribute *_create_attr(unsigned line, IUnknown *unk, const char *name)
+{
+    IHTMLDocument5 *doc = _get_htmldoc5_iface(line, unk);
+    BSTR str = a2bstr("Test");
+    IHTMLDOMAttribute *attr;
+    HRESULT hres;
+
+    hres = IHTMLDocument5_createAttribute(doc, str, &attr);
+    ok_(__FILE__,line)(hres == S_OK, "createAttribute dailed: %08x\n", hres);
+    SysFreeString(str);
+    IHTMLDocument5_Release(doc);
+
+    return attr;
+}
+
 #define test_attr_specified(a,b) _test_attr_specified(__LINE__,a,b)
 static void _test_attr_specified(unsigned line, IHTMLDOMAttribute *attr, VARIANT_BOOL expected)
 {
@@ -2788,6 +2811,44 @@ static void _test_elem_set_innertext(unsigned line, IHTMLElement *elem, const ch
 
 }
 
+#define test_elem_outertext(e,t) _test_elem_outertext(__LINE__,e,t)
+static void _test_elem_outertext(unsigned line, IHTMLElement *elem, const char *extext)
+{
+    BSTR text = NULL;
+    HRESULT hres;
+
+    hres = IHTMLElement_get_outerText(elem, &text);
+    ok_(__FILE__,line) (hres == S_OK, "get_outerText failed: %08x\n", hres);
+    if(extext)
+        ok_(__FILE__,line) (!strcmp_wa(text, extext), "get_outerText returned %s expected %s\n",
+                            wine_dbgstr_w(text), extext);
+    else
+        ok_(__FILE__,line) (!text, "get_outerText returned %s expected NULL\n", wine_dbgstr_w(text));
+    SysFreeString(text);
+}
+
+#define test_elem_set_outertext(e,t) _test_elem_set_outertext(__LINE__,e,t)
+static void _test_elem_set_outertext(unsigned line, IHTMLElement *elem, const char *text)
+{
+    BSTR str = a2bstr(text);
+    HRESULT hres;
+
+    hres = IHTMLElement_put_outerText(elem, str);
+    ok_(__FILE__,line) (hres == S_OK, "put_outerText failed: %08x\n", hres);
+    SysFreeString(str);
+}
+
+#define test_elem_set_outertext_fail(a) _test_elem_set_outertext_fail(__LINE__,a)
+static void _test_elem_set_outertext_fail(unsigned line, IHTMLElement *elem)
+{
+    BSTR str = a2bstr("test");
+    HRESULT hres;
+
+    hres = IHTMLElement_put_outerText(elem, str);
+    ok_(__FILE__,line) (hres == 0x800a0258, "put_outerText failed: %08x\n", hres);
+    SysFreeString(str);
+}
+
 #define test_elem_innerhtml(e,t) _test_elem_innerhtml(__LINE__,e,t)
 static void _test_elem_innerhtml(unsigned line, IUnknown *unk, const char *inner_html)
 {
@@ -3384,6 +3445,19 @@ static void _test_attr_node_name(unsigned line, IHTMLDOMAttribute *attr, const c
     ok_(__FILE__,line)(hres == S_OK, "get_nodeName failed: %08x\n", hres);
     ok_(__FILE__,line)(!strcmp_wa(str, exname), "node name is %s, expected %s\n", wine_dbgstr_w(str), exname);
     SysFreeString(str);
+}
+
+#define test_attr_parent(a) _test_attr_parent(__LINE__,a)
+static void _test_attr_parent(unsigned line, IHTMLDOMAttribute *attr)
+{
+    IHTMLDOMAttribute2 *attr2 = _get_attr2_iface(line, (IUnknown*)attr);
+    IHTMLDOMNode *parent = (void*)0xdeadbeef;
+    HRESULT hres;
+
+    hres = IHTMLDOMAttribute2_get_parentNode(attr2, &parent);
+    ok_(__FILE__,line)(hres == S_OK, "get_parentNode failed: %08x\n", hres);
+    ok_(__FILE__,line)(!parent, "parent != NULL\n");
+    IHTMLDOMAttribute2_Release(attr2);
 }
 
 static void test_attr_collection_disp(IDispatch *disp)
@@ -6244,12 +6318,10 @@ static void test_unique_id(IHTMLDocument2 *doc, IHTMLElement *elem)
 
     hres = IHTMLUniqueName_get_uniqueID(unique_name, &id);
     ok(hres == S_OK, "get_uniqueName failed: %08x\n", hres);
-    trace("id %s\n", wine_dbgstr_w(id));
 
     hres = IHTMLUniqueName_get_uniqueID(unique_name, &id2);
     ok(hres == S_OK, "get_uniqueName failed: %08x\n", hres);
     ok(!lstrcmpW(id, id2), "unique names differ\n");
-    trace("id %s\n", wine_dbgstr_w(id2));
 
     hres = IHTMLUniqueName_get_uniqueNumber(unique_name, &num);
     ok(hres == S_OK, "get_uniqueName failed: %08x\n", hres);
@@ -6257,7 +6329,6 @@ static void test_unique_id(IHTMLDocument2 *doc, IHTMLElement *elem)
 
     sprintf(buf, "ms__id%u", num);
     ok(!strcmp_wa(id, buf), "unexpected id %s\n", wine_dbgstr_w(id));
-    trace("num %d\n", num);
 
     SysFreeString(id);
     SysFreeString(id2);
@@ -6289,6 +6360,7 @@ static void test_doc_elem(IHTMLDocument2 *doc)
 
     test_node_name((IUnknown*)elem, "HTML");
     test_elem_tag((IUnknown*)elem, "HTML");
+    test_elem_set_outertext_fail(elem);
 
     doc_node = get_doc_node(doc);
     owner_doc = get_owner_doc((IUnknown*)elem);
@@ -6700,6 +6772,8 @@ static void test_defaults(IHTMLDocument2 *doc)
     test_default_body(body);
     test_body_funs(body);
     IHTMLBodyElement_Release(body);
+
+    test_elem_set_outertext_fail(elem);
 
     test_elem_istextedit(elem, VARIANT_TRUE);
 
@@ -8496,10 +8570,12 @@ static void test_elems(IHTMLDocument2 *doc)
     IHTMLWindow2_Release(window);
 }
 
-static void test_attr(IHTMLElement *elem)
+static void test_attr(IHTMLDocument2 *doc, IHTMLElement *elem)
 {
-    IHTMLDOMAttribute *attr, *attr2;
+    IHTMLDOMAttribute *attr, *attr2, *attr3;
+    IHTMLElement4 *elem4;
     VARIANT v;
+    HRESULT hres;
 
     get_elem_attr_node((IUnknown*)elem, "noattr", FALSE);
 
@@ -8509,6 +8585,7 @@ static void test_attr(IHTMLElement *elem)
     test_ifaces((IUnknown*)attr, attr_iids);
     test_no_iface((IUnknown*)attr, &IID_IHTMLDOMNode);
     test_attr_specified(attr, VARIANT_TRUE);
+    test_attr_parent(attr);
 
     attr2 = get_elem_attr_node((IUnknown*)elem, "id", TRUE);
     ok(iface_cmp((IUnknown*)attr, (IUnknown*)attr2), "attr != attr2\n");
@@ -8577,6 +8654,89 @@ static void test_attr(IHTMLElement *elem)
     attr = get_elem_attr_node((IUnknown*)elem, "tabIndex", TRUE);
     test_attr_specified(attr, VARIANT_FALSE);
     test_attr_expando(attr, VARIANT_FALSE);
+    IHTMLDOMAttribute_Release(attr);
+
+    /* Test created, detached attribute. */
+    attr = create_attr((IUnknown*)doc, "Test");
+
+    test_disp((IUnknown*)attr, &DIID_DispHTMLDOMAttribute, "[object]");
+    test_ifaces((IUnknown*)attr, attr_iids);
+    test_no_iface((IUnknown*)attr, &IID_IHTMLDOMNode);
+
+    test_attr_node_name(attr, "Test");
+    test_attr_expando(attr, VARIANT_FALSE);
+
+    get_attr_node_value(attr, &v, VT_EMPTY);
+
+    V_VT(&v) = VT_I4;
+    V_I4(&v) = 1;
+    put_attr_node_value(attr, v);
+
+    get_attr_node_value(attr, &v, VT_I4);
+    ok(V_I4(&v) == 1, "nodeValue = %d\n", V_I4(&v));
+    test_attr_value(attr, "1");
+
+    V_VT(&v) = VT_EMPTY;
+    put_attr_node_value(attr, v);
+    get_attr_node_value(attr, &v, VT_EMPTY);
+
+    V_VT(&v) = VT_BSTR;
+    V_BSTR(&v) = a2bstr("testing");
+    put_attr_node_value(attr, v);
+    SysFreeString(V_BSTR(&v));
+    test_attr_value(attr, "testing");
+
+    elem4 = get_elem4_iface((IUnknown*)elem);
+
+    hres = IHTMLElement4_setAttributeNode(elem4, attr, &attr2);
+    ok(hres == S_OK, "setAttributeNode failed: %08x\n", hres);
+    ok(!attr2, "attr2 != NULL\n");
+
+    test_elem_attr(elem, "Test", "testing");
+    put_attr_value(attr, "new value");
+    test_elem_attr(elem, "Test", "new value");
+
+    attr2 = get_elem_attr_node((IUnknown*)elem, "Test", TRUE);
+    ok(iface_cmp((IUnknown*)attr2, (IUnknown*)attr), "attr2 != attr\n");
+    IHTMLDOMAttribute_Release(attr2);
+
+    attr3 = create_attr((IUnknown*)doc, "Test");
+    put_attr_value(attr3, "replace test");
+
+    hres = IHTMLElement4_setAttributeNode(elem4, attr3, &attr2);
+    ok(hres == S_OK, "setAttributeNode failed: %08x\n", hres);
+    ok(iface_cmp((IUnknown*)attr2, (IUnknown*)attr), "attr2 != attr\n");
+    IHTMLDOMAttribute_Release(attr2);
+
+    test_elem_attr(elem, "Test", "replace test");
+    test_attr_value(attr, "new value");
+    test_attr_value(attr3, "replace test");
+
+    attr2 = get_elem_attr_node((IUnknown*)elem, "Test", TRUE);
+    ok(iface_cmp((IUnknown*)attr2, (IUnknown*)attr3), "attr2 != attr3\n");
+    IHTMLDOMAttribute_Release(attr2);
+
+    put_attr_value(attr, "new value2");
+    test_elem_attr(elem, "Test", "replace test");
+    test_attr_value(attr, "new value2");
+    test_attr_value(attr3, "replace test");
+
+    put_attr_value(attr3, "new replace value");
+    test_elem_attr(elem, "Test", "new replace value");
+    test_attr_value(attr, "new value2");
+    test_attr_value(attr3, "new replace value");
+
+    /* Attached attributes cause errors. */
+    hres = IHTMLElement4_setAttributeNode(elem4, attr3, &attr2);
+    ok(hres == E_INVALIDARG, "setAttributeNode failed: %08x, expected E_INVALIDARG\n", hres);
+    IHTMLDOMAttribute_Release(attr3);
+
+    attr2 = get_elem_attr_node((IUnknown*)elem, "id", TRUE);
+    hres = IHTMLElement4_setAttributeNode(elem4, attr2, &attr3);
+    ok(hres == E_INVALIDARG, "setAttributeNode failed: %08x, expected E_INVALIDARG\n", hres);
+    IHTMLDOMAttribute_Release(attr2);
+
+    IHTMLElement4_Release(elem4);
     IHTMLDOMAttribute_Release(attr);
 }
 
@@ -8799,7 +8959,19 @@ static void test_elems2(IHTMLDocument2 *doc)
         IHTMLElement_Release(elem2);
     }
 
-    test_attr(div);
+    test_elem_set_innerhtml((IUnknown*)div, "<div id=\"elemid\">test</div>");
+    elem = get_elem_by_id(doc, "elemid", TRUE);
+    if(elem) {
+        test_elem_outertext(elem, "test");
+        test_elem_set_outertext(elem, "outer text");
+        test_elem_outertext(elem, NULL);
+        test_elem_all((IUnknown*)div, NULL, 0);
+        elem2 = test_elem_get_parent((IUnknown*)elem);
+        ok(!elem2, "parent != NULL\n");
+        IHTMLElement_Release(elem);
+    }
+
+    test_attr(doc, div);
     test_blocked(doc, div);
     test_elem_names(doc);
 
@@ -8810,7 +8982,6 @@ static void test_create_elems(IHTMLDocument2 *doc)
 {
     IHTMLElement *elem, *body, *elem2;
     IHTMLDOMNode *node, *node2, *node3, *comment;
-    IHTMLDOMAttribute *attr;
     IHTMLDocument5 *doc5;
     IDispatch *disp;
     VARIANT var;
@@ -8907,37 +9078,11 @@ static void test_create_elems(IHTMLDocument2 *doc)
             test_elem_outerhtml((IUnknown*)comment, "<!--testing-->");
             test_comment_attrs((IUnknown*)comment);
 
+            node2 = clone_node((IUnknown*)comment, VARIANT_TRUE);
+            test_comment_text((IUnknown*)node2, "<!--testing-->");
+            IHTMLDOMNode_Release(node2);
+
             IHTMLDOMNode_Release(comment);
-        }
-
-        str = a2bstr("Test");
-        hres = IHTMLDocument5_createAttribute(doc5, str, &attr);
-        ok(hres == S_OK, "createAttribute dailed: %08x\n", hres);
-        SysFreeString(str);
-        if(SUCCEEDED(hres)) {
-            VARIANT v;
-
-            test_disp((IUnknown*)attr, &DIID_DispHTMLDOMAttribute, "[object]");
-            test_ifaces((IUnknown*)attr, attr_iids);
-            test_no_iface((IUnknown*)attr, &IID_IHTMLDOMNode);
-
-            test_attr_node_name(attr, "Test");
-            test_attr_expando(attr, VARIANT_FALSE);
-
-            get_attr_node_value(attr, &v, VT_EMPTY);
-
-            V_VT(&v) = VT_I4;
-            V_I4(&v) = 1;
-            put_attr_node_value(attr, v);
-
-            get_attr_node_value(attr, &v, VT_I4);
-            ok(V_I4(&v) == 1, "nodeValue = %d\n", V_I4(&v));
-
-            V_VT(&v) = VT_EMPTY;
-            put_attr_node_value(attr, v);
-            get_attr_node_value(attr, &v, VT_EMPTY);
-
-            IHTMLDOMAttribute_Release(attr);
         }
 
         IHTMLDocument5_Release(doc5);

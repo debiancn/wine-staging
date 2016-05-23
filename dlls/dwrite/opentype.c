@@ -967,6 +967,9 @@ HRESULT opentype_get_font_table(IDWriteFontFileStream *stream, DWRITE_FONT_FACE_
     if (found) *found = FALSE;
     if (table_size) *table_size = 0;
 
+    *table_data = NULL;
+    *table_context = NULL;
+
     if (type == DWRITE_FONT_FACE_TYPE_TRUETYPE_COLLECTION) {
         const TTC_Header_V1 *ttc_header;
         void * ttc_context;
@@ -1184,21 +1187,30 @@ void opentype_get_font_metrics(IDWriteFontFileStream *stream, DWRITE_FONT_FACE_T
             metrics->xHeight   = GET_BE_WORD(tt_os2->sxHeight);
         }
 
-        /* version 4 fields */
-        if (version >= 4) {
-            if (GET_BE_WORD(tt_os2->fsSelection) & OS2_FSSELECTION_USE_TYPO_METRICS) {
-                SHORT descent = GET_BE_WORD(tt_os2->sTypoDescender);
-                metrics->ascent = GET_BE_WORD(tt_os2->sTypoAscender);
-                metrics->descent = descent < 0 ? -descent : 0;
-                metrics->lineGap = GET_BE_WORD(tt_os2->sTypoLineGap);
-                metrics->hasTypographicMetrics = TRUE;
-            }
+        if (GET_BE_WORD(tt_os2->fsSelection) & OS2_FSSELECTION_USE_TYPO_METRICS) {
+            SHORT descent = GET_BE_WORD(tt_os2->sTypoDescender);
+            metrics->ascent = GET_BE_WORD(tt_os2->sTypoAscender);
+            metrics->descent = descent < 0 ? -descent : 0;
+            metrics->lineGap = GET_BE_WORD(tt_os2->sTypoLineGap);
+            metrics->hasTypographicMetrics = TRUE;
         }
     }
 
     if (tt_post) {
         metrics->underlinePosition = GET_BE_WORD(tt_post->underlinePosition);
         metrics->underlineThickness = GET_BE_WORD(tt_post->underlineThickness);
+    }
+
+    /* use any of thickness values if another one is zero, if both are zero use estimate */
+    if (metrics->strikethroughThickness || metrics->underlineThickness) {
+        if (!metrics->strikethroughThickness)
+            metrics->strikethroughThickness = metrics->underlineThickness;
+        if (!metrics->underlineThickness)
+            metrics->underlineThickness = metrics->strikethroughThickness;
+    }
+    else {
+        metrics->strikethroughThickness = metrics->designUnitsPerEm / 14;
+        metrics->underlineThickness = metrics->designUnitsPerEm / 14;
     }
 
     /* estimate missing metrics */

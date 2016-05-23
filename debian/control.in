@@ -220,6 +220,9 @@ Suggests:
  ttf-mscorefonts-installer,
 Pre-Depends:
  ${misc:Pre-Depends},
+Breaks:
+ wine32VERSION (<< 1.7.51-2~),
+ wine64VERSION (<< 1.7.51-2~),
 Description: Windows API implementation - library
  Wine is a free MS-Windows API implementation.
  This is still a work in progress and many applications may still not work.
@@ -237,6 +240,9 @@ Depends:
  libc6-dev,
 Recommends:
  wine32VERSION-tools (= ${binary:Version}) | wine64VERSION-tools (= ${binary:Version}),
+Breaks:
+ wine32VERSION (<< 1.7.51-2~),
+ wine64VERSION (<< 1.7.51-2~),
 Description: Windows API implementation - development files
  Wine is a free MS-Windows API implementation.
  This is still a work in progress and many applications may still not work.

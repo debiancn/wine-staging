@@ -819,19 +819,19 @@
 @ cdecl -arch=i386 _CItan() msvcr120._CItan
 @ cdecl -arch=i386 _CItanh() msvcr120._CItanh
 @ stub _Cbuild
-@ stub _CreateFrameInfo
+@ cdecl _CreateFrameInfo(ptr ptr) msvcr120._CreateFrameInfo
 @ stdcall _CxxThrowException(long long) msvcr120._CxxThrowException
 @ cdecl -arch=i386 -norelay _EH_prolog() msvcr120._EH_prolog
 @ stub -arch=arm _FPE_Raise
 @ stub _FCbuild
-@ stub _FindAndUnlinkFrame
+@ cdecl _FindAndUnlinkFrame(ptr) msvcr120._FindAndUnlinkFrame
 @ stub -arch=win64 _GetImageBase
 @ stub -arch=win64 _GetThrowImageBase
 @ cdecl _Getdays() msvcr120._Getdays
 @ cdecl _Getmonths() msvcr120._Getmonths
 @ cdecl _Gettnames() msvcr120._Gettnames
 @ extern _HUGE msvcr120._HUGE
-@ stub _IsExceptionObjectToBeDestroyed
+@ cdecl _IsExceptionObjectToBeDestroyed(ptr) msvcr120._IsExceptionObjectToBeDestroyed
 @ stub _LCbuild
 @ stub -arch=i386 _NLG_Dispatch2
 @ stub -arch=arm,win64 __NLG_Dispatch2
@@ -859,9 +859,9 @@
 @ cdecl -arch=i386,x86_64,arm -norelay __CxxFrameHandler3(ptr ptr ptr ptr) msvcr120.__CxxFrameHandler3
 @ stdcall -arch=i386 __CxxLongjmpUnwind(ptr) msvcr120.__CxxLongjmpUnwind
 @ cdecl -arch=i386,x86_64,arm __CxxQueryExceptionSize() msvcr120.__CxxQueryExceptionSize
-@ stub __CxxRegisterExceptionObject
-@ stub __CxxUnregisterExceptionObject
-@ stub __DestructExceptionObject
+@ cdecl __CxxRegisterExceptionObject(ptr ptr) msvcr120.__CxxRegisterExceptionObject
+@ cdecl __CxxUnregisterExceptionObject(ptr long) msvcr120.__CxxUnregisterExceptionObject
+@ cdecl __DestructExceptionObject(ptr) msvcr120.__DestructExceptionObject
 @ stub __FrameUnwindFilter
 @ stub __GetPlatformExceptionInfo
 @ cdecl __RTCastToVoid(ptr) msvcr120.__RTCastToVoid
@@ -1684,9 +1684,9 @@
 @ cdecl asctime_s(ptr long ptr) msvcr120.asctime_s
 @ cdecl asin(double) msvcr120.asin
 @ cdecl -arch=arm,x86_64 asinf(float) msvcr120.asinf
-@ stub asinh
-@ stub asinhf
-@ stub asinhl
+@ cdecl asinh(double double) msvcr120.asinh
+@ cdecl asinhf(float float) msvcr120.asinhf
+@ cdecl asinhl(double double) msvcr120.asinhl
 @ cdecl atan(double) msvcr120.atan
 @ cdecl -arch=arm,x86_64 atanf(float) msvcr120.atanf
 @ cdecl atan2(double double) msvcr120.atan2
@@ -1987,9 +1987,9 @@
 @ cdecl rand() msvcr120.rand
 @ cdecl rand_s(ptr) msvcr120.rand_s
 @ cdecl realloc(ptr long) msvcr120.realloc
-@ stub remainder
-@ stub remainderf
-@ stub remainderl
+@ cdecl remainder(double double) msvcr120.remainder
+@ cdecl remainderf(float float) msvcr120.remainderf
+@ cdecl remainderl(double double) msvcr120.remainderl
 @ cdecl remove(str) msvcr120.remove
 @ stub remquo
 @ stub remquof
@@ -2002,12 +2002,12 @@
 @ cdecl round(double) msvcr120.round
 @ cdecl roundf(float) msvcr120.roundf
 @ cdecl roundl(double) msvcr120.roundl
-@ stub scalbln
-@ stub scalblnf
-@ stub scalblnl
-@ stub scalbn
-@ stub scalbnf
-@ stub scalbnl
+@ cdecl scalbln(double long) msvcr120.scalbln
+@ cdecl scalblnf(float long) msvcr120.scalblnf
+@ cdecl scalblnl(double long) msvcr120.scalblnl
+@ cdecl scalbn(double long) msvcr120.scalbn
+@ cdecl scalbnf(float long) msvcr120.scalbnf
+@ cdecl scalbnl(double long) msvcr120.scalbnl
 @ varargs scanf(str) msvcr120.scanf
 @ varargs scanf_s(str) msvcr120.scanf_s
 @ cdecl setbuf(ptr ptr) msvcr120.setbuf
