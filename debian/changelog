@@ -1,3 +1,9 @@
+wine-development (1.9.8-1~bpo8+1) jessie-backports; urgency=medium
+
+  * Rebuild for jessie-backports.
+
+ -- Jens Reyer <jre.winesim@gmail.com>  Mon, 23 May 2016 16:09:47 +0200
+
 wine-development (1.9.8-1) unstable; urgency=medium
 
   [ Michael Gilbert ]
