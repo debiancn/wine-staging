@@ -1,3 +1,12 @@
+wine-development (1.9.11-1~bpo8+1) jessie-backports; urgency=medium
+
+  * Rebuild for jessie-backports.
+  * Remaining diff to stretch:
+    - Don't build -dbg or -dbgsym packages.
+      Drop versioned build-dependency on debhelper.
+
+ -- Jens Reyer <jre.winesim@gmail.com>  Sat, 11 Jun 2016 16:35:36 +0200
+
 wine-development (1.9.11-1) unstable; urgency=medium
 
   * New upstream release 1.9.11, released May 27, 2016.
