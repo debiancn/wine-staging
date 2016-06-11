@@ -1235,7 +1235,8 @@ static HRESULT WINAPI DECLSPEC_HOTPATCH ddraw_surface7_Flip(IDirectDrawSurface7 
 
     wined3d_mutex_lock();
 
-    if (!(dst_impl->ddraw->cooperative_level & DDSCL_EXCLUSIVE))
+    if ((dst_impl->surface_desc.ddsCaps.dwCaps & DDSCAPS_PRIMARYSURFACE)
+            && !(dst_impl->ddraw->cooperative_level & DDSCL_EXCLUSIVE))
     {
         WARN("Not in exclusive mode.\n");
         wined3d_mutex_unlock();
@@ -1345,51 +1346,51 @@ static HRESULT WINAPI DECLSPEC_HOTPATCH ddraw_surface7_Flip(IDirectDrawSurface7 
 }
 
 static HRESULT WINAPI DECLSPEC_HOTPATCH ddraw_surface4_Flip(IDirectDrawSurface4 *iface,
-        IDirectDrawSurface4 *dst, DWORD flags)
+        IDirectDrawSurface4 *src, DWORD flags)
 {
     struct ddraw_surface *surface = impl_from_IDirectDrawSurface4(iface);
-    struct ddraw_surface *dst_impl = unsafe_impl_from_IDirectDrawSurface4(dst);
+    struct ddraw_surface *src_impl = unsafe_impl_from_IDirectDrawSurface4(src);
 
-    TRACE("iface %p, dst %p, flags %#x.\n", iface, dst, flags);
+    TRACE("iface %p, src %p, flags %#x.\n", iface, src, flags);
 
     return ddraw_surface7_Flip(&surface->IDirectDrawSurface7_iface,
-            dst_impl ? &dst_impl->IDirectDrawSurface7_iface : NULL, flags);
+            src_impl ? &src_impl->IDirectDrawSurface7_iface : NULL, flags);
 }
 
 static HRESULT WINAPI DECLSPEC_HOTPATCH ddraw_surface3_Flip(IDirectDrawSurface3 *iface,
-        IDirectDrawSurface3 *dst, DWORD flags)
+        IDirectDrawSurface3 *src, DWORD flags)
 {
     struct ddraw_surface *surface = impl_from_IDirectDrawSurface3(iface);
-    struct ddraw_surface *dst_impl = unsafe_impl_from_IDirectDrawSurface3(dst);
+    struct ddraw_surface *src_impl = unsafe_impl_from_IDirectDrawSurface3(src);
 
-    TRACE("iface %p, dst %p, flags %#x.\n", iface, dst, flags);
+    TRACE("iface %p, src %p, flags %#x.\n", iface, src, flags);
 
     return ddraw_surface7_Flip(&surface->IDirectDrawSurface7_iface,
-            dst_impl ? &dst_impl->IDirectDrawSurface7_iface : NULL, flags);
+            src_impl ? &src_impl->IDirectDrawSurface7_iface : NULL, flags);
 }
 
 static HRESULT WINAPI DECLSPEC_HOTPATCH ddraw_surface2_Flip(IDirectDrawSurface2 *iface,
-        IDirectDrawSurface2 *dst, DWORD flags)
+        IDirectDrawSurface2 *src, DWORD flags)
 {
     struct ddraw_surface *surface = impl_from_IDirectDrawSurface2(iface);
-    struct ddraw_surface *dst_impl = unsafe_impl_from_IDirectDrawSurface2(dst);
+    struct ddraw_surface *src_impl = unsafe_impl_from_IDirectDrawSurface2(src);
 
-    TRACE("iface %p, dst %p, flags %#x.\n", iface, dst, flags);
+    TRACE("iface %p, src %p, flags %#x.\n", iface, src, flags);
 
     return ddraw_surface7_Flip(&surface->IDirectDrawSurface7_iface,
-            dst_impl ? &dst_impl->IDirectDrawSurface7_iface : NULL, flags);
+            src_impl ? &src_impl->IDirectDrawSurface7_iface : NULL, flags);
 }
 
 static HRESULT WINAPI DECLSPEC_HOTPATCH ddraw_surface1_Flip(IDirectDrawSurface *iface,
-        IDirectDrawSurface *dst, DWORD flags)
+        IDirectDrawSurface *src, DWORD flags)
 {
     struct ddraw_surface *surface = impl_from_IDirectDrawSurface(iface);
-    struct ddraw_surface *dst_impl = unsafe_impl_from_IDirectDrawSurface(dst);
+    struct ddraw_surface *src_impl = unsafe_impl_from_IDirectDrawSurface(src);
 
-    TRACE("iface %p, dst %p, flags %#x.\n", iface, dst, flags);
+    TRACE("iface %p, src %p, flags %#x.\n", iface, src, flags);
 
     return ddraw_surface7_Flip(&surface->IDirectDrawSurface7_iface,
-            dst_impl ? &dst_impl->IDirectDrawSurface7_iface : NULL, flags);
+            src_impl ? &src_impl->IDirectDrawSurface7_iface : NULL, flags);
 }
 
 static HRESULT ddraw_surface_blt_clipped(struct ddraw_surface *dst_surface, const RECT *dst_rect_in,
@@ -5718,10 +5719,50 @@ HRESULT ddraw_surface_create(struct ddraw *ddraw, const DDSURFACEDESC2 *surface_
     /* Ensure DDSD_CAPS is always set. */
     desc->dwFlags |= DDSD_CAPS;
 
+    if (desc->ddsCaps.dwCaps & DDSCAPS_FLIP)
+    {
+        if (!(desc->dwFlags & DDSD_BACKBUFFERCOUNT) || !desc->u5.dwBackBufferCount)
+        {
+            WARN("Tried to create a flippable surface without any back buffers.\n");
+            HeapFree(GetProcessHeap(), 0, texture);
+            return DDERR_INVALIDCAPS;
+        }
+
+        if (!(desc->ddsCaps.dwCaps & DDSCAPS_COMPLEX))
+        {
+            WARN("Tried to create a flippable surface without DDSCAPS_COMPLEX.\n");
+            HeapFree(GetProcessHeap(), 0, texture);
+            return DDERR_INVALIDCAPS;
+        }
+
+        if (desc->ddsCaps.dwCaps2 & DDSCAPS2_CUBEMAP)
+        {
+            WARN("Tried to create a flippable cubemap.\n");
+            HeapFree(GetProcessHeap(), 0, texture);
+            return DDERR_INVALIDPARAMS;
+        }
+
+        if (desc->ddsCaps.dwCaps & DDSCAPS_TEXTURE)
+        {
+            FIXME("Flippable textures not implemented.\n");
+            HeapFree(GetProcessHeap(), 0, texture);
+            return DDERR_INVALIDCAPS;
+        }
+    }
+    else
+    {
+        if (desc->dwFlags & DDSD_BACKBUFFERCOUNT)
+        {
+            WARN("Tried to specify a back buffer count for a non-flippable surface.\n");
+            HeapFree(GetProcessHeap(), 0, texture);
+            if (desc->ddsCaps.dwCaps2 & DDSCAPS2_CUBEMAP)
+                return DDERR_INVALIDPARAMS;
+            return DDERR_INVALIDCAPS;
+        }
+    }
+
     if (desc->ddsCaps.dwCaps & DDSCAPS_PRIMARYSURFACE)
     {
-        DWORD flippable = desc->ddsCaps.dwCaps & (DDSCAPS_FLIP | DDSCAPS_COMPLEX);
-
         if (desc->ddsCaps.dwCaps & DDSCAPS_TEXTURE)
         {
             WARN("Tried to create a primary surface with DDSCAPS_TEXTURE.\n");
@@ -5729,28 +5770,18 @@ HRESULT ddraw_surface_create(struct ddraw *ddraw, const DDSURFACEDESC2 *surface_
             return DDERR_INVALIDCAPS;
         }
 
-        if (flippable)
+        if ((desc->ddsCaps.dwCaps & DDSCAPS_COMPLEX) && !(desc->ddsCaps.dwCaps & DDSCAPS_FLIP))
         {
-            if (flippable != (DDSCAPS_FLIP | DDSCAPS_COMPLEX))
-            {
-                WARN("Tried to create a flippable primary surface without both DDSCAPS_FLIP and DDSCAPS_COMPLEX.\n");
-                HeapFree(GetProcessHeap(), 0, texture);
-                return DDERR_INVALIDCAPS;
-            }
+            WARN("Tried to create a flippable primary surface without both DDSCAPS_FLIP and DDSCAPS_COMPLEX.\n");
+            HeapFree(GetProcessHeap(), 0, texture);
+            return DDERR_INVALIDCAPS;
+        }
 
-            if (!(desc->dwFlags & DDSD_BACKBUFFERCOUNT) || !desc->u5.dwBackBufferCount)
-            {
-                WARN("Tried to create a flippable primary surface without any back buffers.\n");
-                HeapFree(GetProcessHeap(), 0, texture);
-                return DDERR_INVALIDCAPS;
-            }
-
-            if (!(ddraw->cooperative_level & DDSCL_EXCLUSIVE))
-            {
-                WARN("Tried to create a flippable primary surface without DDSCL_EXCLUSIVE.\n");
-                HeapFree(GetProcessHeap(), 0, texture);
-                return DDERR_NOEXCLUSIVEMODE;
-            }
+        if ((desc->ddsCaps.dwCaps & DDSCAPS_FLIP) && !(ddraw->cooperative_level & DDSCL_EXCLUSIVE))
+        {
+            WARN("Tried to create a flippable primary surface without DDSCL_EXCLUSIVE.\n");
+            HeapFree(GetProcessHeap(), 0, texture);
+            return DDERR_NOEXCLUSIVEMODE;
         }
     }
 
@@ -5853,12 +5884,13 @@ HRESULT ddraw_surface_create(struct ddraw *ddraw, const DDSURFACEDESC2 *surface_
         return DDERR_INVALIDPARAMS;
     }
 
+    if (desc->ddsCaps.dwCaps & DDSCAPS_FLIP)
+        desc->ddsCaps.dwCaps |= DDSCAPS_FRONTBUFFER;
+
     if (desc->ddsCaps.dwCaps & DDSCAPS_PRIMARYSURFACE)
     {
         /* The first surface is a front buffer, the back buffers are created
          * afterwards. */
-        if (desc->ddsCaps.dwCaps & DDSCAPS_FLIP)
-            desc->ddsCaps.dwCaps |= DDSCAPS_FRONTBUFFER;
         desc->ddsCaps.dwCaps |= DDSCAPS_VISIBLE;
         if (ddraw->cooperative_level & DDSCL_EXCLUSIVE)
         {
@@ -5935,18 +5967,12 @@ HRESULT ddraw_surface_create(struct ddraw *ddraw, const DDSURFACEDESC2 *surface_
     {
         if (!(desc->ddsCaps.dwCaps2 & (DDSCAPS2_TEXTUREMANAGE | DDSCAPS2_D3DTEXTUREMANAGE)))
         {
-            enum wined3d_resource_type rtype;
             DWORD usage = 0;
 
             if (desc->ddsCaps.dwCaps2 & DDSCAPS2_CUBEMAP)
-            {
-                usage |= WINED3DUSAGE_LEGACY_CUBEMAP;
-                rtype = WINED3D_RTYPE_TEXTURE_2D;
-            }
+                usage |= WINED3DUSAGE_LEGACY_CUBEMAP | WINED3DUSAGE_TEXTURE;
             else if (desc->ddsCaps.dwCaps & DDSCAPS_TEXTURE)
-                rtype = WINED3D_RTYPE_TEXTURE_2D;
-            else
-                rtype = WINED3D_RTYPE_SURFACE;
+                usage |= WINED3DUSAGE_TEXTURE;
 
             if (desc->ddsCaps.dwCaps & DDSCAPS_ZBUFFER)
                 usage = WINED3DUSAGE_DEPTHSTENCIL;
@@ -5954,7 +5980,7 @@ HRESULT ddraw_surface_create(struct ddraw *ddraw, const DDSURFACEDESC2 *surface_
                 usage = WINED3DUSAGE_RENDERTARGET;
 
             if (SUCCEEDED(hr = wined3d_check_device_format(ddraw->wined3d, WINED3DADAPTER_DEFAULT,
-                    WINED3D_DEVICE_TYPE_HAL, mode.format_id, usage, rtype, wined3d_desc.format)))
+                    WINED3D_DEVICE_TYPE_HAL, mode.format_id, usage, WINED3D_RTYPE_TEXTURE_2D, wined3d_desc.format)))
                 desc->ddsCaps.dwCaps |= DDSCAPS_VIDEOMEMORY;
             else
                 desc->ddsCaps.dwCaps |= DDSCAPS_SYSTEMMEMORY;
@@ -6104,7 +6130,7 @@ HRESULT ddraw_surface_create(struct ddraw *ddraw, const DDSURFACEDESC2 *surface_
      * visible on the screen. The game Nox is such an application,
      * Commandos: Behind Enemy Lines is another. Setting
      * WINED3D_TEXTURE_CREATE_GET_DC_LENIENT will ensure this. */
-    if (FAILED(hr = wined3d_texture_create(ddraw->wined3d_device, &wined3d_desc, levels,
+    if (FAILED(hr = wined3d_texture_create(ddraw->wined3d_device, &wined3d_desc, layers, levels,
             WINED3D_TEXTURE_CREATE_GET_DC_LENIENT, NULL, texture,
             &ddraw_texture_wined3d_parent_ops, &wined3d_texture)))
     {
@@ -6223,7 +6249,7 @@ HRESULT ddraw_surface_create(struct ddraw *ddraw, const DDSURFACEDESC2 *surface_
                 desc->ddsCaps.dwCaps |= DDSCAPS_BACKBUFFER;
             desc->u5.dwBackBufferCount = 0;
 
-            if (FAILED(hr = wined3d_texture_create(ddraw->wined3d_device, &wined3d_desc, 1,
+            if (FAILED(hr = wined3d_texture_create(ddraw->wined3d_device, &wined3d_desc, 1, 1,
                     WINED3D_TEXTURE_CREATE_GET_DC_LENIENT, NULL, texture,
                     &ddraw_texture_wined3d_parent_ops, &wined3d_texture)))
             {

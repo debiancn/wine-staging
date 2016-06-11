@@ -766,7 +766,7 @@ static HRESULT proxy_manager_construct(
 
     EnterCriticalSection(&apt->cs);
     /* FIXME: we are dependent on the ordering in here to make sure a proxy's
-     * IRemUnknown proxy doesn't get destroyed before the regual proxy does
+     * IRemUnknown proxy doesn't get destroyed before the regular proxy does
      * because we need the IRemUnknown proxy during the destruction of the
      * regular proxy. Ideally, we should maintain a separate list for the
      * IRemUnknown proxies that need late destruction */
@@ -1776,7 +1776,7 @@ HRESULT WINAPI CoMarshalInterface(IStream *pStream, REFIID riid, IUnknown *pUnk,
         }
     }
 
-    TRACE("Calling IMarshal::MarshalInterace\n");
+    TRACE("Calling IMarshal::MarshalInterface\n");
     /* call helper object to do the actual marshaling */
     hr = IMarshal_MarshalInterface(pMarshal, pStream, riid, pUnk, dwDestContext,
                                    pvDestContext, mshlFlags);

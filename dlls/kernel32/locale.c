@@ -1048,35 +1048,17 @@ INT WINAPI GetSystemDefaultLocaleName(LPWSTR localename, INT len)
     return LCIDToLocaleName(lcid, localename, len, 0);
 }
 
-/***********************************************************************
- *             GetSystemPreferredUILanguages (KERNEL32.@)
- */
-BOOL WINAPI GetSystemPreferredUILanguages(DWORD flags, ULONG* count, WCHAR* buffer, ULONG* size)
+static BOOL get_dummy_preferred_ui_language( DWORD flags, ULONG *count, WCHAR *buffer, ULONG *size )
 {
     LCTYPE type;
     int lsize;
-    if (flags & ~(MUI_LANGUAGE_NAME | MUI_LANGUAGE_ID | MUI_MACHINE_LANGUAGE_SETTINGS))
-    {
-        SetLastError(ERROR_INVALID_PARAMETER);
-        return FALSE;
-    }
-    if ((flags & MUI_LANGUAGE_NAME) && (flags & MUI_LANGUAGE_ID))
-    {
-        SetLastError(ERROR_INVALID_PARAMETER);
-        return FALSE;
-    }
-    if (*size && !buffer)
-    {
-        SetLastError(ERROR_INVALID_PARAMETER);
-        return FALSE;
-    }
 
     FIXME("(0x%x %p %p %p) returning a dummy value (current locale)\n", flags, count, buffer, size);
 
     if (flags & MUI_LANGUAGE_ID)
-		type = LOCALE_ILANGUAGE;
-	else
-		type = LOCALE_SNAME;
+        type = LOCALE_ILANGUAGE;
+    else
+        type = LOCALE_SNAME;
 
     lsize = GetLocaleInfoW(LOCALE_SYSTEM_DEFAULT, type, NULL, 0);
     if (!lsize)
@@ -1109,6 +1091,49 @@ BOOL WINAPI GetSystemPreferredUILanguages(DWORD flags, ULONG* count, WCHAR* buff
     *count = 1;
     TRACE("returned variable content: %d, \"%s\", %d\n", *count, debugstr_w(buffer), *size);
     return TRUE;
+
+}
+
+/***********************************************************************
+ *             GetSystemPreferredUILanguages (KERNEL32.@)
+ */
+BOOL WINAPI GetSystemPreferredUILanguages(DWORD flags, ULONG* count, WCHAR* buffer, ULONG* size)
+{
+    if (flags & ~(MUI_LANGUAGE_NAME | MUI_LANGUAGE_ID | MUI_MACHINE_LANGUAGE_SETTINGS))
+    {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+    if ((flags & MUI_LANGUAGE_NAME) && (flags & MUI_LANGUAGE_ID))
+    {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+    if (*size && !buffer)
+    {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+
+    return get_dummy_preferred_ui_language( flags, count, buffer, size );
+}
+
+/***********************************************************************
+ *              SetThreadPreferredUILanguages (KERNEL32.@)
+ */
+BOOL WINAPI SetThreadPreferredUILanguages( DWORD flags, PCZZWSTR buffer, PULONG count )
+{
+    FIXME( "%u, %p, %p\n", flags, buffer, count );
+    return TRUE;
+}
+
+/***********************************************************************
+ *              GetThreadPreferredUILanguages (KERNEL32.@)
+ */
+BOOL WINAPI GetThreadPreferredUILanguages( DWORD flags, ULONG *count, WCHAR *buf, ULONG *size )
+{
+    FIXME( "%08x, %p, %p %p\n", flags, count, buf, size );
+    return get_dummy_preferred_ui_language( flags, count, buf, size );
 }
 
 /***********************************************************************
@@ -2631,6 +2656,9 @@ BOOL WINAPI IsValidLocaleName( LPCWSTR locale )
 {
     struct locale_name locale_name;
 
+    if (!locale)
+        return FALSE;
+
     /* string parsing */
     parse_locale_name( locale, &locale_name );
 
@@ -2836,7 +2864,7 @@ BOOL WINAPI GetStringTypeW( DWORD type, LPCWSTR src, INT count, LPWORD chartype 
             if ((c>=0x30A0)&&(c<=0x30FF)) type3 |= C3_KATAKANA;
             if ((c>=0x3040)&&(c<=0x309F)) type3 |= C3_HIRAGANA;
             if ((c>=0x4E00)&&(c<=0x9FAF)) type3 |= C3_IDEOGRAPH;
-            if ((c>=0x0600)&&(c<=0x06FF)) type3 |= C3_KASHIDA;
+            if (c == 0x0640) type3 |= C3_KASHIDA;
             if ((c>=0x3000)&&(c<=0x303F)) type3 |= C3_SYMBOL;
 
             if ((c>=0xD800)&&(c<=0xDBFF)) type3 |= C3_HIGHSURROGATE;
@@ -2977,7 +3005,11 @@ INT WINAPI LCMapStringEx(LPCWSTR name, DWORD flags, LPCWSTR src, INT srclen, LPW
 
     if (version) FIXME("unsupported version structure %p\n", version);
     if (reserved) FIXME("unsupported reserved pointer %p\n", reserved);
-    if (lparam) FIXME("unsupported lparam %lx\n", lparam);
+    if (lparam)
+    {
+        static int once;
+        if (!once++) FIXME("unsupported lparam %lx\n", lparam);
+    }
 
     if (!src || !srclen || dstlen < 0)
     {

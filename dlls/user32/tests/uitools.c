@@ -17,6 +17,7 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#define WINE_NO_INLINE_RECT
 #include "wine/test.h"
 #include "winbase.h"
 #include "wingdi.h"
@@ -49,8 +50,7 @@ static void test_FillRect(void)
 
     /* select black brush */
     old_brush = SelectObject(hdcmem, GetStockObject(BLACK_BRUSH));
-    r.left  = r.top = 0;
-    r.right = r.bottom = 5;
+    SetRect(&r, 0, 0, 5, 5);
     FillRect(hdcmem, &r, 0);
     SelectObject(hdcmem, old_brush);
     /* bitmap filled with last selected brush */

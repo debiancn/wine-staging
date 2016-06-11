@@ -17,6 +17,7 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include <assert.h>
 #define COBJMACROS
 #include "initguid.h"
 #include "d3d11.h"
@@ -49,6 +50,12 @@ struct vec3
 struct vec4
 {
     float x, y, z, w;
+};
+
+struct device_desc
+{
+    const D3D_FEATURE_LEVEL *feature_level;
+    UINT flags;
 };
 
 struct swapchain_desc
@@ -107,17 +114,44 @@ static BOOL compare_color(DWORD c1, DWORD c2, BYTE max_diff)
     return TRUE;
 }
 
+#define create_buffer(a, b, c, d) create_buffer_(__LINE__, a, b, c, d)
+static ID3D11Buffer *create_buffer_(unsigned int line, ID3D11Device *device,
+        unsigned int bind_flags, unsigned int size, const void *data)
+{
+    D3D11_SUBRESOURCE_DATA resource_data;
+    D3D11_BUFFER_DESC buffer_desc;
+    ID3D11Buffer *buffer;
+    HRESULT hr;
+
+    buffer_desc.ByteWidth = size;
+    buffer_desc.Usage = D3D11_USAGE_DEFAULT;
+    buffer_desc.BindFlags = bind_flags;
+    buffer_desc.CPUAccessFlags = 0;
+    buffer_desc.MiscFlags = 0;
+    buffer_desc.StructureByteStride = 0;
+
+    resource_data.pSysMem = data;
+    resource_data.SysMemPitch = 0;
+    resource_data.SysMemSlicePitch = 0;
+
+    hr = ID3D11Device_CreateBuffer(device, &buffer_desc, data ? &resource_data : NULL, &buffer);
+    ok_(__FILE__, line)(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
+    return buffer;
+}
+
 struct texture_readback
 {
     ID3D11Resource *texture;
     D3D11_MAPPED_SUBRESOURCE map_desc;
     ID3D11DeviceContext *immediate_context;
-    unsigned int width, height;
+    unsigned int width, height, sub_resource_idx;
 };
 
-static void get_texture_readback(ID3D11Texture2D *texture, struct texture_readback *rb)
+static void get_texture_readback(ID3D11Texture2D *texture, unsigned int sub_resource_idx,
+        struct texture_readback *rb)
 {
     D3D11_TEXTURE2D_DESC texture_desc;
+    unsigned int miplevel;
     ID3D11Device *device;
     HRESULT hr;
 
@@ -137,15 +171,18 @@ static void get_texture_readback(ID3D11Texture2D *texture, struct texture_readba
         return;
     }
 
-    rb->width = texture_desc.Width;
-    rb->height = texture_desc.Height;
+    miplevel = sub_resource_idx % texture_desc.MipLevels;
+    rb->width = max(1, texture_desc.Width >> miplevel);
+    rb->height = max(1, texture_desc.Height >> miplevel);
+    rb->sub_resource_idx = sub_resource_idx;
 
     ID3D11Device_GetImmediateContext(device, &rb->immediate_context);
 
     ID3D11DeviceContext_CopyResource(rb->immediate_context, rb->texture, (ID3D11Resource *)texture);
-    if (FAILED(hr = ID3D11DeviceContext_Map(rb->immediate_context, rb->texture, 0, D3D11_MAP_READ, 0, &rb->map_desc)))
+    if (FAILED(hr = ID3D11DeviceContext_Map(rb->immediate_context, rb->texture, sub_resource_idx,
+            D3D11_MAP_READ, 0, &rb->map_desc)))
     {
-        trace("Failed to map texture, hr %#x.\n", hr);
+        trace("Failed to map sub-resource %u, hr %#x.\n", sub_resource_idx, hr);
         ID3D11Resource_Release(rb->texture);
         rb->texture = NULL;
         ID3D11DeviceContext_Release(rb->immediate_context);
@@ -167,7 +204,7 @@ static float get_readback_float(struct texture_readback *rb, unsigned int x, uns
 
 static void release_texture_readback(struct texture_readback *rb)
 {
-    ID3D11DeviceContext_Unmap(rb->immediate_context, rb->texture, 0);
+    ID3D11DeviceContext_Unmap(rb->immediate_context, rb->texture, rb->sub_resource_idx);
     ID3D11Resource_Release(rb->texture);
     ID3D11DeviceContext_Release(rb->immediate_context);
 }
@@ -177,23 +214,23 @@ static DWORD get_texture_color(ID3D11Texture2D *texture, unsigned int x, unsigne
     struct texture_readback rb;
     DWORD color;
 
-    get_texture_readback(texture, &rb);
+    get_texture_readback(texture, 0, &rb);
     color = get_readback_color(&rb, x, y);
     release_texture_readback(&rb);
 
     return color;
 }
 
-#define check_texture_color(t, c, d) check_texture_color_(__LINE__, t, c, d)
-static void check_texture_color_(unsigned int line, ID3D11Texture2D *texture,
-        DWORD expected_color, BYTE max_diff)
+#define check_texture_sub_resource_color(t, s, c, d) check_texture_sub_resource_color_(__LINE__, t, s, c, d)
+static void check_texture_sub_resource_color_(unsigned int line, ID3D11Texture2D *texture,
+        unsigned int sub_resource_idx, DWORD expected_color, BYTE max_diff)
 {
     struct texture_readback rb;
     unsigned int x = 0, y = 0;
     BOOL all_match = TRUE;
     DWORD color = 0;
 
-    get_texture_readback(texture, &rb);
+    get_texture_readback(texture, sub_resource_idx, &rb);
     for (y = 0; y < rb.height; ++y)
     {
         for (x = 0; x < rb.width; ++x)
@@ -210,19 +247,33 @@ static void check_texture_color_(unsigned int line, ID3D11Texture2D *texture,
     }
     release_texture_readback(&rb);
     ok_(__FILE__, line)(all_match,
-            "Got unexpected color 0x%08x at (%u, %u).\n", color, x, y);
+            "Got unexpected color 0x%08x at (%u, %u), sub-resource %u.\n",
+            color, x, y, sub_resource_idx);
 }
 
-#define check_texture_float(r, f, d) check_texture_float_(__LINE__, r, f, d)
-static void check_texture_float_(unsigned int line, ID3D11Texture2D *texture,
-        float expected_value, BYTE max_diff)
+#define check_texture_color(t, c, d) check_texture_color_(__LINE__, t, c, d)
+static void check_texture_color_(unsigned int line, ID3D11Texture2D *texture,
+        DWORD expected_color, BYTE max_diff)
+{
+    unsigned int sub_resource_idx, sub_resource_count;
+    D3D11_TEXTURE2D_DESC texture_desc;
+
+    ID3D11Texture2D_GetDesc(texture, &texture_desc);
+    sub_resource_count = texture_desc.ArraySize * texture_desc.MipLevels;
+    for (sub_resource_idx = 0; sub_resource_idx < sub_resource_count; ++sub_resource_idx)
+        check_texture_sub_resource_color_(line, texture, sub_resource_idx, expected_color, max_diff);
+}
+
+#define check_texture_sub_resource_float(t, s, c, d) check_texture_sub_resource_float_(__LINE__, t, s, c, d)
+static void check_texture_sub_resource_float_(unsigned int line, ID3D11Texture2D *texture,
+        unsigned int sub_resource_idx, float expected_value, BYTE max_diff)
 {
     struct texture_readback rb;
     unsigned int x = 0, y = 0;
     BOOL all_match = TRUE;
     float value = 0.0f;
 
-    get_texture_readback(texture, &rb);
+    get_texture_readback(texture, sub_resource_idx, &rb);
     for (y = 0; y < rb.height; ++y)
     {
         for (x = 0; x < rb.width; ++x)
@@ -239,21 +290,38 @@ static void check_texture_float_(unsigned int line, ID3D11Texture2D *texture,
     }
     release_texture_readback(&rb);
     ok_(__FILE__, line)(all_match,
-            "Got unexpected value %.8e at (%u, %u).\n", value, x, y);
+            "Got unexpected value %.8e at (%u, %u), sub-resource %u.\n",
+            value, x, y, sub_resource_idx);
 }
 
-static ID3D11Device *create_device(const D3D_FEATURE_LEVEL *feature_level)
+#define check_texture_float(r, f, d) check_texture_float_(__LINE__, r, f, d)
+static void check_texture_float_(unsigned int line, ID3D11Texture2D *texture,
+        float expected_value, BYTE max_diff)
+{
+    unsigned int sub_resource_idx, sub_resource_count;
+    D3D11_TEXTURE2D_DESC texture_desc;
+
+    ID3D11Texture2D_GetDesc(texture, &texture_desc);
+    sub_resource_count = texture_desc.ArraySize * texture_desc.MipLevels;
+    for (sub_resource_idx = 0; sub_resource_idx < sub_resource_count; ++sub_resource_idx)
+        check_texture_sub_resource_float_(line, texture, sub_resource_idx, expected_value, max_diff);
+}
+
+static ID3D11Device *create_device(const struct device_desc *desc)
 {
     static const D3D_FEATURE_LEVEL default_feature_level[] =
     {
         D3D_FEATURE_LEVEL_11_0,
         D3D_FEATURE_LEVEL_10_0,
     };
+    const D3D_FEATURE_LEVEL *feature_level;
+    UINT flags = desc ? desc->flags : 0;
     unsigned int feature_level_count;
     ID3D11Device *device;
 
-    if (feature_level)
+    if (desc && desc->feature_level)
     {
+        feature_level = desc->feature_level;
         feature_level_count = 1;
     }
     else
@@ -262,13 +330,13 @@ static ID3D11Device *create_device(const D3D_FEATURE_LEVEL *feature_level)
         feature_level_count = sizeof(default_feature_level) / sizeof(default_feature_level[0]);
     }
 
-    if (SUCCEEDED(D3D11CreateDevice(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, 0, feature_level, feature_level_count,
+    if (SUCCEEDED(D3D11CreateDevice(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, flags, feature_level, feature_level_count,
             D3D11_SDK_VERSION, &device, NULL, NULL)))
         return device;
-    if (SUCCEEDED(D3D11CreateDevice(NULL, D3D_DRIVER_TYPE_WARP, NULL, 0, feature_level, feature_level_count,
+    if (SUCCEEDED(D3D11CreateDevice(NULL, D3D_DRIVER_TYPE_WARP, NULL, flags, feature_level, feature_level_count,
             D3D11_SDK_VERSION, &device, NULL, NULL)))
         return device;
-    if (SUCCEEDED(D3D11CreateDevice(NULL, D3D_DRIVER_TYPE_REFERENCE, NULL, 0, feature_level, feature_level_count,
+    if (SUCCEEDED(D3D11CreateDevice(NULL, D3D_DRIVER_TYPE_REFERENCE, NULL, flags, feature_level, feature_level_count,
             D3D11_SDK_VERSION, &device, NULL, NULL)))
         return device;
 
@@ -359,18 +427,24 @@ struct d3d11_test_context
     ID3D11InputLayout *input_layout;
     ID3D11VertexShader *vs;
     ID3D11Buffer *vb;
+
+    ID3D11PixelShader *ps;
+    ID3D11Buffer *ps_cb;
 };
 
 #define init_test_context(c, l) init_test_context_(__LINE__, c, l)
 static BOOL init_test_context_(unsigned int line, struct d3d11_test_context *context,
         const D3D_FEATURE_LEVEL *feature_level)
 {
+    struct device_desc device_desc;
     D3D11_VIEWPORT vp;
     HRESULT hr;
 
     memset(context, 0, sizeof(*context));
 
-    if (!(context->device = create_device(feature_level)))
+    device_desc.feature_level = feature_level;
+    device_desc.flags = 0;
+    if (!(context->device = create_device(&device_desc)))
     {
         skip_(__FILE__, line)("Failed to create device.\n");
         return FALSE;
@@ -411,6 +485,10 @@ static void release_test_context_(unsigned int line, struct d3d11_test_context *
         ID3D11VertexShader_Release(context->vs);
     if (context->vb)
         ID3D11Buffer_Release(context->vb);
+    if (context->ps)
+        ID3D11PixelShader_Release(context->ps);
+    if (context->ps_cb)
+        ID3D11Buffer_Release(context->ps_cb);
 
     ID3D11DeviceContext_Release(context->immediate_context);
     ID3D11RenderTargetView_Release(context->backbuffer_rtv);
@@ -458,8 +536,6 @@ static void draw_quad_(unsigned int line, struct d3d11_test_context *context)
     };
 
     ID3D11Device *device = context->device;
-    D3D11_SUBRESOURCE_DATA resource_data;
-    D3D11_BUFFER_DESC buffer_desc;
     unsigned int stride, offset;
     HRESULT hr;
 
@@ -470,19 +546,7 @@ static void draw_quad_(unsigned int line, struct d3d11_test_context *context)
                 default_vs_code, sizeof(default_vs_code), &context->input_layout);
         ok_(__FILE__, line)(SUCCEEDED(hr), "Failed to create input layout, hr %#x.\n", hr);
 
-        buffer_desc.ByteWidth = sizeof(quad);
-        buffer_desc.Usage = D3D11_USAGE_DEFAULT;
-        buffer_desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-        buffer_desc.CPUAccessFlags = 0;
-        buffer_desc.MiscFlags = 0;
-        buffer_desc.StructureByteStride = 0;
-
-        resource_data.pSysMem = quad;
-        resource_data.SysMemPitch = 0;
-        resource_data.SysMemSlicePitch = 0;
-
-        hr = ID3D11Device_CreateBuffer(device, &buffer_desc, &resource_data, &context->vb);
-        ok_(__FILE__, line)(SUCCEEDED(hr), "Failed to create vertex buffer, hr %#x.\n", hr);
+        context->vb = create_buffer(device, D3D11_BIND_VERTEX_BUFFER, sizeof(quad), quad);
 
         hr = ID3D11Device_CreateVertexShader(device, default_vs_code, sizeof(default_vs_code), NULL, &context->vs);
         ok_(__FILE__, line)(SUCCEEDED(hr), "Failed to create vertex shader, hr %#x.\n", hr);
@@ -496,6 +560,48 @@ static void draw_quad_(unsigned int line, struct d3d11_test_context *context)
     ID3D11DeviceContext_VSSetShader(context->immediate_context, context->vs, NULL, 0);
 
     ID3D11DeviceContext_Draw(context->immediate_context, 4, 0);
+}
+
+#define draw_color_quad(c, color) draw_color_quad_(__LINE__, c, color)
+static void draw_color_quad_(unsigned int line, struct d3d11_test_context *context, const struct vec4 *color)
+{
+    static const DWORD ps_color_code[] =
+    {
+#if 0
+        float4 color;
+
+        float4 main() : SV_TARGET
+        {
+            return color;
+        }
+#endif
+        0x43425844, 0x80f1c810, 0xdacbbc8b, 0xe07b133e, 0x3059cbfa, 0x00000001, 0x000000b8, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x45475241, 0xabab0054, 0x52444853, 0x00000040, 0x00000040, 0x00000010,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000, 0x06000036,
+        0x001020f2, 0x00000000, 0x00208e46, 0x00000000, 0x00000000, 0x0100003e,
+    };
+
+    ID3D11Device *device = context->device;
+    HRESULT hr;
+
+    if (!context->ps)
+    {
+        hr = ID3D11Device_CreatePixelShader(device, ps_color_code, sizeof(ps_color_code), NULL, &context->ps);
+        ok_(__FILE__, line)(SUCCEEDED(hr), "Failed to create pixel shader, hr %#x.\n", hr);
+    }
+
+    if (!context->ps_cb)
+        context->ps_cb = create_buffer(device, D3D11_BIND_CONSTANT_BUFFER, sizeof(*color), NULL);
+
+    ID3D11DeviceContext_PSSetShader(context->immediate_context, context->ps, NULL, 0);
+    ID3D11DeviceContext_PSSetConstantBuffers(context->immediate_context, 0, 1, &context->ps_cb);
+
+    ID3D11DeviceContext_UpdateSubresource(context->immediate_context, (ID3D11Resource *)context->ps_cb, 0,
+            NULL, color, 0, 0);
+
+    draw_quad_(line, context);
 }
 
 static void test_create_device(void)
@@ -733,7 +839,11 @@ static void test_device_interfaces(void)
 
     for (i = 0; i < sizeof(d3d11_feature_levels) / sizeof(*d3d11_feature_levels); ++i)
     {
-        if (!(device = create_device(&d3d11_feature_levels[i])))
+        struct device_desc device_desc;
+
+        device_desc.feature_level = &d3d11_feature_levels[i];
+        device_desc.flags = 0;
+        if (!(device = create_device(&device_desc)))
         {
             skip("Failed to create device for feature level %#x.\n", d3d11_feature_levels[i]);
             continue;
@@ -776,8 +886,31 @@ static void test_device_interfaces(void)
         todo_wine ok(hr == E_NOINTERFACE, "Device should not implement ID3D10Device interface, hr %#x.\n", hr);
         if (SUCCEEDED(hr)) IUnknown_Release(iface);
 
+        hr = ID3D11Device_QueryInterface(device, &IID_ID3D11InfoQueue, (void **)&iface);
+        ok(hr == E_NOINTERFACE, "Found ID3D11InfoQueue interface in non-debug mode, hr %#x.\n", hr);
+
         hr = ID3D11Device_QueryInterface(device, &IID_ID3D10Device1, (void **)&iface);
         todo_wine ok(hr == E_NOINTERFACE, "Device should not implement ID3D10Device1 interface, hr %#x.\n", hr);
+        if (SUCCEEDED(hr)) IUnknown_Release(iface);
+
+        refcount = ID3D11Device_Release(device);
+        ok(!refcount, "Device has %u references left.\n", refcount);
+    }
+
+    for (i = 0; i < sizeof(d3d11_feature_levels) / sizeof(*d3d11_feature_levels); ++i)
+    {
+        struct device_desc device_desc;
+
+        device_desc.feature_level = &d3d11_feature_levels[i];
+        device_desc.flags = D3D11_CREATE_DEVICE_DEBUG;
+        if (!(device = create_device(&device_desc)))
+        {
+            skip("Failed to create device for feature level %#x.\n", d3d11_feature_levels[i]);
+            continue;
+        }
+
+        hr = ID3D11Device_QueryInterface(device, &IID_ID3D11InfoQueue, (void **)&iface);
+        todo_wine ok(hr == S_OK, "Device should implement ID3D11InfoQueue interface, hr %#x.\n", hr);
         if (SUCCEEDED(hr)) IUnknown_Release(iface);
 
         refcount = ID3D11Device_Release(device);
@@ -849,7 +982,7 @@ static void test_create_texture2d(void)
         {DXGI_FORMAT_R32G32B32A32_TYPELESS,  1, D3D11_BIND_VERTEX_BUFFER,   0, FALSE, TRUE},
         {DXGI_FORMAT_R32G32B32A32_TYPELESS,  1, D3D11_BIND_INDEX_BUFFER,    0, FALSE, TRUE},
         {DXGI_FORMAT_R32G32B32A32_TYPELESS,  1, D3D11_BIND_CONSTANT_BUFFER, 0, FALSE, TRUE},
-        {DXGI_FORMAT_R32G32B32A32_TYPELESS,  0, D3D11_BIND_SHADER_RESOURCE, 0, FALSE, TRUE},
+        {DXGI_FORMAT_R32G32B32A32_TYPELESS,  0, D3D11_BIND_SHADER_RESOURCE, 0, FALSE, FALSE},
         {DXGI_FORMAT_R32G32B32A32_TYPELESS,  1, D3D11_BIND_SHADER_RESOURCE, 0, TRUE,  FALSE},
         {DXGI_FORMAT_R32G32B32A32_TYPELESS,  2, D3D11_BIND_SHADER_RESOURCE, 0, TRUE,  FALSE},
         {DXGI_FORMAT_R32G32B32A32_TYPELESS,  3, D3D11_BIND_SHADER_RESOURCE, 0, TRUE,  FALSE},
@@ -867,7 +1000,7 @@ static void test_create_texture2d(void)
                 TRUE,  FALSE},
         {DXGI_FORMAT_R32G32B32A32_TYPELESS, 12, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_TEXTURECUBE,
                 TRUE,  FALSE},
-        {DXGI_FORMAT_R32G32B32A32_TYPELESS,  0, D3D11_BIND_RENDER_TARGET,   0, FALSE, TRUE},
+        {DXGI_FORMAT_R32G32B32A32_TYPELESS,  0, D3D11_BIND_RENDER_TARGET,   0, FALSE, FALSE},
         {DXGI_FORMAT_R32G32B32A32_TYPELESS,  1, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
         {DXGI_FORMAT_R32G32B32A32_TYPELESS,  2, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
         {DXGI_FORMAT_R32G32B32A32_TYPELESS,  9, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
@@ -879,7 +1012,7 @@ static void test_create_texture2d(void)
         {DXGI_FORMAT_R32G8X24_TYPELESS,      1, D3D11_BIND_DEPTH_STENCIL,   0, TRUE,  TRUE},
         {DXGI_FORMAT_R10G10B10A2_TYPELESS,   1, D3D11_BIND_SHADER_RESOURCE, 0, TRUE,  FALSE},
         {DXGI_FORMAT_R10G10B10A2_TYPELESS,   1, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
-        {DXGI_FORMAT_R32_TYPELESS,           0, D3D11_BIND_SHADER_RESOURCE, 0, FALSE, TRUE},
+        {DXGI_FORMAT_R32_TYPELESS,           0, D3D11_BIND_SHADER_RESOURCE, 0, FALSE, FALSE},
         {DXGI_FORMAT_R32_TYPELESS,           1, D3D11_BIND_SHADER_RESOURCE, 0, TRUE,  FALSE},
         {DXGI_FORMAT_R32_TYPELESS,           9, D3D11_BIND_SHADER_RESOURCE, 0, TRUE,  FALSE},
         {DXGI_FORMAT_R32_TYPELESS,           9, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_TEXTURECUBE,
@@ -891,6 +1024,7 @@ static void test_create_texture2d(void)
         {DXGI_FORMAT_R24G8_TYPELESS,         1, D3D11_BIND_DEPTH_STENCIL,   0, TRUE,  FALSE},
         {DXGI_FORMAT_R8G8_TYPELESS,          1, D3D11_BIND_SHADER_RESOURCE, 0, TRUE,  FALSE},
         {DXGI_FORMAT_R16_TYPELESS,           1, D3D11_BIND_SHADER_RESOURCE, 0, TRUE,  FALSE},
+        {DXGI_FORMAT_R16_TYPELESS,           1, D3D11_BIND_DEPTH_STENCIL,   0, TRUE,  TRUE},
         {DXGI_FORMAT_R8_TYPELESS,            1, D3D11_BIND_SHADER_RESOURCE, 0, TRUE,  FALSE},
         {DXGI_FORMAT_R8G8B8A8_UNORM,         1, D3D11_BIND_DEPTH_STENCIL,   0, FALSE, FALSE},
         {DXGI_FORMAT_D24_UNORM_S8_UINT,      1, D3D11_BIND_RENDER_TARGET,   0, FALSE, FALSE},
@@ -1553,16 +1687,7 @@ static void test_buffer_interfaces(void)
         return;
     }
 
-    desc.ByteWidth = 1024;
-    desc.Usage = D3D11_USAGE_DEFAULT;
-    desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-    desc.CPUAccessFlags = 0;
-    desc.MiscFlags = 0;
-    desc.StructureByteStride = 0;
-
-    hr = ID3D11Device_CreateBuffer(device, &desc, NULL, &buffer);
-    ok(SUCCEEDED(hr), "Failed to create a buffer, hr %#x.\n", hr);
-
+    buffer = create_buffer(device, D3D11_BIND_VERTEX_BUFFER, 1024, NULL);
     hr = ID3D11Buffer_QueryInterface(buffer, &IID_ID3D10Buffer, (void **)&d3d10_buffer);
     ok(SUCCEEDED(hr) || broken(hr == E_NOINTERFACE) /* Not available on all Windows versions. */,
             "Buffer should implement ID3D10Buffer.\n");
@@ -1698,7 +1823,7 @@ static void test_create_depthstencil_view(void)
 
     memset(&dsv_desc, 0, sizeof(dsv_desc));
     ID3D11DepthStencilView_GetDesc(dsview, &dsv_desc);
-    todo_wine ok(dsv_desc.Format == texture_desc.Format, "Got unexpected format %#x.\n", dsv_desc.Format);
+    ok(dsv_desc.Format == texture_desc.Format, "Got unexpected format %#x.\n", dsv_desc.Format);
     ok(dsv_desc.ViewDimension == D3D11_DSV_DIMENSION_TEXTURE2D,
             "Got unexpected view dimension %#x.\n", dsv_desc.ViewDimension);
     ok(!dsv_desc.Flags, "Got unexpected flags %#x.\n", dsv_desc.Flags);
@@ -1725,7 +1850,7 @@ static void test_create_depthstencil_view(void)
             U(dsv_desc).Texture2DArray.MipSlice);
     ok(!U(dsv_desc).Texture2DArray.FirstArraySlice, "Got unexpected first array slice %u.\n",
             U(dsv_desc).Texture2DArray.FirstArraySlice);
-    todo_wine ok(U(dsv_desc).Texture2DArray.ArraySize == texture_desc.ArraySize,
+    ok(U(dsv_desc).Texture2DArray.ArraySize == texture_desc.ArraySize,
             "Got unexpected array size %u.\n", U(dsv_desc).Texture2DArray.ArraySize);
 
     ID3D11DepthStencilView_Release(dsview);
@@ -1912,7 +2037,7 @@ static void test_create_rendertarget_view(void)
 
     memset(&rtv_desc, 0, sizeof(rtv_desc));
     ID3D11RenderTargetView_GetDesc(rtview, &rtv_desc);
-    todo_wine ok(rtv_desc.Format == texture_desc.Format, "Got unexpected format %#x.\n", rtv_desc.Format);
+    ok(rtv_desc.Format == texture_desc.Format, "Got unexpected format %#x.\n", rtv_desc.Format);
     ok(rtv_desc.ViewDimension == D3D11_RTV_DIMENSION_TEXTURE2D, "Got unexpected view dimension %#x.\n",
             rtv_desc.ViewDimension);
     ok(!U(rtv_desc).Texture2D.MipSlice, "Got unexpected mip slice %u.\n", U(rtv_desc).Texture2D.MipSlice);
@@ -1937,7 +2062,7 @@ static void test_create_rendertarget_view(void)
             U(rtv_desc).Texture2DArray.MipSlice);
     ok(!U(rtv_desc).Texture2DArray.FirstArraySlice, "Got unexpected first array slice %u.\n",
             U(rtv_desc).Texture2DArray.FirstArraySlice);
-    todo_wine ok(U(rtv_desc).Texture2DArray.ArraySize == texture_desc.ArraySize, "Got unexpected array size %u.\n",
+    ok(U(rtv_desc).Texture2DArray.ArraySize == texture_desc.ArraySize, "Got unexpected array size %u.\n",
             U(rtv_desc).Texture2DArray.ArraySize);
 
     ID3D11RenderTargetView_Release(rtview);
@@ -1953,7 +2078,6 @@ static void test_create_shader_resource_view(void)
     D3D11_TEXTURE2D_DESC texture_desc;
     ULONG refcount, expected_refcount;
     ID3D11ShaderResourceView *srview;
-    D3D11_BUFFER_DESC buffer_desc;
     ID3D11Device *device, *tmp;
     ID3D11Texture2D *texture;
     ID3D11Buffer *buffer;
@@ -1966,15 +2090,7 @@ static void test_create_shader_resource_view(void)
         return;
     }
 
-    buffer_desc.ByteWidth = 1024;
-    buffer_desc.Usage = D3D11_USAGE_DEFAULT;
-    buffer_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-    buffer_desc.CPUAccessFlags = 0;
-    buffer_desc.MiscFlags = 0;
-    buffer_desc.StructureByteStride = 0;
-
-    hr = ID3D11Device_CreateBuffer(device, &buffer_desc, NULL, &buffer);
-    ok(SUCCEEDED(hr), "Failed to create a buffer, hr %#x.\n", hr);
+    buffer = create_buffer(device, D3D11_BIND_SHADER_RESOURCE, 1024, NULL);
 
     hr = ID3D11Device_CreateShaderResourceView(device, (ID3D11Resource *)buffer, NULL, &srview);
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
@@ -2055,7 +2171,7 @@ static void test_create_shader_resource_view(void)
 
     memset(&srv_desc, 0, sizeof(srv_desc));
     ID3D11ShaderResourceView_GetDesc(srview, &srv_desc);
-    todo_wine ok(srv_desc.Format == texture_desc.Format, "Got unexpected format %#x.\n", srv_desc.Format);
+    ok(srv_desc.Format == texture_desc.Format, "Got unexpected format %#x.\n", srv_desc.Format);
     ok(srv_desc.ViewDimension == D3D11_SRV_DIMENSION_TEXTURE2D,
             "Got unexpected view dimension %#x.\n", srv_desc.ViewDimension);
     ok(U(srv_desc).Texture2D.MostDetailedMip == 0, "Got unexpected MostDetailedMip %u.\n",
@@ -2353,8 +2469,11 @@ static void test_create_shader(void)
     {
         D3D_FEATURE_LEVEL feature_level = d3d11_feature_levels[i];
         BOOL todo = feature_level <= D3D_FEATURE_LEVEL_9_3;
+        struct device_desc device_desc;
 
-        if (!(device = create_device(&feature_level)))
+        device_desc.feature_level = &feature_level;
+        device_desc.flags = 0;
+        if (!(device = create_device(&device_desc)))
         {
             skip("Failed to create device for feature level %#x.\n", feature_level);
             continue;
@@ -3455,10 +3574,8 @@ static void test_blend(void)
     ID3D11BlendState *src_blend, *dst_blend;
     struct d3d11_test_context test_context;
     ID3D11RenderTargetView *offscreen_rtv;
-    D3D11_SUBRESOURCE_DATA buffer_data;
     D3D11_TEXTURE2D_DESC texture_desc;
     ID3D11InputLayout *input_layout;
-    D3D11_BUFFER_DESC buffer_desc;
     ID3D11DeviceContext *context;
     D3D11_BLEND_DESC blend_desc;
     unsigned int stride, offset;
@@ -3560,19 +3677,8 @@ static void test_blend(void)
             vs_code, sizeof(vs_code), &input_layout);
     ok(SUCCEEDED(hr), "Failed to create input layout, hr %#x.\n", hr);
 
-    buffer_desc.ByteWidth = sizeof(quads);
-    buffer_desc.Usage = D3D11_USAGE_DEFAULT;
-    buffer_desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-    buffer_desc.CPUAccessFlags = 0;
-    buffer_desc.MiscFlags = 0;
-    buffer_desc.StructureByteStride = 0;
+    vb = create_buffer(device, D3D11_BIND_VERTEX_BUFFER, sizeof(quads), quads);
 
-    buffer_data.pSysMem = quads;
-    buffer_data.SysMemPitch = 0;
-    buffer_data.SysMemSlicePitch = 0;
-
-    hr = ID3D11Device_CreateBuffer(device, &buffer_desc, &buffer_data, &vb);
-    ok(SUCCEEDED(hr), "Failed to create vertex buffer, hr %#x.\n", hr);
     hr = ID3D11Device_CreateVertexShader(device, vs_code, sizeof(vs_code), NULL, &vs);
     ok(SUCCEEDED(hr), "Failed to create vertex shader, hr %#x.\n", hr);
     hr = ID3D11Device_CreatePixelShader(device, ps_code, sizeof(ps_code), NULL, &ps);
@@ -3687,6 +3793,7 @@ static void test_texture(void)
         UINT width;
         UINT height;
         UINT miplevel_count;
+        UINT array_size;
         DXGI_FORMAT format;
         D3D11_SUBRESOURCE_DATA data[3];
     };
@@ -3697,15 +3804,14 @@ static void test_texture(void)
     D3D11_SAMPLER_DESC sampler_desc;
     const struct shader *current_ps;
     ID3D11ShaderResourceView *srv;
-    D3D11_BUFFER_DESC buffer_desc;
     ID3D11DeviceContext *context;
     ID3D11SamplerState *sampler;
     struct texture_readback rb;
     ID3D11Texture2D *texture;
+    struct vec4 ps_constant;
     ID3D11PixelShader *ps;
     ID3D11Device *device;
     unsigned int i, x, y;
-    struct vec4 miplevel;
     ID3D11Buffer *cb;
     DWORD color;
     HRESULT hr;
@@ -3894,12 +4000,65 @@ static void test_texture(void)
         0x001020f2, 0x00000000, 0x00100046, 0x00000000, 0x00107e46, 0x00000000, 0x00106000, 0x00000000,
         0x0020800a, 0x00000000, 0x00000000, 0x0100003e,
     };
+    static const DWORD ps_sample_2d_array_code[] =
+    {
+#if 0
+        Texture2DArray t;
+        SamplerState s;
+
+        float layer;
+
+        float4 main(float4 position : SV_POSITION) : SV_TARGET
+        {
+            float3 d;
+            float3 p = float3(position.x / 640.0f, position.y / 480.0f, 1.0f);
+            t.GetDimensions(d.x, d.y, d.z);
+            d.z = layer;
+            return t.Sample(s, p * d);
+        }
+#endif
+        0x43425844, 0xa9457e44, 0xc0b3ef8e, 0x3d751ae8, 0x23fa4807, 0x00000001, 0x00000194, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000030f, 0x505f5653, 0x5449534f, 0x004e4f49,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x0000000f, 0x545f5653, 0x45475241, 0xabab0054, 0x52444853, 0x000000f8, 0x00000040,
+        0x0000003e, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x0300005a, 0x00106000, 0x00000000,
+        0x04004058, 0x00107000, 0x00000000, 0x00005555, 0x04002064, 0x00101032, 0x00000000, 0x00000001,
+        0x03000065, 0x001020f2, 0x00000000, 0x02000068, 0x00000001, 0x0700003d, 0x001000f2, 0x00000000,
+        0x00004001, 0x00000000, 0x00107e46, 0x00000000, 0x0a000038, 0x001000c2, 0x00000000, 0x00101406,
+        0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x3acccccd, 0x3b088889, 0x07000038, 0x00100032,
+        0x00000000, 0x00100046, 0x00000000, 0x00100ae6, 0x00000000, 0x06000036, 0x00100042, 0x00000000,
+        0x0020800a, 0x00000000, 0x00000000, 0x09000045, 0x001020f2, 0x00000000, 0x00100246, 0x00000000,
+        0x00107e46, 0x00000000, 0x00106000, 0x00000000, 0x0100003e,
+    };
     static const struct shader ps_ld = {ps_ld_code, sizeof(ps_ld_code)};
     static const struct shader ps_ld_sint8 = {ps_ld_sint8_code, sizeof(ps_ld_sint8_code)};
     static const struct shader ps_ld_uint8 = {ps_ld_uint8_code, sizeof(ps_ld_uint8_code)};
     static const struct shader ps_sample = {ps_sample_code, sizeof(ps_sample_code)};
     static const struct shader ps_sample_b = {ps_sample_b_code, sizeof(ps_sample_b_code)};
     static const struct shader ps_sample_l = {ps_sample_l_code, sizeof(ps_sample_l_code)};
+    static const struct shader ps_sample_2d_array = {ps_sample_2d_array_code, sizeof(ps_sample_2d_array_code)};
+    static const DWORD red_data[] =
+    {
+        0xff0000ff, 0xff0000ff, 0xff0000ff, 0xff0000ff, 0x00000000, 0x00000000,
+        0xff0000ff, 0xff0000ff, 0xff0000ff, 0xff0000ff, 0x00000000, 0x00000000,
+        0xff0000ff, 0xff0000ff, 0xff0000ff, 0xff0000ff, 0x00000000, 0x00000000,
+        0xff0000ff, 0xff0000ff, 0xff0000ff, 0xff0000ff, 0x00000000, 0x00000000,
+    };
+    static const DWORD green_data[] =
+    {
+        0xff00ff00, 0xff00ff00, 0xff00ff00, 0xff00ff00,
+        0xff00ff00, 0xff00ff00, 0xff00ff00, 0xff00ff00,
+        0xff00ff00, 0xff00ff00, 0xff00ff00, 0xff00ff00,
+        0xff00ff00, 0xff00ff00, 0xff00ff00, 0xff00ff00,
+    };
+    static const DWORD blue_data[] =
+    {
+        0xffff0000, 0xffff0000, 0xffff0000, 0xffff0000, 0x00000000,
+        0xffff0000, 0xffff0000, 0xffff0000, 0xffff0000, 0x00000000,
+        0xffff0000, 0xffff0000, 0xffff0000, 0xffff0000, 0x00000000,
+        0xffff0000, 0xffff0000, 0xffff0000, 0xffff0000, 0x00000000,
+    };
     static const DWORD rgba_level_0[] =
     {
         0xff0000ff, 0xff00ffff, 0xff00ff00, 0xffffff00,
@@ -3967,29 +4126,52 @@ static void test_texture(void)
     };
     static const struct texture rgba_texture =
     {
-        4, 4, 3, DXGI_FORMAT_R8G8B8A8_UNORM,
+        4, 4, 3, 1, DXGI_FORMAT_R8G8B8A8_UNORM,
         {
             {rgba_level_0, 4 * sizeof(*rgba_level_0), 0},
             {rgba_level_1, 2 * sizeof(*rgba_level_1), 0},
             {rgba_level_2,     sizeof(*rgba_level_2), 0},
         }
     };
-    static const struct texture srgb_texture = {4, 4, 1, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
+    static const struct texture srgb_texture = {4, 4, 1, 1, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
             {{srgb_data, 4 * sizeof(*srgb_data)}}};
-    static const struct texture a8_texture = {4, 4, 1, DXGI_FORMAT_A8_UNORM,
+    static const struct texture a8_texture = {4, 4, 1, 1, DXGI_FORMAT_A8_UNORM,
             {{a8_data, 4 * sizeof(*a8_data)}}};
-    static const struct texture bc1_texture = {8, 8, 1, DXGI_FORMAT_BC1_UNORM, {{bc1_data, 2 * 8}}};
-    static const struct texture bc2_texture = {8, 8, 1, DXGI_FORMAT_BC2_UNORM, {{bc2_data, 2 * 16}}};
-    static const struct texture bc3_texture = {8, 8, 1, DXGI_FORMAT_BC3_UNORM, {{bc3_data, 2 * 16}}};
-    static const struct texture bc4_texture = {8, 8, 1, DXGI_FORMAT_BC4_UNORM, {{bc4_data, 2 * 8}}};
-    static const struct texture bc5_texture = {8, 8, 1, DXGI_FORMAT_BC5_UNORM, {{bc5_data, 2 * 16}}};
-    static const struct texture bc1_texture_srgb = {8, 8, 1, DXGI_FORMAT_BC1_UNORM_SRGB, {{bc1_data, 2 * 8}}};
-    static const struct texture bc2_texture_srgb = {8, 8, 1, DXGI_FORMAT_BC2_UNORM_SRGB, {{bc2_data, 2 * 16}}};
-    static const struct texture bc3_texture_srgb = {8, 8, 1, DXGI_FORMAT_BC3_UNORM_SRGB, {{bc3_data, 2 * 16}}};
-    static const struct texture sint8_texture = {4, 4, 1, DXGI_FORMAT_R8G8B8A8_SINT,
+    static const struct texture bc1_texture = {8, 8, 1, 1, DXGI_FORMAT_BC1_UNORM, {{bc1_data, 2 * 8}}};
+    static const struct texture bc2_texture = {8, 8, 1, 1, DXGI_FORMAT_BC2_UNORM, {{bc2_data, 2 * 16}}};
+    static const struct texture bc3_texture = {8, 8, 1, 1, DXGI_FORMAT_BC3_UNORM, {{bc3_data, 2 * 16}}};
+    static const struct texture bc4_texture = {8, 8, 1, 1, DXGI_FORMAT_BC4_UNORM, {{bc4_data, 2 * 8}}};
+    static const struct texture bc5_texture = {8, 8, 1, 1, DXGI_FORMAT_BC5_UNORM, {{bc5_data, 2 * 16}}};
+    static const struct texture bc1_texture_srgb = {8, 8, 1, 1, DXGI_FORMAT_BC1_UNORM_SRGB, {{bc1_data, 2 * 8}}};
+    static const struct texture bc2_texture_srgb = {8, 8, 1, 1, DXGI_FORMAT_BC2_UNORM_SRGB, {{bc2_data, 2 * 16}}};
+    static const struct texture bc3_texture_srgb = {8, 8, 1, 1, DXGI_FORMAT_BC3_UNORM_SRGB, {{bc3_data, 2 * 16}}};
+    static const struct texture sint8_texture = {4, 4, 1, 1, DXGI_FORMAT_R8G8B8A8_SINT,
             {{rgba_level_0, 4 * sizeof(*rgba_level_0)}}};
-    static const struct texture uint8_texture = {4, 4, 1, DXGI_FORMAT_R8G8B8A8_UINT,
+    static const struct texture uint8_texture = {4, 4, 1, 1, DXGI_FORMAT_R8G8B8A8_UINT,
             {{rgba_level_0, 4 * sizeof(*rgba_level_0)}}};
+    static const struct texture array_2d_texture =
+    {
+        4, 4, 1, 3, DXGI_FORMAT_R8G8B8A8_UNORM,
+        {
+            {red_data,   6 * sizeof(*red_data)},
+            {green_data, 4 * sizeof(*green_data)},
+            {blue_data,  5 * sizeof(*blue_data)},
+        }
+    };
+    static const DWORD red_colors[] =
+    {
+        0xff0000ff, 0xff0000ff, 0xff0000ff, 0xff0000ff,
+        0xff0000ff, 0xff0000ff, 0xff0000ff, 0xff0000ff,
+        0xff0000ff, 0xff0000ff, 0xff0000ff, 0xff0000ff,
+        0xff0000ff, 0xff0000ff, 0xff0000ff, 0xff0000ff,
+    };
+    static const DWORD blue_colors[] =
+    {
+        0xffff0000, 0xffff0000, 0xffff0000, 0xffff0000,
+        0xffff0000, 0xffff0000, 0xffff0000, 0xffff0000,
+        0xffff0000, 0xffff0000, 0xffff0000, 0xffff0000,
+        0xffff0000, 0xffff0000, 0xffff0000, 0xffff0000,
+    };
     static const DWORD level_1_colors[] =
     {
         0xffffffff, 0xffffffff, 0xff0000ff, 0xff0000ff,
@@ -4064,76 +4246,112 @@ static void test_texture(void)
         float lod_bias;
         float min_lod;
         float max_lod;
-        float miplevel;
+        float ps_constant;
         const DWORD *expected_colors;
     }
     tests[] =
     {
-        {&ps_ld,       &rgba_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f,              0.0f,  0.0f, rgba_level_0},
-        {&ps_ld,       &rgba_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f,              0.0f,  1.0f, level_1_colors},
-        {&ps_ld,       &rgba_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f,              0.0f,  2.0f, level_2_colors},
-        {&ps_ld,       &rgba_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f,              0.0f,  3.0f, zero_colors},
-        {&ps_ld,       &srgb_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f,              0.0f,  0.0f, srgb_colors},
-        {&ps_ld,       &bc1_texture,   D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f,              0.0f,  0.0f, bc_colors},
-        {&ps_ld,       &bc1_texture,   D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f,              0.0f,  1.0f, zero_colors},
-        {&ps_ld,       &bc2_texture,   D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f,              0.0f,  0.0f, bc_colors},
-        {&ps_ld,       &bc2_texture,   D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f,              0.0f,  1.0f, zero_colors},
-        {&ps_ld,       &bc3_texture,   D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f,              0.0f,  0.0f, bc_colors},
-        {&ps_ld,       &bc3_texture,   D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f,              0.0f,  1.0f, zero_colors},
-        {&ps_ld,       &bc1_texture_srgb, D3D11_FILTER_MIN_MAG_MIP_POINT,     0.0f, 0.0f,              0.0f,  0.0f, bc_colors},
-        {&ps_ld,       &bc2_texture_srgb, D3D11_FILTER_MIN_MAG_MIP_POINT,     0.0f, 0.0f,              0.0f,  0.0f, bc_colors},
-        {&ps_ld,       &bc3_texture_srgb, D3D11_FILTER_MIN_MAG_MIP_POINT,     0.0f, 0.0f,              0.0f,  0.0f, bc_colors},
-        {&ps_ld,       &bc4_texture,   D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f,              0.0f,  0.0f, bc4_colors},
-        {&ps_ld,       &bc5_texture,   D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f,              0.0f,  0.0f, bc5_colors},
-        {&ps_ld_sint8, &sint8_texture, D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f,              0.0f,  0.0f, sint8_colors},
-        {&ps_ld_uint8, &uint8_texture, D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f,              0.0f,  0.0f, rgba_level_0},
-        {&ps_sample,   &bc1_texture,   D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f,              0.0f,  0.0f, bc_colors},
-        {&ps_sample,   &bc2_texture,   D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f,              0.0f,  0.0f, bc_colors},
-        {&ps_sample,   &bc3_texture,   D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f,              0.0f,  0.0f, bc_colors},
-        {&ps_sample,   &bc4_texture,   D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f,              0.0f,  0.0f, bc4_colors},
-        {&ps_sample,   &bc5_texture,   D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f,              0.0f,  0.0f, bc5_colors},
-        {&ps_sample,   &rgba_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f,              0.0f,  0.0f, rgba_level_0},
-        {&ps_sample,   &rgba_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f, D3D11_FLOAT32_MAX,  0.0f, rgba_level_0},
-        {&ps_sample,   &rgba_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        2.0f, 0.0f, D3D11_FLOAT32_MAX,  0.0f, rgba_level_0},
-        {&ps_sample,   &rgba_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        8.0f, 0.0f, D3D11_FLOAT32_MAX,  0.0f, level_1_colors},
-        {&ps_sample,   &srgb_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f,              0.0f,  0.0f, srgb_colors},
-        {&ps_sample,   &a8_texture,    D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f,              0.0f,  0.0f, a8_colors},
-        {&ps_sample_b, &rgba_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f, D3D11_FLOAT32_MAX,  0.0f, rgba_level_0},
-        {&ps_sample_b, &rgba_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        8.0f, 0.0f, D3D11_FLOAT32_MAX,  0.0f, level_1_colors},
-        {&ps_sample_b, &rgba_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f, D3D11_FLOAT32_MAX,  8.0f, level_1_colors},
-        {&ps_sample_b, &rgba_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f, D3D11_FLOAT32_MAX,  8.4f, level_1_colors},
-        {&ps_sample_b, &rgba_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f, D3D11_FLOAT32_MAX,  8.5f, level_2_colors},
-        {&ps_sample_b, &rgba_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f, D3D11_FLOAT32_MAX,  9.0f, level_2_colors},
-        {&ps_sample_b, &rgba_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f,              2.0f,  1.0f, rgba_level_0},
-        {&ps_sample_b, &rgba_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f,              2.0f,  9.0f, level_2_colors},
-        {&ps_sample_b, &rgba_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f,              1.0f,  9.0f, level_1_colors},
-        {&ps_sample_b, &rgba_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f,              0.0f,  9.0f, rgba_level_0},
-        {&ps_sample_l, &rgba_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f, D3D11_FLOAT32_MAX, -1.0f, rgba_level_0},
-        {&ps_sample_l, &rgba_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f, D3D11_FLOAT32_MAX,  0.0f, rgba_level_0},
-        {&ps_sample_l, &rgba_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f, D3D11_FLOAT32_MAX,  0.4f, rgba_level_0},
-        {&ps_sample_l, &rgba_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f, D3D11_FLOAT32_MAX,  0.5f, level_1_colors},
-        {&ps_sample_l, &rgba_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f, D3D11_FLOAT32_MAX,  1.0f, level_1_colors},
-        {&ps_sample_l, &rgba_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f, D3D11_FLOAT32_MAX,  1.4f, level_1_colors},
-        {&ps_sample_l, &rgba_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f, D3D11_FLOAT32_MAX,  1.5f, level_2_colors},
-        {&ps_sample_l, &rgba_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f, D3D11_FLOAT32_MAX,  2.0f, level_2_colors},
-        {&ps_sample_l, &rgba_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f, D3D11_FLOAT32_MAX,  3.0f, level_2_colors},
-        {&ps_sample_l, &rgba_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        0.0f, 0.0f, D3D11_FLOAT32_MAX,  4.0f, level_2_colors},
-        {&ps_sample_l, &rgba_texture,  D3D11_FILTER_MIN_MAG_POINT_MIP_LINEAR, 0.0f, 0.0f, D3D11_FLOAT32_MAX,  1.5f, lerp_1_2_colors},
-        {&ps_sample_l, &rgba_texture,  D3D11_FILTER_MIN_MAG_POINT_MIP_LINEAR, 2.0f, 0.0f, D3D11_FLOAT32_MAX, -2.0f, rgba_level_0},
-        {&ps_sample_l, &rgba_texture,  D3D11_FILTER_MIN_MAG_POINT_MIP_LINEAR, 2.0f, 0.0f, D3D11_FLOAT32_MAX, -1.0f, level_1_colors},
-        {&ps_sample_l, &rgba_texture,  D3D11_FILTER_MIN_MAG_POINT_MIP_LINEAR, 2.0f, 0.0f, D3D11_FLOAT32_MAX,  0.0f, level_2_colors},
-        {&ps_sample_l, &rgba_texture,  D3D11_FILTER_MIN_MAG_POINT_MIP_LINEAR, 2.0f, 0.0f, D3D11_FLOAT32_MAX,  1.0f, level_2_colors},
-        {&ps_sample_l, &rgba_texture,  D3D11_FILTER_MIN_MAG_POINT_MIP_LINEAR, 2.0f, 0.0f, D3D11_FLOAT32_MAX,  1.5f, level_2_colors},
-        {&ps_sample_l, &rgba_texture,  D3D11_FILTER_MIN_MAG_POINT_MIP_LINEAR, 2.0f, 2.0f,              2.0f, -9.0f, level_2_colors},
-        {&ps_sample_l, &rgba_texture,  D3D11_FILTER_MIN_MAG_POINT_MIP_LINEAR, 2.0f, 2.0f,              2.0f, -1.0f, level_2_colors},
-        {&ps_sample_l, &rgba_texture,  D3D11_FILTER_MIN_MAG_POINT_MIP_LINEAR, 2.0f, 2.0f,              2.0f,  0.0f, level_2_colors},
-        {&ps_sample_l, &rgba_texture,  D3D11_FILTER_MIN_MAG_POINT_MIP_LINEAR, 2.0f, 2.0f,              2.0f,  1.0f, level_2_colors},
-        {&ps_sample_l, &rgba_texture,  D3D11_FILTER_MIN_MAG_POINT_MIP_LINEAR, 2.0f, 2.0f,              2.0f,  9.0f, level_2_colors},
-        {&ps_sample_l, &rgba_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        2.0f, 2.0f,              2.0f, -9.0f, level_2_colors},
-        {&ps_sample_l, &rgba_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        2.0f, 2.0f,              2.0f, -1.0f, level_2_colors},
-        {&ps_sample_l, &rgba_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        2.0f, 2.0f,              2.0f,  0.0f, level_2_colors},
-        {&ps_sample_l, &rgba_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        2.0f, 2.0f,              2.0f,  1.0f, level_2_colors},
-        {&ps_sample_l, &rgba_texture,  D3D11_FILTER_MIN_MAG_MIP_POINT,        2.0f, 2.0f,              2.0f,  9.0f, level_2_colors},
+#define POINT        D3D11_FILTER_MIN_MAG_MIP_POINT
+#define POINT_LINEAR D3D11_FILTER_MIN_MAG_POINT_MIP_LINEAR
+#define MIP_MAX      D3D11_FLOAT32_MAX
+        {&ps_ld,              &rgba_texture,     POINT,        0.0f, 0.0f,    0.0f,  0.0f, rgba_level_0},
+        {&ps_ld,              &rgba_texture,     POINT,        0.0f, 0.0f,    0.0f,  1.0f, level_1_colors},
+        {&ps_ld,              &rgba_texture,     POINT,        0.0f, 0.0f,    0.0f,  2.0f, level_2_colors},
+        {&ps_ld,              &rgba_texture,     POINT,        0.0f, 0.0f,    0.0f,  3.0f, zero_colors},
+        {&ps_ld,              &srgb_texture,     POINT,        0.0f, 0.0f,    0.0f,  0.0f, srgb_colors},
+        {&ps_ld,              &bc1_texture,      POINT,        0.0f, 0.0f,    0.0f,  0.0f, bc_colors},
+        {&ps_ld,              &bc1_texture,      POINT,        0.0f, 0.0f,    0.0f,  1.0f, zero_colors},
+        {&ps_ld,              &bc2_texture,      POINT,        0.0f, 0.0f,    0.0f,  0.0f, bc_colors},
+        {&ps_ld,              &bc2_texture,      POINT,        0.0f, 0.0f,    0.0f,  1.0f, zero_colors},
+        {&ps_ld,              &bc3_texture,      POINT,        0.0f, 0.0f,    0.0f,  0.0f, bc_colors},
+        {&ps_ld,              &bc3_texture,      POINT,        0.0f, 0.0f,    0.0f,  1.0f, zero_colors},
+        {&ps_ld,              &bc1_texture_srgb, POINT,        0.0f, 0.0f,    0.0f,  0.0f, bc_colors},
+        {&ps_ld,              &bc2_texture_srgb, POINT,        0.0f, 0.0f,    0.0f,  0.0f, bc_colors},
+        {&ps_ld,              &bc3_texture_srgb, POINT,        0.0f, 0.0f,    0.0f,  0.0f, bc_colors},
+        {&ps_ld,              &bc4_texture,      POINT,        0.0f, 0.0f,    0.0f,  0.0f, bc4_colors},
+        {&ps_ld,              &bc5_texture,      POINT,        0.0f, 0.0f,    0.0f,  0.0f, bc5_colors},
+        {&ps_ld,              NULL,              POINT,        0.0f, 0.0f,    0.0f,  0.0f, zero_colors},
+        {&ps_ld,              NULL,              POINT,        0.0f, 0.0f, MIP_MAX,  0.0f, zero_colors},
+        {&ps_ld_sint8,        &sint8_texture,    POINT,        0.0f, 0.0f,    0.0f,  0.0f, sint8_colors},
+        {&ps_ld_uint8,        &uint8_texture,    POINT,        0.0f, 0.0f,    0.0f,  0.0f, rgba_level_0},
+        {&ps_sample,          &bc1_texture,      POINT,        0.0f, 0.0f,    0.0f,  0.0f, bc_colors},
+        {&ps_sample,          &bc2_texture,      POINT,        0.0f, 0.0f,    0.0f,  0.0f, bc_colors},
+        {&ps_sample,          &bc3_texture,      POINT,        0.0f, 0.0f,    0.0f,  0.0f, bc_colors},
+        {&ps_sample,          &bc4_texture,      POINT,        0.0f, 0.0f,    0.0f,  0.0f, bc4_colors},
+        {&ps_sample,          &bc5_texture,      POINT,        0.0f, 0.0f,    0.0f,  0.0f, bc5_colors},
+        {&ps_sample,          &rgba_texture,     POINT,        0.0f, 0.0f,    0.0f,  0.0f, rgba_level_0},
+        {&ps_sample,          &rgba_texture,     POINT,        0.0f, 0.0f, MIP_MAX,  0.0f, rgba_level_0},
+        {&ps_sample,          &rgba_texture,     POINT,        2.0f, 0.0f, MIP_MAX,  0.0f, rgba_level_0},
+        {&ps_sample,          &rgba_texture,     POINT,        8.0f, 0.0f, MIP_MAX,  0.0f, level_1_colors},
+        {&ps_sample,          &srgb_texture,     POINT,        0.0f, 0.0f,    0.0f,  0.0f, srgb_colors},
+        {&ps_sample,          &a8_texture,       POINT,        0.0f, 0.0f,    0.0f,  0.0f, a8_colors},
+        {&ps_sample,          NULL,              POINT,        0.0f, 0.0f,    0.0f,  0.0f, zero_colors},
+        {&ps_sample,          NULL,              POINT,        0.0f, 0.0f, MIP_MAX,  0.0f, zero_colors},
+        {&ps_sample_b,        &rgba_texture,     POINT,        0.0f, 0.0f, MIP_MAX,  0.0f, rgba_level_0},
+        {&ps_sample_b,        &rgba_texture,     POINT,        8.0f, 0.0f, MIP_MAX,  0.0f, level_1_colors},
+        {&ps_sample_b,        &rgba_texture,     POINT,        0.0f, 0.0f, MIP_MAX,  8.0f, level_1_colors},
+        {&ps_sample_b,        &rgba_texture,     POINT,        0.0f, 0.0f, MIP_MAX,  8.4f, level_1_colors},
+        {&ps_sample_b,        &rgba_texture,     POINT,        0.0f, 0.0f, MIP_MAX,  8.5f, level_2_colors},
+        {&ps_sample_b,        &rgba_texture,     POINT,        0.0f, 0.0f, MIP_MAX,  9.0f, level_2_colors},
+        {&ps_sample_b,        &rgba_texture,     POINT,        0.0f, 0.0f,    2.0f,  1.0f, rgba_level_0},
+        {&ps_sample_b,        &rgba_texture,     POINT,        0.0f, 0.0f,    2.0f,  9.0f, level_2_colors},
+        {&ps_sample_b,        &rgba_texture,     POINT,        0.0f, 0.0f,    1.0f,  9.0f, level_1_colors},
+        {&ps_sample_b,        &rgba_texture,     POINT,        0.0f, 0.0f,    0.0f,  9.0f, rgba_level_0},
+        {&ps_sample_b,        NULL,              POINT,        0.0f, 0.0f,    0.0f,  0.0f, zero_colors},
+        {&ps_sample_b,        NULL,              POINT,        0.0f, 0.0f,    0.0f,  1.0f, zero_colors},
+        {&ps_sample_b,        NULL,              POINT,        0.0f, 0.0f, MIP_MAX,  0.0f, zero_colors},
+        {&ps_sample_b,        NULL,              POINT,        0.0f, 0.0f, MIP_MAX,  1.0f, zero_colors},
+        {&ps_sample_l,        &rgba_texture,     POINT,        0.0f, 0.0f, MIP_MAX, -1.0f, rgba_level_0},
+        {&ps_sample_l,        &rgba_texture,     POINT,        0.0f, 0.0f, MIP_MAX,  0.0f, rgba_level_0},
+        {&ps_sample_l,        &rgba_texture,     POINT,        0.0f, 0.0f, MIP_MAX,  0.4f, rgba_level_0},
+        {&ps_sample_l,        &rgba_texture,     POINT,        0.0f, 0.0f, MIP_MAX,  0.5f, level_1_colors},
+        {&ps_sample_l,        &rgba_texture,     POINT,        0.0f, 0.0f, MIP_MAX,  1.0f, level_1_colors},
+        {&ps_sample_l,        &rgba_texture,     POINT,        0.0f, 0.0f, MIP_MAX,  1.4f, level_1_colors},
+        {&ps_sample_l,        &rgba_texture,     POINT,        0.0f, 0.0f, MIP_MAX,  1.5f, level_2_colors},
+        {&ps_sample_l,        &rgba_texture,     POINT,        0.0f, 0.0f, MIP_MAX,  2.0f, level_2_colors},
+        {&ps_sample_l,        &rgba_texture,     POINT,        0.0f, 0.0f, MIP_MAX,  3.0f, level_2_colors},
+        {&ps_sample_l,        &rgba_texture,     POINT,        0.0f, 0.0f, MIP_MAX,  4.0f, level_2_colors},
+        {&ps_sample_l,        &rgba_texture,     POINT_LINEAR, 0.0f, 0.0f, MIP_MAX,  1.5f, lerp_1_2_colors},
+        {&ps_sample_l,        &rgba_texture,     POINT_LINEAR, 2.0f, 0.0f, MIP_MAX, -2.0f, rgba_level_0},
+        {&ps_sample_l,        &rgba_texture,     POINT_LINEAR, 2.0f, 0.0f, MIP_MAX, -1.0f, level_1_colors},
+        {&ps_sample_l,        &rgba_texture,     POINT_LINEAR, 2.0f, 0.0f, MIP_MAX,  0.0f, level_2_colors},
+        {&ps_sample_l,        &rgba_texture,     POINT_LINEAR, 2.0f, 0.0f, MIP_MAX,  1.0f, level_2_colors},
+        {&ps_sample_l,        &rgba_texture,     POINT_LINEAR, 2.0f, 0.0f, MIP_MAX,  1.5f, level_2_colors},
+        {&ps_sample_l,        &rgba_texture,     POINT_LINEAR, 2.0f, 2.0f,    2.0f, -9.0f, level_2_colors},
+        {&ps_sample_l,        &rgba_texture,     POINT_LINEAR, 2.0f, 2.0f,    2.0f, -1.0f, level_2_colors},
+        {&ps_sample_l,        &rgba_texture,     POINT_LINEAR, 2.0f, 2.0f,    2.0f,  0.0f, level_2_colors},
+        {&ps_sample_l,        &rgba_texture,     POINT_LINEAR, 2.0f, 2.0f,    2.0f,  1.0f, level_2_colors},
+        {&ps_sample_l,        &rgba_texture,     POINT_LINEAR, 2.0f, 2.0f,    2.0f,  9.0f, level_2_colors},
+        {&ps_sample_l,        &rgba_texture,     POINT,        2.0f, 2.0f,    2.0f, -9.0f, level_2_colors},
+        {&ps_sample_l,        &rgba_texture,     POINT,        2.0f, 2.0f,    2.0f, -1.0f, level_2_colors},
+        {&ps_sample_l,        &rgba_texture,     POINT,        2.0f, 2.0f,    2.0f,  0.0f, level_2_colors},
+        {&ps_sample_l,        &rgba_texture,     POINT,        2.0f, 2.0f,    2.0f,  1.0f, level_2_colors},
+        {&ps_sample_l,        &rgba_texture,     POINT,        2.0f, 2.0f,    2.0f,  9.0f, level_2_colors},
+        {&ps_sample_l,        NULL,              POINT,        2.0f, 2.0f,    0.0f,  0.0f, zero_colors},
+        {&ps_sample_l,        NULL,              POINT,        2.0f, 2.0f,    0.0f,  1.0f, zero_colors},
+        {&ps_sample_l,        NULL,              POINT,        2.0f, 2.0f, MIP_MAX,  0.0f, zero_colors},
+        {&ps_sample_l,        NULL,              POINT,        2.0f, 2.0f, MIP_MAX,  1.0f, zero_colors},
+        {&ps_sample_2d_array, &array_2d_texture, POINT,        0.0f, 0.0f, MIP_MAX, -9.0f, red_colors},
+        {&ps_sample_2d_array, &array_2d_texture, POINT,        0.0f, 0.0f, MIP_MAX, -1.0f, red_colors},
+        {&ps_sample_2d_array, &array_2d_texture, POINT,        0.0f, 0.0f, MIP_MAX,  0.0f, red_colors},
+        {&ps_sample_2d_array, &array_2d_texture, POINT,        0.0f, 0.0f, MIP_MAX,  0.4f, red_colors},
+        {&ps_sample_2d_array, &array_2d_texture, POINT,        0.0f, 0.0f, MIP_MAX,  0.5f, red_colors},
+        {&ps_sample_2d_array, &array_2d_texture, POINT,        0.0f, 0.0f, MIP_MAX,  1.0f, green_data},
+        {&ps_sample_2d_array, &array_2d_texture, POINT,        0.0f, 0.0f, MIP_MAX,  1.4f, green_data},
+        {&ps_sample_2d_array, &array_2d_texture, POINT,        0.0f, 0.0f, MIP_MAX,  2.0f, blue_colors},
+        {&ps_sample_2d_array, &array_2d_texture, POINT,        0.0f, 0.0f, MIP_MAX,  2.1f, blue_colors},
+        {&ps_sample_2d_array, &array_2d_texture, POINT,        0.0f, 0.0f, MIP_MAX,  3.0f, blue_colors},
+        {&ps_sample_2d_array, &array_2d_texture, POINT,        0.0f, 0.0f, MIP_MAX,  3.1f, blue_colors},
+        {&ps_sample_2d_array, &array_2d_texture, POINT,        0.0f, 0.0f, MIP_MAX,  9.0f, blue_colors},
+        {&ps_sample_2d_array, NULL,              POINT,        0.0f, 0.0f,    0.0f,  0.0f, zero_colors},
+        {&ps_sample_2d_array, NULL,              POINT,        0.0f, 0.0f,    0.0f,  1.0f, zero_colors},
+        {&ps_sample_2d_array, NULL,              POINT,        0.0f, 0.0f,    0.0f,  2.0f, zero_colors},
+        {&ps_sample_2d_array, NULL,              POINT,        0.0f, 0.0f, MIP_MAX,  0.0f, zero_colors},
+        {&ps_sample_2d_array, NULL,              POINT,        0.0f, 0.0f, MIP_MAX,  1.0f, zero_colors},
+        {&ps_sample_2d_array, NULL,              POINT,        0.0f, 0.0f, MIP_MAX,  2.0f, zero_colors},
+#undef POINT
+#undef POINT_LINEAR
+#undef MIP_MAX
     };
 
     if (!init_test_context(&test_context, NULL))
@@ -4142,23 +4360,10 @@ static void test_texture(void)
     device = test_context.device;
     context = test_context.immediate_context;
 
-    buffer_desc.ByteWidth = sizeof(miplevel);
-    buffer_desc.Usage = D3D11_USAGE_DEFAULT;
-    buffer_desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-    buffer_desc.CPUAccessFlags = 0;
-    buffer_desc.MiscFlags = 0;
-    buffer_desc.StructureByteStride = 0;
-
-    hr = ID3D11Device_CreateBuffer(device, &buffer_desc, NULL, &cb);
-    ok(SUCCEEDED(hr), "Failed to create constant buffer, hr %#x.\n", hr);
+    cb = create_buffer(device, D3D11_BIND_CONSTANT_BUFFER, sizeof(ps_constant), NULL);
 
     ID3D11DeviceContext_PSSetConstantBuffers(context, 0, 1, &cb);
 
-    texture_desc.Width = 4;
-    texture_desc.Height = 4;
-    texture_desc.MipLevels = 3;
-    texture_desc.ArraySize = 1;
-    texture_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
     texture_desc.SampleDesc.Count = 1;
     texture_desc.SampleDesc.Quality = 0;
     texture_desc.Usage = D3D11_USAGE_DEFAULT;
@@ -4212,16 +4417,25 @@ static void test_texture(void)
 
             current_texture = test->texture;
 
-            texture_desc.Width = current_texture->width;
-            texture_desc.Height = current_texture->height;
-            texture_desc.MipLevels = current_texture->miplevel_count;
-            texture_desc.Format = current_texture->format;
+            if (current_texture)
+            {
+                texture_desc.Width = current_texture->width;
+                texture_desc.Height = current_texture->height;
+                texture_desc.MipLevels = current_texture->miplevel_count;
+                texture_desc.ArraySize = current_texture->array_size;
+                texture_desc.Format = current_texture->format;
 
-            hr = ID3D11Device_CreateTexture2D(device, &texture_desc, current_texture->data, &texture);
-            ok(SUCCEEDED(hr), "Test %u: Failed to create 2d texture, hr %#x.\n", i, hr);
+                hr = ID3D11Device_CreateTexture2D(device, &texture_desc, current_texture->data, &texture);
+                ok(SUCCEEDED(hr), "Test %u: Failed to create 2d texture, hr %#x.\n", i, hr);
 
-            hr = ID3D11Device_CreateShaderResourceView(device, (ID3D11Resource *)texture, NULL, &srv);
-            ok(SUCCEEDED(hr), "Test %u: Failed to create shader resource view, hr %#x.\n", i, hr);
+                hr = ID3D11Device_CreateShaderResourceView(device, (ID3D11Resource *)texture, NULL, &srv);
+                ok(SUCCEEDED(hr), "Test %u: Failed to create shader resource view, hr %#x.\n", i, hr);
+            }
+            else
+            {
+                texture = NULL;
+                srv = NULL;
+            }
 
             ID3D11DeviceContext_PSSetShaderResources(context, 0, 1, &srv);
         }
@@ -4245,14 +4459,14 @@ static void test_texture(void)
             ID3D11DeviceContext_PSSetSamplers(context, 0, 1, &sampler);
         }
 
-        miplevel.x = test->miplevel;
-        ID3D11DeviceContext_UpdateSubresource(context, (ID3D11Resource *)cb, 0, NULL, &miplevel, 0, 0);
+        ps_constant.x = test->ps_constant;
+        ID3D11DeviceContext_UpdateSubresource(context, (ID3D11Resource *)cb, 0, NULL, &ps_constant, 0, 0);
 
         ID3D11DeviceContext_ClearRenderTargetView(context, test_context.backbuffer_rtv, red);
 
         draw_quad(&test_context);
 
-        get_texture_readback(test_context.backbuffer, &rb);
+        get_texture_readback(test_context.backbuffer, 0, &rb);
         for (y = 0; y < 4; ++y)
         {
             for (x = 0; x < 4; ++x)
@@ -4264,9 +4478,11 @@ static void test_texture(void)
         }
         release_texture_readback(&rb);
     }
-    ID3D11ShaderResourceView_Release(srv);
+    if (srv)
+        ID3D11ShaderResourceView_Release(srv);
     ID3D11SamplerState_Release(sampler);
-    ID3D11Texture2D_Release(texture);
+    if (texture)
+        ID3D11Texture2D_Release(texture);
     ID3D11PixelShader_Release(ps);
 
     ID3D11Buffer_Release(cb);
@@ -4275,12 +4491,10 @@ static void test_texture(void)
 
 static void test_multiple_render_targets(void)
 {
-    D3D11_SUBRESOURCE_DATA resource_data;
     D3D11_TEXTURE2D_DESC texture_desc;
     ID3D11InputLayout *input_layout;
     unsigned int stride, offset, i;
     ID3D11RenderTargetView *rtv[4];
-    D3D11_BUFFER_DESC buffer_desc;
     ID3D11DeviceContext *context;
     ID3D11Texture2D *rt[4];
     ID3D11VertexShader *vs;
@@ -4370,19 +4584,7 @@ static void test_multiple_render_targets(void)
             vs_code, sizeof(vs_code), &input_layout);
     ok(SUCCEEDED(hr), "Failed to create input layout, hr %#x.\n", hr);
 
-    buffer_desc.ByteWidth = sizeof(quad);
-    buffer_desc.Usage = D3D11_USAGE_DEFAULT;
-    buffer_desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-    buffer_desc.CPUAccessFlags = 0;
-    buffer_desc.MiscFlags = 0;
-    buffer_desc.StructureByteStride = 0;
-
-    resource_data.pSysMem = quad;
-    resource_data.SysMemPitch = 0;
-    resource_data.SysMemSlicePitch = 0;
-
-    hr = ID3D11Device_CreateBuffer(device, &buffer_desc, &resource_data, &vb);
-    ok(SUCCEEDED(hr), "Failed to create vertex buffer, hr %#x.\n", hr);
+    vb = create_buffer(device, D3D11_BIND_VERTEX_BUFFER, sizeof(quad), quad);
 
     texture_desc.Width = 640;
     texture_desc.Height = 480;
@@ -4450,6 +4652,135 @@ static void test_multiple_render_targets(void)
     ID3D11DeviceContext_Release(context);
     refcount = ID3D11Device_Release(device);
     ok(!refcount, "Device has %u references left.\n", refcount);
+}
+
+static void test_render_target_views(void)
+{
+    struct texture
+    {
+        UINT miplevel_count;
+        UINT array_size;
+    };
+    struct rtv
+    {
+        DXGI_FORMAT format;
+        D3D11_RTV_DIMENSION dimension;
+        unsigned int miplevel_idx;
+        unsigned int layer_idx;
+        unsigned int layer_count;
+    };
+
+    static const struct vec4 red = {1.0f, 0.0f, 0.0f, 1.0f};
+    static struct test
+    {
+        struct texture texture;
+        struct rtv rtv;
+        DWORD expected_colors[4];
+    }
+    tests[] =
+    {
+        {{2, 1}, {DXGI_FORMAT_UNKNOWN, D3D11_RTV_DIMENSION_TEXTURE2D, 0},
+                {0xff0000ff, 0x00000000}},
+        {{2, 1}, {DXGI_FORMAT_UNKNOWN, D3D11_RTV_DIMENSION_TEXTURE2D, 1},
+                {0x00000000, 0xff0000ff}},
+        {{2, 1}, {DXGI_FORMAT_UNKNOWN, D3D11_RTV_DIMENSION_TEXTURE2DARRAY, 0, 0, 1},
+                {0xff0000ff, 0x00000000}},
+        {{2, 1}, {DXGI_FORMAT_UNKNOWN, D3D11_RTV_DIMENSION_TEXTURE2DARRAY, 1, 0, 1},
+                {0x00000000, 0xff0000ff}},
+        {{1, 4}, {DXGI_FORMAT_UNKNOWN, D3D11_RTV_DIMENSION_TEXTURE2D, 0},
+                {0xff0000ff, 0x00000000, 0x00000000, 0x00000000}},
+        {{1, 4}, {DXGI_FORMAT_UNKNOWN, D3D11_RTV_DIMENSION_TEXTURE2DARRAY, 0, 0, 1},
+                {0xff0000ff, 0x00000000, 0x00000000, 0x00000000}},
+        {{1, 4}, {DXGI_FORMAT_UNKNOWN, D3D11_RTV_DIMENSION_TEXTURE2DARRAY, 0, 1, 1},
+                {0x00000000, 0xff0000ff, 0x00000000, 0x00000000}},
+        {{1, 4}, {DXGI_FORMAT_UNKNOWN, D3D11_RTV_DIMENSION_TEXTURE2DARRAY, 0, 2, 1},
+                {0x00000000, 0x00000000, 0xff0000ff, 0x00000000}},
+        {{1, 4}, {DXGI_FORMAT_UNKNOWN, D3D11_RTV_DIMENSION_TEXTURE2DARRAY, 0, 3, 1},
+                {0x00000000, 0x00000000, 0x00000000, 0xff0000ff}},
+        {{1, 4}, {DXGI_FORMAT_UNKNOWN, D3D11_RTV_DIMENSION_TEXTURE2DARRAY, 0, 0, 4},
+                {0xff0000ff, 0x00000000, 0x00000000, 0x00000000}},
+        {{2, 2}, {DXGI_FORMAT_UNKNOWN, D3D11_RTV_DIMENSION_TEXTURE2D, 0},
+                {0xff0000ff, 0x00000000, 0x00000000, 0x00000000}},
+        {{2, 2}, {DXGI_FORMAT_UNKNOWN, D3D11_RTV_DIMENSION_TEXTURE2DARRAY, 0, 0, 1},
+                {0xff0000ff, 0x00000000, 0x00000000, 0x00000000}},
+        {{2, 2}, {DXGI_FORMAT_UNKNOWN, D3D11_RTV_DIMENSION_TEXTURE2DARRAY, 0, 1, 1},
+                {0x00000000, 0x00000000, 0xff0000ff, 0x00000000}},
+        {{2, 2}, {DXGI_FORMAT_UNKNOWN, D3D11_RTV_DIMENSION_TEXTURE2DARRAY, 1, 0, 1},
+                {0x00000000, 0xff0000ff, 0x00000000, 0x00000000}},
+        {{2, 2}, {DXGI_FORMAT_UNKNOWN, D3D11_RTV_DIMENSION_TEXTURE2DARRAY, 1, 1, 1},
+                {0x00000000, 0x00000000, 0x00000000, 0xff0000ff}},
+    };
+
+    struct d3d11_test_context test_context;
+    D3D11_RENDER_TARGET_VIEW_DESC rtv_desc;
+    D3D11_TEXTURE2D_DESC texture_desc;
+    ID3D11DeviceContext *context;
+    ID3D11RenderTargetView *rtv;
+    ID3D11Texture2D *texture;
+    ID3D11Device *device;
+    unsigned int i, j;
+    HRESULT hr;
+
+    if (!init_test_context(&test_context, NULL))
+        return;
+
+    device = test_context.device;
+    context = test_context.immediate_context;
+
+    texture_desc.Width = 32;
+    texture_desc.Height = 32;
+    texture_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    texture_desc.SampleDesc.Count = 1;
+    texture_desc.SampleDesc.Quality = 0;
+    texture_desc.Usage = D3D11_USAGE_DEFAULT;
+    texture_desc.BindFlags = D3D11_BIND_RENDER_TARGET;
+    texture_desc.CPUAccessFlags = 0;
+    texture_desc.MiscFlags = 0;
+
+    for (i = 0; i < sizeof(tests) / sizeof(*tests); ++i)
+    {
+        const struct test *test = &tests[i];
+        unsigned int sub_resource_count;
+
+        texture_desc.MipLevels = test->texture.miplevel_count;
+        texture_desc.ArraySize = test->texture.array_size;
+
+        hr = ID3D11Device_CreateTexture2D(device, &texture_desc, NULL, &texture);
+        ok(SUCCEEDED(hr), "Test %u: Failed to create texture, hr %#x.\n", i, hr);
+
+        rtv_desc.Format = texture_desc.Format;
+        rtv_desc.ViewDimension = test->rtv.dimension;
+        if (test->rtv.dimension == D3D11_RTV_DIMENSION_TEXTURE2D)
+        {
+            U(rtv_desc).Texture2D.MipSlice = test->rtv.miplevel_idx;
+        }
+        else if (test->rtv.dimension == D3D11_RTV_DIMENSION_TEXTURE2DARRAY)
+        {
+            U(rtv_desc).Texture2DArray.MipSlice = test->rtv.miplevel_idx;
+            U(rtv_desc).Texture2DArray.FirstArraySlice = test->rtv.layer_idx;
+            U(rtv_desc).Texture2DArray.ArraySize = test->rtv.layer_count;
+        }
+        else
+        {
+            trace("Test %u: Unhandled view dimension %#x.\n", i, test->rtv.dimension);
+        }
+
+        hr = ID3D11Device_CreateRenderTargetView(device, (ID3D11Resource *)texture, &rtv_desc, &rtv);
+        ok(SUCCEEDED(hr), "Test %u: Failed to create render target view, hr %#x.\n", i, hr);
+
+        ID3D11DeviceContext_OMSetRenderTargets(context, 1, &rtv, NULL);
+        draw_color_quad(&test_context, &red);
+
+        sub_resource_count = texture_desc.MipLevels * texture_desc.ArraySize;
+        assert(sub_resource_count <= sizeof(test->expected_colors) / sizeof(*test->expected_colors));
+        for (j = 0; j < sub_resource_count; ++j)
+            check_texture_sub_resource_color(texture, j, test->expected_colors[j], 1);
+
+        ID3D11RenderTargetView_Release(rtv);
+        ID3D11Texture2D_Release(texture);
+    }
+
+    release_test_context(&test_context);
 }
 
 static void test_scissor(void)
@@ -4549,9 +4880,7 @@ static void test_scissor(void)
 static void test_il_append_aligned(void)
 {
     struct d3d11_test_context test_context;
-    D3D11_SUBRESOURCE_DATA resource_data;
     ID3D11InputLayout *input_layout;
-    D3D11_BUFFER_DESC buffer_desc;
     ID3D11DeviceContext *context;
     unsigned int stride, offset;
     ID3D11VertexShader *vs;
@@ -4692,31 +5021,9 @@ static void test_il_append_aligned(void)
             vs_code, sizeof(vs_code), &input_layout);
     ok(SUCCEEDED(hr), "Failed to create input layout, hr %#x.\n", hr);
 
-    buffer_desc.ByteWidth = sizeof(stream0);
-    buffer_desc.Usage = D3D11_USAGE_DEFAULT;
-    buffer_desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-    buffer_desc.CPUAccessFlags = 0;
-    buffer_desc.MiscFlags = 0;
-    buffer_desc.StructureByteStride = 0;
-
-    resource_data.pSysMem = stream0;
-    resource_data.SysMemPitch = 0;
-    resource_data.SysMemSlicePitch = 0;
-
-    hr = ID3D11Device_CreateBuffer(device, &buffer_desc, &resource_data, &vb[0]);
-    ok(SUCCEEDED(hr), "Failed to create vertex buffer, hr %#x.\n", hr);
-
-    buffer_desc.ByteWidth = sizeof(stream1);
-    resource_data.pSysMem = stream1;
-
-    hr = ID3D11Device_CreateBuffer(device, &buffer_desc, &resource_data, &vb[1]);
-    ok(SUCCEEDED(hr), "Failed to create vertex buffer, hr %#x.\n", hr);
-
-    buffer_desc.ByteWidth = sizeof(stream2);
-    resource_data.pSysMem = stream2;
-
-    hr = ID3D11Device_CreateBuffer(device, &buffer_desc, &resource_data, &vb[2]);
-    ok(SUCCEEDED(hr), "Failed to create vertex buffer, hr %#x.\n", hr);
+    vb[0] = create_buffer(device, D3D11_BIND_VERTEX_BUFFER, sizeof(stream0), stream0);
+    vb[1] = create_buffer(device, D3D11_BIND_VERTEX_BUFFER, sizeof(stream1), stream1);
+    vb[2] = create_buffer(device, D3D11_BIND_VERTEX_BUFFER, sizeof(stream2), stream2);
 
     hr = ID3D11Device_CreateVertexShader(device, vs_code, sizeof(vs_code), NULL, &vs);
     ok(SUCCEEDED(hr), "Failed to create vertex shader, hr %#x.\n", hr);
@@ -4760,9 +5067,7 @@ static void test_il_append_aligned(void)
 static void test_fragment_coords(void)
 {
     struct d3d11_test_context test_context;
-    D3D11_SUBRESOURCE_DATA resource_data;
     ID3D11PixelShader *ps, *ps_frac;
-    D3D11_BUFFER_DESC buffer_desc;
     ID3D11DeviceContext *context;
     ID3D11Device *device;
     ID3D11Buffer *ps_cb;
@@ -4824,19 +5129,7 @@ static void test_fragment_coords(void)
     device = test_context.device;
     context = test_context.immediate_context;
 
-    buffer_desc.ByteWidth = sizeof(cutoff);
-    buffer_desc.Usage = D3D11_USAGE_DEFAULT;
-    buffer_desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-    buffer_desc.CPUAccessFlags = 0;
-    buffer_desc.MiscFlags = 0;
-    buffer_desc.StructureByteStride = 0;
-
-    resource_data.pSysMem = &cutoff;
-    resource_data.SysMemPitch = 0;
-    resource_data.SysMemSlicePitch = 0;
-
-    hr = ID3D11Device_CreateBuffer(device, &buffer_desc, &resource_data, &ps_cb);
-    ok(SUCCEEDED(hr), "Failed to create constant buffer, hr %#x.\n", hr);
+    ps_cb = create_buffer(device, D3D11_BIND_CONSTANT_BUFFER, sizeof(cutoff), &cutoff);
 
     hr = ID3D11Device_CreatePixelShader(device, ps_code, sizeof(ps_code), NULL, &ps);
     ok(SUCCEEDED(hr), "Failed to create pixel shader, hr %#x.\n", hr);
@@ -4862,8 +5155,7 @@ static void test_fragment_coords(void)
     ID3D11Buffer_Release(ps_cb);
     cutoff.x = 16.0f;
     cutoff.y = 16.0f;
-    hr = ID3D11Device_CreateBuffer(device, &buffer_desc, &resource_data, &ps_cb);
-    ok(SUCCEEDED(hr), "Failed to create constant buffer, hr %#x.\n", hr);
+    ps_cb = create_buffer(device, D3D11_BIND_CONSTANT_BUFFER, sizeof(cutoff), &cutoff);
     ID3D11DeviceContext_PSSetConstantBuffers(context, 0, 1, &ps_cb);
 
     draw_quad(&test_context);
@@ -5023,7 +5315,7 @@ static void test_update_subresource(void)
     ID3D11DeviceContext_UpdateSubresource(context, (ID3D11Resource *)texture, 0, &box,
             bitmap_data, 4 * sizeof(*bitmap_data), 0);
     draw_quad(&test_context);
-    get_texture_readback(test_context.backbuffer, &rb);
+    get_texture_readback(test_context.backbuffer, 0, &rb);
     for (i = 0; i < 4; ++i)
     {
         for (j = 0; j < 4; ++j)
@@ -5039,7 +5331,7 @@ static void test_update_subresource(void)
     ID3D11DeviceContext_UpdateSubresource(context, (ID3D11Resource *)texture, 0, NULL,
             bitmap_data, 4 * sizeof(*bitmap_data), 0);
     draw_quad(&test_context);
-    get_texture_readback(test_context.backbuffer, &rb);
+    get_texture_readback(test_context.backbuffer, 0, &rb);
     for (i = 0; i < 4; ++i)
     {
         for (j = 0; j < 4; ++j)
@@ -5069,7 +5361,6 @@ static void test_copy_subresource_region(void)
     ID3D11SamplerState *sampler_state;
     ID3D11ShaderResourceView *ps_srv;
     D3D11_SAMPLER_DESC sampler_desc;
-    D3D11_BUFFER_DESC buffer_desc;
     ID3D11DeviceContext *context;
     struct vec4 float_colors[16];
     struct texture_readback rb;
@@ -5225,7 +5516,7 @@ static void test_copy_subresource_region(void)
     ID3D11DeviceContext_CopySubresourceRegion(context, (ID3D11Resource *)dst_texture, 0,
             0, 0, 0, (ID3D11Resource *)src_texture, 0, &box);
     draw_quad(&test_context);
-    get_texture_readback(test_context.backbuffer, &rb);
+    get_texture_readback(test_context.backbuffer, 0, &rb);
     for (i = 0; i < 4; ++i)
     {
         for (j = 0; j < 4; ++j)
@@ -5241,7 +5532,7 @@ static void test_copy_subresource_region(void)
     ID3D11DeviceContext_CopySubresourceRegion(context, (ID3D11Resource *)dst_texture, 0,
             0, 0, 0, (ID3D11Resource *)src_texture, 0, NULL);
     draw_quad(&test_context);
-    get_texture_readback(test_context.backbuffer, &rb);
+    get_texture_readback(test_context.backbuffer, 0, &rb);
     for (i = 0; i < 4; ++i)
     {
         for (j = 0; j < 4; ++j)
@@ -5271,23 +5562,10 @@ static void test_copy_subresource_region(void)
     ID3D11DeviceContext_PSSetSamplers(context, 0, 1, &sampler_state);
     ID3D11DeviceContext_PSSetShader(context, ps, NULL, 0);
 
-    buffer_desc.ByteWidth = sizeof(float_colors);
-    buffer_desc.Usage = D3D11_USAGE_DEFAULT;
-    buffer_desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-    buffer_desc.CPUAccessFlags = 0;
-    buffer_desc.MiscFlags = 0;
-    buffer_desc.StructureByteStride = 0;
-
-    hr = ID3D11Device_CreateBuffer(device, &buffer_desc, NULL, &dst_buffer);
-    ok(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
-
+    dst_buffer = create_buffer(device, D3D11_BIND_CONSTANT_BUFFER, sizeof(float_colors), NULL);
     ID3D11DeviceContext_PSSetConstantBuffers(context, 0, 1, &dst_buffer);
 
-    buffer_desc.ByteWidth = 256 * sizeof(*float_colors);
-    buffer_desc.BindFlags = 0;
-
-    hr = ID3D11Device_CreateBuffer(device, &buffer_desc, NULL, &src_buffer);
-    ok(SUCCEEDED(hr), "Failed to create buffer, hr %#x.\n", hr);
+    src_buffer = create_buffer(device, 0, 256 * sizeof(*float_colors), NULL);
 
     for (i = 0; i < 4; ++i)
     {
@@ -5324,7 +5602,7 @@ static void test_copy_subresource_region(void)
     ID3D11DeviceContext_CopySubresourceRegion(context, (ID3D11Resource *)dst_buffer, 0,
             0, 0, 0, (ID3D11Resource *)src_buffer, 0, &box);
     draw_quad(&test_context);
-    get_texture_readback(test_context.backbuffer, &rb);
+    get_texture_readback(test_context.backbuffer, 0, &rb);
     for (i = 0; i < 4; ++i)
     {
         for (j = 0; j < 4; ++j)
@@ -5660,10 +5938,8 @@ static void test_swapchain_flip(void)
     ID3D11Texture2D *backbuffer_0, *backbuffer_1, *backbuffer_2, *offscreen;
     ID3D11ShaderResourceView *backbuffer_0_srv, *backbuffer_1_srv;
     ID3D11RenderTargetView *backbuffer_0_rtv, *offscreen_rtv;
-    D3D11_SUBRESOURCE_DATA resource_data;
     D3D11_TEXTURE2D_DESC texture_desc;
     ID3D11InputLayout *input_layout;
-    D3D11_BUFFER_DESC buffer_desc;
     ID3D11DeviceContext *context;
     unsigned int stride, offset;
     struct swapchain_desc desc;
@@ -5828,18 +6104,7 @@ static void test_swapchain_flip(void)
     vp.MaxDepth = 1.0f;
     ID3D11DeviceContext_RSSetViewports(context, 1, &vp);
 
-    buffer_desc.ByteWidth = sizeof(quad);
-    buffer_desc.Usage = D3D11_USAGE_DEFAULT;
-    buffer_desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-    buffer_desc.CPUAccessFlags = 0;
-    buffer_desc.MiscFlags = 0;
-
-    resource_data.pSysMem = quad;
-    resource_data.SysMemPitch = 0;
-    resource_data.SysMemSlicePitch = 0;
-
-    hr = ID3D11Device_CreateBuffer(device, &buffer_desc, &resource_data, &vb);
-    ok(SUCCEEDED(hr), "Failed to create vertex buffer, hr %#x.\n", hr);
+    vb = create_buffer(device, D3D11_BIND_VERTEX_BUFFER, sizeof(quad), quad);
 
     hr = ID3D11Device_CreateVertexShader(device, vs_code, sizeof(vs_code), NULL, &vs);
     ok(SUCCEEDED(hr), "Failed to create vertex shader, hr %#x.\n", hr);
@@ -6110,7 +6375,6 @@ static void test_draw_depth_only(void)
     struct d3d11_test_context test_context;
     ID3D11PixelShader *ps_color, *ps_depth;
     D3D11_TEXTURE2D_DESC texture_desc;
-    D3D11_BUFFER_DESC buffer_desc;
     ID3D11DeviceContext *context;
     ID3D11DepthStencilView *dsv;
     struct texture_readback rb;
@@ -6162,15 +6426,7 @@ static void test_draw_depth_only(void)
     device = test_context.device;
     context = test_context.immediate_context;
 
-    buffer_desc.ByteWidth = sizeof(depth);
-    buffer_desc.Usage = D3D11_USAGE_DEFAULT;
-    buffer_desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-    buffer_desc.CPUAccessFlags = 0;
-    buffer_desc.MiscFlags = 0;
-    buffer_desc.StructureByteStride = 0;
-
-    hr = ID3D11Device_CreateBuffer(device, &buffer_desc, NULL, &cb);
-    ok(SUCCEEDED(hr), "Failed to create constant buffer, hr %#x.\n", hr);
+    cb = create_buffer(device, D3D11_BIND_CONSTANT_BUFFER, sizeof(depth), NULL);
 
     texture_desc.Width = 640;
     texture_desc.Height = 480;
@@ -6252,7 +6508,7 @@ static void test_draw_depth_only(void)
             draw_quad(&test_context);
         }
     }
-    get_texture_readback(texture, &rb);
+    get_texture_readback(texture, 0, &rb);
     for (i = 0; i < 4; ++i)
     {
         for (j = 0; j < 4; ++j)
@@ -6280,14 +6536,11 @@ static void test_draw_depth_only(void)
 static void test_cb_relative_addressing(void)
 {
     struct d3d11_test_context test_context;
-    D3D11_SUBRESOURCE_DATA resource_data;
     ID3D11Buffer *colors_cb, *index_cb;
     unsigned int i, index[4] = {0};
-    D3D11_BUFFER_DESC buffer_desc;
     ID3D11DeviceContext *context;
     ID3D11PixelShader *ps;
     ID3D11Device *device;
-    DWORD color;
     HRESULT hr;
 
     static const D3D11_INPUT_ELEMENT_DESC layout_desc[] =
@@ -6421,29 +6674,9 @@ float4 main(const ps_in v) : SV_TARGET
             vs_code, sizeof(vs_code), &test_context.input_layout);
     ok(SUCCEEDED(hr), "Failed to create input layout, hr %#x.\n", hr);
 
-    buffer_desc.ByteWidth = sizeof(quad);
-    buffer_desc.Usage = D3D11_USAGE_DEFAULT;
-    buffer_desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-    buffer_desc.CPUAccessFlags = 0;
-    buffer_desc.MiscFlags = 0;
-    buffer_desc.StructureByteStride = 0;
-
-    resource_data.pSysMem = quad;
-    resource_data.SysMemPitch = 0;
-    resource_data.SysMemSlicePitch = 0;
-
-    hr = ID3D11Device_CreateBuffer(device, &buffer_desc, &resource_data, &test_context.vb);
-    ok(SUCCEEDED(hr), "Failed to create vertex buffer, hr %#x.\n", hr);
-
-    buffer_desc.ByteWidth = sizeof(colors);
-    buffer_desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-    resource_data.pSysMem = &colors;
-    hr = ID3D11Device_CreateBuffer(device, &buffer_desc, &resource_data, &colors_cb);
-    ok(SUCCEEDED(hr), "Failed to create constant buffer, hr %#x.\n", hr);
-
-    buffer_desc.ByteWidth = sizeof(index);
-    hr = ID3D11Device_CreateBuffer(device, &buffer_desc, NULL, &index_cb);
-    ok(SUCCEEDED(hr), "Failed to create constant buffer, hr %#x.\n", hr);
+    test_context.vb = create_buffer(device, D3D11_BIND_VERTEX_BUFFER, sizeof(quad), quad);
+    colors_cb = create_buffer(device, D3D11_BIND_CONSTANT_BUFFER, sizeof(colors), &colors);
+    index_cb = create_buffer(device, D3D11_BIND_CONSTANT_BUFFER, sizeof(index), NULL);
 
     hr = ID3D11Device_CreateVertexShader(device, vs_code, sizeof(vs_code), NULL, &test_context.vs);
     ok(SUCCEEDED(hr), "Failed to create vertex shader, hr %#x.\n", hr);
@@ -6462,14 +6695,395 @@ float4 main(const ps_in v) : SV_TARGET
         ID3D11DeviceContext_UpdateSubresource(context, (ID3D11Resource *)index_cb, 0, NULL, &index, 0, 0);
 
         draw_quad(&test_context);
-
-        color = get_texture_color(test_context.backbuffer, 319, 239);
-        ok(compare_color(color, test_data[i].expected, 1),
-                "Got unexpected color 0x%08x for index %u.\n", color, test_data[i].index);
+        check_texture_color(test_context.backbuffer, test_data[i].expected, 1);
     }
 
     ID3D11Buffer_Release(index_cb);
     ID3D11Buffer_Release(colors_cb);
+    ID3D11PixelShader_Release(ps);
+
+    release_test_context(&test_context);
+}
+
+static void test_getdc(void)
+{
+    struct device_desc device_desc;
+    D3D11_TEXTURE2D_DESC desc;
+    ID3D11Texture2D *texture;
+    IDXGISurface1 *surface1;
+    ID3D11Device *device;
+    ULONG refcount;
+    HRESULT hr;
+    HDC dc;
+
+    device_desc.feature_level = NULL;
+    device_desc.flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
+    if (!(device = create_device(&device_desc)))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    /* Without D3D11_RESOURCE_MISC_GDI_COMPATIBLE. */
+    desc.Width = 512;
+    desc.Height = 512;
+    desc.MipLevels = 1;
+    desc.ArraySize = 1;
+    desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    desc.SampleDesc.Count = 1;
+    desc.SampleDesc.Quality = 0;
+    desc.Usage = D3D11_USAGE_DEFAULT;
+    desc.BindFlags = D3D11_BIND_RENDER_TARGET;
+    desc.CPUAccessFlags = 0;
+    desc.MiscFlags = 0;
+    hr = ID3D11Device_CreateTexture2D(device, &desc, NULL, &texture);
+    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
+
+    hr = ID3D11Texture2D_QueryInterface(texture, &IID_IDXGISurface1, (void**)&surface1);
+    ok(SUCCEEDED(hr), "Failed to get IDXGISurface1 interface, hr %#x.\n", hr);
+
+    hr = IDXGISurface1_GetDC(surface1, FALSE, &dc);
+    todo_wine ok(hr == DXGI_ERROR_INVALID_CALL, "Got unexpected hr %#x.\n", hr);
+
+    IDXGISurface1_Release(surface1);
+    ID3D11Texture2D_Release(texture);
+
+    desc.MiscFlags = D3D11_RESOURCE_MISC_GDI_COMPATIBLE;
+    hr = ID3D11Device_CreateTexture2D(device, &desc, NULL, &texture);
+    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
+
+    hr = ID3D11Texture2D_QueryInterface(texture, &IID_IDXGISurface1, (void**)&surface1);
+    ok(SUCCEEDED(hr), "Failed to get IDXGISurface1 interface, hr %#x.\n", hr);
+
+    hr = IDXGISurface1_ReleaseDC(surface1, NULL);
+    todo_wine ok(hr == DXGI_ERROR_INVALID_CALL, "Got unexpected hr %#x.\n", hr);
+
+    hr = IDXGISurface1_GetDC(surface1, FALSE, &dc);
+    todo_wine ok(SUCCEEDED(hr), "Failed to get DC, hr %#x.\n", hr);
+
+    /* One more time. */
+    dc = (HDC)0xdeadbeef;
+    hr = IDXGISurface1_GetDC(surface1, FALSE, &dc);
+    todo_wine ok(hr == DXGI_ERROR_INVALID_CALL, "Got unexpected hr %#x.\n", hr);
+    ok(dc == (HDC)0xdeadbeef, "Got unexpected dc %p.\n", dc);
+
+    hr = IDXGISurface1_ReleaseDC(surface1, NULL);
+    todo_wine ok(SUCCEEDED(hr), "Failed to release DC, hr %#x.\n", hr);
+
+    hr = IDXGISurface1_ReleaseDC(surface1, NULL);
+    todo_wine ok(hr == DXGI_ERROR_INVALID_CALL, "Got unexpected hr %#x.\n", hr);
+
+    IDXGISurface1_Release(surface1);
+    ID3D11Texture2D_Release(texture);
+
+    refcount = ID3D11Device_Release(device);
+    ok(!refcount, "Device has %u references left.\n", refcount);
+}
+
+static void test_shader_stage_input_output_matching(void)
+{
+    struct d3d11_test_context test_context;
+    D3D11_TEXTURE2D_DESC texture_desc;
+    ID3D11Texture2D *render_target;
+    ID3D11RenderTargetView *rtv[2];
+    ID3D11DeviceContext *context;
+    ID3D11VertexShader *vs;
+    ID3D11PixelShader *ps;
+    ID3D11Device *device;
+    HRESULT hr;
+
+    static const DWORD vs_code[] =
+    {
+#if 0
+        struct output
+        {
+            float4 position : SV_PoSiTion;
+            float4 color0 : COLOR0;
+            float4 color1 : COLOR1;
+        };
+
+        void main(uint id : SV_VertexID, out output o)
+        {
+            float2 coords = float2((id << 1) & 2, id & 2);
+            o.position = float4(coords * float2(2, -2) + float2(-1, 1), 0, 1);
+            o.color0 = float4(1.0f, 0.0f, 0.0f, 1.0f);
+            o.color1 = float4(0.0f, 1.0f, 0.0f, 1.0f);
+        }
+#endif
+        0x43425844, 0x93c216a1, 0xbaa7e8d4, 0xd5368c6a, 0x4e889e07, 0x00000001, 0x00000224, 0x00000003,
+        0x0000002c, 0x00000060, 0x000000cc, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000006, 0x00000001, 0x00000000, 0x00000101, 0x565f5653, 0x65747265, 0x00444978,
+        0x4e47534f, 0x00000064, 0x00000003, 0x00000008, 0x00000050, 0x00000000, 0x00000001, 0x00000003,
+        0x00000000, 0x0000000f, 0x0000005c, 0x00000000, 0x00000000, 0x00000003, 0x00000001, 0x0000000f,
+        0x0000005c, 0x00000001, 0x00000000, 0x00000003, 0x00000002, 0x0000000f, 0x505f5653, 0x5469536f,
+        0x006e6f69, 0x4f4c4f43, 0xabab0052, 0x52444853, 0x00000150, 0x00010040, 0x00000054, 0x04000060,
+        0x00101012, 0x00000000, 0x00000006, 0x04000067, 0x001020f2, 0x00000000, 0x00000001, 0x03000065,
+        0x001020f2, 0x00000001, 0x03000065, 0x001020f2, 0x00000002, 0x02000068, 0x00000001, 0x07000029,
+        0x00100012, 0x00000000, 0x0010100a, 0x00000000, 0x00004001, 0x00000001, 0x07000001, 0x00100012,
+        0x00000000, 0x0010000a, 0x00000000, 0x00004001, 0x00000002, 0x07000001, 0x00100042, 0x00000000,
+        0x0010100a, 0x00000000, 0x00004001, 0x00000002, 0x05000056, 0x00100032, 0x00000000, 0x00100086,
+        0x00000000, 0x0f000032, 0x00102032, 0x00000000, 0x00100046, 0x00000000, 0x00004002, 0x40000000,
+        0xc0000000, 0x00000000, 0x00000000, 0x00004002, 0xbf800000, 0x3f800000, 0x00000000, 0x00000000,
+        0x08000036, 0x001020c2, 0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x3f800000,
+        0x08000036, 0x001020f2, 0x00000001, 0x00004002, 0x3f800000, 0x00000000, 0x00000000, 0x3f800000,
+        0x08000036, 0x001020f2, 0x00000002, 0x00004002, 0x00000000, 0x3f800000, 0x00000000, 0x3f800000,
+        0x0100003e,
+    };
+    static const DWORD ps_code[] =
+    {
+#if 0
+        struct input
+        {
+            float4 position : SV_PoSiTiOn;
+            float4 color1 : COLOR1;
+            float4 color0 : COLOR0;
+        };
+
+        struct output
+        {
+            float4 target0 : SV_Target0;
+            float4 target1 : SV_Target1;
+        };
+
+        void main(const in input i, out output o)
+        {
+            o.target0 = i.color0;
+            o.target1 = i.color1;
+        }
+#endif
+        0x43425844, 0x620ef963, 0xed8f19fe, 0x7b3a0a53, 0x126ce021, 0x00000001, 0x00000150, 0x00000003,
+        0x0000002c, 0x00000098, 0x000000e4, 0x4e475349, 0x00000064, 0x00000003, 0x00000008, 0x00000050,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000000f, 0x0000005c, 0x00000001, 0x00000000,
+        0x00000003, 0x00000001, 0x00000f0f, 0x0000005c, 0x00000000, 0x00000000, 0x00000003, 0x00000002,
+        0x00000f0f, 0x505f5653, 0x5469536f, 0x006e4f69, 0x4f4c4f43, 0xabab0052, 0x4e47534f, 0x00000044,
+        0x00000002, 0x00000008, 0x00000038, 0x00000000, 0x00000000, 0x00000003, 0x00000000, 0x0000000f,
+        0x00000038, 0x00000001, 0x00000000, 0x00000003, 0x00000001, 0x0000000f, 0x545f5653, 0x65677261,
+        0xabab0074, 0x52444853, 0x00000064, 0x00000040, 0x00000019, 0x03001062, 0x001010f2, 0x00000001,
+        0x03001062, 0x001010f2, 0x00000002, 0x03000065, 0x001020f2, 0x00000000, 0x03000065, 0x001020f2,
+        0x00000001, 0x05000036, 0x001020f2, 0x00000000, 0x00101e46, 0x00000002, 0x05000036, 0x001020f2,
+        0x00000001, 0x00101e46, 0x00000001, 0x0100003e,
+    };
+
+    if (!init_test_context(&test_context, NULL))
+        return;
+
+    device = test_context.device;
+    context = test_context.immediate_context;
+
+    hr = ID3D11Device_CreateVertexShader(device, vs_code, sizeof(vs_code), NULL, &vs);
+    ok(SUCCEEDED(hr), "Failed to create vertex shader, hr %#x.\n", hr);
+    hr = ID3D11Device_CreatePixelShader(device, ps_code, sizeof(ps_code), NULL, &ps);
+    ok(SUCCEEDED(hr), "Failed to create pixel shader, hr %#x.\n", hr);
+
+    ID3D11Texture2D_GetDesc(test_context.backbuffer, &texture_desc);
+    hr = ID3D11Device_CreateTexture2D(device, &texture_desc, NULL, &render_target);
+    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
+
+    rtv[0] = test_context.backbuffer_rtv;
+    hr = ID3D11Device_CreateRenderTargetView(device, (ID3D11Resource *)render_target, NULL, &rtv[1]);
+    ok(SUCCEEDED(hr), "Failed to create render target view, hr %#x.\n", hr);
+
+    ID3D11DeviceContext_VSSetShader(context, vs, NULL, 0);
+    ID3D11DeviceContext_PSSetShader(context, ps, NULL, 0);
+    ID3D11DeviceContext_IASetPrimitiveTopology(context, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D11DeviceContext_OMSetRenderTargets(context, 2, rtv, NULL);
+    ID3D11DeviceContext_Draw(context, 3, 0);
+
+    check_texture_color(test_context.backbuffer, 0xff00ff00, 0);
+    check_texture_color(render_target, 0xff0000ff, 0);
+
+    ID3D11RenderTargetView_Release(rtv[1]);
+    ID3D11Texture2D_Release(render_target);
+    ID3D11PixelShader_Release(ps);
+    ID3D11VertexShader_Release(vs);
+    release_test_context(&test_context);
+}
+
+static void test_sm4_if_instruction(void)
+{
+    struct d3d11_test_context test_context;
+    ID3D11PixelShader *ps_if_nz, *ps_if_z;
+    ID3D11DeviceContext *context;
+    ID3D11Device *device;
+    unsigned int bits[4];
+    DWORD expected_color;
+    ID3D11Buffer *cb;
+    unsigned int i;
+    HRESULT hr;
+
+    static const DWORD ps_if_nz_code[] =
+    {
+#if 0
+        uint bits;
+
+        float4 main() : SV_TARGET
+        {
+            if (bits)
+                return float4(0.0f, 1.0f, 0.0f, 1.0f);
+            else
+                return float4(1.0f, 0.0f, 0.0f, 1.0f);
+        }
+#endif
+        0x43425844, 0x2a94f6f1, 0xdbe88943, 0x3426a708, 0x09cec990, 0x00000001, 0x00000100, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x45475241, 0xabab0054, 0x52444853, 0x00000088, 0x00000040, 0x00000022,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000, 0x0404001f,
+        0x0020800a, 0x00000000, 0x00000000, 0x08000036, 0x001020f2, 0x00000000, 0x00004002, 0x00000000,
+        0x3f800000, 0x00000000, 0x3f800000, 0x0100003e, 0x01000012, 0x08000036, 0x001020f2, 0x00000000,
+        0x00004002, 0x3f800000, 0x00000000, 0x00000000, 0x3f800000, 0x0100003e, 0x01000015, 0x0100003e,
+    };
+    static const DWORD ps_if_z_code[] =
+    {
+#if 0
+        uint bits;
+
+        float4 main() : SV_TARGET
+        {
+            if (!bits)
+                return float4(0.0f, 1.0f, 0.0f, 1.0f);
+            else
+                return float4(1.0f, 0.0f, 0.0f, 1.0f);
+        }
+#endif
+        0x43425844, 0x2e3030ca, 0x94c8610c, 0xdf0c1b1f, 0x80f2ca2c, 0x00000001, 0x00000100, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x45475241, 0xabab0054, 0x52444853, 0x00000088, 0x00000040, 0x00000022,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000, 0x0400001f,
+        0x0020800a, 0x00000000, 0x00000000, 0x08000036, 0x001020f2, 0x00000000, 0x00004002, 0x00000000,
+        0x3f800000, 0x00000000, 0x3f800000, 0x0100003e, 0x01000012, 0x08000036, 0x001020f2, 0x00000000,
+        0x00004002, 0x3f800000, 0x00000000, 0x00000000, 0x3f800000, 0x0100003e, 0x01000015, 0x0100003e,
+    };
+    static unsigned int bit_patterns[] =
+    {
+        0x00000000, 0x00000001, 0x10010001, 0x10000000, 0x80000000, 0xffff0000, 0x0000ffff, 0xffffffff,
+    };
+
+    if (!init_test_context(&test_context, NULL))
+        return;
+
+    device = test_context.device;
+    context = test_context.immediate_context;
+
+    hr = ID3D11Device_CreatePixelShader(device, ps_if_nz_code, sizeof(ps_if_nz_code), NULL, &ps_if_nz);
+    ok(SUCCEEDED(hr), "Failed to create if_nz pixel shader, hr %#x.\n", hr);
+    hr = ID3D11Device_CreatePixelShader(device, ps_if_z_code, sizeof(ps_if_z_code), NULL, &ps_if_z);
+    ok(SUCCEEDED(hr), "Failed to create if_z pixel shader, hr %#x.\n", hr);
+
+    cb = create_buffer(device, D3D11_BIND_CONSTANT_BUFFER, sizeof(bits), NULL);
+    ID3D11DeviceContext_PSSetConstantBuffers(context, 0, 1, &cb);
+
+    for (i = 0; i < sizeof(bit_patterns) / sizeof(*bit_patterns); ++i)
+    {
+        *bits = bit_patterns[i];
+        ID3D11DeviceContext_UpdateSubresource(context, (ID3D11Resource *)cb, 0, NULL, bits, 0, 0);
+
+        ID3D11DeviceContext_PSSetShader(context, ps_if_nz, NULL, 0);
+        expected_color = *bits ? 0xff00ff00 : 0xff0000ff;
+        draw_quad(&test_context);
+        check_texture_color(test_context.backbuffer, expected_color, 0);
+
+        ID3D11DeviceContext_PSSetShader(context, ps_if_z, NULL, 0);
+        expected_color = *bits ? 0xff0000ff : 0xff00ff00;
+        draw_quad(&test_context);
+        check_texture_color(test_context.backbuffer, expected_color, 0);
+    }
+
+    ID3D11Buffer_Release(cb);
+    ID3D11PixelShader_Release(ps_if_z);
+    ID3D11PixelShader_Release(ps_if_nz);
+    release_test_context(&test_context);
+}
+
+static void test_sm4_breakc_instruction(void)
+{
+    struct d3d11_test_context test_context;
+    ID3D11DeviceContext *context;
+    ID3D11PixelShader *ps;
+    ID3D11Device *device;
+    HRESULT hr;
+
+    static const DWORD ps_breakc_nz_code[] =
+    {
+#if 0
+        float4 main() : SV_TARGET
+        {
+            uint counter = 0;
+
+            for (uint i = 0; i < 255; ++i)
+                ++counter;
+
+            if (counter == 255)
+                return float4(0.0f, 1.0f, 0.0f, 1.0f);
+            else
+                return float4(1.0f, 0.0f, 0.0f, 1.0f);
+        }
+#endif
+        0x43425844, 0x065ac80a, 0x24369e7e, 0x218d5dc1, 0x3532868c, 0x00000001, 0x00000188, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x45475241, 0xabab0054, 0x52444853, 0x00000110, 0x00000040, 0x00000044,
+        0x03000065, 0x001020f2, 0x00000000, 0x02000068, 0x00000001, 0x08000036, 0x00100032, 0x00000000,
+        0x00004002, 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x01000030, 0x07000050, 0x00100042,
+        0x00000000, 0x0010001a, 0x00000000, 0x00004001, 0x000000ff, 0x03040003, 0x0010002a, 0x00000000,
+        0x0a00001e, 0x00100032, 0x00000000, 0x00100046, 0x00000000, 0x00004002, 0x00000001, 0x00000001,
+        0x00000000, 0x00000000, 0x01000016, 0x07000020, 0x00100012, 0x00000000, 0x0010000a, 0x00000000,
+        0x00004001, 0x000000ff, 0x0304001f, 0x0010000a, 0x00000000, 0x08000036, 0x001020f2, 0x00000000,
+        0x00004002, 0x00000000, 0x3f800000, 0x00000000, 0x3f800000, 0x0100003e, 0x01000012, 0x08000036,
+        0x001020f2, 0x00000000, 0x00004002, 0x3f800000, 0x00000000, 0x00000000, 0x3f800000, 0x0100003e,
+        0x01000015, 0x0100003e,
+    };
+    static const DWORD ps_breakc_z_code[] =
+    {
+#if 0
+        float4 main() : SV_TARGET
+        {
+            uint counter = 0;
+
+            for (int i = 0, j = 254; i < 255 && j >= 0; ++i, --j)
+                ++counter;
+
+            if (counter == 255)
+                return float4(0.0f, 1.0f, 0.0f, 1.0f);
+            else
+                return float4(1.0f, 0.0f, 0.0f, 1.0f);
+        }
+#endif
+        0x43425844, 0x687406ef, 0x7bdeb7d1, 0xb3282292, 0x934a9101, 0x00000001, 0x000001c0, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x45475241, 0xabab0054, 0x52444853, 0x00000148, 0x00000040, 0x00000052,
+        0x03000065, 0x001020f2, 0x00000000, 0x02000068, 0x00000002, 0x08000036, 0x00100072, 0x00000000,
+        0x00004002, 0x00000000, 0x00000000, 0x000000fe, 0x00000000, 0x01000030, 0x07000022, 0x00100082,
+        0x00000000, 0x0010001a, 0x00000000, 0x00004001, 0x000000ff, 0x07000021, 0x00100012, 0x00000001,
+        0x0010002a, 0x00000000, 0x00004001, 0x00000000, 0x07000001, 0x00100082, 0x00000000, 0x0010003a,
+        0x00000000, 0x0010000a, 0x00000001, 0x03000003, 0x0010003a, 0x00000000, 0x0a00001e, 0x00100072,
+        0x00000000, 0x00100246, 0x00000000, 0x00004002, 0x00000001, 0x00000001, 0xffffffff, 0x00000000,
+        0x01000016, 0x07000020, 0x00100012, 0x00000000, 0x0010000a, 0x00000000, 0x00004001, 0x000000ff,
+        0x0304001f, 0x0010000a, 0x00000000, 0x08000036, 0x001020f2, 0x00000000, 0x00004002, 0x00000000,
+        0x3f800000, 0x00000000, 0x3f800000, 0x0100003e, 0x01000012, 0x08000036, 0x001020f2, 0x00000000,
+        0x00004002, 0x3f800000, 0x00000000, 0x00000000, 0x3f800000, 0x0100003e, 0x01000015, 0x0100003e,
+    };
+
+    if (!init_test_context(&test_context, NULL))
+        return;
+
+    device = test_context.device;
+    context = test_context.immediate_context;
+
+    hr = ID3D11Device_CreatePixelShader(device, ps_breakc_nz_code, sizeof(ps_breakc_nz_code), NULL, &ps);
+    ok(SUCCEEDED(hr), "Failed to create breakc_nz pixel shader, hr %#x.\n", hr);
+    ID3D11DeviceContext_PSSetShader(context, ps, NULL, 0);
+    draw_quad(&test_context);
+    check_texture_color(test_context.backbuffer, 0xff00ff00, 0);
+    ID3D11PixelShader_Release(ps);
+
+    hr = ID3D11Device_CreatePixelShader(device, ps_breakc_z_code, sizeof(ps_breakc_z_code), NULL, &ps);
+    ok(SUCCEEDED(hr), "Failed to create breakc_z pixel shader, hr %#x.\n", hr);
+    ID3D11DeviceContext_PSSetShader(context, ps, NULL, 0);
+    draw_quad(&test_context);
+    check_texture_color(test_context.backbuffer, 0xff00ff00, 0);
     ID3D11PixelShader_Release(ps);
 
     release_test_context(&test_context);
@@ -6500,6 +7114,7 @@ START_TEST(d3d11)
     test_blend();
     test_texture();
     test_multiple_render_targets();
+    test_render_target_views();
     test_scissor();
     test_il_append_aligned();
     test_fragment_coords();
@@ -6513,4 +7128,8 @@ START_TEST(d3d11)
     test_clear_depth_stencil_view();
     test_draw_depth_only();
     test_cb_relative_addressing();
+    test_getdc();
+    test_shader_stage_input_output_matching();
+    test_sm4_if_instruction();
+    test_sm4_breakc_instruction();
 }

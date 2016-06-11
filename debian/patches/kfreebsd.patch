@@ -3,8 +3,8 @@ author: Michael Gilbert <mgilbert@debian.org>
 
 --- a/dlls/ntdll/directory.c
 +++ b/dlls/ntdll/directory.c
-@@ -48,6 +48,7 @@
- #include <sys/attr.h>
+@@ -53,6 +53,7 @@
+ # include <sys/sysmacros.h>
  #endif
  #ifdef HAVE_SYS_VNODE_H
 +#include <stdint.h>

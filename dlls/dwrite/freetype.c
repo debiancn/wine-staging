@@ -107,6 +107,11 @@ static FT_Error face_requester(FTC_FaceID face_id, FT_Library library, FT_Pointe
 
     *face = NULL;
 
+    if (!fontface) {
+        WARN("NULL fontface requested.\n");
+        return FT_Err_Ok;
+    }
+
     count = 1;
     hr = IDWriteFontFace_GetFiles(fontface, &count, &file);
     if (FAILED(hr))
@@ -603,10 +608,7 @@ void freetype_get_glyph_bbox(struct dwrite_glyphbitmap *bitmap)
     LeaveCriticalSection(&freetype_cs);
 
     /* flip Y axis */
-    bitmap->bbox.left = bbox.xMin;
-    bitmap->bbox.right = bbox.xMax;
-    bitmap->bbox.top = -bbox.yMax;
-    bitmap->bbox.bottom = -bbox.yMin;
+    SetRect(&bitmap->bbox, bbox.xMin, -bbox.yMax, bbox.xMax, -bbox.yMin);
 }
 
 static BOOL freetype_get_aliased_glyph_bitmap(struct dwrite_glyphbitmap *bitmap, FT_Glyph glyph)

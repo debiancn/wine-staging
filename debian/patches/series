@@ -5,8 +5,8 @@ manpages.patch
 version-string.patch
 
 disable/tests.patch
+disable/addons-download.patch
 disable/shlib-exit-calls.patch
-disable/external-installers.patch
 
 generate/opengl.patch
 generate/unicode.patch

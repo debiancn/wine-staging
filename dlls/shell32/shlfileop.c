@@ -894,7 +894,6 @@ int WINAPI SHFileOperationA(LPSHFILEOPSTRUCTA lpFileOp)
 	    if (ForFree) continue;
 	    retCode = ERROR_OUTOFMEMORY;
 	    nFileOp.fAnyOperationsAborted = TRUE;
-	    SetLastError(retCode);
 	    return retCode;
 	  }
 	}
@@ -1564,6 +1563,7 @@ int WINAPI SHFileOperationW(LPSHFILEOPSTRUCTW lpFileOp)
     if (ret == ERROR_CANCELLED)
         lpFileOp->fAnyOperationsAborted = TRUE;
 
+    SetLastError(ERROR_SUCCESS);
     return ret;
 }
 
@@ -1744,7 +1744,7 @@ HRESULT WINAPI SHPathPrepareForWriteW(HWND hwnd, IUnknown *modless, LPCWSTR path
     WCHAR* last_slash;
     WCHAR* temppath=NULL;
 
-    TRACE("%p %p %s 0x%80x\n", hwnd, modless, debugstr_w(path), flags);
+    TRACE("%p %p %s 0x%08x\n", hwnd, modless, debugstr_w(path), flags);
 
     if (flags & ~(SHPPFW_DIRCREATE|SHPPFW_ASKDIRCREATE|SHPPFW_IGNOREFILENAME))
         FIXME("unimplemented flags 0x%08x\n", flags);

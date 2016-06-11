@@ -867,7 +867,10 @@ done:
 static HRESULT WINAPI dwritetextanalyzer_AnalyzeNumberSubstitution(IDWriteTextAnalyzer2 *iface,
     IDWriteTextAnalysisSource* source, UINT32 position, UINT32 length, IDWriteTextAnalysisSink* sink)
 {
-    FIXME("(%p %u %u %p): stub\n", source, position, length, sink);
+    static int once;
+
+    if (!once++)
+        FIXME("(%p %u %u %p): stub\n", source, position, length, sink);
     return S_OK;
 }
 
@@ -1371,7 +1374,8 @@ static HRESULT WINAPI dwritetextanalyzer1_ApplyCharacterSpacing(IDWriteTextAnaly
         len, glyph_count, clustermap, advances, offsets, props, modified_advances, modified_offsets);
 
     if (min_advance_width < 0.0f) {
-        memset(modified_advances, 0, glyph_count*sizeof(*modified_advances));
+        if (modified_advances != advances)
+            memset(modified_advances, 0, glyph_count*sizeof(*modified_advances));
         return E_INVALIDARG;
     }
 

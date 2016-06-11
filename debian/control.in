@@ -63,7 +63,7 @@ Build-Depends:
  libgstreamer-plugins-base1.0-dev,
  freebsd-glue [kfreebsd-any],
  ocl-icd-opencl-dev,
-Standards-Version: 3.9.7
+Standards-Version: 3.9.8
 Homepage: http://www.winehq.org/
 Vcs-Browser: https://anonscm.debian.org/git/pkg-wine/wine.git
 Vcs-Git: https://anonscm.debian.org/git/pkg-wine/wine.git
@@ -94,14 +94,10 @@ Multi-Arch: foreign
 Built-Using: ${built:Using}
 Depends:
  ${misc:Depends},
- ${dlopen:Depends},
  ${shlibs:Depends},
- x11-utils,
  libwineVERSION (= ${binary:Version}),
 Recommends:
  wineVERSION (= ${source:Version}),
- libgl1-mesa-dri,
- libasound2-plugins,
 Suggests:
  libwine-gecko-2.40 [!armel !armhf !arm64],
  wine32VERSION-preloader (= ${binary:Version}),
@@ -121,13 +117,11 @@ Built-Using: ${built:Using}
 Depends:
  ${misc:Depends},
  ${shlibs:Depends},
- x11-utils,
  libwineVERSION (= ${binary:Version}),
 Recommends:
  wineVERSION (= ${source:Version}),
  wine32VERSION (>= ${source:Version}),
  wine32VERSION (<< ${source:Version}.1~),
- libasound2-plugins,
 Suggests:
  libwine-gecko-2.40 [!armel !armhf !arm64],
  wine64VERSION-preloader (= ${binary:Version}),
@@ -209,12 +203,14 @@ Multi-Arch: same
 Built-Using: ${built:Using}
 Depends:
  ${misc:Depends},
+ ${dlopen:Depends},
  ${shlibs:Depends},
- libfontconfig1,
 Recommends:
- libxcursor1,
+ ${dlopen:Recommends},
+ libgl1-mesa-dri,
+ libasound2-plugins,
  fonts-liberation,
- fonts-wine (>= 1.8.1-2),
+ fonts-wine (>= 1.8.2-1~),
 Suggests:
  cups-bsd,
  ttf-mscorefonts-installer,

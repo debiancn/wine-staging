@@ -141,6 +141,9 @@ static const WCHAR onselectstartW[] = {'o','n','s','e','l','e','c','t','s','t','
 static const WCHAR submitW[] = {'s','u','b','m','i','t',0};
 static const WCHAR onsubmitW[] = {'o','n','s','u','b','m','i','t',0};
 
+static const WCHAR unloadW[] = {'u','n','l','o','a','d',0};
+static const WCHAR onunloadW[] = {'o','n','u','n','l','o','a','d',0};
+
 static const WCHAR HTMLEventsW[] = {'H','T','M','L','E','v','e','n','t','s',0};
 static const WCHAR KeyboardEventW[] = {'K','e','y','b','o','a','r','d','E','v','e','n','t',0};
 static const WCHAR MouseEventW[] = {'M','o','u','s','e','E','v','e','n','t',0};
@@ -173,6 +176,7 @@ typedef struct {
 #define EVENT_BIND_TO_BODY       0x0008
 #define EVENT_CANCELABLE         0x0010
 #define EVENT_HASDEFAULTHANDLERS 0x0020
+#define EVENT_FIXME              0x0040
 
 static const event_info_t event_info[] = {
     {abortW,             onabortW,             EVENTT_NONE,   DISPID_EVMETH_ONABORT,
@@ -226,7 +230,7 @@ static const event_info_t event_info[] = {
     {mouseupW,           onmouseupW,           EVENTT_MOUSE,  DISPID_EVMETH_ONMOUSEUP,
         EVENT_DEFAULTLISTENER|EVENT_BUBBLE},
     {mousewheelW,        onmousewheelW,        EVENTT_MOUSE,  DISPID_EVMETH_ONMOUSEWHEEL,
-        0},
+        EVENT_FIXME},
     {pasteW,             onpasteW,             EVENTT_NONE,   DISPID_EVMETH_ONPASTE,
         EVENT_CANCELABLE},
     {readystatechangeW,  onreadystatechangeW,  EVENTT_NONE,   DISPID_EVMETH_ONREADYSTATECHANGE,
@@ -238,7 +242,9 @@ static const event_info_t event_info[] = {
     {selectstartW,       onselectstartW,       EVENTT_MOUSE,  DISPID_EVMETH_ONSELECTSTART,
         EVENT_CANCELABLE},
     {submitW,            onsubmitW,            EVENTT_HTML,   DISPID_EVMETH_ONSUBMIT,
-        EVENT_DEFAULTLISTENER|EVENT_BUBBLE|EVENT_CANCELABLE|EVENT_HASDEFAULTHANDLERS}
+        EVENT_DEFAULTLISTENER|EVENT_BUBBLE|EVENT_CANCELABLE|EVENT_HASDEFAULTHANDLERS},
+    {unloadW,            onunloadW,            EVENTT_HTML,   DISPID_EVMETH_ONUNLOAD,
+        EVENT_FIXME}
 };
 
 eventid_t str_to_eid(LPCWSTR str)
@@ -1386,6 +1392,7 @@ void detach_events(HTMLDocumentNode *doc)
     release_nsevents(doc);
 }
 
+/* Caller should ensure that it's called only once for given event in the target. */
 static void bind_event(EventTarget *event_target, eventid_t eid)
 {
     if(event_target->dispex.data->vtbl->bind_event)
@@ -1415,6 +1422,9 @@ static HRESULT set_event_handler_disp(EventTarget *event_target, eventid_t eid, 
 {
     event_target_t *data;
 
+    if(event_info[eid].flags & EVENT_FIXME)
+        FIXME("unimplemented event %s\n", debugstr_w(event_info[eid].name));
+
     remove_event_handler(event_target, eid);
     if(!disp)
         return S_OK;
@@ -1423,13 +1433,17 @@ static HRESULT set_event_handler_disp(EventTarget *event_target, eventid_t eid, 
     if(!data)
         return E_OUTOFMEMORY;
 
-    if(!alloc_handler_vector(data, eid, 0))
-        return E_OUTOFMEMORY;
+    if(!data->event_table[eid]) {
+        if(!alloc_handler_vector(data, eid, 0))
+            return E_OUTOFMEMORY;
+
+        bind_event(event_target, eid);
+    }else if(data->event_table[eid]->handler_prop) {
+        IDispatch_Release(data->event_table[eid]->handler_prop);
+    }
 
     data->event_table[eid]->handler_prop = disp;
     IDispatch_AddRef(disp);
-
-    bind_event(event_target, eid);
     return S_OK;
 }
 
@@ -1513,6 +1527,9 @@ HRESULT attach_event(EventTarget *event_target, BSTR name, IDispatch *disp, VARI
         return S_OK;
     }
 
+    if(event_info[eid].flags & EVENT_FIXME)
+        FIXME("unimplemented event %s\n", debugstr_w(event_info[eid].name));
+
     data = get_event_target_data(event_target, TRUE);
     if(!data)
         return E_OUTOFMEMORY;
@@ -1522,14 +1539,14 @@ HRESULT attach_event(EventTarget *event_target, BSTR name, IDispatch *disp, VARI
             i++;
         if(i == data->event_table[eid]->handler_cnt && !alloc_handler_vector(data, eid, i+1))
             return E_OUTOFMEMORY;
-    }else if(!alloc_handler_vector(data, eid, i+1)) {
+    }else if(alloc_handler_vector(data, eid, i+1)) {
+        bind_event(event_target, eid);
+    }else {
         return E_OUTOFMEMORY;
     }
 
     IDispatch_AddRef(disp);
     data->event_table[eid]->handlers[i] = disp;
-
-    bind_event(event_target, eid);
 
     *res = VARIANT_TRUE;
     return S_OK;

@@ -2194,11 +2194,9 @@ static void test_mdi(void)
                 gotit = TRUE;
             }
             else
-todo_wine
                 ok(msg.hwnd != mdi_client, "message %04x should not be posted to mdiclient\n", msg.message);
             DispatchMessageA(&msg);
         }
-todo_wine
         ok(gotit, "message 0x003f should appear after SetWindowPos\n");
 
         si.cbSize = sizeof(si);
@@ -4843,8 +4841,22 @@ static void test_scrollvalidate( HWND parent)
             rcu.left,rcu.top,rcu.right,rcu.bottom);
     ReleaseDC( hwnd1, hdc);
 
-    /* test scrolling a window with an update region */
+    /* test scrolling a rect by more than its size */
     DestroyWindow( hwnd2);
+    ValidateRect( hwnd1, NULL);
+    SetRect( &rc, 40,40, 50,50);
+    InvalidateRect( hwnd1, &rc, 1);
+    ScrollWindowEx( hwnd1, -20, 0, &rc, NULL, hrgn, &rcu,
+      SW_SCROLLCHILDREN | SW_INVALIDATE);
+    if (winetest_debug > 0) dump_region(hrgn);
+    SetRectRgn( exprgn, 20, 40, 30, 50);
+    SetRectRgn( tmprgn, 40, 40, 50, 50);
+    CombineRgn( exprgn, exprgn, tmprgn, RGN_OR);
+    ok( EqualRgn( exprgn, hrgn), "wrong update region\n");
+    ok( rcu.left == 20 && rcu.top == 40 && rcu.right == 50 && rcu.bottom == 50,
+        "unexpected update rect: %d,%d - %d,%d\n", rcu.left,rcu.top,rcu.right,rcu.bottom);
+
+    /* test scrolling a window with an update region */
     ValidateRect( hwnd1, NULL);
     SetRect( &rc, 40,40, 50,50);
     InvalidateRect( hwnd1, &rc, 1);
@@ -7578,7 +7590,7 @@ static void test_winregion(void)
         ok( ret == ERROR, "Expected ERROR, got %d\n", ret);
         ok( GetLastError() == 0xdeadbeef, "Expected , got %d\n", GetLastError());
 
-        r.left = r.top = r.right = r.bottom = 0;
+        SetRectEmpty(&r);
         ret = pGetWindowRgnBox(hwnd, &r);
         ok( ret == SIMPLEREGION, "Expected SIMPLEREGION, got %d\n", ret);
         ok( r.left == 2 && r.top == 3 && r.right == 10 && r.bottom == 15,
@@ -7589,10 +7601,10 @@ static void test_winregion(void)
             hrgn = CreateRectRgn(2, 3, 10, 15);
             ret = pMirrorRgn( hwnd, hrgn );
             ok( ret == TRUE, "MirrorRgn failed %u\n", ret );
-            r.left = r.top = r.right = r.bottom = 0;
+            SetRectEmpty(&r);
             GetWindowRect( hwnd, &r );
             width = r.right - r.left;
-            r.left = r.top = r.right = r.bottom = 0;
+            SetRectEmpty(&r);
             ret = GetRgnBox( hrgn, &r );
             ok( ret == SIMPLEREGION, "GetRgnBox failed %u\n", ret );
             ok( r.left == width - 10 && r.top == 3 && r.right == width - 2 && r.bottom == 15,
@@ -9036,7 +9048,7 @@ static void test_winproc_handles(const char *argv0)
     HINSTANCE hinst = GetModuleHandleA(NULL);
     WNDCLASSA wnd_classA;
     WNDCLASSW wnd_classW;
-    int count;
+    int count, ret;
     PROCESS_INFORMATION info;
     STARTUPINFOA startup;
     char cmd[MAX_PATH];
@@ -9044,11 +9056,11 @@ static void test_winproc_handles(const char *argv0)
     memset(&wnd_classA, 0, sizeof(wnd_classA));
     wnd_classA.lpszClassName = "winproc_test";
     wnd_classA.lpfnWndProc = winproc;
-    ok(RegisterClassA(&wnd_classA),
-            "RegisterClass failed with error %d\n", GetLastError());
+    ret = RegisterClassA(&wnd_classA);
+    ok(ret, "RegisterClass failed with error %d\n", GetLastError());
 
-    ok(GetClassInfoW(hinst, winproc_testW, &wnd_classW),
-            "GetClassInfoW failed with error %d\n", GetLastError());
+    ret = GetClassInfoW(hinst, winproc_testW, &wnd_classW);
+    ok(ret, "GetClassInfoW failed with error %d\n", GetLastError());
     ok(wnd_classA.lpfnWndProc != wnd_classW.lpfnWndProc,
             "winproc pointers should not be identical\n");
 
@@ -9059,8 +9071,9 @@ static void test_winproc_handles(const char *argv0)
     CallWindowProcW(wnd_classW.lpfnWndProc, 0, 0, 0, (LPARAM)&count);
     ok(count == 1, "winproc should be called once (%d)\n", count);
 
-    ok(UnregisterClassW(winproc_testW, hinst),
-            "UnregisterClass failed with error %d\n", GetLastError());
+    ret = UnregisterClassW(winproc_testW, hinst);
+    ok(ret, "UnregisterClass failed with error %d\n", GetLastError());
+
     /* crashes on 64-bit windows because lpfnWndProc handle is already freed */
     if (sizeof(void*) == 4)
     {
@@ -9084,6 +9097,7 @@ static void test_winproc_handles(const char *argv0)
 static void test_winproc_limit(void)
 {
     WNDPROC winproc_handle;
+    LONG_PTR ret;
     HWND hwnd;
     int i;
 
@@ -9104,13 +9118,13 @@ static void test_winproc_limit(void)
     }
     ok(i != 0xffff, "unable to run out of winproc slots\n");
 
-    ok(SetWindowLongPtrA(hwnd, GWLP_WNDPROC, (LONG_PTR)winproc_convA),
-            "SetWindowLongPtr failed with error %d\n", GetLastError());
+    ret = SetWindowLongPtrA(hwnd, GWLP_WNDPROC, (LONG_PTR)winproc_convA);
+    ok(ret, "SetWindowLongPtr failed with error %d\n", GetLastError());
     ok(SendMessageA(hwnd, WM_SETTEXT, 0, (LPARAM)"text"), "WM_SETTEXT failed\n");
     ok(SendMessageW(hwnd, WM_SETTEXT, 0, (LPARAM)textW), "WM_SETTEXT with conversion failed\n");
 
-    ok(SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)winproc_convW),
-            "SetWindowLongPtr failed with error %d\n", GetLastError());
+    ret = SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)winproc_convW);
+    ok(ret, "SetWindowLongPtr failed with error %d\n", GetLastError());
     ok(SendMessageA(hwnd, WM_SETTEXT, 0, (LPARAM)"text"), "WM_SETTEXT failed\n");
     ok(SendMessageW(hwnd, WM_SETTEXT, 0, (LPARAM)textW), "WM_SETTEXT with conversion failed\n");
 

@@ -24,17 +24,13 @@ elif test -x $wine64; then
     if test -z "$WINELOADER"; then
         export WINELOADER=$wine64
     fi
-    if test -z "$WINEDEBUG"; then
-        wine32_hint >&2
-    else
-        case "$WINEDEBUG" in
-            -all*|*,-all*|*err-all*)
-                ;;
-            *)
-                wine32_hint >&2
-                ;;
-        esac
-    fi
+    case "x$WINEDEBUG" in
+        x-all*|x*,-all*|x*err-all*)
+            ;;
+        *)
+            wine32_hint >&2
+            ;;
+    esac
 else
     echo "error: unable to find wine executable.  this shouldn't happen." >&2
     exit 1

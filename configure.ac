@@ -512,6 +512,7 @@ AC_CHECK_HEADERS(\
 	valgrind/valgrind.h \
 	zlib.h
 )
+AC_HEADER_MAJOR()
 AC_HEADER_STAT()
 
 dnl **** Checks for headers that depend on other ones ****
@@ -1996,7 +1997,6 @@ AC_CHECK_FUNCS(\
 	futimes \
 	futimesat \
 	getattrlist \
-	getdirentries \
 	getopt_long_only \
 	getpwuid \
 	gettimeofday \
@@ -2839,6 +2839,7 @@ WINE_CONFIG_DLL(d3dx10_40)
 WINE_CONFIG_DLL(d3dx10_41)
 WINE_CONFIG_DLL(d3dx10_42)
 WINE_CONFIG_DLL(d3dx10_43,,[implib],[d3dx10])
+WINE_CONFIG_TEST(dlls/d3dx10_43/tests)
 WINE_CONFIG_DLL(d3dx11_42)
 WINE_CONFIG_DLL(d3dx11_43)
 WINE_CONFIG_DLL(d3dx9_24)
@@ -2996,6 +2997,7 @@ WINE_CONFIG_DLL(joy.cpl,,[clean])
 WINE_CONFIG_DLL(jscript,,[clean])
 WINE_CONFIG_TEST(dlls/jscript/tests)
 WINE_CONFIG_DLL(jsproxy,,[implib])
+WINE_CONFIG_TEST(dlls/jsproxy/tests)
 WINE_CONFIG_DLL(kernel32,,[clean,implib])
 WINE_CONFIG_TEST(dlls/kernel32/tests)
 WINE_CONFIG_DLL(kernelbase)
@@ -3127,6 +3129,7 @@ WINE_CONFIG_DLL(msxml3,,[clean])
 WINE_CONFIG_TEST(dlls/msxml3/tests,[clean])
 WINE_CONFIG_DLL(msxml4,,[clean])
 WINE_CONFIG_DLL(msxml6,,[clean])
+WINE_CONFIG_DLL(ncrypt)
 WINE_CONFIG_DLL(nddeapi,,[implib])
 WINE_CONFIG_DLL(ndis.sys)
 WINE_CONFIG_DLL(netapi32,,[implib])
@@ -3461,6 +3464,7 @@ WINE_CONFIG_PROGRAM(expand,,[install])
 WINE_CONFIG_PROGRAM(explorer,,[clean,install])
 WINE_CONFIG_PROGRAM(extrac32,,[install])
 WINE_CONFIG_PROGRAM(findstr,,[install])
+WINE_CONFIG_PROGRAM(fsutil,,[install])
 WINE_CONFIG_PROGRAM(hh,,[install])
 WINE_CONFIG_PROGRAM(hostname,,[clean,install])
 WINE_CONFIG_PROGRAM(icacls,,[install])

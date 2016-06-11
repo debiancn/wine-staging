@@ -2241,9 +2241,18 @@ static HRESULT STDMETHODCALLTYPE d3d11_device_CreateComputeShader(ID3D11Device *
 static HRESULT STDMETHODCALLTYPE d3d11_device_CreateClassLinkage(ID3D11Device *iface,
         ID3D11ClassLinkage **class_linkage)
 {
-    FIXME("iface %p, class_linkage %p stub!\n", iface, class_linkage);
+    struct d3d_device *device = impl_from_ID3D11Device(iface);
+    struct d3d11_class_linkage *object;
+    HRESULT hr;
 
-    return E_NOTIMPL;
+    TRACE("iface %p, class_linkage %p.\n", iface, class_linkage);
+
+    if (FAILED(hr = d3d11_class_linkage_create(device, &object)))
+        return hr;
+
+    *class_linkage = &object->ID3D11ClassLinkage_iface;
+
+    return S_OK;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d11_device_CreateBlendState(ID3D11Device *iface,
@@ -3445,6 +3454,9 @@ static void STDMETHODCALLTYPE d3d10_device_ClearRenderTargetView(ID3D10Device1 *
     TRACE("iface %p, render_target_view %p, color_rgba %s.\n",
             iface, render_target_view, debug_float4(color_rgba));
 
+    if (!view)
+        return;
+
     wined3d_mutex_lock();
     if (FAILED(hr = wined3d_device_clear_rendertarget_view(device->wined3d_device, view->wined3d_view, NULL,
             WINED3DCLEAR_TARGET, &color, 0.0f, 0)))
@@ -3462,6 +3474,9 @@ static void STDMETHODCALLTYPE d3d10_device_ClearDepthStencilView(ID3D10Device1 *
 
     TRACE("iface %p, depth_stencil_view %p, flags %#x, depth %.8e, stencil %u.\n",
             iface, depth_stencil_view, flags, depth, stencil);
+
+    if (!view)
+        return;
 
     wined3d_flags = wined3d_clear_flags_from_d3d11_clear_flags(flags);
 

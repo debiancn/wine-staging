@@ -1,5 +1,6 @@
 debian/tmp/wmcVERSION.man
 debian/tmp/wrcVERSION.man
+debian/tmp/widlVERSION.man
 debian/tmp/winegccVERSION.man
 debian/tmp/winedumpVERSION.man
 debian/tmp/winebuildVERSION.man

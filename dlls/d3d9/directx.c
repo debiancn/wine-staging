@@ -257,25 +257,18 @@ static HRESULT WINAPI d3d9_CheckDeviceFormat(IDirect3D9Ex *iface, UINT adapter, 
     usage = usage & (WINED3DUSAGE_MASK | WINED3DUSAGE_QUERY_MASK);
     switch (resource_type)
     {
-        case D3DRTYPE_SURFACE:
-            wined3d_rtype = WINED3D_RTYPE_SURFACE;
-            break;
-
-        case D3DRTYPE_VOLUME:
-            wined3d_rtype = WINED3D_RTYPE_VOLUME;
-            break;
-
+        case D3DRTYPE_CUBETEXTURE:
+            usage |= WINED3DUSAGE_LEGACY_CUBEMAP;
         case D3DRTYPE_TEXTURE:
+            usage |= WINED3DUSAGE_TEXTURE;
+        case D3DRTYPE_SURFACE:
             wined3d_rtype = WINED3D_RTYPE_TEXTURE_2D;
             break;
 
         case D3DRTYPE_VOLUMETEXTURE:
+        case D3DRTYPE_VOLUME:
+            usage |= WINED3DUSAGE_TEXTURE;
             wined3d_rtype = WINED3D_RTYPE_TEXTURE_3D;
-            break;
-
-        case D3DRTYPE_CUBETEXTURE:
-            wined3d_rtype = WINED3D_RTYPE_TEXTURE_2D;
-            usage |= WINED3DUSAGE_LEGACY_CUBEMAP;
             break;
 
         case D3DRTYPE_VERTEXBUFFER:
@@ -671,7 +664,7 @@ static const struct IDirect3D9ExVtbl d3d9_vtbl =
 BOOL d3d9_init(struct d3d9 *d3d9, BOOL extended)
 {
     DWORD flags = WINED3D_PRESENT_CONVERSION | WINED3D_HANDLE_RESTORE | WINED3D_PIXEL_CENTER_INTEGER
-            | WINED3D_SRGB_READ_WRITE_CONTROL;
+            | WINED3D_SRGB_READ_WRITE_CONTROL | WINED3D_LEGACY_UNBOUND_RESOURCE_COLOR;
 
     if (!extended)
         flags |= WINED3D_VIDMEM_ACCOUNTING;

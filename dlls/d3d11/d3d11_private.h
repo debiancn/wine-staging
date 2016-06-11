@@ -48,13 +48,6 @@
 
 struct d3d_device;
 
-struct d3d_shader_info
-{
-    const DWORD *shader_code;
-    struct wined3d_shader_signature *input_signature;
-    struct wined3d_shader_signature *output_signature;
-};
-
 extern const struct wined3d_parent_ops d3d_null_wined3d_parent_ops DECLSPEC_HIDDEN;
 
 /* TRACE helper functions */
@@ -86,10 +79,22 @@ HRESULT d3d_set_private_data(struct wined3d_private_store *store,
 HRESULT d3d_set_private_data_interface(struct wined3d_private_store *store,
         REFGUID guid, const IUnknown *object) DECLSPEC_HIDDEN;
 
+static inline void *d3d11_calloc(SIZE_T count, SIZE_T size)
+{
+    if (count > ~(SIZE_T)0 / size)
+        return NULL;
+    return HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, count * size);
+}
+
 static inline void read_dword(const char **ptr, DWORD *d)
 {
     memcpy(d, *ptr, sizeof(*d));
     *ptr += sizeof(*d);
+}
+
+static inline BOOL require_space(size_t offset, size_t count, size_t size, size_t data_size)
+{
+    return !count || (data_size - offset) / count >= size;
 }
 
 void skip_dword_unknown(const char **ptr, unsigned int count) DECLSPEC_HIDDEN;
@@ -314,6 +319,18 @@ struct d3d_pixel_shader *unsafe_impl_from_ID3D10PixelShader(ID3D10PixelShader *i
 
 HRESULT shader_parse_signature(const char *data, DWORD data_size, struct wined3d_shader_signature *s) DECLSPEC_HIDDEN;
 void shader_free_signature(struct wined3d_shader_signature *s) DECLSPEC_HIDDEN;
+
+/* ID3D11ClassLinkage */
+struct d3d11_class_linkage
+{
+    ID3D11ClassLinkage ID3D11ClassLinkage_iface;
+    LONG refcount;
+
+    struct wined3d_private_store private_store;
+};
+
+HRESULT d3d11_class_linkage_create(struct d3d_device *device,
+        struct d3d11_class_linkage **class_linkage) DECLSPEC_HIDDEN;
 
 /* ID3D11BlendState, ID3D10BlendState1 */
 struct d3d_blend_state

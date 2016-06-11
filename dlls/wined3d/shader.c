@@ -157,6 +157,7 @@ static const char * const shader_opcode_names[] =
     /* WINED3DSIH_REP                              */ "rep",
     /* WINED3DSIH_RESINFO                          */ "resinfo",
     /* WINED3DSIH_RET                              */ "ret",
+    /* WINED3DSIH_ROUND_NE                         */ "round_ne",
     /* WINED3DSIH_ROUND_NI                         */ "round_ni",
     /* WINED3DSIH_ROUND_PI                         */ "round_pi",
     /* WINED3DSIH_ROUND_Z                          */ "round_z",
@@ -231,6 +232,7 @@ static const struct
 sysval_semantic_names[] =
 {
     {WINED3D_SV_POSITION,                   "SV_Position"},
+    {WINED3D_SV_VERTEX_ID,                  "SV_VertexID"},
     {WINED3D_SV_INSTANCE_ID,                "SV_InstanceID"},
     {WINED3D_SV_PRIMITIVE_ID,               "SV_PrimitiveID"},
     {WINED3D_SV_IS_FRONT_FACE,              "SV_IsFrontFace"},
@@ -254,7 +256,7 @@ static void shader_dump_src_param(struct wined3d_string_buffer *buffer,
 
 const char *debug_d3dshaderinstructionhandler(enum WINED3D_SHADER_INSTRUCTION_HANDLER handler_idx)
 {
-    if (handler_idx >= sizeof(shader_opcode_names) / sizeof(*shader_opcode_names))
+    if (handler_idx >= ARRAY_SIZE(shader_opcode_names))
         return wine_dbg_sprintf("UNRECOGNIZED(%#x)", handler_idx);
 
     return shader_opcode_names[handler_idx];
@@ -262,7 +264,7 @@ const char *debug_d3dshaderinstructionhandler(enum WINED3D_SHADER_INSTRUCTION_HA
 
 static const char *shader_semantic_name_from_usage(enum wined3d_decl_usage usage)
 {
-    if (usage >= sizeof(semantic_names) / sizeof(*semantic_names))
+    if (usage >= ARRAY_SIZE(semantic_names))
     {
         FIXME("Unrecognized usage %#x.\n", usage);
         return "UNRECOGNIZED";
@@ -275,12 +277,24 @@ static enum wined3d_decl_usage shader_usage_from_semantic_name(const char *name)
 {
     unsigned int i;
 
-    for (i = 0; i < sizeof(semantic_names) / sizeof(*semantic_names); ++i)
+    for (i = 0; i < ARRAY_SIZE(semantic_names); ++i)
     {
-        if (!strcmp(name, semantic_names[i])) return i;
+        if (!strcmp(name, semantic_names[i]))
+            return i;
     }
 
     return ~0U;
+}
+
+static enum wined3d_sysval_semantic shader_sysval_semantic_from_usage(enum wined3d_decl_usage usage)
+{
+    switch (usage)
+    {
+        case WINED3D_DECL_USAGE_POSITION:
+            return WINED3D_SV_POSITION;
+        default:
+            return 0;
+    }
 }
 
 BOOL shader_match_semantic(const char *semantic_name, enum wined3d_decl_usage usage)
@@ -293,7 +307,7 @@ static void shader_signature_from_semantic(struct wined3d_shader_signature_eleme
 {
     e->semantic_name = shader_semantic_name_from_usage(s->usage);
     e->semantic_idx = s->usage_idx;
-    e->sysval_semantic = 0;
+    e->sysval_semantic = shader_sysval_semantic_from_usage(s->usage);
     e->component_type = 0;
     e->register_idx = s->reg.reg.idx[0].offset;
     e->mask = s->reg.write_mask;
@@ -304,7 +318,7 @@ static void shader_signature_from_usage(struct wined3d_shader_signature_element 
 {
     e->semantic_name = shader_semantic_name_from_usage(usage);
     e->semantic_idx = usage_idx;
-    e->sysval_semantic = 0;
+    e->sysval_semantic = shader_sysval_semantic_from_usage(usage);
     e->component_type = 0;
     e->register_idx = reg_idx;
     e->mask = write_mask;
@@ -738,7 +752,7 @@ static void shader_record_sample(struct wined3d_shader_reg_maps *reg_maps,
 
     if (!map->size)
     {
-        if (!(entries = HeapAlloc(GetProcessHeap(), 0, sizeof(*entries) * 4)))
+        if (!(entries = wined3d_calloc(4, sizeof(*entries))))
         {
             ERR("Failed to allocate sampler map entries.\n");
             return;
@@ -809,9 +823,8 @@ static HRESULT shader_get_registers_used(struct wined3d_shader *shader, const st
 
     shader_set_limits(shader);
 
-    reg_maps->constf = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY,
-            sizeof(*reg_maps->constf) * ((min(shader->limits->constant_float, constf_size) + 31) / 32));
-    if (!reg_maps->constf)
+    if (!(reg_maps->constf = wined3d_calloc(((min(shader->limits->constant_float, constf_size) + 31) / 32),
+            sizeof(*reg_maps->constf))))
     {
         ERR("Failed to allocate constant map memory.\n");
         return E_OUTOFMEMORY;
@@ -1241,7 +1254,7 @@ static HRESULT shader_get_registers_used(struct wined3d_shader *shader, const st
         struct wined3d_shader_signature_element *e;
         unsigned int i;
 
-        if (!(input_signature->elements = HeapAlloc(GetProcessHeap(), 0, sizeof(*input_signature->elements) * count)))
+        if (!(input_signature->elements = wined3d_calloc(count, sizeof(*input_signature->elements))))
             return E_OUTOFMEMORY;
         input_signature->element_count = count;
 
@@ -1267,7 +1280,7 @@ static HRESULT shader_get_registers_used(struct wined3d_shader *shader, const st
         unsigned int count = wined3d_popcount(reg_maps->output_registers);
         struct wined3d_shader_signature_element *e;
 
-        if (!(output_signature->elements = HeapAlloc(GetProcessHeap(), 0, sizeof(*output_signature->elements) * count)))
+        if (!(output_signature->elements = wined3d_calloc(count, sizeof(*output_signature->elements))))
             return E_OUTOFMEMORY;
         output_signature->element_count = count;
 
@@ -2246,7 +2259,17 @@ static void shader_trace_init(const struct wined3d_shader_frontend *fe, void *fe
 
             shader_addline(&buffer, "%s", shader_opcode_names[ins.handler_idx]);
 
-            if (ins.handler_idx == WINED3DSIH_IFC
+            if (ins.handler_idx == WINED3DSIH_BREAKP
+                    || ins.handler_idx == WINED3DSIH_IF)
+            {
+                switch (ins.flags)
+                {
+                    case WINED3D_SHADER_CONDITIONAL_OP_NZ: shader_addline(&buffer, "_nz"); break;
+                    case WINED3D_SHADER_CONDITIONAL_OP_Z:  shader_addline(&buffer, "_z"); break;
+                    default: shader_addline(&buffer, "_unrecognized(%#x)", ins.flags); break;
+                }
+            }
+            else if (ins.handler_idx == WINED3DSIH_IFC
                     || ins.handler_idx == WINED3DSIH_BREAKC)
             {
                 switch (ins.flags)
@@ -2475,8 +2498,7 @@ const struct wined3d_shader_backend_ops none_shader_backend =
 };
 
 static HRESULT shader_set_function(struct wined3d_shader *shader, const DWORD *byte_code,
-        const struct wined3d_shader_signature *output_signature, DWORD float_const_count,
-        enum wined3d_shader_type type, unsigned int max_version)
+        DWORD float_const_count, enum wined3d_shader_type type, unsigned int max_version)
 {
     struct wined3d_shader_reg_maps *reg_maps = &shader->reg_maps;
     const struct wined3d_shader_frontend *fe;
@@ -2484,8 +2506,8 @@ static HRESULT shader_set_function(struct wined3d_shader *shader, const DWORD *b
     unsigned int backend_version;
     const struct wined3d_d3d_info *d3d_info = &shader->device->adapter->d3d_info;
 
-    TRACE("shader %p, byte_code %p, output_signature %p, float_const_count %u, type %#x, max_version %u.\n",
-            shader, byte_code, output_signature, float_const_count, type, max_version);
+    TRACE("shader %p, byte_code %p, float_const_count %u, type %#x, max_version %u.\n",
+            shader, byte_code, float_const_count, type, max_version);
 
     list_init(&shader->constantsF);
     list_init(&shader->constantsB);
@@ -2499,7 +2521,7 @@ static HRESULT shader_set_function(struct wined3d_shader *shader, const DWORD *b
         return WINED3DERR_INVALIDCALL;
     }
     shader->frontend = fe;
-    shader->frontend_data = fe->shader_init(byte_code, output_signature);
+    shader->frontend_data = fe->shader_init(byte_code, &shader->output_signature);
     if (!shader->frontend_data)
     {
         FIXME("Failed to initialize frontend.\n");
@@ -2664,11 +2686,23 @@ void find_vs_compile_args(const struct wined3d_state *state, const struct wined3
             && state->render_states[WINED3D_RS_CLIPPLANEENABLE];
     args->point_size = state->gl_primitive_type == GL_POINTS;
     args->per_vertex_point_size = shader->reg_maps.point_size;
+    args->next_shader_type = state->shader[WINED3D_SHADER_TYPE_HULL] ? WINED3D_SHADER_TYPE_HULL
+            : state->shader[WINED3D_SHADER_TYPE_GEOMETRY] ? WINED3D_SHADER_TYPE_GEOMETRY
+            : WINED3D_SHADER_TYPE_PIXEL;
+    if (shader->reg_maps.shader_version.major >= 4)
+        args->next_shader_input_count = state->shader[WINED3D_SHADER_TYPE_HULL]
+                ? state->shader[WINED3D_SHADER_TYPE_HULL]->limits->packed_input
+                : state->shader[WINED3D_SHADER_TYPE_GEOMETRY]
+                ? state->shader[WINED3D_SHADER_TYPE_GEOMETRY]->limits->packed_input
+                : state->shader[WINED3D_SHADER_TYPE_PIXEL]
+                ? state->shader[WINED3D_SHADER_TYPE_PIXEL]->limits->packed_input : 0;
+    else
+        args->next_shader_input_count = 0;
     args->swizzle_map = swizzle_map;
     if (d3d_info->emulated_flatshading)
         args->flatshading = state->render_states[WINED3D_RS_SHADEMODE] == WINED3D_SHADE_FLAT;
     else
-        args->flatshading = FALSE;
+        args->flatshading = 0;
 }
 
 static BOOL match_usage(BYTE usage1, BYTE usage_idx1, BYTE usage2, BYTE usage_idx2)
@@ -2713,10 +2747,13 @@ static HRESULT shader_signature_copy(struct wined3d_shader_signature *dst,
     SIZE_T len;
     char *ptr;
 
+    if (!src->element_count)
+        return WINED3D_OK;
+
     ptr = *signature_strings;
 
     dst->element_count = src->element_count;
-    if (!(dst->elements = HeapAlloc(GetProcessHeap(), 0, sizeof(*dst->elements) * dst->element_count)))
+    if (!(dst->elements = wined3d_calloc(dst->element_count, sizeof(*dst->elements))))
         return E_OUTOFMEMORY;
 
     for (i = 0; i < src->element_count; ++i)
@@ -2754,42 +2791,34 @@ static HRESULT shader_init(struct wined3d_shader *shader, struct wined3d_device 
     shader->parent_ops = parent_ops;
 
     total = 0;
-    if (desc->input_signature)
+    for (i = 0; i < desc->input_signature.element_count; ++i)
     {
-        for (i = 0; i < desc->input_signature->element_count; ++i)
-        {
-            e = &desc->input_signature->elements[i];
-            len = strlen(e->semantic_name);
-            if (len >= ~(SIZE_T)0 - total)
-                return E_OUTOFMEMORY;
+        e = &desc->input_signature.elements[i];
+        len = strlen(e->semantic_name);
+        if (len >= ~(SIZE_T)0 - total)
+            return E_OUTOFMEMORY;
 
-            total += len + 1;
-        }
+        total += len + 1;
     }
-    if (desc->output_signature)
+    for (i = 0; i < desc->output_signature.element_count; ++i)
     {
-        for (i = 0; i < desc->output_signature->element_count; ++i)
-        {
-            e = &desc->output_signature->elements[i];
-            len = strlen(e->semantic_name);
-            if (len >= ~(SIZE_T)0 - total)
-                return E_OUTOFMEMORY;
+        e = &desc->output_signature.elements[i];
+        len = strlen(e->semantic_name);
+        if (len >= ~(SIZE_T)0 - total)
+            return E_OUTOFMEMORY;
 
-            total += len + 1;
-        }
+        total += len + 1;
     }
-    if (!(shader->signature_strings = HeapAlloc(GetProcessHeap(), 0, total)))
+    if (total && !(shader->signature_strings = HeapAlloc(GetProcessHeap(), 0, total)))
         return E_OUTOFMEMORY;
     ptr = shader->signature_strings;
 
-    if (desc->input_signature && FAILED(hr = shader_signature_copy(&shader->input_signature,
-            desc->input_signature, &ptr)))
+    if (FAILED(hr = shader_signature_copy(&shader->input_signature, &desc->input_signature, &ptr)))
     {
         HeapFree(GetProcessHeap(), 0, shader->signature_strings);
         return hr;
     }
-    if (desc->output_signature && FAILED(hr = shader_signature_copy(&shader->output_signature,
-            desc->output_signature, &ptr)))
+    if (FAILED(hr = shader_signature_copy(&shader->output_signature, &desc->output_signature, &ptr)))
     {
         HeapFree(GetProcessHeap(), 0, shader->input_signature.elements);
         HeapFree(GetProcessHeap(), 0, shader->signature_strings);
@@ -2799,7 +2828,7 @@ static HRESULT shader_init(struct wined3d_shader *shader, struct wined3d_device 
     list_init(&shader->linked_programs);
     list_add_head(&device->shaders, &shader->shader_list_entry);
 
-    if (FAILED(hr = shader_set_function(shader, desc->byte_code, desc->output_signature,
+    if (FAILED(hr = shader_set_function(shader, desc->byte_code,
             float_const_count, type, desc->max_version)))
     {
         WARN("Failed to set function, hr %#x.\n", hr);
@@ -2876,6 +2905,13 @@ static HRESULT geometry_shader_init(struct wined3d_shader *shader, struct wined3
     shader->load_local_constsF = shader->lconst_inf_or_nan;
 
     return WINED3D_OK;
+}
+
+void find_gs_compile_args(const struct wined3d_state *state, const struct wined3d_shader *shader,
+        struct gs_compile_args *args)
+{
+    args->ps_input_count = state->shader[WINED3D_SHADER_TYPE_PIXEL]
+            ? state->shader[WINED3D_SHADER_TYPE_PIXEL]->limits->packed_input : 0;
 }
 
 void find_ps_compile_args(const struct wined3d_state *state, const struct wined3d_shader *shader,
@@ -3091,6 +3127,13 @@ void find_ps_compile_args(const struct wined3d_state *state, const struct wined3
     args->pointsprite = state->render_states[WINED3D_RS_POINTSPRITEENABLE]
             && state->gl_primitive_type == GL_POINTS;
 
+    if (gl_info->supported[WINED3D_GL_LEGACY_CONTEXT])
+        args->alpha_test_func = WINED3D_CMP_ALWAYS - 1;
+    else
+        args->alpha_test_func = (state->render_states[WINED3D_RS_ALPHATESTENABLE]
+                ? wined3d_sanitize_cmp_func(state->render_states[WINED3D_RS_ALPHAFUNC])
+                : WINED3D_CMP_ALWAYS) - 1;
+
     if (d3d_info->emulated_flatshading)
         args->flatshading = state->render_states[WINED3D_RS_SHADEMODE] == WINED3D_SHADE_FLAT;
 }
@@ -3118,7 +3161,8 @@ static HRESULT pixel_shader_init(struct wined3d_shader *shader, struct wined3d_d
     /* Don't do any register mapping magic if it is not needed, or if we can't
      * achieve anything anyway */
     if (highest_reg_used < (gl_info->limits.glsl_varyings / 4)
-            || num_regs_used > (gl_info->limits.glsl_varyings / 4))
+            || num_regs_used > (gl_info->limits.glsl_varyings / 4)
+            || shader->reg_maps.shader_version.major >= 4)
     {
         if (num_regs_used > (gl_info->limits.glsl_varyings / 4))
         {

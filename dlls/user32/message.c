@@ -310,8 +310,7 @@ static const unsigned int message_pointer_flags[] =
     SET(WM_GETMINMAXINFO) | SET(WM_DRAWITEM) | SET(WM_MEASUREITEM) | SET(WM_DELETEITEM) |
     SET(WM_COMPAREITEM),
     /* 0x40 - 0x5f */
-    SET(WM_WINDOWPOSCHANGING) | SET(WM_WINDOWPOSCHANGED) | SET(WM_COPYDATA) |
-    SET(WM_NOTIFY) | SET(WM_HELP),
+    SET(WM_WINDOWPOSCHANGING) | SET(WM_WINDOWPOSCHANGED) | SET(WM_COPYDATA) | SET(WM_HELP),
     /* 0x60 - 0x7f */
     SET(WM_STYLECHANGING) | SET(WM_STYLECHANGED),
     /* 0x80 - 0x9f */
@@ -4444,9 +4443,9 @@ BOOL WINAPI MessageBeep( UINT i )
 
 
 /***********************************************************************
- *		SetTimer (USER32.@)
+ *      SetCoalescableTimer (USER32.@)
  */
-UINT_PTR WINAPI SetTimer( HWND hwnd, UINT_PTR id, UINT timeout, TIMERPROC proc )
+UINT_PTR WINAPI SetCoalescableTimer( HWND hwnd, UINT_PTR id, UINT timeout, TIMERPROC proc, ULONG tolerance )
 {
     UINT_PTR ret;
     WNDPROC winproc = 0;
@@ -4473,6 +4472,15 @@ UINT_PTR WINAPI SetTimer( HWND hwnd, UINT_PTR id, UINT timeout, TIMERPROC proc )
 
     TRACE("Added %p %lx %p timeout %d\n", hwnd, id, winproc, timeout );
     return ret;
+}
+
+
+/******************************************************************
+ *      SetTimer (USER32.@)
+ */
+UINT_PTR WINAPI SetTimer( HWND hwnd, UINT_PTR id, UINT timeout, TIMERPROC proc )
+{
+    return SetCoalescableTimer( hwnd, id, timeout, proc, TIMERV_DEFAULT_COALESCING );
 }
 
 

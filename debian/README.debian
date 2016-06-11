@@ -103,9 +103,27 @@ Wine version is available at:
 https://wiki.winehq.org/Gecko
 
 If the right libwine-gecko-*.deb package is not currently available, you can
-manually extract an associated upstream WineGecko tarball to
-/usr/share/wine-development/gecko. Or preferably, please provide help building
-the new Debian libwine-gecko-* package that is needed.
+download the Wine Gecko installers (on 64-bit systems you need both the 32-bit
+and the 64-bit version) and copy them to one of the following locations (in
+home their checksums get verified, in /usr/share not):
+- /usr/share/wine-gecko/
+- /usr/share/wine-development/gecko/ (only if you are using wine-development)
+- /usr/share/wine/gecko/
+- $XDG_CACHE_HOME/wine/
+- $HOME/.cache/wine/ (if XDG_CACHE_HOME is not set)
+Or preferably, please provide help building the new Debian libwine-gecko-*
+package that is needed.
+
+Wine Mono
+=========
+The downloader for Wine Mono is intentionally disabled in the Debian packages.
+Unfortunately Wine Mono is not available in the official Debian archives.
+
+You can find more information at:
+https://wiki.winehq.org/Mono
+
+You can download the Wine Mono installer and copy it to similar locations as
+shown for Wine Gecko above, just replace gecko with mono.
 
 Automatically Launching Windows Executables
 ===========================================

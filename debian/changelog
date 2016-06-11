@@ -1,3 +1,56 @@
+wine-development (1.9.11-1) unstable; urgency=medium
+
+  * New upstream release 1.9.11, released May 27, 2016.
+    - Better support for long URLs in WinInet.
+    - Various Direct3D 11 improvements.
+    - Down-mixing support in DirectSound.
+    - Some cosmetic improvements in desktop mode.
+    - Various bug fixes.
+
+ -- Michael Gilbert <mgilbert@debian.org>  Sat, 04 Jun 2016 18:20:11 +0000
+
+wine-development (1.9.10-1) unstable; urgency=medium
+
+  * New upstream release 1.9.10, released May 16, 2016.
+    - More compatible directory enumeration.
+    - A number of C++ runtime fixes.
+    - Video output improvements.
+    - Various bug fixes.
+
+ -- Michael Gilbert <mgilbert@debian.org>  Fri, 03 Jun 2016 00:07:15 +0000
+
+wine-development (1.9.9-1) unstable; urgency=medium
+
+  * New upstream release 1.9.9, released Apr 29, 2016.
+    - More work towards the WineD3D command stream.
+    - Service proxies in WebServices.
+    - Query support in the builtin reg.exe utility.
+    - Improved support for long URLs in WinInet.
+    - Various bug fixes.
+  * Refresh patches.
+  * Bump standards-version to 3.9.8, no changes required.
+  * Update overrides for changed tags in lintian 2.5.44.
+  * Fix local search for addon (gecko/mono) installers and update
+    documentation for their manual installation (closes: #783428, see:
+    #812750).
+  * Bump recommended fonts-wine version to one with ttf fonts
+    (closes: #818925).
+  * Move some dependencies to libwineVERSION.
+  * Add widl to the -tools packages.
+    Thanks to Andrey Gursky (closes: #824671).
+  * Fix winegcc script to call wineg++/cpp based on its basename.
+    Thanks to Javier Serrano Polo (see: #824715).
+  * Add bugnumbers from other branch to changelog since 1.9.1-1.
+  * Drop obsolete dh_strip exclusion of some files.
+  * Change version string to display vendor and version.
+  * Drop obsolete dependency on x11-utils.
+  * Generate list of used shared libraries and let libwine recommend it.
+    (see: #823991).
+    Also use this mechanism to identify the package names of depended
+    upon libraries. Thanks to Jakub Wilk.
+
+ -- Jens Reyer <jre.winesim@gmail.com>  Sun, 29 May 2016 21:13:50 +0200
+
 wine-development (1.9.8-1~bpo8+1) jessie-backports; urgency=medium
 
   * Rebuild for jessie-backports.
@@ -17,7 +70,8 @@ wine-development (1.9.8-1) unstable; urgency=medium
 
   [ Jens Reyer ]
   * Add patch to append '(Debian)' to the version string.
-  * If wine32 is missing warn about it unless err output is disabled.
+  * If wine32 is missing warn about it unless err output is disabled
+    (see: #818874).
 
  -- Michael Gilbert <mgilbert@debian.org>  Sat, 16 Apr 2016 00:53:27 +0000
 
@@ -41,6 +95,7 @@ wine-development (1.9.6-1) unstable; urgency=medium
     - Support for Shader Model 5 shaders.
     - C++ exception handling improvements.
     - Various bug fixes.
+    - Take into account the fontdir specified at build time (see: 814844).
 
   [ Jens Reyer ]
   * Add winepath symlink and manpage in wine.
@@ -156,7 +211,7 @@ wine-development (1.9.1-1) unstable; urgency=medium
     - Various bug fixes.
   * Update standards version.
   * Use fonts from /usr/share/wine.
-  * Remove reference to the gecko package while its missing.
+  * Remove reference to the gecko package while its missing (see: #814350).
   * Make wine32-tools and wine64-tools conflict with eachother.
 
   [ Jens Reyer ]

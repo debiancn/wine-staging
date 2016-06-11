@@ -1051,7 +1051,7 @@ static void test_WsReadEndElement(void)
     hr = WsReadEndElement( reader, NULL );
     ok( hr == WS_E_INVALID_FORMAT, "got %08x\n", hr );
 
-    hr = set_input( reader, "<a></a>", sizeof("<a></a>") - 1 );
+    hr = set_input( reader, "<a></A>", sizeof("<a></A>") - 1 );
     ok( hr == S_OK, "got %08x\n", hr );
 
     hr = WsFillReader( reader, sizeof("<a></a>") - 1, NULL, NULL );
@@ -1722,6 +1722,7 @@ static void test_WsMoveReader(void)
     WS_XML_STRING localname = {1, (BYTE *)"a"}, localname2 = {1, (BYTE *)"b"}, ns = {0, NULL};
     const WS_XML_NODE *node;
     WS_XML_ELEMENT_NODE *elem;
+    WS_XML_UTF8_TEXT utf8;
 
     hr = WsCreateReader( NULL, 0, &reader, NULL ) ;
     ok( hr == S_OK, "got %08x\n", hr );
@@ -1803,7 +1804,7 @@ static void test_WsMoveReader(void)
 
     hr = WsGetReaderNode( reader, &node, NULL );
     ok( hr == S_OK, "got %08x\n", hr );
-    ok( node->nodeType == WS_XML_NODE_TYPE_END_ELEMENT, "got %u\n", elem->node.nodeType );
+    ok( node->nodeType == WS_XML_NODE_TYPE_END_ELEMENT, "got %u\n", node->nodeType );
 
     /* EOF node is last child of BOF node */
     hr = WsMoveReader( reader, WS_MOVE_TO_BOF, NULL, NULL );
@@ -1814,14 +1815,14 @@ static void test_WsMoveReader(void)
 
     hr = WsGetReaderNode( reader, &node, NULL );
     ok( hr == S_OK, "got %08x\n", hr );
-    ok( node->nodeType == WS_XML_NODE_TYPE_ELEMENT, "got %u\n", elem->node.nodeType );
+    ok( node->nodeType == WS_XML_NODE_TYPE_ELEMENT, "got %u\n", node->nodeType );
 
     hr = WsMoveReader( reader, WS_MOVE_TO_NEXT_NODE, NULL, NULL );
     ok( hr == S_OK, "got %08x\n", hr );
 
     hr = WsGetReaderNode( reader, &node, NULL );
     ok( hr == S_OK, "got %08x\n", hr );
-    ok( node->nodeType == WS_XML_NODE_TYPE_EOF, "got %u\n", elem->node.nodeType );
+    ok( node->nodeType == WS_XML_NODE_TYPE_EOF, "got %u\n", node->nodeType );
 
     hr = WsMoveReader( reader, WS_MOVE_TO_ROOT_ELEMENT, NULL, NULL );
     ok( hr == S_OK, "got %08x\n", hr );
@@ -1848,7 +1849,7 @@ static void test_WsMoveReader(void)
 
     hr = WsGetReaderNode( reader, &node, NULL );
     ok( hr == S_OK, "got %08x\n", hr );
-    ok( node->nodeType == WS_XML_NODE_TYPE_END_ELEMENT, "got %u\n", elem->node.nodeType );
+    ok( node->nodeType == WS_XML_NODE_TYPE_END_ELEMENT, "got %u\n", node->nodeType );
 
     hr = WsMoveReader( reader, WS_MOVE_TO_PARENT_ELEMENT, NULL, NULL );
     ok( hr == S_OK, "got %08x\n", hr );
@@ -1875,10 +1876,85 @@ static void test_WsMoveReader(void)
 
     hr = WsGetReaderNode( reader, &node, NULL );
     ok( hr == S_OK, "got %08x\n", hr );
-    ok( node->nodeType == WS_XML_NODE_TYPE_BOF, "got %u\n", elem->node.nodeType );
+    ok( node->nodeType == WS_XML_NODE_TYPE_BOF, "got %u\n", node->nodeType );
 
     hr = WsMoveReader( reader, WS_MOVE_TO_PARENT_ELEMENT, NULL, NULL );
     ok( hr == WS_E_INVALID_FORMAT, "got %08x\n", hr );
+
+    WsFreeWriter( writer );
+    WsFreeHeap( heap );
+
+    hr = WsCreateHeap( 1 << 16, 0, NULL, 0, &heap, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsCreateXmlBuffer( heap, NULL, 0, &buffer, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsCreateWriter( NULL, 0, &writer, NULL ) ;
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsSetOutputToBuffer( writer, buffer, NULL, 0, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    /* <a><b>test</b></a> */
+    hr = WsWriteStartElement( writer, NULL, &localname, &ns, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsWriteStartElement( writer, NULL, &localname2, &ns, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    utf8.text.textType = WS_XML_TEXT_TYPE_UTF8;
+    utf8.value.bytes  = (BYTE *)"test";
+    utf8.value.length = sizeof("test") - 1;
+    hr = WsWriteText( writer, &utf8.text, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsWriteEndElement( writer, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsWriteEndElement( writer, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsSetInputToBuffer( reader, buffer, NULL, 0, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsMoveReader( reader, WS_MOVE_TO_ROOT_ELEMENT, NULL, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsGetReaderNode( reader, &node, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    ok( node->nodeType == WS_XML_NODE_TYPE_ELEMENT, "got %u\n", node->nodeType );
+
+    hr = WsMoveReader( reader, WS_MOVE_TO_NEXT_NODE, NULL, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsGetReaderNode( reader, &node, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    ok( node->nodeType == WS_XML_NODE_TYPE_EOF, "got %u\n", node->nodeType );
+
+    hr = WsMoveReader( reader, WS_MOVE_TO_ROOT_ELEMENT, NULL, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsMoveReader( reader, WS_MOVE_TO_CHILD_NODE, NULL, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsGetReaderNode( reader, &node, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    ok( node->nodeType == WS_XML_NODE_TYPE_ELEMENT, "got %u\n", node->nodeType );
+
+    hr = WsGetReaderNode( reader, &node, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    elem = (WS_XML_ELEMENT_NODE *)node;
+    ok( elem->node.nodeType == WS_XML_NODE_TYPE_ELEMENT, "got %u\n", elem->node.nodeType );
+    ok( elem->localName->length == 1, "got %u\n", elem->localName->length );
+    ok( !memcmp( elem->localName->bytes, "b", 1 ), "wrong data\n" );
+
+    hr = WsMoveReader( reader, WS_MOVE_TO_NEXT_NODE, NULL, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsGetReaderNode( reader, &node, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    ok( node->nodeType == WS_XML_NODE_TYPE_END_ELEMENT, "got %u\n", node->nodeType );
 
     WsFreeReader( reader );
     WsFreeWriter( writer );
@@ -2850,6 +2926,439 @@ static void test_repeating_element(void)
     WsFreeHeap( heap );
 }
 
+static void test_WsResetHeap(void)
+{
+    HRESULT hr;
+    WS_HEAP *heap;
+    SIZE_T requested, actual;
+    ULONG size;
+    void *ptr;
+
+    hr = WsCreateHeap( 1 << 16, 0, NULL, 0, &heap, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    requested = 0xdeadbeef;
+    size = sizeof(requested);
+    hr = WsGetHeapProperty( heap, WS_HEAP_PROPERTY_REQUESTED_SIZE, &requested, size, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    ok( !requested, "got %u\n", (ULONG)requested );
+
+    actual = 0xdeadbeef;
+    size = sizeof(actual);
+    hr = WsGetHeapProperty( heap, WS_HEAP_PROPERTY_ACTUAL_SIZE, &actual, size, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    ok( !actual, "got %u\n", (ULONG)actual );
+
+    hr = WsAlloc( heap, 128, &ptr, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    requested = 0xdeadbeef;
+    size = sizeof(requested);
+    hr = WsGetHeapProperty( heap, WS_HEAP_PROPERTY_REQUESTED_SIZE, &requested, size, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    todo_wine ok( requested == 128, "got %u\n", (ULONG)requested );
+
+    actual = 0xdeadbeef;
+    size = sizeof(actual);
+    hr = WsGetHeapProperty( heap, WS_HEAP_PROPERTY_ACTUAL_SIZE, &actual, size, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    todo_wine ok( actual == 128, "got %u\n", (ULONG)actual );
+
+    hr = WsAlloc( heap, 1, &ptr, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    requested = 0xdeadbeef;
+    size = sizeof(requested);
+    hr = WsGetHeapProperty( heap, WS_HEAP_PROPERTY_REQUESTED_SIZE, &requested, size, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    todo_wine ok( requested == 129, "got %u\n", (ULONG)requested );
+
+    actual = 0xdeadbeef;
+    size = sizeof(actual);
+    hr = WsGetHeapProperty( heap, WS_HEAP_PROPERTY_ACTUAL_SIZE, &actual, size, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    todo_wine ok( actual == 384, "got %u\n", (ULONG)actual );
+
+    hr = WsResetHeap( NULL, NULL );
+    ok( hr == E_INVALIDARG, "got %08x\n", hr );
+
+    hr = WsResetHeap( heap, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    requested = 0xdeadbeef;
+    size = sizeof(requested);
+    hr = WsGetHeapProperty( heap, WS_HEAP_PROPERTY_REQUESTED_SIZE, &requested, size, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    ok( !requested, "got %u\n", (ULONG)requested );
+
+    actual = 0xdeadbeef;
+    size = sizeof(actual);
+    hr = WsGetHeapProperty( heap, WS_HEAP_PROPERTY_ACTUAL_SIZE, &actual, size, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    todo_wine ok( actual == 128, "got %u\n", (ULONG)actual );
+
+    WsFreeHeap( heap );
+}
+
+static void test_datetime(void)
+{
+    static const struct
+    {
+        const char        *str;
+        HRESULT            hr;
+        __int64            ticks;
+        WS_DATETIME_FORMAT format;
+    }
+    tests[] =
+    {
+        {"<t>0000-01-01T00:00:00Z</t>", WS_E_INVALID_FORMAT, 0, 0},
+        {"<t>0001-01-01T00:00:00Z</t>", S_OK, 0, WS_DATETIME_FORMAT_UTC},
+        {"<t>0001-01-01T00:00:00.Z</t>", WS_E_INVALID_FORMAT, 0, 0},
+        {"<t>0001-01-01T00:00:00.0Z</t>", S_OK, 0, WS_DATETIME_FORMAT_UTC},
+        {"<t>0001-01-01T00:00:00.1Z</t>", S_OK, 0x0000f4240, WS_DATETIME_FORMAT_UTC},
+        {"<t>0001-01-01T00:00:00.01Z</t>", S_OK, 0x0000186a0, WS_DATETIME_FORMAT_UTC},
+        {"<t>0001-01-01T00:00:00.0000001Z</t>", S_OK, 1, WS_DATETIME_FORMAT_UTC},
+        {"<t>0001-01-01T00:00:00.9999999Z</t>", S_OK, 0x00098967f, WS_DATETIME_FORMAT_UTC},
+        {"<t>0001-01-01T00:00:00.0000000Z</t>", S_OK, 0, WS_DATETIME_FORMAT_UTC},
+        {"<t>0001-01-01T00:00:00.00000001Z</t>", WS_E_INVALID_FORMAT, 0, 0},
+        {"<t>0001-01-01T00:00:00Z-</t>", WS_E_INVALID_FORMAT, 0},
+        {"<t>-0001-01-01T00:00:00Z</t>", WS_E_INVALID_FORMAT, 0, 0},
+        {"<t>0001-00-01T00:00:00Z</t>", WS_E_INVALID_FORMAT, 0, 0},
+        {"<t>0001-13-01T00:00:00Z</t>", WS_E_INVALID_FORMAT, 0, 0},
+        {"<t>0001-12-01T00:00:00Z</t>", S_OK, 0x1067555f88000, WS_DATETIME_FORMAT_UTC},
+        {"<t>0001-01-00T00:00:00Z</t>", WS_E_INVALID_FORMAT, 0, 0},
+        {"<t>2001-01-32T00:00:00Z</t>", WS_E_INVALID_FORMAT, 0, 0},
+        {"<t>2001-01-31T00:00:00Z</t>", S_OK, 0x8c2592fe3794000, WS_DATETIME_FORMAT_UTC},
+        {"<t>1900-02-29T00:00:00Z</t>", WS_E_INVALID_FORMAT, 0, 0},
+        {"<t>2000-02-29T00:00:00Z</t>", S_OK, 0x8c1505f0e438000, 0},
+        {"<t>2001-02-29T00:00:00Z</t>", WS_E_INVALID_FORMAT, 0, 0},
+        {"<t>2001-02-28T00:00:00Z</t>", S_OK, 0x8c26f30870a4000, WS_DATETIME_FORMAT_UTC},
+        {"<t>0001-00-01U00:00:00Z</t>", WS_E_INVALID_FORMAT, 0, 0},
+        {"<t>0001-01-01T24:00:00Z</t>", S_OK, 0xc92a69c000, WS_DATETIME_FORMAT_UTC},
+        {"<t>0001-01-01T24:00:01Z</t>", WS_E_INVALID_FORMAT, 0, 0},
+        {"<t>0001-01-01T00:60:00Z</t>", WS_E_INVALID_FORMAT, 0, 0},
+        {"<t>0001-01-01T00:00:60Z</t>", WS_E_INVALID_FORMAT, 0, 0},
+        {"<t>0001-01-01T00:00:00Y</t>", WS_E_INVALID_FORMAT, 0, 0},
+        {"<t>0001-01-01T00:00:00+00:01</t>", WS_E_INVALID_FORMAT, 0, 0},
+        {"<t>0001-01-01T00:00:00-00:01</t>", S_OK, 0x023c34600, WS_DATETIME_FORMAT_LOCAL},
+        {"<t>9999-12-31T24:00:00+00:01</t>", S_OK, 0x2bca2875d073fa00, WS_DATETIME_FORMAT_LOCAL},
+        {"<t>9999-12-31T24:00:00-00:01</t>", WS_E_INVALID_FORMAT, 0, 0},
+        {"<t>0002-01-01T00:00:00+14:01</t>", WS_E_INVALID_FORMAT, 0, 0},
+        {"<t>0002-01-01T00:00:00+15:00</t>", WS_E_INVALID_FORMAT, 0, 0},
+        {"<t>0002-01-01T00:00:00+13:60</t>", WS_E_INVALID_FORMAT, 0, 0},
+        {"<t>0002-01-01T00:00:00+13:59</t>", S_OK, 0x11e5c43cc5600, WS_DATETIME_FORMAT_LOCAL},
+        {"<t>0002-01-01T00:00:00+01:00</t>", S_OK, 0x11ec917025800, WS_DATETIME_FORMAT_LOCAL},
+        {"<t>2016-01-01T00:00:00-01:00</t>", S_OK, 0x8d31246dfbba800, WS_DATETIME_FORMAT_LOCAL},
+        {"<t>2016-01-01T00:00:00Z</t>", S_OK, 0x8d3123e7df74000, WS_DATETIME_FORMAT_UTC},
+        {"<t> 2016-01-02T03:04:05Z </t>", S_OK, 0x8d313215fb64080, WS_DATETIME_FORMAT_UTC},
+        {"<t>+2016-01-01T00:00:00Z</t>", WS_E_INVALID_FORMAT, 0, 0},
+        {"<t></t>", WS_E_INVALID_FORMAT, 0, 0},
+        {"<t>01-01-01T00:00:00Z</t>", WS_E_INVALID_FORMAT, 0, 0},
+        {"<t>1601-01-01T00:00:00Z</t>", S_OK, 0x701ce1722770000, WS_DATETIME_FORMAT_UTC},
+    };
+    HRESULT hr;
+    WS_XML_READER *reader;
+    WS_HEAP *heap;
+    WS_DATETIME date;
+    ULONG i;
+
+    hr = WsCreateHeap( 1 << 16, 0, NULL, 0, &heap, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsCreateReader( NULL, 0, &reader, NULL ) ;
+    ok( hr == S_OK, "got %08x\n", hr );
+    for (i = 0; i < sizeof(tests)/sizeof(tests[0]); i++)
+    {
+        memset( &date, 0, sizeof(date) );
+        prepare_type_test( reader, tests[i].str, strlen(tests[i].str) );
+        hr = WsReadType( reader, WS_ELEMENT_CONTENT_TYPE_MAPPING, WS_DATETIME_TYPE, NULL,
+                         WS_READ_REQUIRED_VALUE, heap, &date, sizeof(date), NULL );
+        ok( hr == tests[i].hr, "%u: got %08x\n", i, hr );
+        if (hr == S_OK)
+        {
+            ok( date.ticks == tests[i].ticks, "%u: got %x%08x\n", i, (ULONG)(date.ticks >> 32), (ULONG)date.ticks );
+            ok( date.format == tests[i].format, "%u: got %u\n", i, date.format );
+        }
+    }
+
+    WsFreeReader( reader );
+    WsFreeHeap( heap );
+}
+
+static void test_WsDateTimeToFileTime(void)
+{
+    static const struct
+    {
+        WS_DATETIME dt;
+        HRESULT     hr;
+        FILETIME    ft;
+    }
+    tests[] =
+    {
+        { {0, WS_DATETIME_FORMAT_UTC}, WS_E_INVALID_FORMAT, {0, 0} },
+        { {0x701ce172276ffff, WS_DATETIME_FORMAT_UTC}, WS_E_INVALID_FORMAT, {0, 0} },
+        { {0x701ce1722770000, WS_DATETIME_FORMAT_UTC}, S_OK, {0, 0} },
+        { {0x2bca2875f4373fff, WS_DATETIME_FORMAT_UTC}, S_OK, {0xd1c03fff, 0x24c85a5e} },
+        { {0x2bca2875f4374000, WS_DATETIME_FORMAT_UTC}, S_OK, {0xd1c04000, 0x24c85a5e} },
+        { {0x2bca2875f4374000, WS_DATETIME_FORMAT_LOCAL}, S_OK, {0xd1c04000, 0x24c85a5e} },
+        { {~0, WS_DATETIME_FORMAT_UTC}, S_OK, {0xdd88ffff, 0xf8fe31e8} },
+    };
+    WS_DATETIME dt;
+    FILETIME ft;
+    HRESULT hr;
+    ULONG i;
+
+    hr = WsDateTimeToFileTime( NULL, NULL, NULL );
+    ok( hr == E_INVALIDARG, "got %08x\n", hr );
+
+    dt.ticks  = 0x701ce172277000;
+    dt.format = WS_DATETIME_FORMAT_UTC;
+    hr = WsDateTimeToFileTime( &dt, NULL, NULL );
+    ok( hr == E_INVALIDARG, "got %08x\n", hr );
+
+    hr = WsDateTimeToFileTime( NULL, &ft, NULL );
+    ok( hr == E_INVALIDARG, "got %08x\n", hr );
+
+    for (i = 0; i < sizeof(tests)/sizeof(tests[0]); i++)
+    {
+        memset( &ft, 0, sizeof(ft) );
+        hr = WsDateTimeToFileTime( &tests[i].dt, &ft, NULL );
+        ok( hr == tests[i].hr, "%u: got %08x\n", i, hr );
+        if (hr == S_OK)
+        {
+            ok( ft.dwLowDateTime == tests[i].ft.dwLowDateTime, "%u: got %08x\n", i, ft.dwLowDateTime );
+            ok( ft.dwHighDateTime == tests[i].ft.dwHighDateTime, "%u: got %08x\n", i, ft.dwHighDateTime );
+        }
+    }
+}
+
+static void test_WsFileTimeToDateTime(void)
+{
+    WS_DATETIME dt;
+    FILETIME ft;
+    HRESULT hr;
+
+    hr = WsFileTimeToDateTime( NULL, NULL, NULL );
+    ok( hr == E_INVALIDARG, "got %08x\n", hr );
+
+    ft.dwLowDateTime = ft.dwHighDateTime = 0;
+    hr = WsFileTimeToDateTime( &ft, NULL, NULL );
+    ok( hr == E_INVALIDARG, "got %08x\n", hr );
+
+    hr = WsFileTimeToDateTime( NULL, &dt, NULL );
+    ok( hr == E_INVALIDARG, "got %08x\n", hr );
+
+    dt.ticks = 0xdeadbeef;
+    dt.format = 0xdeadbeef;
+    hr = WsFileTimeToDateTime( &ft, &dt, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    ok( dt.ticks == 0x701ce1722770000, "got %x%08x\n", (ULONG)(dt.ticks >> 32), (ULONG)dt.ticks );
+    ok( dt.format == WS_DATETIME_FORMAT_UTC, "got %u\n", dt.format );
+
+    ft.dwLowDateTime  = 0xd1c03fff;
+    ft.dwHighDateTime = 0x24c85a5e;
+    hr = WsFileTimeToDateTime( &ft, &dt, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    ok( dt.ticks == 0x2bca2875f4373fff, "got %x%08x\n", (ULONG)(dt.ticks >> 32), (ULONG)dt.ticks );
+    ok( dt.format == WS_DATETIME_FORMAT_UTC, "got %u\n", dt.format );
+
+    ft.dwLowDateTime++;
+    hr = WsFileTimeToDateTime( &ft, &dt, NULL );
+    ok( hr == WS_E_INVALID_FORMAT, "got %08x\n", hr );
+
+    ft.dwLowDateTime  = 0xdd88ffff;
+    ft.dwHighDateTime = 0xf8fe31e8;
+    hr = WsFileTimeToDateTime( &ft, &dt, NULL );
+    ok( hr == WS_E_INVALID_FORMAT, "got %08x\n", hr );
+
+    ft.dwLowDateTime++;
+    hr = WsFileTimeToDateTime( &ft, &dt, NULL );
+    ok( hr == WS_E_NUMERIC_OVERFLOW, "got %08x\n", hr );
+}
+
+static void test_double(void)
+{
+    static const struct
+    {
+        const char *str;
+        HRESULT     hr;
+        ULONGLONG   val;
+    }
+    tests[] =
+    {
+        {"<t>0.0</t>", S_OK, 0},
+        {"<t>-0.0</t>", S_OK, 0x8000000000000000},
+        {"<t>+0.0</t>", S_OK, 0},
+        {"<t>-</t>", S_OK, 0},
+        {"<t>+</t>", S_OK, 0},
+        {"<t>.0</t>", S_OK, 0},
+        {"<t>0.</t>", S_OK, 0},
+        {"<t>0</t>", S_OK, 0},
+        {"<t> 0 </t>", S_OK, 0},
+        {"<t></t>", WS_E_INVALID_FORMAT, 0},
+        {"<t>0,1</t>", WS_E_INVALID_FORMAT, 0},
+        {"<t>1.1.</t>", WS_E_INVALID_FORMAT, 0},
+        {"<t>1</t>", S_OK, 0x3ff0000000000000},
+        {"<t>1.0000000000000002</t>", S_OK, 0x3ff0000000000001},
+        {"<t>1.0000000000000004</t>", S_OK, 0x3ff0000000000002},
+        {"<t>10000000000000000000</t>", S_OK, 0x43e158e460913d00},
+        {"<t>100000000000000000000</t>", S_OK, 0x4415af1d78b58c40},
+        {"<t>2</t>", S_OK, 0x4000000000000000},
+        {"<t>-2</t>", S_OK, 0xc000000000000000},
+        {"<t>nodouble</t>", WS_E_INVALID_FORMAT, 0},
+        {"<t>INF</t>", S_OK, 0x7ff0000000000000},
+        {"<t>-INF</t>", S_OK, 0xfff0000000000000},
+        {"<t>+INF</t>", WS_E_INVALID_FORMAT, 0},
+        {"<t>Infinity</t>", WS_E_INVALID_FORMAT, 0},
+        {"<t>-Infinity</t>", WS_E_INVALID_FORMAT, 0},
+        {"<t>inf</t>", WS_E_INVALID_FORMAT, 0},
+        {"<t>NaN</t>", S_OK, 0xfff8000000000000},
+        {"<t>-NaN</t>", WS_E_INVALID_FORMAT, 0},
+        {"<t>NAN</t>", WS_E_INVALID_FORMAT, 0},
+        {"<t>0.3</t>", S_OK, 0x3fd3333333333333},
+        {"<t>0.33</t>", S_OK, 0x3fd51eb851eb851f},
+        {"<t>0.333</t>", S_OK, 0x3fd54fdf3b645a1d},
+        {"<t>0.3333</t>", S_OK, 0x3fd554c985f06f69},
+        {"<t>0.33333</t>", S_OK, 0x3fd555475a31a4be},
+        {"<t>0.333333</t>", S_OK, 0x3fd55553ef6b5d46},
+        {"<t>0.3333333</t>", S_OK, 0x3fd55555318abc87},
+        {"<t>0.33333333</t>", S_OK, 0x3fd5555551c112da},
+        {"<t>0.333333333</t>", S_OK, 0x3fd5555554f9b516},
+        {"<t>0.3333333333</t>", S_OK, 0x3fd55555554c2bb5},
+        {"<t>0.33333333333</t>", S_OK, 0x3fd5555555546ac5},
+        {"<t>0.3333333333333</t>", S_OK, 0x3fd55555555552fd},
+        {"<t>0.33333333333333</t>", S_OK, 0x3fd5555555555519},
+        {"<t>0.333333333333333</t>", S_OK, 0x3fd555555555554f},
+        {"<t>0.3333333333333333</t>", S_OK, 0x3fd5555555555555},
+        {"<t>0.33333333333333333</t>", S_OK, 0x3fd5555555555555},
+        {"<t>0.1e10</t>", S_OK, 0x41cdcd6500000000},
+        {"<t>1e</t>", WS_E_INVALID_FORMAT, 0},
+        {"<t>1e0</t>", S_OK, 0x3ff0000000000000},
+        {"<t>1e+1</t>", S_OK, 0x4024000000000000},
+        {"<t>1e-1</t>", S_OK, 0x3fb999999999999a},
+        {"<t>e10</t>", WS_E_INVALID_FORMAT, 0},
+        {"<t>1e10.</t>", WS_E_INVALID_FORMAT, 0},
+        {"<t>1E10</t>", S_OK, 0x4202a05f20000000},
+        {"<t>1e10</t>", S_OK, 0x4202a05f20000000},
+        {"<t>1e-10</t>", S_OK, 0x3ddb7cdfd9d7bdbb},
+        {"<t>1.7976931348623158e308</t>", S_OK, 0x7fefffffffffffff},
+        {"<t>1.7976931348623159e308</t>", S_OK, 0x7ff0000000000000},
+        {"<t>4.94065645841247e-324</t>", S_OK, 0x1},
+    };
+    HRESULT hr;
+    WS_XML_READER *reader;
+    WS_HEAP *heap;
+    ULONGLONG val;
+    ULONG i;
+
+    hr = WsCreateHeap( 1 << 16, 0, NULL, 0, &heap, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsCreateReader( NULL, 0, &reader, NULL ) ;
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    for (i = 0; i < sizeof(tests)/sizeof(tests[0]); i++)
+    {
+        val = 0;
+        prepare_type_test( reader, tests[i].str, strlen(tests[i].str) );
+        hr = WsReadType( reader, WS_ELEMENT_CONTENT_TYPE_MAPPING, WS_DOUBLE_TYPE, NULL,
+                         WS_READ_REQUIRED_VALUE, heap, &val, sizeof(val), NULL );
+        ok( hr == tests[i].hr, "%u: got %08x\n", i, hr );
+        if (hr == tests[i].hr) ok( val == tests[i].val, "%u: got %x%08x\n", i, (ULONG)(val >> 32), (ULONG)val );
+    }
+
+    WsFreeReader( reader );
+    WsFreeHeap( heap );
+}
+
+static void test_WsReadElement(void)
+{
+    WS_XML_STRING localname = {1, (BYTE *)"t"}, ns = {0, NULL};
+    HRESULT hr;
+    WS_XML_READER *reader;
+    WS_ELEMENT_DESCRIPTION desc;
+    UINT32 val;
+
+    hr = WsCreateReader( NULL, 0, &reader, NULL ) ;
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    desc.elementLocalName = &localname;
+    desc.elementNs        = &ns;
+    desc.type             = WS_UINT32_TYPE;
+    desc.typeDescription  = NULL;
+
+    prepare_struct_type_test( reader, "<t>1</t>" );
+    hr = WsReadElement( NULL, &desc, WS_READ_REQUIRED_VALUE, NULL, &val, sizeof(val), NULL );
+    ok( hr == E_INVALIDARG, "got %08x\n", hr );
+
+    prepare_struct_type_test( reader, "<t>1</t>" );
+    hr = WsReadElement( reader, NULL, WS_READ_REQUIRED_VALUE, NULL, &val, sizeof(val), NULL );
+    ok( hr == E_INVALIDARG, "got %08x\n", hr );
+
+    prepare_struct_type_test( reader, "<t>1</t>" );
+    hr = WsReadElement( reader, &desc, WS_READ_REQUIRED_VALUE, NULL, NULL, sizeof(val), NULL );
+    ok( hr == E_INVALIDARG, "got %08x\n", hr );
+
+    prepare_struct_type_test( reader, "<t>1</t>" );
+    val = 0xdeadbeef;
+    hr = WsReadElement( reader, &desc, WS_READ_REQUIRED_VALUE, NULL, &val, sizeof(val), NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    ok( val == 1, "got %u\n", val );
+
+    WsFreeReader( reader );
+}
+
+static void test_WsReadValue(void)
+{
+    HRESULT hr;
+    WS_XML_READER *reader;
+    UINT32 val;
+
+    hr = WsCreateReader( NULL, 0, &reader, NULL ) ;
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    prepare_struct_type_test( reader, "<t>1</t>" );
+    hr = WsReadValue( NULL, WS_UINT32_TYPE, &val, sizeof(val), NULL );
+    ok( hr == E_INVALIDARG, "got %08x\n", hr );
+
+    prepare_struct_type_test( reader, "<t>1</t>" );
+    hr = WsReadValue( reader, WS_UINT32_TYPE, NULL, sizeof(val), NULL );
+    ok( hr == E_INVALIDARG, "got %08x\n", hr );
+
+    /* reader must be positioned correctly */
+    prepare_struct_type_test( reader, "<t>1</t>" );
+    hr = WsReadValue( reader, WS_UINT32_TYPE, &val, sizeof(val), NULL );
+    ok( hr == WS_E_INVALID_FORMAT, "got %08x\n", hr );
+
+    prepare_struct_type_test( reader, "<t>1</t>" );
+    hr = WsReadToStartElement( reader, NULL, NULL, NULL, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsReadValue( reader, WS_UINT32_TYPE, &val, sizeof(val), NULL );
+    ok( hr == WS_E_INVALID_FORMAT, "got %08x\n", hr );
+
+    prepare_struct_type_test( reader, "<t>1</t>" );
+    hr = WsReadToStartElement( reader, NULL, NULL, NULL, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsReadStartElement( reader, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    val = 0xdeadbeef;
+    hr = WsReadValue( reader, WS_UINT32_TYPE, &val, sizeof(val), NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    ok( val == 1, "got %u\n", val );
+
+    prepare_struct_type_test( reader, "<u t='1'></u>" );
+    hr = WsReadToStartElement( reader, NULL, NULL, NULL, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsReadValue( reader, WS_UINT32_TYPE, &val, sizeof(val), NULL );
+    ok( hr == WS_E_INVALID_FORMAT, "got %08x\n", hr );
+
+    WsFreeReader( reader );
+}
+
 START_TEST(reader)
 {
     test_WsCreateError();
@@ -2874,4 +3383,11 @@ START_TEST(reader)
     test_text_field_mapping();
     test_complex_struct_type();
     test_repeating_element();
+    test_WsResetHeap();
+    test_datetime();
+    test_WsDateTimeToFileTime();
+    test_WsFileTimeToDateTime();
+    test_double();
+    test_WsReadElement();
+    test_WsReadValue();
 }
