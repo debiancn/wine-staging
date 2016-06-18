@@ -124,50 +124,50 @@ static HRESULT set_dsdesc_from_resource(D3D11_DEPTH_STENCIL_VIEW_DESC *desc, ID3
 static void normalize_dsv_desc(D3D11_DEPTH_STENCIL_VIEW_DESC *desc, ID3D11Resource *resource)
 {
     D3D11_RESOURCE_DIMENSION dimension;
-
-    if (desc->Format != DXGI_FORMAT_UNKNOWN)
-        return;
+    unsigned int layer_count;
+    DXGI_FORMAT format;
 
     ID3D11Resource_GetType(resource, &dimension);
     switch (dimension)
     {
-        case D3D11_RESOURCE_DIMENSION_TEXTURE1D:
-        {
-            D3D11_TEXTURE1D_DESC texture_desc;
-            ID3D11Texture1D *texture;
-
-            if (FAILED(ID3D11Resource_QueryInterface(resource, &IID_ID3D11Texture1D, (void **)&texture)))
-            {
-                ERR("Resource of type TEXTURE1D doesn't implement ID3D11Texture1D.\n");
-                break;
-            }
-
-            ID3D11Texture1D_GetDesc(texture, &texture_desc);
-            ID3D11Texture1D_Release(texture);
-
-            if (desc->Format == DXGI_FORMAT_UNKNOWN)
-                desc->Format = texture_desc.Format;
-            break;
-        }
-
         case D3D11_RESOURCE_DIMENSION_TEXTURE2D:
         {
-            D3D11_TEXTURE2D_DESC texture_desc;
-            ID3D11Texture2D *texture;
+            const struct d3d_texture2d *texture;
 
-            if (FAILED(ID3D11Resource_QueryInterface(resource, &IID_ID3D11Texture2D, (void **)&texture)))
+            if (!(texture = unsafe_impl_from_ID3D11Texture2D((ID3D11Texture2D *)resource)))
             {
-                ERR("Resource of type TEXTURE2D doesn't implement ID3D11Texture2D.\n");
-                break;
+                ERR("Cannot get implementation from ID3D11Texture2D.\n");
+                return;
             }
 
-            ID3D11Texture2D_GetDesc(texture, &texture_desc);
-            ID3D11Texture2D_Release(texture);
-
-            if (desc->Format == DXGI_FORMAT_UNKNOWN)
-                desc->Format = texture_desc.Format;
+            format = texture->desc.Format;
+            layer_count = texture->desc.ArraySize;
             break;
         }
+
+        default:
+            return;
+    }
+
+    if (desc->Format == DXGI_FORMAT_UNKNOWN)
+        desc->Format = format;
+
+    switch (desc->ViewDimension)
+    {
+        case D3D11_DSV_DIMENSION_TEXTURE1DARRAY:
+            if (desc->u.Texture1DArray.ArraySize == -1 && desc->u.Texture1DArray.FirstArraySlice < layer_count)
+                desc->u.Texture1DArray.ArraySize = layer_count - desc->u.Texture1DArray.ArraySize;
+            break;
+
+        case D3D11_DSV_DIMENSION_TEXTURE2DARRAY:
+            if (desc->u.Texture2DArray.ArraySize == -1 && desc->u.Texture2DArray.FirstArraySlice < layer_count)
+                desc->u.Texture2DArray.ArraySize = layer_count - desc->u.Texture2DArray.FirstArraySlice;
+            break;
+
+        case D3D11_DSV_DIMENSION_TEXTURE2DMSARRAY:
+            if (desc->u.Texture2DMSArray.ArraySize == -1 && desc->u.Texture2DMSArray.FirstArraySlice < layer_count)
+                desc->u.Texture2DMSArray.ArraySize = layer_count - desc->u.Texture2DMSArray.FirstArraySlice;
+            break;
 
         default:
             break;
@@ -282,7 +282,7 @@ static HRESULT set_rtdesc_from_resource(D3D11_RENDER_TARGET_VIEW_DESC *desc, ID3
             desc->ViewDimension = D3D11_RTV_DIMENSION_TEXTURE3D;
             desc->u.Texture3D.MipSlice = 0;
             desc->u.Texture3D.FirstWSlice = 0;
-            desc->u.Texture3D.WSize = 1;
+            desc->u.Texture3D.WSize = texture_desc.Depth;
 
             return S_OK;
         }
@@ -296,50 +296,71 @@ static HRESULT set_rtdesc_from_resource(D3D11_RENDER_TARGET_VIEW_DESC *desc, ID3
 static void normalize_rtv_desc(D3D11_RENDER_TARGET_VIEW_DESC *desc, ID3D11Resource *resource)
 {
     D3D11_RESOURCE_DIMENSION dimension;
-
-    if (desc->Format != DXGI_FORMAT_UNKNOWN)
-        return;
+    unsigned int layer_count;
+    DXGI_FORMAT format;
 
     ID3D11Resource_GetType(resource, &dimension);
     switch (dimension)
     {
-        case D3D11_RESOURCE_DIMENSION_TEXTURE1D:
-        {
-            D3D11_TEXTURE1D_DESC texture_desc;
-            ID3D11Texture1D *texture;
-
-            if (FAILED(ID3D11Resource_QueryInterface(resource, &IID_ID3D11Texture1D, (void **)&texture)))
-            {
-                ERR("Resource of type TEXTURE1D doesn't implement ID3D11Texture1D.\n");
-                break;
-            }
-
-            ID3D11Texture1D_GetDesc(texture, &texture_desc);
-            ID3D11Texture1D_Release(texture);
-
-            if (desc->Format == DXGI_FORMAT_UNKNOWN)
-                desc->Format = texture_desc.Format;
-            break;
-        }
-
         case D3D11_RESOURCE_DIMENSION_TEXTURE2D:
         {
-            D3D11_TEXTURE2D_DESC texture_desc;
-            ID3D11Texture2D *texture;
+            const struct d3d_texture2d *texture;
 
-            if (FAILED(ID3D11Resource_QueryInterface(resource, &IID_ID3D11Texture2D, (void **)&texture)))
+            if (!(texture = unsafe_impl_from_ID3D11Texture2D((ID3D11Texture2D *)resource)))
             {
-                ERR("Resource of type TEXTURE2D doesn't implement ID3D11Texture2D.\n");
-                break;
+                ERR("Cannot get implementation from ID3D11Texture2D.\n");
+                return;
             }
 
-            ID3D11Texture2D_GetDesc(texture, &texture_desc);
-            ID3D11Texture2D_Release(texture);
-
-            if (desc->Format == DXGI_FORMAT_UNKNOWN)
-                desc->Format = texture_desc.Format;
+            format = texture->desc.Format;
+            layer_count = texture->desc.ArraySize;
             break;
         }
+
+        case D3D11_RESOURCE_DIMENSION_TEXTURE3D:
+        {
+            const struct d3d_texture3d *texture;
+
+            if (!(texture = unsafe_impl_from_ID3D11Texture3D((ID3D11Texture3D *)resource)))
+            {
+                ERR("Cannot get implementation from ID3D11Texture3D.\n");
+                return;
+            }
+
+            format = texture->desc.Format;
+            layer_count = texture->desc.Depth;
+            break;
+        }
+
+        default:
+            return;
+    }
+
+    if (desc->Format == DXGI_FORMAT_UNKNOWN)
+        desc->Format = format;
+
+    switch (desc->ViewDimension)
+    {
+        case D3D11_RTV_DIMENSION_TEXTURE1DARRAY:
+            if (desc->u.Texture1DArray.ArraySize == -1 && desc->u.Texture1DArray.FirstArraySlice < layer_count)
+                desc->u.Texture1DArray.ArraySize = layer_count - desc->u.Texture1DArray.ArraySize;
+            break;
+
+        case D3D11_RTV_DIMENSION_TEXTURE2DARRAY:
+            if (desc->u.Texture2DArray.ArraySize == -1 && desc->u.Texture2DArray.FirstArraySlice < layer_count)
+                desc->u.Texture2DArray.ArraySize = layer_count - desc->u.Texture2DArray.FirstArraySlice;
+            break;
+
+        case D3D11_RTV_DIMENSION_TEXTURE2DMSARRAY:
+            if (desc->u.Texture2DMSArray.ArraySize == -1 && desc->u.Texture2DMSArray.FirstArraySlice < layer_count)
+                desc->u.Texture2DMSArray.ArraySize = layer_count - desc->u.Texture2DMSArray.FirstArraySlice;
+            break;
+
+        case D3D11_RTV_DIMENSION_TEXTURE3D:
+            layer_count = max(1, layer_count >> desc->u.Texture3D.MipSlice);
+            if (desc->u.Texture3D.WSize == -1 && desc->u.Texture3D.FirstWSlice < layer_count)
+                desc->u.Texture3D.WSize = layer_count - desc->u.Texture3D.FirstWSlice;
+            break;
 
         default:
             break;
@@ -467,51 +488,99 @@ static HRESULT set_srdesc_from_resource(D3D11_SHADER_RESOURCE_VIEW_DESC *desc, I
 
 static void normalize_srv_desc(D3D11_SHADER_RESOURCE_VIEW_DESC *desc, ID3D11Resource *resource)
 {
+    unsigned int miplevel_count, layer_count;
     D3D11_RESOURCE_DIMENSION dimension;
-
-    if (desc->Format != DXGI_FORMAT_UNKNOWN)
-        return;
+    DXGI_FORMAT format;
 
     ID3D11Resource_GetType(resource, &dimension);
     switch (dimension)
     {
-        case D3D11_RESOURCE_DIMENSION_TEXTURE1D:
-        {
-            D3D11_TEXTURE1D_DESC texture_desc;
-            ID3D11Texture1D *texture;
-
-            if (FAILED(ID3D11Resource_QueryInterface(resource, &IID_ID3D11Texture1D, (void **)&texture)))
-            {
-                ERR("Resource of type TEXTURE1D doesn't implement ID3D11Texture1D.\n");
-                break;
-            }
-
-            ID3D11Texture1D_GetDesc(texture, &texture_desc);
-            ID3D11Texture1D_Release(texture);
-
-            if (desc->Format == DXGI_FORMAT_UNKNOWN)
-                desc->Format = texture_desc.Format;
-            break;
-        }
-
         case D3D11_RESOURCE_DIMENSION_TEXTURE2D:
         {
-            D3D11_TEXTURE2D_DESC texture_desc;
-            ID3D11Texture2D *texture;
+            const struct d3d_texture2d *texture;
 
-            if (FAILED(ID3D11Resource_QueryInterface(resource, &IID_ID3D11Texture2D, (void **)&texture)))
+            if (!(texture = unsafe_impl_from_ID3D11Texture2D((ID3D11Texture2D *)resource)))
             {
-                ERR("Resource of type TEXTURE2D doesn't implement ID3D11Texture2D.\n");
-                break;
+                ERR("Cannot get implementation from ID3D11Texture2D.\n");
+                return;
             }
 
-            ID3D11Texture2D_GetDesc(texture, &texture_desc);
-            ID3D11Texture2D_Release(texture);
-
-            if (desc->Format == DXGI_FORMAT_UNKNOWN)
-                desc->Format = texture_desc.Format;
+            format = texture->desc.Format;
+            miplevel_count = texture->desc.MipLevels;
+            layer_count = texture->desc.ArraySize;
             break;
         }
+
+        case D3D11_RESOURCE_DIMENSION_TEXTURE3D:
+        {
+            const struct d3d_texture3d *texture;
+
+            if (!(texture = unsafe_impl_from_ID3D11Texture3D((ID3D11Texture3D *)resource)))
+            {
+                ERR("Cannot get implementation from ID3D11Texture3D.\n");
+                return;
+            }
+
+            format = texture->desc.Format;
+            miplevel_count = texture->desc.MipLevels;
+            layer_count = 1;
+            break;
+        }
+
+        default:
+            return;
+    }
+
+    if (desc->Format == DXGI_FORMAT_UNKNOWN)
+        desc->Format = format;
+
+    switch (desc->ViewDimension)
+    {
+        case D3D11_SRV_DIMENSION_TEXTURE1D:
+            if (desc->u.Texture1D.MipLevels == -1 && desc->u.Texture1D.MostDetailedMip < miplevel_count)
+                desc->u.Texture1D.MipLevels = miplevel_count - desc->u.Texture1D.MostDetailedMip;
+            break;
+
+        case D3D11_SRV_DIMENSION_TEXTURE1DARRAY:
+            if (desc->u.Texture1DArray.MipLevels == -1 && desc->u.Texture1DArray.MostDetailedMip < miplevel_count)
+                desc->u.Texture1DArray.MipLevels = miplevel_count - desc->u.Texture1DArray.MostDetailedMip;
+            if (desc->u.Texture1DArray.ArraySize == -1 && desc->u.Texture1DArray.FirstArraySlice < miplevel_count)
+                desc->u.Texture1DArray.ArraySize = layer_count - desc->u.Texture1DArray.FirstArraySlice;
+            break;
+
+        case D3D11_SRV_DIMENSION_TEXTURE2D:
+            if (desc->u.Texture2D.MipLevels == -1 && desc->u.Texture2D.MostDetailedMip < miplevel_count)
+                desc->u.Texture2D.MipLevels = miplevel_count - desc->u.Texture2D.MostDetailedMip;
+            break;
+
+        case D3D11_SRV_DIMENSION_TEXTURE2DARRAY:
+            if (desc->u.Texture2DArray.MipLevels == -1 && desc->u.Texture2DArray.MostDetailedMip < miplevel_count)
+                desc->u.Texture2DArray.MipLevels = miplevel_count - desc->u.Texture2DArray.MostDetailedMip;
+            if (desc->u.Texture2DArray.ArraySize == -1 && desc->u.Texture2DArray.FirstArraySlice < layer_count)
+                desc->u.Texture2DArray.ArraySize = layer_count - desc->u.Texture2DArray.FirstArraySlice;
+            break;
+
+        case D3D11_SRV_DIMENSION_TEXTURE2DMSARRAY:
+            if (desc->u.Texture2DMSArray.ArraySize == -1 && desc->u.Texture2DMSArray.FirstArraySlice < layer_count)
+                desc->u.Texture2DMSArray.ArraySize = layer_count - desc->u.Texture2DMSArray.FirstArraySlice;
+            break;
+
+        case D3D11_SRV_DIMENSION_TEXTURE3D:
+            if (desc->u.Texture3D.MipLevels == -1 && desc->u.Texture3D.MostDetailedMip < miplevel_count)
+                desc->u.Texture3D.MipLevels = miplevel_count - desc->u.Texture3D.MostDetailedMip;
+            break;
+
+        case D3D11_SRV_DIMENSION_TEXTURECUBE:
+            if (desc->u.TextureCube.MipLevels == -1 && desc->u.TextureCube.MostDetailedMip < miplevel_count)
+                desc->u.TextureCube.MipLevels = miplevel_count - desc->u.TextureCube.MostDetailedMip;
+            break;
+
+        case D3D11_SRV_DIMENSION_TEXTURECUBEARRAY:
+            if (desc->u.TextureCubeArray.MipLevels == -1 && desc->u.TextureCubeArray.MostDetailedMip < miplevel_count)
+                desc->u.TextureCubeArray.MipLevels = miplevel_count - desc->u.TextureCubeArray.MostDetailedMip;
+            if (desc->u.TextureCubeArray.NumCubes == -1 && desc->u.TextureCubeArray.First2DArrayFace < layer_count)
+                desc->u.TextureCubeArray.NumCubes = (layer_count - desc->u.TextureCubeArray.First2DArrayFace) / 6;
+            break;
 
         default:
             break;
@@ -1641,9 +1710,105 @@ static const struct ID3D10ShaderResourceView1Vtbl d3d10_shader_resource_view_vtb
     d3d10_shader_resource_view_GetDesc1,
 };
 
+static HRESULT wined3d_shader_resource_view_desc_from_d3d11(struct wined3d_shader_resource_view_desc *wined3d_desc,
+        const D3D11_SHADER_RESOURCE_VIEW_DESC *desc)
+{
+    wined3d_desc->format_id = wined3dformat_from_dxgi_format(desc->Format);
+    wined3d_desc->flags = 0;
+
+    switch (desc->ViewDimension)
+    {
+        case D3D11_SRV_DIMENSION_BUFFER:
+            wined3d_desc->u.buffer.start_idx = desc->u.Buffer.u1.FirstElement;
+            wined3d_desc->u.buffer.count = desc->u.Buffer.u2.NumElements;
+            break;
+
+        case D3D11_SRV_DIMENSION_TEXTURE1D:
+            wined3d_desc->u.texture.level_idx = desc->u.Texture1D.MostDetailedMip;
+            wined3d_desc->u.texture.level_count = desc->u.Texture1D.MipLevels;
+            wined3d_desc->u.texture.layer_idx = 0;
+            wined3d_desc->u.texture.layer_count = 1;
+            break;
+
+        case D3D11_SRV_DIMENSION_TEXTURE1DARRAY:
+            wined3d_desc->flags = WINED3D_VIEW_TEXTURE_ARRAY;
+            wined3d_desc->u.texture.level_idx = desc->u.Texture1DArray.MostDetailedMip;
+            wined3d_desc->u.texture.level_count = desc->u.Texture1DArray.MipLevels;
+            wined3d_desc->u.texture.layer_idx = desc->u.Texture1DArray.FirstArraySlice;
+            wined3d_desc->u.texture.layer_count = desc->u.Texture1DArray.ArraySize;
+            break;
+
+        case D3D11_SRV_DIMENSION_TEXTURE2D:
+            wined3d_desc->u.texture.level_idx = desc->u.Texture2D.MostDetailedMip;
+            wined3d_desc->u.texture.level_count = desc->u.Texture2D.MipLevels;
+            wined3d_desc->u.texture.layer_idx = 0;
+            wined3d_desc->u.texture.layer_count = 1;
+            break;
+
+        case D3D11_SRV_DIMENSION_TEXTURE2DARRAY:
+            wined3d_desc->flags = WINED3D_VIEW_TEXTURE_ARRAY;
+            wined3d_desc->u.texture.level_idx = desc->u.Texture2DArray.MostDetailedMip;
+            wined3d_desc->u.texture.level_count = desc->u.Texture2DArray.MipLevels;
+            wined3d_desc->u.texture.layer_idx = desc->u.Texture2DArray.FirstArraySlice;
+            wined3d_desc->u.texture.layer_count = desc->u.Texture2DArray.ArraySize;
+            break;
+
+        case D3D11_SRV_DIMENSION_TEXTURE2DMS:
+            wined3d_desc->u.texture.level_idx = 0;
+            wined3d_desc->u.texture.level_count = 1;
+            wined3d_desc->u.texture.layer_idx = 0;
+            wined3d_desc->u.texture.layer_count = 1;
+            break;
+
+        case D3D11_SRV_DIMENSION_TEXTURE2DMSARRAY:
+            wined3d_desc->flags = WINED3D_VIEW_TEXTURE_ARRAY;
+            wined3d_desc->u.texture.level_idx = 0;
+            wined3d_desc->u.texture.level_count = 1;
+            wined3d_desc->u.texture.layer_idx = desc->u.Texture2DMSArray.FirstArraySlice;
+            wined3d_desc->u.texture.layer_count = desc->u.Texture2DMSArray.ArraySize;
+            break;
+
+        case D3D11_SRV_DIMENSION_TEXTURE3D:
+            wined3d_desc->u.texture.level_idx = desc->u.Texture3D.MostDetailedMip;
+            wined3d_desc->u.texture.level_count = desc->u.Texture3D.MipLevels;
+            wined3d_desc->u.texture.layer_idx = 0;
+            wined3d_desc->u.texture.layer_count = 1;
+            break;
+
+        case D3D11_SRV_DIMENSION_TEXTURECUBE:
+            wined3d_desc->flags = WINED3D_VIEW_TEXTURE_CUBE;
+            wined3d_desc->u.texture.level_idx = desc->u.TextureCube.MostDetailedMip;
+            wined3d_desc->u.texture.level_count = desc->u.TextureCube.MipLevels;
+            wined3d_desc->u.texture.layer_idx = 0;
+            wined3d_desc->u.texture.layer_count = 6;
+            break;
+
+        case D3D11_SRV_DIMENSION_TEXTURECUBEARRAY:
+            wined3d_desc->flags = WINED3D_VIEW_TEXTURE_CUBE | WINED3D_VIEW_TEXTURE_ARRAY;
+            wined3d_desc->u.texture.level_idx = desc->u.TextureCubeArray.MostDetailedMip;
+            wined3d_desc->u.texture.level_count = desc->u.TextureCubeArray.MipLevels;
+            wined3d_desc->u.texture.layer_idx = desc->u.TextureCubeArray.First2DArrayFace;
+            wined3d_desc->u.texture.layer_count = 6 * desc->u.TextureCubeArray.NumCubes;
+            break;
+
+        case D3D11_SRV_DIMENSION_BUFFEREX:
+            wined3d_desc->flags = desc->u.BufferEx.Flags;
+            wined3d_desc->u.buffer.start_idx = desc->u.BufferEx.FirstElement;
+            wined3d_desc->u.buffer.count = desc->u.BufferEx.NumElements;
+            break;
+
+        default:
+            WARN("Unrecognized view dimension %#x.\n", desc->ViewDimension);
+            return E_FAIL;
+    }
+
+    return S_OK;
+}
+
 static HRESULT d3d_shader_resource_view_init(struct d3d_shader_resource_view *view, struct d3d_device *device,
         ID3D11Resource *resource, const D3D11_SHADER_RESOURCE_VIEW_DESC *desc)
 {
+    struct wined3d_shader_resource_view_desc wined3d_desc;
     struct wined3d_resource *wined3d_resource;
     HRESULT hr;
 
@@ -1662,6 +1827,9 @@ static HRESULT d3d_shader_resource_view_init(struct d3d_shader_resource_view *vi
         normalize_srv_desc(&view->desc, resource);
     }
 
+    if (FAILED(hr = wined3d_shader_resource_view_desc_from_d3d11(&wined3d_desc, &view->desc)))
+        return hr;
+
     wined3d_mutex_lock();
     if (!(wined3d_resource = wined3d_resource_from_d3d11_resource(resource)))
     {
@@ -1670,7 +1838,7 @@ static HRESULT d3d_shader_resource_view_init(struct d3d_shader_resource_view *vi
         return E_FAIL;
     }
 
-    if (FAILED(hr = wined3d_shader_resource_view_create(wined3d_resource,
+    if (FAILED(hr = wined3d_shader_resource_view_create(&wined3d_desc, wined3d_resource,
             view, &d3d_null_wined3d_parent_ops, &view->wined3d_view)))
     {
         wined3d_mutex_unlock();

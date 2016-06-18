@@ -65,8 +65,8 @@ setup with "rm -rf ~/.wine". This will destroy everything you've installed,
 including configuration and data files, so if you have anything important,
 please back it up first. You can then start fresh.
 
-32-/64-bit
-==========
+Running 32-bit Windows applications on 64-bit systems
+=====================================================
 Most Windows binaries are 32-bit applications. You need to install wine32 (or
 wine32-development) to run them. wine64 (or wine64-development) alone cannot do
 this.
@@ -78,7 +78,7 @@ wine32-development). As root, execute e.g.:
 
 If you have wine32 and wine64 (or wine32-development and wine64-development)
 installed, Wine will default to a shared 64-bit prefix that runs most 32-bit
-Windows applications.
+Windows applications (WoW64).
 
 If this causes problems for an application, you may create a 32-bit prefix by
 running e.g.:
@@ -91,6 +91,23 @@ $ WINEPREFIX="$HOME/.wine32" wine-development application.exe
 
 If you don't want 64-bit at all, just uninstall wine64 (or
 wine-64-development).
+
+32-bit results from the tools (winegcc, ...) on 64-bit systems
+==============================================================
+You may generate 32-bit results with the programs in wine32-tools (or
+wine32-development-tools) as well as with those in wine64-tools (or
+wine64-development-tools).
+
+Enable multiarch (see above). Than install the matching 32-bit Wine development
+files. As root, execute e.g. on amd64:
+# apt install libwine-dev:i386
+# apt install libwine-development-dev:i386
+
+Use the programs with the option "-m32" (for winemaker --wine32). If you are
+using wine64(-development)-tools specify the arch-specific path to some files
+additionally, e.g.:
+$ winegcc -m32 -L/usr/lib/i386-linux-gnu/wine ...
+$ winegcc-development -m32 -L/usr/lib/i386-linux-gnu/wine-development ...
 
 Wine Gecko
 ==========

@@ -35,7 +35,7 @@ author: Michael Gilbert <mgilbert@debian.org>
  
  DECL_HANDLER(new_process);
  DECL_HANDLER(get_new_process_info);
-@@ -2293,9 +2293,8 @@ C_ASSERT( FIELD_OFFSET(struct terminate_
+@@ -2307,9 +2307,8 @@ C_ASSERT( FIELD_OFFSET(struct terminate_
  C_ASSERT( FIELD_OFFSET(struct terminate_job_request, status) == 16 );
  C_ASSERT( sizeof(struct terminate_job_request) == 24 );
  
@@ -61,7 +61,7 @@ author: Michael Gilbert <mgilbert@debian.org>
  
  static void dump_new_process_request( const struct new_process_request *req )
  {
-@@ -5239,8 +5240,7 @@ static const struct
+@@ -5268,8 +5269,7 @@ static const struct
      { NULL, 0 }
  };
  

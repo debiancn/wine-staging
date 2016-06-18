@@ -31,6 +31,7 @@ CONFLAGS=--with-gnutls \
          --without-capi \
          --without-gphoto \
          --disable-tests \
+         --enable-maintainer-mode \
          --libdir=/$(LIBDIR) \
          --bindir=/$(BINDIR) \
          --mandir=/$(MANDIR) \
@@ -53,6 +54,9 @@ ifeq ($(DEB_HOST_ARCH), armel)
 export DEB_CFLAGS_MAINT_APPEND+=-march=armv5t
 export DEB_LDFLAGS_MAINT_APPEND+=-march=armv5t
 endif
+
+# override maintainer mode config
+export DEB_CFLAGS_MAINT_APPEND+=-Wno-error
 
 # additional files to generate
 INSTALLS=$(shell ls debian/*VERSION* | sed s/VERSION/$(VERSION)/) \

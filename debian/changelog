@@ -1,3 +1,34 @@
+wine-development (1.9.12-1) unstable; urgency=medium
+
+  [ Michael Gilbert ]
+  * New upstream release 1.9.12, released Jun 10, 2016.
+    - Bug fix update of the Mono engine.
+    - Initial version of a taskbar in desktop mode.
+    - Fixes for right-to-left languages in Uniscribe.
+    - More Shader Model 4 support in Direct3D.
+    - Better metafile support in RichEdit.
+    - Various bug fixes.
+
+  [ Jens Reyer ]
+  * Cherrypick changes from stretch:
+    - Add Wine's TrueType fonts to clean to regenerate them and to
+      fonts-wineVERSION.install (see: #818925).
+      Note: fonts-wine-development isn't built currently, instead the
+      already fixed fonts-wine is used.
+    - Build Wine in maintainer mode.
+      Note: added alternative build-dependency on fontforge.
+    - Don't error out on build warnings.
+  * Drop useless workaround for one-arch-only binNMUs.
+  * Add alternative dependency on 32-bit libwine-dev to wine64-tools.
+  * Make wineNN-tools multi-arch installable (closes: #824673, see: #823264).
+    Thanks to Javier Serrano Polo.
+  * Let libwine-dev prefer wine64-tools to wine32-tools.
+  * Document generating 32-bit results with the -tools packages.
+    Thanks to Andrey Gursky and Javier Serrano Polo.
+  * Update suggests libwine-gecko to 2.44 (needs packaging).
+
+ -- Michael Gilbert <mgilbert@debian.org>  Sun, 12 Jun 2016 23:18:42 +0000
+
 wine-development (1.9.11-1~bpo8+1) jessie-backports; urgency=medium
 
   * Rebuild for jessie-backports.

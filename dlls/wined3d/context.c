@@ -378,7 +378,7 @@ static inline void context_set_fbo_key_for_surface(const struct wined3d_context 
         struct wined3d_fbo_entry_key *key, UINT idx, struct wined3d_surface *surface,
         DWORD location)
 {
-    if (!surface)
+    if (!surface || surface->container->resource.format->id == WINED3DFMT_NULL)
     {
         key->objects[idx].object = 0;
         key->objects[idx].target = 0;
@@ -3292,7 +3292,6 @@ static void context_bind_shader_resources(struct wined3d_context *context, const
     struct wined3d_shader_sampler_map_entry *entry;
     struct wined3d_shader_resource_view *view;
     struct wined3d_sampler *sampler;
-    struct wined3d_texture *texture;
     struct wined3d_shader *shader;
     unsigned int i, j, count;
     GLuint sampler_name;
@@ -3332,32 +3331,17 @@ static void context_bind_shader_resources(struct wined3d_context *context, const
                 continue;
             }
 
-            if (view->resource->type == WINED3D_RTYPE_BUFFER)
-            {
-                FIXME("Buffer shader resources not supported.\n");
-                continue;
-            }
-
             if (entry->sampler_idx == WINED3D_SAMPLER_DEFAULT)
-            {
                 sampler_name = device->default_sampler;
-            }
             else if ((sampler = state->sampler[shader_types[i].type][entry->sampler_idx]))
-            {
                 sampler_name = sampler->name;
-            }
             else
-            {
-                WARN("No sampler object bound at index %u, %u.\n", shader_types[i].type, entry->sampler_idx);
-                continue;
-            }
+                sampler_name = device->null_sampler;
 
-            texture = texture_from_resource(view->resource);
             context_active_texture(context, gl_info, shader_types[i].base_idx + entry->bind_idx);
-            wined3d_texture_bind(texture, context, FALSE);
-
             GL_EXTCALL(glBindSampler(shader_types[i].base_idx + entry->bind_idx, sampler_name));
             checkGLcall("glBindSampler");
+            wined3d_shader_resource_view_bind(view, context);
         }
     }
 }

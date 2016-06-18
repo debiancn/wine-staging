@@ -21,6 +21,7 @@
 #include "windows.h"
 #include "initguid.h"
 #include "ole2.h"
+#include "olectl.h"
 #include "rpcproxy.h"
 #include "msscript.h"
 
@@ -30,7 +31,12 @@ WINE_DEFAULT_DEBUG_CHANNEL(msscript);
 
 struct ScriptControl {
     IScriptControl IScriptControl_iface;
+    IPersistStreamInit IPersistStreamInit_iface;
+    IOleObject IOleObject_iface;
+    IOleControl IOleControl_iface;
     LONG ref;
+    IOleClientSite *site;
+    SIZEL extent;
 };
 
 static HINSTANCE msscript_instance;
@@ -119,6 +125,21 @@ static inline ScriptControl *impl_from_IScriptControl(IScriptControl *iface)
     return CONTAINING_RECORD(iface, ScriptControl, IScriptControl_iface);
 }
 
+static inline ScriptControl *impl_from_IOleObject(IOleObject *iface)
+{
+    return CONTAINING_RECORD(iface, ScriptControl, IOleObject_iface);
+}
+
+static inline ScriptControl *impl_from_IPersistStreamInit(IPersistStreamInit *iface)
+{
+    return CONTAINING_RECORD(iface, ScriptControl, IPersistStreamInit_iface);
+}
+
+static inline ScriptControl *impl_from_IOleControl(IOleControl *iface)
+{
+    return CONTAINING_RECORD(iface, ScriptControl, IOleControl_iface);
+}
+
 static HRESULT WINAPI ScriptControl_QueryInterface(IScriptControl *iface, REFIID riid, void **ppv)
 {
     ScriptControl *This = impl_from_IScriptControl(iface);
@@ -132,6 +153,18 @@ static HRESULT WINAPI ScriptControl_QueryInterface(IScriptControl *iface, REFIID
     }else if(IsEqualGUID(&IID_IScriptControl, riid)) {
         TRACE("(%p)->(IID_IScriptControl %p)\n", This, ppv);
         *ppv = &This->IScriptControl_iface;
+    }else if(IsEqualGUID(&IID_IOleObject, riid)) {
+        TRACE("(%p)->(IID_IOleObject %p)\n", This, ppv);
+        *ppv = &This->IOleObject_iface;
+    }else if(IsEqualGUID(&IID_IPersistStreamInit, riid)) {
+        TRACE("(%p)->(IID_IPersistStreamInit %p)\n", This, ppv);
+        *ppv = &This->IPersistStreamInit_iface;
+    }else if(IsEqualGUID(&IID_IPersist, riid)) {
+        TRACE("(%p)->(IID_IPersist %p)\n", This, ppv);
+        *ppv = &This->IPersistStreamInit_iface;
+    }else if(IsEqualGUID(&IID_IOleControl, riid)) {
+        TRACE("(%p)->(IID_IOleControl %p)\n", This, ppv);
+        *ppv = &This->IOleControl_iface;
     }else {
         FIXME("(%p)->(%s %p)\n", This, debugstr_guid(riid), ppv);
         *ppv = NULL;
@@ -159,8 +192,11 @@ static ULONG WINAPI ScriptControl_Release(IScriptControl *iface)
 
     TRACE("(%p) ref=%d\n", This, ref);
 
-    if(!ref)
+    if(!ref) {
+        if (This->site)
+            IOleClientSite_Release(This->site);
         heap_free(This);
+    }
 
     return ref;
 }
@@ -414,10 +450,412 @@ static const IScriptControlVtbl ScriptControlVtbl = {
     ScriptControl_Run
 };
 
+static HRESULT WINAPI OleObject_QueryInterface(IOleObject *iface, REFIID riid, void **obj)
+{
+    ScriptControl *This = impl_from_IOleObject(iface);
+    return IScriptControl_QueryInterface(&This->IScriptControl_iface, riid, obj);
+}
+
+static ULONG WINAPI OleObject_AddRef(IOleObject *iface)
+{
+    ScriptControl *This = impl_from_IOleObject(iface);
+    return IScriptControl_AddRef(&This->IScriptControl_iface);
+}
+
+static ULONG WINAPI OleObject_Release(IOleObject *iface)
+{
+    ScriptControl *This = impl_from_IOleObject(iface);
+    return IScriptControl_Release(&This->IScriptControl_iface);
+}
+
+static HRESULT WINAPI OleObject_SetClientSite(IOleObject *iface, IOleClientSite *site)
+{
+    ScriptControl *This = impl_from_IOleObject(iface);
+
+    TRACE("(%p)->(%p)\n", This, site);
+
+    if (This->site)
+        IOleClientSite_Release(This->site);
+
+    if ((This->site = site))
+        IOleClientSite_AddRef(site);
+
+    return S_OK;
+}
+
+static HRESULT WINAPI OleObject_GetClientSite(IOleObject *iface, IOleClientSite **site)
+{
+    ScriptControl *This = impl_from_IOleObject(iface);
+
+    TRACE("(%p)->(%p)\n", This, site);
+
+    if (!site)
+        return E_POINTER;
+
+    if ((*site = This->site))
+        IOleClientSite_AddRef(*site);
+
+    return S_OK;
+}
+
+static HRESULT WINAPI OleObject_SetHostNames(IOleObject *iface, LPCOLESTR containerapp, LPCOLESTR containerobj)
+{
+    ScriptControl *This = impl_from_IOleObject(iface);
+
+    FIXME("(%p)->(%s %s)\n", This, debugstr_w(containerapp), debugstr_w(containerobj));
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI OleObject_Close(IOleObject *iface, DWORD save)
+{
+    ScriptControl *This = impl_from_IOleObject(iface);
+
+    FIXME("(%p)->(%d)\n", This, save);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI OleObject_SetMoniker(IOleObject *iface, DWORD which, IMoniker *moniker)
+{
+    ScriptControl *This = impl_from_IOleObject(iface);
+
+    FIXME("(%p)->(%d %p)\n", This, which, moniker);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI OleObject_GetMoniker(IOleObject *iface, DWORD assign, DWORD which, IMoniker **moniker)
+{
+    ScriptControl *This = impl_from_IOleObject(iface);
+
+    FIXME("(%p)->(%d %d %p)\n", This, assign, which, moniker);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI OleObject_InitFromData(IOleObject *iface, IDataObject *dataobj, BOOL creation,
+    DWORD reserved)
+{
+    ScriptControl *This = impl_from_IOleObject(iface);
+
+    FIXME("(%p)->(%p %d %d)\n", This, dataobj, creation, reserved);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI OleObject_GetClipboardData(IOleObject *iface, DWORD reserved, IDataObject **dataobj)
+{
+    ScriptControl *This = impl_from_IOleObject(iface);
+
+    FIXME("(%p)->(%d %p)\n", This, reserved, dataobj);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI OleObject_DoVerb(IOleObject *iface, LONG verb, LPMSG msg, IOleClientSite *active_site,
+    LONG index, HWND hwndParent, LPCRECT rect)
+{
+    ScriptControl *This = impl_from_IOleObject(iface);
+
+    FIXME("(%p)->(%d %p %p %d %p %p)\n", This, verb, msg, active_site, index, hwndParent, rect);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI OleObject_EnumVerbs(IOleObject *iface, IEnumOLEVERB **enumoleverb)
+{
+    ScriptControl *This = impl_from_IOleObject(iface);
+
+    FIXME("(%p)->(%p)\n", This, enumoleverb);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI OleObject_Update(IOleObject *iface)
+{
+    ScriptControl *This = impl_from_IOleObject(iface);
+
+    FIXME("(%p)\n", This);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI OleObject_IsUpToDate(IOleObject *iface)
+{
+    ScriptControl *This = impl_from_IOleObject(iface);
+
+    FIXME("(%p)\n", This);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI OleObject_GetUserClassID(IOleObject *iface, CLSID *clsid)
+{
+    ScriptControl *This = impl_from_IOleObject(iface);
+
+    FIXME("(%p)->(%p)\n", This, clsid);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI OleObject_GetUserType(IOleObject *iface, DWORD form_of_type, LPOLESTR *usertype)
+{
+    ScriptControl *This = impl_from_IOleObject(iface);
+
+    FIXME("(%p)->(%d %p)\n", This, form_of_type, usertype);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI OleObject_SetExtent(IOleObject *iface, DWORD aspect, SIZEL *size)
+{
+    ScriptControl *This = impl_from_IOleObject(iface);
+
+    FIXME("(%p)->(%d %p)\n", This, aspect, size);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI OleObject_GetExtent(IOleObject *iface, DWORD aspect, SIZEL *size)
+{
+    ScriptControl *This = impl_from_IOleObject(iface);
+
+    TRACE("(%p)->(%d %p)\n", This, aspect, size);
+
+    if (aspect != DVASPECT_CONTENT)
+        return DV_E_DVASPECT;
+
+    *size = This->extent;
+    return S_OK;
+}
+
+static HRESULT WINAPI OleObject_Advise(IOleObject *iface, IAdviseSink *sink, DWORD *connection)
+{
+    ScriptControl *This = impl_from_IOleObject(iface);
+
+    FIXME("(%p)->(%p %p)\n", This, sink, connection);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI OleObject_Unadvise(IOleObject *iface, DWORD connection)
+{
+    ScriptControl *This = impl_from_IOleObject(iface);
+
+    FIXME("(%p)->(%d)\n", This, connection);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI OleObject_EnumAdvise(IOleObject *iface, IEnumSTATDATA **enumadvise)
+{
+    ScriptControl *This = impl_from_IOleObject(iface);
+
+    FIXME("(%p)->(%p)\n", This, enumadvise);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI OleObject_GetMiscStatus(IOleObject *iface, DWORD aspect, DWORD *status)
+{
+    ScriptControl *This = impl_from_IOleObject(iface);
+
+    TRACE("(%p)->(%d %p)\n", This, aspect, status);
+
+    return OleRegGetMiscStatus(&CLSID_ScriptControl, aspect, status);
+}
+
+static HRESULT WINAPI OleObject_SetColorScheme(IOleObject *iface, LOGPALETTE *logpal)
+{
+    ScriptControl *This = impl_from_IOleObject(iface);
+
+    FIXME("(%p)->(%p)\n", This, logpal);
+
+    return E_NOTIMPL;
+}
+
+static const IOleObjectVtbl OleObjectVtbl = {
+    OleObject_QueryInterface,
+    OleObject_AddRef,
+    OleObject_Release,
+    OleObject_SetClientSite,
+    OleObject_GetClientSite,
+    OleObject_SetHostNames,
+    OleObject_Close,
+    OleObject_SetMoniker,
+    OleObject_GetMoniker,
+    OleObject_InitFromData,
+    OleObject_GetClipboardData,
+    OleObject_DoVerb,
+    OleObject_EnumVerbs,
+    OleObject_Update,
+    OleObject_IsUpToDate,
+    OleObject_GetUserClassID,
+    OleObject_GetUserType,
+    OleObject_SetExtent,
+    OleObject_GetExtent,
+    OleObject_Advise,
+    OleObject_Unadvise,
+    OleObject_EnumAdvise,
+    OleObject_GetMiscStatus,
+    OleObject_SetColorScheme
+};
+
+static HRESULT WINAPI PersistStreamInit_QueryInterface(IPersistStreamInit *iface, REFIID riid, void **obj)
+{
+    ScriptControl *This = impl_from_IPersistStreamInit(iface);
+    return IScriptControl_QueryInterface(&This->IScriptControl_iface, riid, obj);
+}
+
+static ULONG WINAPI PersistStreamInit_AddRef(IPersistStreamInit *iface)
+{
+    ScriptControl *This = impl_from_IPersistStreamInit(iface);
+    return IScriptControl_AddRef(&This->IScriptControl_iface);
+}
+
+static ULONG WINAPI PersistStreamInit_Release(IPersistStreamInit *iface)
+{
+    ScriptControl *This = impl_from_IPersistStreamInit(iface);
+    return IScriptControl_Release(&This->IScriptControl_iface);
+}
+
+static HRESULT WINAPI PersistStreamInit_GetClassID(IPersistStreamInit *iface, CLSID *clsid)
+{
+    ScriptControl *This = impl_from_IPersistStreamInit(iface);
+
+    FIXME("(%p)->(%p)\n", This, clsid);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI PersistStreamInit_IsDirty(IPersistStreamInit *iface)
+{
+    ScriptControl *This = impl_from_IPersistStreamInit(iface);
+
+    FIXME("(%p)\n", This);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI PersistStreamInit_Load(IPersistStreamInit *iface, IStream *stream)
+{
+    ScriptControl *This = impl_from_IPersistStreamInit(iface);
+
+    FIXME("(%p)->(%p)\n", This, stream);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI PersistStreamInit_Save(IPersistStreamInit *iface, IStream *stream, BOOL clear_dirty)
+{
+    ScriptControl *This = impl_from_IPersistStreamInit(iface);
+
+    FIXME("(%p)->(%p %d)\n", This, stream, clear_dirty);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI PersistStreamInit_GetSizeMax(IPersistStreamInit *iface, ULARGE_INTEGER *size)
+{
+    ScriptControl *This = impl_from_IPersistStreamInit(iface);
+
+    FIXME("(%p)->(%p)\n", This, size);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI PersistStreamInit_InitNew(IPersistStreamInit *iface)
+{
+    ScriptControl *This = impl_from_IPersistStreamInit(iface);
+
+    FIXME("(%p)\n", This);
+
+    return S_OK;
+}
+
+static const IPersistStreamInitVtbl PersistStreamInitVtbl = {
+    PersistStreamInit_QueryInterface,
+    PersistStreamInit_AddRef,
+    PersistStreamInit_Release,
+    PersistStreamInit_GetClassID,
+    PersistStreamInit_IsDirty,
+    PersistStreamInit_Load,
+    PersistStreamInit_Save,
+    PersistStreamInit_GetSizeMax,
+    PersistStreamInit_InitNew
+};
+
+static HRESULT WINAPI OleControl_QueryInterface(IOleControl *iface, REFIID riid, void **obj)
+{
+    ScriptControl *This = impl_from_IOleControl(iface);
+    return IScriptControl_QueryInterface(&This->IScriptControl_iface, riid, obj);
+}
+
+static ULONG WINAPI OleControl_AddRef(IOleControl *iface)
+{
+    ScriptControl *This = impl_from_IOleControl(iface);
+    return IScriptControl_AddRef(&This->IScriptControl_iface);
+}
+
+static ULONG WINAPI OleControl_Release(IOleControl *iface)
+{
+    ScriptControl *This = impl_from_IOleControl(iface);
+    return IScriptControl_Release(&This->IScriptControl_iface);
+}
+
+static HRESULT WINAPI OleControl_GetControlInfo(IOleControl *iface, CONTROLINFO *info)
+{
+    ScriptControl *This = impl_from_IOleControl(iface);
+
+    FIXME("(%p)->(%p)\n", This, info);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI OleControl_OnMnemonic(IOleControl *iface, MSG *msg)
+{
+    ScriptControl *This = impl_from_IOleControl(iface);
+
+    FIXME("(%p)->(%p)\n", This, msg);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI OleControl_OnAmbientPropertyChange(IOleControl *iface, DISPID dispid)
+{
+    ScriptControl *This = impl_from_IOleControl(iface);
+
+    FIXME("(%p)->(%#x)\n", This, dispid);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI OleControl_FreezeEvents(IOleControl *iface, BOOL freeze)
+{
+    ScriptControl *This = impl_from_IOleControl(iface);
+
+    FIXME("(%p)->(%d)\n", This, freeze);
+
+    return E_NOTIMPL;
+}
+
+static const IOleControlVtbl OleControlVtbl = {
+    OleControl_QueryInterface,
+    OleControl_AddRef,
+    OleControl_Release,
+    OleControl_GetControlInfo,
+    OleControl_OnMnemonic,
+    OleControl_OnAmbientPropertyChange,
+    OleControl_FreezeEvents
+};
+
 static HRESULT WINAPI ScriptControl_CreateInstance(IClassFactory *iface, IUnknown *outer, REFIID riid, void **ppv)
 {
     ScriptControl *script_control;
+    DWORD dpi_x, dpi_y;
     HRESULT hres;
+    HDC hdc;
 
     TRACE("(%p %s %p)\n", outer, debugstr_guid(riid), ppv);
 
@@ -426,7 +864,19 @@ static HRESULT WINAPI ScriptControl_CreateInstance(IClassFactory *iface, IUnknow
         return E_OUTOFMEMORY;
 
     script_control->IScriptControl_iface.lpVtbl = &ScriptControlVtbl;
+    script_control->IPersistStreamInit_iface.lpVtbl = &PersistStreamInitVtbl;
+    script_control->IOleObject_iface.lpVtbl = &OleObjectVtbl;
+    script_control->IOleControl_iface.lpVtbl = &OleControlVtbl;
     script_control->ref = 1;
+    script_control->site = NULL;
+
+    hdc = GetDC(0);
+    dpi_x = GetDeviceCaps(hdc, LOGPIXELSX);
+    dpi_y = GetDeviceCaps(hdc, LOGPIXELSY);
+    ReleaseDC(0, hdc);
+
+    script_control->extent.cx = MulDiv(38, 2540, dpi_x);
+    script_control->extent.cy = MulDiv(38, 2540, dpi_y);
 
     hres = IScriptControl_QueryInterface(&script_control->IScriptControl_iface, riid, ppv);
     IScriptControl_Release(&script_control->IScriptControl_iface);

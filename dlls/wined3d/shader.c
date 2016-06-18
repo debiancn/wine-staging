@@ -49,6 +49,7 @@ static const char * const shader_opcode_names[] =
     /* WINED3DSIH_BREAKP                           */ "breakp",
     /* WINED3DSIH_CALL                             */ "call",
     /* WINED3DSIH_CALLNZ                           */ "callnz",
+    /* WINED3DSIH_CASE                             */ "case",
     /* WINED3DSIH_CMP                              */ "cmp",
     /* WINED3DSIH_CND                              */ "cnd",
     /* WINED3DSIH_CRS                              */ "crs",
@@ -80,6 +81,7 @@ static const char * const shader_opcode_names[] =
     /* WINED3DSIH_DCL_UAV_TYPED                    */ "dcl_uav_typed",
     /* WINED3DSIH_DCL_VERTICES_OUT                 */ "dcl_maxOutputVertexCount",
     /* WINED3DSIH_DEF                              */ "def",
+    /* WINED3DSIH_DEFAULT                          */ "default",
     /* WINED3DSIH_DEFB                             */ "defb",
     /* WINED3DSIH_DEFI                             */ "defi",
     /* WINED3DSIH_DIV                              */ "div",
@@ -99,12 +101,15 @@ static const char * const shader_opcode_names[] =
     /* WINED3DSIH_ENDIF                            */ "endif",
     /* WINED3DSIH_ENDLOOP                          */ "endloop",
     /* WINED3DSIH_ENDREP                           */ "endrep",
+    /* WINED3DSIH_ENDSWITCH                        */ "endswitch",
     /* WINED3DSIH_EQ                               */ "eq",
     /* WINED3DSIH_EXP                              */ "exp",
     /* WINED3DSIH_EXPP                             */ "expp",
     /* WINED3DSIH_FRC                              */ "frc",
     /* WINED3DSIH_FTOI                             */ "ftoi",
     /* WINED3DSIH_FTOU                             */ "ftou",
+    /* WINED3DSIH_GATHER4                          */ "gather4",
+    /* WINED3DSIH_GATHER4_C                        */ "gather4_c",
     /* WINED3DSIH_GE                               */ "ge",
     /* WINED3DSIH_HS_CONTROL_POINT_PHASE           */ "hs_control_point_phase",
     /* WINED3DSIH_HS_DECLS                         */ "hs_decls",
@@ -123,6 +128,7 @@ static const char * const shader_opcode_names[] =
     /* WINED3DSIH_INE                              */ "ine",
     /* WINED3DSIH_INEG                             */ "ineg",
     /* WINED3DSIH_ISHL                             */ "ishl",
+    /* WINED3DSIH_ISHR                             */ "ishr",
     /* WINED3DSIH_ITOF                             */ "itof",
     /* WINED3DSIH_LABEL                            */ "label",
     /* WINED3DSIH_LD                               */ "ld",
@@ -176,6 +182,7 @@ static const char * const shader_opcode_names[] =
     /* WINED3DSIH_SQRT                             */ "sqrt",
     /* WINED3DSIH_STORE_UAV_TYPED                  */ "store_uav_typed",
     /* WINED3DSIH_SUB                              */ "sub",
+    /* WINED3DSIH_SWITCH                           */ "switch",
     /* WINED3DSIH_TEX                              */ "texld",
     /* WINED3DSIH_TEXBEM                           */ "texbem",
     /* WINED3DSIH_TEXBEML                          */ "texbeml",
@@ -201,6 +208,7 @@ static const char * const shader_opcode_names[] =
     /* WINED3DSIH_UDIV                             */ "udiv",
     /* WINED3DSIH_UGE                              */ "uge",
     /* WINED3DSIH_ULT                              */ "ult",
+    /* WINED3DSIH_UMAX                             */ "umax",
     /* WINED3DSIH_USHR                             */ "ushr",
     /* WINED3DSIH_UTOF                             */ "utof",
     /* WINED3DSIH_XOR                              */ "xor",
@@ -308,7 +316,7 @@ static void shader_signature_from_semantic(struct wined3d_shader_signature_eleme
     e->semantic_name = shader_semantic_name_from_usage(s->usage);
     e->semantic_idx = s->usage_idx;
     e->sysval_semantic = shader_sysval_semantic_from_usage(s->usage);
-    e->component_type = 0;
+    e->component_type = WINED3D_TYPE_FLOAT;
     e->register_idx = s->reg.reg.idx[0].offset;
     e->mask = s->reg.write_mask;
 }
@@ -319,7 +327,7 @@ static void shader_signature_from_usage(struct wined3d_shader_signature_element 
     e->semantic_name = shader_semantic_name_from_usage(usage);
     e->semantic_idx = usage_idx;
     e->sysval_semantic = shader_sysval_semantic_from_usage(usage);
-    e->component_type = 0;
+    e->component_type = WINED3D_TYPE_FLOAT;
     e->register_idx = reg_idx;
     e->mask = write_mask;
 }

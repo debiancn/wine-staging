@@ -1659,6 +1659,9 @@ HWND WIN_CreateWindowEx( CREATESTRUCTW *cs, LPCWSTR className, HINSTANCE module,
     send_parent_notify( hwnd, WM_CREATE );
     if (!IsWindow( hwnd )) return 0;
 
+    if (parent == GetDesktopWindow())
+        PostMessageW( parent, WM_PARENTNOTIFY, WM_CREATE, (LPARAM)hwnd );
+
     if (cs->style & WS_VISIBLE)
     {
         if (cs->style & WS_MAXIMIZE)
@@ -2675,7 +2678,7 @@ LONG WINAPI DECLSPEC_HOTPATCH SetWindowLongA( HWND hwnd, INT offset, LONG newval
  * and WM_STYLECHANGED afterwards.
  * App ver 4.0 can't use SetWindowLong to change WS_EX_TOPMOST.
  */
-LONG WINAPI SetWindowLongW(
+LONG WINAPI DECLSPEC_HOTPATCH SetWindowLongW(
     HWND hwnd,  /* [in] window to alter */
     INT offset, /* [in] offset, in bytes, of location to alter */
     LONG newval /* [in] new value of location */

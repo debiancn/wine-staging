@@ -181,6 +181,7 @@ enum wined3d_channel_type
     WINED3D_CHANNEL_TYPE_FLOAT,
     WINED3D_CHANNEL_TYPE_DEPTH,
     WINED3D_CHANNEL_TYPE_STENCIL,
+    WINED3D_CHANNEL_TYPE_UNUSED,
 };
 
 struct wined3d_typed_format_info
@@ -200,6 +201,7 @@ struct wined3d_typed_format_info
  * F - WINED3D_CHANNEL_TYPE_FLOAT
  * D - WINED3D_CHANNEL_TYPE_DEPTH
  * S - WINED3D_CHANNEL_TYPE_STENCIL
+ * X - WINED3D_CHANNEL_TYPE_UNUSED
  */
 static const struct wined3d_typed_format_info typed_formats[] =
 {
@@ -232,6 +234,8 @@ static const struct wined3d_typed_format_info typed_formats[] =
     {WINED3DFMT_R32_UINT,               WINED3DFMT_R32_TYPELESS,          "U"},
     {WINED3DFMT_R32_SINT,               WINED3DFMT_R32_TYPELESS,          "I"},
     {WINED3DFMT_R32_FLOAT,              WINED3DFMT_R32_TYPELESS,          "F"},
+    {WINED3DFMT_R24_UNORM_X8_TYPELESS,  WINED3DFMT_R24G8_TYPELESS,        "DX"},
+    {WINED3DFMT_X24_TYPELESS_G8_UINT,   WINED3DFMT_R24G8_TYPELESS,        "XS"},
     {WINED3DFMT_D24_UNORM_S8_UINT,      WINED3DFMT_R24G8_TYPELESS,        "DS"},
     {WINED3DFMT_R8G8_SNORM,             WINED3DFMT_R8G8_TYPELESS,         "ii"},
     {WINED3DFMT_R8G8_UNORM,             WINED3DFMT_R8G8_TYPELESS,         "uu"},
@@ -250,8 +254,8 @@ static const struct wined3d_typed_format_info typed_formats[] =
     {WINED3DFMT_BC5_UNORM,              WINED3DFMT_BC5_TYPELESS,          ""},
     {WINED3DFMT_B8G8R8A8_UNORM_SRGB,    WINED3DFMT_B8G8R8A8_TYPELESS,     "uuuu"},
     {WINED3DFMT_B8G8R8A8_UNORM,         WINED3DFMT_B8G8R8A8_TYPELESS,     "uuuu"},
-    {WINED3DFMT_B8G8R8X8_UNORM_SRGB,    WINED3DFMT_B8G8R8X8_TYPELESS,     "uuu"},
-    {WINED3DFMT_B8G8R8X8_UNORM,         WINED3DFMT_B8G8R8X8_TYPELESS,     "uuu"},
+    {WINED3DFMT_B8G8R8X8_UNORM_SRGB,    WINED3DFMT_B8G8R8X8_TYPELESS,     "uuuX"},
+    {WINED3DFMT_B8G8R8X8_UNORM,         WINED3DFMT_B8G8R8X8_TYPELESS,     "uuuX"},
 };
 
 struct wined3d_format_ddi_info
@@ -1261,7 +1265,8 @@ static const struct wined3d_format_texture_info format_texture_info[] =
             WINED3D_GL_EXT_NONE,        NULL},
     {WINED3DFMT_R8G8_UNORM,             GL_RG8,                           GL_RG8,                                 0,
             GL_RG,                      GL_UNSIGNED_BYTE,                 0,
-            WINED3DFMT_FLAG_TEXTURE | WINED3DFMT_FLAG_POSTPIXELSHADER_BLENDING | WINED3DFMT_FLAG_FILTERING,
+            WINED3DFMT_FLAG_TEXTURE | WINED3DFMT_FLAG_POSTPIXELSHADER_BLENDING | WINED3DFMT_FLAG_FILTERING
+            | WINED3DFMT_FLAG_RENDERTARGET,
             ARB_TEXTURE_RG,             NULL},
     {WINED3DFMT_R16_UNORM,              GL_R16,                           GL_R16,                                 0,
             GL_RED,                     GL_UNSIGNED_SHORT,                0,
@@ -1322,7 +1327,7 @@ static const struct wined3d_format_texture_info format_texture_info[] =
     {WINED3DFMT_R8G8_SNORM,             GL_RG8_SNORM,                     GL_RG8_SNORM,                           0,
             GL_RG,                      GL_BYTE,                          0,
             WINED3DFMT_FLAG_TEXTURE | WINED3DFMT_FLAG_POSTPIXELSHADER_BLENDING | WINED3DFMT_FLAG_FILTERING
-            | WINED3DFMT_FLAG_BUMPMAP,
+            | WINED3DFMT_FLAG_RENDERTARGET | WINED3DFMT_FLAG_BUMPMAP,
             EXT_TEXTURE_SNORM,          NULL},
     {WINED3DFMT_R5G5_SNORM_L6_UNORM,    GL_RGB5,                          GL_RGB5,                                0,
             GL_RGB,                     GL_UNSIGNED_SHORT_5_6_5,          2,
@@ -1362,7 +1367,7 @@ static const struct wined3d_format_texture_info format_texture_info[] =
     {WINED3DFMT_R8G8B8A8_SNORM,         GL_RGBA8_SNORM,                   GL_RGBA8_SNORM,                         0,
             GL_RGBA,                    GL_BYTE,                          0,
             WINED3DFMT_FLAG_TEXTURE | WINED3DFMT_FLAG_POSTPIXELSHADER_BLENDING | WINED3DFMT_FLAG_FILTERING
-            | WINED3DFMT_FLAG_BUMPMAP,
+            | WINED3DFMT_FLAG_RENDERTARGET | WINED3DFMT_FLAG_BUMPMAP,
             EXT_TEXTURE_SNORM,          NULL},
     {WINED3DFMT_R16G16_SNORM,           GL_RGB16,                         GL_RGB16,                               0,
             GL_BGR,                     GL_UNSIGNED_SHORT,                6,
@@ -1377,7 +1382,7 @@ static const struct wined3d_format_texture_info format_texture_info[] =
     {WINED3DFMT_R16G16_SNORM,           GL_RG16_SNORM,                    GL_RG16_SNORM,                          0,
             GL_RG,                      GL_SHORT,                         0,
             WINED3DFMT_FLAG_TEXTURE | WINED3DFMT_FLAG_POSTPIXELSHADER_BLENDING | WINED3DFMT_FLAG_FILTERING
-            | WINED3DFMT_FLAG_BUMPMAP,
+            | WINED3DFMT_FLAG_RENDERTARGET | WINED3DFMT_FLAG_BUMPMAP,
             EXT_TEXTURE_SNORM,          NULL},
     /* Depth stencil formats */
     {WINED3DFMT_D16_LOCKABLE,           GL_DEPTH_COMPONENT,               GL_DEPTH_COMPONENT,                     0,
@@ -1573,6 +1578,8 @@ static enum wined3d_channel_type map_channel_type(char t)
             return WINED3D_CHANNEL_TYPE_DEPTH;
         case 'S':
             return WINED3D_CHANNEL_TYPE_STENCIL;
+        case 'X':
+            return WINED3D_CHANNEL_TYPE_UNUSED;
         default:
             ERR("Invalid channel type '%c'.\n", t);
             return WINED3D_CHANNEL_TYPE_NONE;
@@ -1660,6 +1667,7 @@ static BOOL init_format_base_info(struct wined3d_gl_info *gl_info)
         format->block_width = typeless_format->block_width;
         format->block_height = typeless_format->block_height;
         format->block_byte_count = typeless_format->block_byte_count;
+        format->typeless_id = typeless_format->id;
 
         for (j = 0; j < strlen(typed_formats[i].channels); ++j)
         {
@@ -2446,6 +2454,137 @@ static void init_format_fbo_compat_info(struct wined3d_caps_gl_ctx *ctx)
         gl_info->fbo_ops.glDeleteFramebuffers(1, &fbo);
 }
 
+static GLenum lookup_gl_view_class(GLenum internal_format)
+{
+    static const struct
+    {
+        GLenum internal_format;
+        GLenum view_class;
+    }
+    view_classes[] =
+    {
+        /* 128-bit */
+        {GL_RGBA32F,        GL_VIEW_CLASS_128_BITS},
+        {GL_RGBA32UI,       GL_VIEW_CLASS_128_BITS},
+        {GL_RGBA32I,        GL_VIEW_CLASS_128_BITS},
+        /* 96-bit */
+        {GL_RGB32F,         GL_VIEW_CLASS_96_BITS},
+        {GL_RGB32UI,        GL_VIEW_CLASS_96_BITS},
+        {GL_RGB32I,         GL_VIEW_CLASS_96_BITS},
+        /* 64-bit */
+        {GL_RGBA16F,        GL_VIEW_CLASS_64_BITS},
+        {GL_RG32F,          GL_VIEW_CLASS_64_BITS},
+        {GL_RGBA16UI,       GL_VIEW_CLASS_64_BITS},
+        {GL_RG32UI,         GL_VIEW_CLASS_64_BITS},
+        {GL_RGBA16I,        GL_VIEW_CLASS_64_BITS},
+        {GL_RG32I,          GL_VIEW_CLASS_64_BITS},
+        {GL_RGBA16,         GL_VIEW_CLASS_64_BITS},
+        {GL_RGBA16_SNORM,   GL_VIEW_CLASS_64_BITS},
+        /* 48-bit */
+        {GL_RGB16,          GL_VIEW_CLASS_48_BITS},
+        {GL_RGB16_SNORM,    GL_VIEW_CLASS_48_BITS},
+        {GL_RGB16F,         GL_VIEW_CLASS_48_BITS},
+        {GL_RGB16UI,        GL_VIEW_CLASS_48_BITS},
+        {GL_RGB16I,         GL_VIEW_CLASS_48_BITS},
+        /* 32-bit */
+        {GL_RG16F,          GL_VIEW_CLASS_32_BITS},
+        {GL_R11F_G11F_B10F, GL_VIEW_CLASS_32_BITS},
+        {GL_R32F,           GL_VIEW_CLASS_32_BITS},
+        {GL_RGB10_A2UI,     GL_VIEW_CLASS_32_BITS},
+        {GL_RGBA8UI,        GL_VIEW_CLASS_32_BITS},
+        {GL_RG16UI,         GL_VIEW_CLASS_32_BITS},
+        {GL_R32UI,          GL_VIEW_CLASS_32_BITS},
+        {GL_RGBA8I,         GL_VIEW_CLASS_32_BITS},
+        {GL_RG16I,          GL_VIEW_CLASS_32_BITS},
+        {GL_R32I,           GL_VIEW_CLASS_32_BITS},
+        {GL_RGB10_A2,       GL_VIEW_CLASS_32_BITS},
+        {GL_RGBA8,          GL_VIEW_CLASS_32_BITS},
+        {GL_RG16,           GL_VIEW_CLASS_32_BITS},
+        {GL_RGBA8_SNORM,    GL_VIEW_CLASS_32_BITS},
+        {GL_RG16_SNORM,     GL_VIEW_CLASS_32_BITS},
+        {GL_SRGB8_ALPHA8,   GL_VIEW_CLASS_32_BITS},
+        {GL_RGB9_E5,        GL_VIEW_CLASS_32_BITS},
+        /* 24-bit */
+        {GL_RGB8,           GL_VIEW_CLASS_24_BITS},
+        {GL_RGB8_SNORM,     GL_VIEW_CLASS_24_BITS},
+        {GL_SRGB8,          GL_VIEW_CLASS_24_BITS},
+        {GL_RGB8UI,         GL_VIEW_CLASS_24_BITS},
+        {GL_RGB8I,          GL_VIEW_CLASS_24_BITS},
+        /* 16-bit */
+        {GL_R16F,           GL_VIEW_CLASS_16_BITS},
+        {GL_RG8UI,          GL_VIEW_CLASS_16_BITS},
+        {GL_R16UI,          GL_VIEW_CLASS_16_BITS},
+        {GL_RG8I,           GL_VIEW_CLASS_16_BITS},
+        {GL_R16I,           GL_VIEW_CLASS_16_BITS},
+        {GL_RG8,            GL_VIEW_CLASS_16_BITS},
+        {GL_R16,            GL_VIEW_CLASS_16_BITS},
+        {GL_RG8_SNORM,      GL_VIEW_CLASS_16_BITS},
+        {GL_R16_SNORM,      GL_VIEW_CLASS_16_BITS},
+        /* 8-bit */
+        {GL_R8UI,           GL_VIEW_CLASS_8_BITS},
+        {GL_R8I,            GL_VIEW_CLASS_8_BITS},
+        {GL_R8,             GL_VIEW_CLASS_8_BITS},
+        {GL_R8_SNORM,       GL_VIEW_CLASS_8_BITS},
+
+        /* RGTC1 */
+        {GL_COMPRESSED_RED_RGTC1,        GL_VIEW_CLASS_RGTC1_RED},
+        {GL_COMPRESSED_SIGNED_RED_RGTC1, GL_VIEW_CLASS_RGTC1_RED},
+        /* RGTC2 */
+        {GL_COMPRESSED_RG_RGTC2,         GL_VIEW_CLASS_RGTC2_RG},
+        {GL_COMPRESSED_SIGNED_RG_RGTC2,  GL_VIEW_CLASS_RGTC2_RG},
+
+        /* BPTC unorm */
+        {GL_COMPRESSED_RGBA_BPTC_UNORM,         GL_VIEW_CLASS_BPTC_UNORM},
+        {GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM,   GL_VIEW_CLASS_BPTC_UNORM},
+        /* BPTC float */
+        {GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT,   GL_VIEW_CLASS_BPTC_FLOAT},
+        {GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT, GL_VIEW_CLASS_BPTC_FLOAT},
+
+        /* DXT1 RGB */
+        {GL_COMPRESSED_RGB_S3TC_DXT1_EXT,        GL_VIEW_CLASS_S3TC_DXT1_RGB},
+        {GL_COMPRESSED_SRGB_S3TC_DXT1_EXT,       GL_VIEW_CLASS_S3TC_DXT1_RGB},
+        /* DXT1 RGBA */
+        {GL_COMPRESSED_RGBA_S3TC_DXT1_EXT,       GL_VIEW_CLASS_S3TC_DXT1_RGBA},
+        {GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT, GL_VIEW_CLASS_S3TC_DXT1_RGBA},
+        /* DXT3 */
+        {GL_COMPRESSED_RGBA_S3TC_DXT3_EXT,       GL_VIEW_CLASS_S3TC_DXT3_RGBA},
+        {GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT, GL_VIEW_CLASS_S3TC_DXT3_RGBA},
+        /* DXT5 */
+        {GL_COMPRESSED_RGBA_S3TC_DXT5_EXT,       GL_VIEW_CLASS_S3TC_DXT5_RGBA},
+        {GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT, GL_VIEW_CLASS_S3TC_DXT5_RGBA},
+    };
+
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(view_classes); ++i)
+    {
+        if (view_classes[i].internal_format == internal_format)
+            return view_classes[i].view_class;
+    }
+
+    return GL_NONE;
+}
+
+static void query_view_class(struct wined3d_format *format)
+{
+    GLenum internal_view_class, gamma_view_class, rt_view_class;
+
+    internal_view_class = lookup_gl_view_class(format->glInternal);
+    gamma_view_class = lookup_gl_view_class(format->glGammaInternal);
+    rt_view_class = lookup_gl_view_class(format->rtInternal);
+
+    if (internal_view_class == gamma_view_class || gamma_view_class == rt_view_class)
+    {
+        format->gl_view_class = internal_view_class;
+        TRACE("Format %s is member of GL view class %#x.\n",
+                debug_d3dformat(format->id), format->gl_view_class);
+    }
+    else
+    {
+        format->gl_view_class = GL_NONE;
+    }
+}
+
 static void query_internal_format(struct wined3d_adapter *adapter,
         struct wined3d_format *format, const struct wined3d_format_texture_info *texture_info,
         struct wined3d_gl_info *gl_info, BOOL srgb_write_supported, BOOL srgb_format)
@@ -2514,6 +2653,8 @@ static void query_internal_format(struct wined3d_adapter *adapter,
             format->flags[WINED3D_GL_RES_TYPE_TEX_RECT] &= ~WINED3DFMT_FLAG_TEXTURE;
         }
     }
+
+    query_view_class(format);
 
     if (format->glInternal && format->flags[WINED3D_GL_RES_TYPE_RB]
             & (WINED3DFMT_FLAG_RENDERTARGET | WINED3DFMT_FLAG_DEPTH | WINED3DFMT_FLAG_STENCIL))

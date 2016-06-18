@@ -1771,7 +1771,7 @@ static BOOL HTTP_ShouldBypassProxy(appinfo_t *lpwai, LPCWSTR server)
         if (!ptr)
             ptr = strchrW( tmp, ' ' );
         if (!ptr)
-            ptr = tmp + strlenW(ptr);
+            ptr = tmp + strlenW(tmp);
         ret = HTTP_DomainMatches( server, substr(tmp, ptr-tmp) );
         if (ret || !*ptr)
             break;
@@ -1798,8 +1798,10 @@ static BOOL HTTP_DealWithProxy(appinfo_t *hIC, http_session_t *session, http_req
     if(CSTR_EQUAL != CompareStringW(LOCALE_SYSTEM_DEFAULT, NORM_IGNORECASE,
                                     proxy, strlenW(szHttp), szHttp, strlenW(szHttp))) {
         WCHAR *proxy_url = heap_alloc(strlenW(proxy)*sizeof(WCHAR) + sizeof(szHttp));
-        if(!proxy_url)
+        if(!proxy_url) {
+            heap_free(proxy);
             return FALSE;
+        }
         strcpyW(proxy_url, szHttp);
         strcatW(proxy_url, proxy);
         heap_free(proxy);

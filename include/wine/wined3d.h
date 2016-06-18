@@ -763,6 +763,14 @@ enum wined3d_sysval_semantic
     WINED3D_SV_LINE_DENSITY_TESS_FACTOR     = 22,
 };
 
+enum wined3d_component_type
+{
+    WINED3D_TYPE_UNKNOWN = 0,
+    WINED3D_TYPE_UINT    = 1,
+    WINED3D_TYPE_INT     = 2,
+    WINED3D_TYPE_FLOAT   = 3,
+};
+
 enum wined3d_scanline_ordering
 {
     WINED3D_SCANLINE_ORDERING_UNKNOWN       = 0,
@@ -1475,6 +1483,12 @@ enum wined3d_display_rotation
 #define WINED3D_OUTPUT_SLOT_SEMANTIC                            0xffffffff
 #define WINED3D_OUTPUT_SLOT_UNUSED                              0xfffffffe
 
+#define WINED3D_VIEW_BUFFER_RAW                                 0x00000001
+#define WINED3D_VIEW_BUFFER_APPEND                              0x00000002
+#define WINED3D_VIEW_BUFFER_COUNTER                             0x00000004
+#define WINED3D_VIEW_TEXTURE_CUBE                               0x00000008
+#define WINED3D_VIEW_TEXTURE_ARRAY                              0x00000010
+
 struct wined3d_display_mode
 {
     UINT width;
@@ -1915,7 +1929,7 @@ struct wined3d_shader_signature_element
     const char *semantic_name;
     UINT semantic_idx;
     enum wined3d_sysval_semantic sysval_semantic;
-    DWORD component_type;
+    enum wined3d_component_type component_type;
     UINT register_idx;
     DWORD mask;
 };
@@ -1932,6 +1946,27 @@ struct wined3d_shader_desc
     struct wined3d_shader_signature input_signature;
     struct wined3d_shader_signature output_signature;
     unsigned int max_version;
+};
+
+struct wined3d_shader_resource_view_desc
+{
+    enum wined3d_format_id format_id;
+    unsigned int flags;
+    union
+    {
+        struct
+        {
+            unsigned int start_idx;
+            unsigned int count;
+        } buffer;
+        struct
+        {
+            unsigned int level_idx;
+            unsigned int level_count;
+            unsigned int layer_idx;
+            unsigned int layer_count;
+        } texture;
+    } u;
 };
 
 struct wined3d_output_desc
@@ -2113,7 +2148,7 @@ struct wined3d_shader_resource_view * __cdecl wined3d_device_get_gs_resource_vie
         UINT idx);
 struct wined3d_sampler * __cdecl wined3d_device_get_gs_sampler(const struct wined3d_device *device, UINT idx);
 struct wined3d_buffer * __cdecl wined3d_device_get_index_buffer(const struct wined3d_device *device,
-        enum wined3d_format_id *format);
+        enum wined3d_format_id *format, unsigned int *offset);
 HRESULT __cdecl wined3d_device_get_light(const struct wined3d_device *device,
         UINT light_idx, struct wined3d_light *light);
 HRESULT __cdecl wined3d_device_get_light_enable(const struct wined3d_device *device, UINT light_idx, BOOL *enable);
@@ -2203,7 +2238,7 @@ void __cdecl wined3d_device_set_gs_resource_view(struct wined3d_device *device,
         UINT idx, struct wined3d_shader_resource_view *view);
 void __cdecl wined3d_device_set_gs_sampler(struct wined3d_device *device, UINT idx, struct wined3d_sampler *sampler);
 void __cdecl wined3d_device_set_index_buffer(struct wined3d_device *device,
-        struct wined3d_buffer *index_buffer, enum wined3d_format_id format_id);
+        struct wined3d_buffer *index_buffer, enum wined3d_format_id format_id, unsigned int offset);
 HRESULT __cdecl wined3d_device_set_light(struct wined3d_device *device,
         UINT light_idx, const struct wined3d_light *light);
 HRESULT __cdecl wined3d_device_set_light_enable(struct wined3d_device *device, UINT light_idx, BOOL enable);
@@ -2409,8 +2444,9 @@ ULONG __cdecl wined3d_shader_incref(struct wined3d_shader *shader);
 HRESULT __cdecl wined3d_shader_set_local_constants_float(struct wined3d_shader *shader,
         UINT start_idx, const float *src_data, UINT vector4f_count);
 
-HRESULT __cdecl wined3d_shader_resource_view_create(struct wined3d_resource *resource, void *parent,
-        const struct wined3d_parent_ops *parent_ops, struct wined3d_shader_resource_view **view);
+HRESULT __cdecl wined3d_shader_resource_view_create(const struct wined3d_shader_resource_view_desc *desc,
+        struct wined3d_resource *resource, void *parent, const struct wined3d_parent_ops *parent_ops,
+        struct wined3d_shader_resource_view **view);
 ULONG __cdecl wined3d_shader_resource_view_decref(struct wined3d_shader_resource_view *view);
 void * __cdecl wined3d_shader_resource_view_get_parent(const struct wined3d_shader_resource_view *view);
 ULONG __cdecl wined3d_shader_resource_view_incref(struct wined3d_shader_resource_view *view);
