@@ -1,3 +1,12 @@
+wine-development (1.9.12-1~bpo8+1) jessie-backports; urgency=medium
+
+  * Rebuild for jessie-backports.
+  * Remaining diff to stretch:
+    - Don't build -dbg or -dbgsym packages.
+      Drop versioned build-dependency on debhelper.
+
+ -- Jens Reyer <jre.winesim@gmail.com>  Sun, 19 Jun 2016 01:26:45 +0200
+
 wine-development (1.9.12-1) unstable; urgency=medium
 
   [ Michael Gilbert ]
