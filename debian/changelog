@@ -1,3 +1,47 @@
+wine (1.8.3-2) unstable; urgency=medium
+
+  * Backport upstream changes for building with Unicode 9.0 (closes: #829003).
+
+ -- Jens Reyer <jre.winesim@gmail.com>  Thu, 30 Jun 2016 21:17:56 +0200
+
+wine (1.8.3-1) unstable; urgency=medium
+
+  [ Jens Reyer ]
+  * New upstream release 1.8.3, released Jun 16, 2016.
+    - Various bug fixes.
+    - A lot of NVidia cards added to the GPU description table.
+    - Updates to the National Language Support files.
+  * Cherrypick changes from master:
+    - Fix local search for addon (gecko/mono) installers and update
+      documentation for their manual installation (closes: #812750).
+    - Bump recommended fonts-wine version to one with ttf fonts.
+    - Move some dependencies to libwineVERSION.
+    - Add widl to the -tools packages.
+      Thanks to Andrey Gursky (see: #824671).
+    - Fix winegcc script to call wineg++/cpp based on its basename.
+      Thanks to Javier Serrano Polo (closes: #824715).
+    - Change version string to display vendor and version.
+    - Drop obsolete dh_strip exclusion of some files.
+    - Drop obsolete dependency on x11-utils.
+    - Generate list of used shared libraries and let libwine recommend
+      it (closes: #823991).
+      Also use this mechanism to identify the package names of depended
+      upon libraries. Thanks to Jakub Wilk.
+    - Drop useless workaround for one-arch-only binNMUs.
+    - Add alternative dependency on 32-bit libwine-dev to wine64-tools.
+    - Make wineNN-tools multi-arch installable (closes: #823264,
+      see: #824673). Thanks to Javier Serrano Polo.
+    - Let libwine-dev prefer wine64-tools to wine32-tools.
+    - Document generating 32-bit results with the -tools packages.
+      Thanks to Andrey Gursky and Javier Serrano Polo.
+  * Drop manpages-typo.patch, applied upstream.
+  * Refresh patches.
+
+  [ Michael Gilbert ]
+  * Indicate incompatibility with unicode-data 9.
+
+ -- Jens Reyer <jre.winesim@gmail.com>  Thu, 16 Jun 2016 18:04:56 +0200
+
 wine (1.8.2-1~bpo8+1) jessie-backports; urgency=medium
 
   * Rebuild for jessie-backports.

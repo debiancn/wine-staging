@@ -510,6 +510,7 @@ AC_CHECK_HEADERS(\
 	valgrind/valgrind.h \
 	zlib.h
 )
+AC_HEADER_MAJOR()
 AC_HEADER_STAT()
 
 dnl **** Checks for headers that depend on other ones ****
@@ -1652,6 +1653,7 @@ if test "x$ac_cv_have_openalsoft" != xyes
 then
     WINE_NOTICE([openal-soft ${notice_platform}development files not found (or too old), XAudio2 won't be supported])
     enable_xaudio2_7=${enable_xaudio2_7:-no}
+    enable_xaudio2_8=${enable_xaudio2_8:-no}
 fi
 
 dnl **** Check for libkstat ****
@@ -3211,7 +3213,8 @@ WINE_CONFIG_DLL(svrapi)
 WINE_CONFIG_DLL(sxs,,[implib])
 WINE_CONFIG_TEST(dlls/sxs/tests)
 WINE_CONFIG_DLL(system.drv16,enable_win16)
-WINE_CONFIG_DLL(t2embed)
+WINE_CONFIG_DLL(t2embed,,[implib])
+WINE_CONFIG_TEST(dlls/t2embed/tests)
 WINE_CONFIG_DLL(tapi32,,[implib])
 WINE_CONFIG_DLL(taskschd,,[clean])
 WINE_CONFIG_TEST(dlls/taskschd/tests)
@@ -3361,7 +3364,7 @@ WINE_CONFIG_DLL(xaudio2_5,,[clean])
 WINE_CONFIG_DLL(xaudio2_6,,[clean])
 WINE_CONFIG_DLL(xaudio2_7,,[clean])
 WINE_CONFIG_TEST(dlls/xaudio2_7/tests)
-WINE_CONFIG_DLL(xaudio2_8,,[implib])
+WINE_CONFIG_DLL(xaudio2_8,,[clean,implib])
 WINE_CONFIG_DLL(xinput1_1)
 WINE_CONFIG_DLL(xinput1_2)
 WINE_CONFIG_DLL(xinput1_3,,[implib],[xinput])

@@ -1,0 +1,219 @@
+Description: Backport upstream changes for building with Unicode 9.0.
+Origin: backport, http://source.winehq.org/git/wine.git/commit/58e0972c5ca8c82f65860733aaf3aeb41a7725bb
+Origin: upstream, http://source.winehq.org/git/wine.git/commit/bbb9bbdbdb330aca21c363503274e21d558db1bc
+Bug-Debian: https://bugs.debian.org/829003
+
+--- a/dlls/dwrite/analyzer.c
++++ b/dlls/dwrite/analyzer.c
+@@ -45,6 +45,7 @@ struct dwritescript_properties {
+ static const struct dwritescript_properties dwritescripts_properties[Script_LastId+1] = {
+     { /* Zzzz */ { 0x7a7a7a5a, 999, 15, 0x0020, 0, 0, 0, 0, 0, 0, 0 } },
+     { /* Zyyy */ { 0x7979795a, 998,  1, 0x0020, 0, 1, 1, 0, 0, 0, 0 } },
++    { /* Adlm */ { 0x6d6c6441, 166,  1, 0x0020, 0, 1, 1, 0, 0, 0, 0 } },
+     { /* Ahom */ { 0x6d6f6841, 338,  1, 0x0020, 0, 0, 0, 0, 0, 0, 0 } },
+     { /* Hluw */ { 0x77756c48,  80,  1, 0x0020, 0, 0, 0, 0, 0, 0, 0 } },
+     { /* Arab */ { 0x62617241, 160,  8, 0x0640, 0, 1, 0, 0, 0, 1, 1 }, _OT('a','r','a','b'), 0, TRUE },
+@@ -55,6 +56,7 @@ static const struct dwritescript_propert
+     { /* Bass */ { 0x73736142, 259,  1, 0x0020, 0, 0, 0, 0, 0, 0, 0 } },
+     { /* Batk */ { 0x6b746142, 365,  8, 0x0020, 0, 1, 1, 0, 0, 0, 0 }, _OT('b','a','t','k') },
+     { /* Beng */ { 0x676e6542, 325, 15, 0x0020, 1, 1, 0, 0, 0, 1, 0 }, _OT('b','e','n','g'), _OT('b','n','g','2'), TRUE },
++    { /* Bhks */ { 0x736b6842, 334,  1, 0x0020, 0, 1, 1, 0, 0, 0, 0 } },
+     { /* Bopo */ { 0x6f706f42, 285,  1, 0x0020, 0, 0, 1, 1, 0, 0, 0 }, _OT('b','o','p','o') },
+     { /* Brah */ { 0x68617242, 300,  8, 0x0020, 0, 1, 1, 0, 0, 0, 0 }, _OT('b','r','a','h') },
+     { /* Brai */ { 0x69617242, 570,  1, 0x0020, 0, 1, 1, 0, 0, 0, 0 }, _OT('b','r','a','i'), 0, TRUE },
+@@ -114,6 +116,7 @@ static const struct dwritescript_propert
+     { /* Mlym */ { 0x6d796c4d, 347, 15, 0x0020, 1, 1, 1, 0, 0, 0, 0 }, _OT('m','l','y','m'), _OT('m','l','m','2'), TRUE },
+     { /* Mand */ { 0x646e614d, 140,  8, 0x0640, 0, 1, 0, 0, 0, 1, 1 }, _OT('m','a','n','d') },
+     { /* Mani */ { 0x696e614d, 139,  1, 0x0020, 0, 0, 0, 0, 0, 0, 0 } },
++    { /* Marc */ { 0x6372614d, 332,  1, 0x0020, 0, 0, 0, 0, 0, 0, 0 } },
+     { /* Mtei */ { 0x6965744d, 337,  8, 0x0020, 1, 1, 1, 0, 0, 0, 0 }, _OT('m','t','e','i') },
+     { /* Mend */ { 0x646e654d, 438,  1, 0x0020, 0, 0, 0, 0, 0, 0, 0 } },
+     { /* Merc */ { 0x6372654d, 101,  1, 0x0020, 0, 0, 0, 0, 0, 0, 0 }, _OT('m','e','r','c') },
+@@ -126,6 +129,7 @@ static const struct dwritescript_propert
+     { /* Mymr */ { 0x726d794d, 350, 15, 0x0020, 1, 1, 1, 0, 0, 0, 0 }, _OT('m','y','m','r'), 0, TRUE },
+     { /* Nbat */ { 0x7461624e, 159,  1, 0x0020, 0, 0, 0, 0, 0, 0, 0 } },
+     { /* Talu */ { 0x756c6154, 354,  8, 0x0020, 1, 1, 1, 0, 0, 0, 0 }, _OT('t','a','l','u'), 0, TRUE },
++    { /* Newa */ { 0x6177654e, 333,  1, 0x0020, 0, 0, 0, 0, 0, 0, 0 } },
+     { /* Nkoo */ { 0x6f6f6b4e, 165,  8, 0x0020, 0, 1, 0, 0, 0, 1, 1 }, _OT('n','k','o',' '), 0, TRUE },
+     { /* Ogam */ { 0x6d61674f, 212,  1, 0x1680, 0, 1, 0, 0, 0, 1, 0 }, _OT('o','g','a','m'), 0, TRUE },
+     { /* Olck */ { 0x6b636c4f, 261,  1, 0x0020, 0, 1, 1, 0, 0, 0, 0 }, _OT('o','l','c','k') },
+@@ -137,6 +141,7 @@ static const struct dwritescript_propert
+     { /* Sarb */ { 0x62726153, 105,  1, 0x0020, 0, 1, 1, 0, 0, 0, 0 }, _OT('s','a','r','b') },
+     { /* Orkh */ { 0x686b724f, 175,  1, 0x0020, 0, 1, 1, 0, 0, 0, 0 }, _OT('o','r','k','h') },
+     { /* Orya */ { 0x6179724f, 327, 15, 0x0020, 1, 1, 1, 0, 0, 0, 0 }, _OT('o','r','y','a'), _OT('o','r','y','2'), TRUE },
++    { /* Osge */ { 0x6567734f, 219,  1, 0x0020, 0, 0, 0, 0, 0, 0, 0 } },
+     { /* Osma */ { 0x616d734f, 260,  8, 0x0020, 0, 1, 1, 0, 0, 0, 0 }, _OT('o','s','m','a'), 0, TRUE },
+     { /* Hmng */ { 0x676e6d48, 450,  1, 0x0020, 0, 0, 0, 0, 0, 0, 0 } },
+     { /* Palm */ { 0x6d6c6150, 126,  1, 0x0020, 0, 0, 0, 0, 0, 0, 0 } },
+@@ -164,6 +169,7 @@ static const struct dwritescript_propert
+     { /* Tavt */ { 0x74766154, 359,  8, 0x0020, 1, 0, 1, 0, 1, 0, 0 }, _OT('t','a','v','t') },
+     { /* Takr */ { 0x726b6154, 321,  1, 0x0020, 0, 0, 0, 0, 0, 0, 0 }, _OT('t','a','k','r') },
+     { /* Taml */ { 0x6c6d6154, 346, 15, 0x0020, 1, 1, 1, 0, 0, 0, 0 }, _OT('t','a','m','l'), _OT('t','m','l','2'), TRUE },
++    { /* Tang */ { 0x676e6154, 520,  1, 0x0020, 0, 0, 0, 0, 0, 0, 0 } },
+     { /* Telu */ { 0x756c6554, 340, 15, 0x0020, 1, 1, 1, 0, 0, 0, 0 }, _OT('t','e','l','u'), _OT('t','e','l','2'), TRUE },
+     { /* Thaa */ { 0x61616854, 170,  8, 0x0020, 1, 1, 1, 0, 0, 0, 0 }, _OT('t','h','a','a'), 0, TRUE },
+     { /* Thai */ { 0x69616854, 352,  8, 0x0020, 1, 0, 1, 0, 1, 0, 0 }, _OT('t','h','a','i'), 0, TRUE },
+@@ -302,7 +308,10 @@ enum linebreaking_classes {
+     b_B2,
+     b_HL,
+     b_CJ,
+-    b_RI
++    b_RI,
++    b_EB,
++    b_EM,
++    b_ZWJ,
+ };
+ 
+ /* "Can break" is a weak condition, stronger "may not break" and "must break" override it. Initially all conditions are
+@@ -402,13 +411,18 @@ static HRESULT analyze_linebreaks(const
+                     i++;
+                 set_break_condition(i, BreakConditionBefore, DWRITE_BREAK_CONDITION_CAN_BREAK, &state);
+                 break;
++            /* LB8a - do not break between ZWJ and an ideograph, emoji base or emoji modifier */
++            case b_ZWJ:
++                if (i < count-1 && (break_class[i+1] == b_ID || break_class[i+1] == b_EB || break_class[i+1] == b_EM))
++                    set_break_condition(i, BreakConditionAfter, DWRITE_BREAK_CONDITION_MAY_NOT_BREAK, &state);
++                break;
+         }
+     }
+ 
+     /* LB9 - LB10 */
+     for (i = 0; i < count; i++)
+     {
+-        if (break_class[i] == b_CM)
++        if (break_class[i] == b_CM || break_class[i] == b_ZWJ)
+         {
+             if (i > 0)
+             {
+@@ -541,6 +555,8 @@ static HRESULT analyze_linebreaks(const
+                         case b_AL:
+                         case b_HL:
+                         case b_ID:
++                        case b_EB:
++                        case b_EM:
+                         case b_IN:
+                         case b_NU:
+                             set_break_condition(i, BreakConditionBefore, DWRITE_BREAK_CONDITION_MAY_NOT_BREAK, &state);
+@@ -551,19 +567,31 @@ static HRESULT analyze_linebreaks(const
+ 
+         if (i < count-1)
+         {
+-            /* LB23 */
+-            if ((break_class[i] == b_ID && break_class[i+1] == b_PO) ||
+-                (break_class[i] == b_AL && break_class[i+1] == b_NU) ||
++            /* LB23 - do not break between digits and letters */
++            if ((break_class[i] == b_AL && break_class[i+1] == b_NU) ||
+                 (break_class[i] == b_HL && break_class[i+1] == b_NU) ||
+                 (break_class[i] == b_NU && break_class[i+1] == b_AL) ||
+                 (break_class[i] == b_NU && break_class[i+1] == b_HL))
+                     set_break_condition(i, BreakConditionAfter, DWRITE_BREAK_CONDITION_MAY_NOT_BREAK, &state);
+-            /* LB24 */
++
++            /* LB23a - do not break between numeric prefixes and ideographs, or between ideographs and numeric postfixes */
+             if ((break_class[i] == b_PR && break_class[i+1] == b_ID) ||
+-                (break_class[i] == b_PR && break_class[i+1] == b_AL) ||
++                (break_class[i] == b_PR && break_class[i+1] == b_EB) ||
++                (break_class[i] == b_PR && break_class[i+1] == b_EM) ||
++                (break_class[i] == b_ID && break_class[i+1] == b_PO) ||
++                (break_class[i] == b_EM && break_class[i+1] == b_PO) ||
++                (break_class[i] == b_EB && break_class[i+1] == b_PO))
++                    set_break_condition(i, BreakConditionAfter, DWRITE_BREAK_CONDITION_MAY_NOT_BREAK, &state);
++
++            /* LB24 - do not break between numeric prefix/postfix and letters, or letters and prefix/postfix */
++            if ((break_class[i] == b_PR && break_class[i+1] == b_AL) ||
+                 (break_class[i] == b_PR && break_class[i+1] == b_HL) ||
+                 (break_class[i] == b_PO && break_class[i+1] == b_AL) ||
+-                (break_class[i] == b_PO && break_class[i+1] == b_HL))
++                (break_class[i] == b_PO && break_class[i+1] == b_HL) ||
++                (break_class[i] == b_AL && break_class[i+1] == b_PR) ||
++                (break_class[i] == b_HL && break_class[i+1] == b_PR) ||
++                (break_class[i] == b_AL && break_class[i+1] == b_PO) ||
++                (break_class[i] == b_HL && break_class[i+1] == b_PO))
+                     set_break_condition(i, BreakConditionAfter, DWRITE_BREAK_CONDITION_MAY_NOT_BREAK, &state);
+ 
+             /* LB25 */
+@@ -646,8 +674,20 @@ static HRESULT analyze_linebreaks(const
+                (break_class[i+1] == b_AL || break_class[i] == b_HL || break_class[i] == b_NU))
+                 set_break_condition(i, BreakConditionAfter, DWRITE_BREAK_CONDITION_MAY_NOT_BREAK, &state);
+ 
+-            /* LB30a */
+-            if (break_class[i] == b_RI && break_class[i+1] == b_RI)
++            /* LB30a - break between two RIs if and only if there are an even number of RIs preceding position of the break */
++            if (break_class[i] == b_RI && break_class[i+1] == b_RI) {
++                unsigned int c = 0;
++
++                j = i + 1;
++                while (j > 0 && break_class[--j] == b_RI)
++                    c++;
++
++                if ((c & 1) == 0)
++                    set_break_condition(i, BreakConditionAfter, DWRITE_BREAK_CONDITION_MAY_NOT_BREAK, &state);
++            }
++
++            /* LB30b - do not break between an emoji base and an emoji modifier */
++            if (break_class[i] == b_EB && break_class[i+1] == b_EM)
+                 set_break_condition(i, BreakConditionAfter, DWRITE_BREAK_CONDITION_MAY_NOT_BREAK, &state);
+         }
+     }
+--- a/dlls/usp10/breaking.c
++++ b/dlls/usp10/breaking.c
+@@ -38,7 +38,11 @@ WINE_DEFAULT_DEBUG_CHANNEL(uniscribe);
+ 
+ extern const unsigned short wine_linebreak_table[];
+ 
+-enum breaking_types { b_BK=1, b_CR, b_LF, b_CM, b_SG, b_GL, b_CB, b_SP, b_ZW, b_NL, b_WJ, b_JL, b_JV, b_JT, b_H2, b_H3, b_XX, b_OP, b_CL, b_CP, b_QU, b_NS, b_EX, b_SY, b_IS, b_PR, b_PO, b_NU, b_AL, b_ID, b_IN, b_HY, b_BB, b_BA, b_SA, b_AI, b_B2, b_HL, b_CJ, b_RI};
++enum breaking_types {
++    b_BK=1, b_CR, b_LF, b_CM, b_SG, b_GL, b_CB, b_SP, b_ZW, b_NL, b_WJ, b_JL, b_JV, b_JT, b_H2, b_H3, b_XX, b_OP, b_CL,
++    b_CP, b_QU, b_NS, b_EX, b_SY, b_IS, b_PR, b_PO, b_NU, b_AL, b_ID, b_IN, b_HY, b_BB, b_BA, b_SA, b_AI, b_B2, b_HL,
++    b_CJ, b_RI, b_EB, b_EM, b_ZWJ
++};
+ 
+ enum breaking_class {b_r=1, b_s, b_x};
+ 
+--- a/tools/make_unicode
++++ b/tools/make_unicode
+@@ -23,7 +23,7 @@ use strict;
+ 
+ # base URLs for www.unicode.org files
+ my $MAPPINGS = "http://www.unicode.org/Public/MAPPINGS";
+-my $UNIDATA = "http://www.unicode.org/Public/8.0.0/ucd";
++my $UNIDATA = "http://www.unicode.org/Public/9.0.0/ucd";
+ my $REPORTS = "http://www.unicode.org/reports";
+ my $RFCS = "http://www.rfc-editor.org/rfc";
+ my $VERTICALDATA = "http://www.unicode.org/Public/vertical/revision-11";
+@@ -244,6 +244,9 @@ my %break_types =
+     "HL"  => 0x0026,
+     "CJ"  => 0x0027,
+     "RI"  => 0x0028,
++    "EB"  => 0x0029,
++    "EM"  => 0x002a,
++    "ZWJ" => 0x002b,
+ );
+ 
+ my %vertical_types =
+@@ -1265,7 +1268,24 @@ sub dump_linebreak($)
+         next if /^\#/;  # skip comments
+         next if /^\s*$/;  # skip empty lines
+         next if /\x1a/;  # skip ^Z
+-        if (/^\s*([0-9a-fA-F]+)\s*;\s*([0-9A-Z][0-9A-Z])+\s*/)
++        if (/^\s*([0-9a-fA-F]+)\s*;\s*([0-9A-Z][0-9A-Z][0-9A-Z])+\s*/)
++        {
++            my $type = $2;
++            die "unknown breaktype $type" unless defined $break_types{$type};
++            $break_table[hex $1] = $break_types{$type};
++            next;
++        }
++        elsif (/^\s*([0-9a-fA-F]+)..\s*([0-9a-fA-F]+)\s*;\s*([0-9A-Z][0-9A-Z][0-9A-Z])+\s*/)
++        {
++            my $type = $3;
++            die "unknown breaktype $type" unless defined $break_types{$type};
++            foreach my $i (hex $1 .. hex $2)
++            {
++                $break_table[$i] = $break_types{$type};
++            }
++            next;
++        }
++        elsif (/^\s*([0-9a-fA-F]+)\s*;\s*([0-9A-Z][0-9A-Z])+\s*/)
+         {
+             my $type = $2;
+             die "unknown breaktype $type" unless defined $break_types{$type};

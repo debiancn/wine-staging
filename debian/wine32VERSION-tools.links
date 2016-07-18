@@ -1,5 +1,6 @@
 usr/lib/wineVERSION/wmc usr/bin/wmcVERSION
 usr/lib/wineVERSION/wrc usr/bin/wrcVERSION
+usr/lib/wineVERSION/widl usr/bin/widlVERSION
 usr/lib/wineVERSION/winedump usr/bin/winedumpVERSION
 usr/lib/wineVERSION/winebuild usr/bin/winebuildVERSION
 usr/lib/wineVERSION/winemaker usr/bin/winemakerVERSION

@@ -10,7 +10,7 @@ author: Michael Gilbert <mgilbert@debian.org>
 -# base URLs for www.unicode.org files
 +# Locations of unicode files
  my $MAPPINGS = "http://www.unicode.org/Public/MAPPINGS";
--my $UNIDATA = "http://www.unicode.org/Public/8.0.0/ucd";
+-my $UNIDATA = "http://www.unicode.org/Public/9.0.0/ucd";
 +my $UNIDATA = "/usr/share/unicode";
  my $REPORTS = "http://www.unicode.org/reports";
 -my $RFCS = "http://www.rfc-editor.org/rfc";
@@ -18,7 +18,7 @@ author: Michael Gilbert <mgilbert@debian.org>
  my $VERTICALDATA = "http://www.unicode.org/Public/vertical/revision-11";
  
  # Sort keys file
-@@ -372,15 +372,8 @@ my %joining_forms =
+@@ -375,15 +375,8 @@ my %joining_forms =
  sub open_data_file($$)
  {
      my ($base, $name) = @_;
@@ -35,7 +35,7 @@ author: Michael Gilbert <mgilbert@debian.org>
      return *FILE;
  }
  
-@@ -2383,7 +2376,10 @@ sub REPLACE_IN_FILE($@)
+@@ -2403,7 +2396,10 @@ sub REPLACE_IN_FILE($@)
  chdir ".." if -f "./make_unicode";
  READ_DEFAULTS( $DEFAULTS );
  DUMP_CASE_MAPPINGS( "libs/wine/casemap.c" );
@@ -47,7 +47,7 @@ author: Michael Gilbert <mgilbert@debian.org>
  DUMP_COMPOSE_TABLES( "libs/wine/compose.c" );
  DUMP_CTYPE_TABLES( "libs/wine/wctype.c" );
  dump_mirroring( "dlls/usp10/mirror.c" );
-@@ -2396,13 +2392,17 @@ dump_linebreak( "dlls/dwrite/linebreak.c
+@@ -2416,13 +2412,17 @@ dump_linebreak( "dlls/dwrite/linebreak.c
  dump_scripts( "dlls/dwrite/scripts" );
  dump_indic( "dlls/usp10/indicsyllable.c" );
  dump_intl_nls("loader/l_intl.nls");

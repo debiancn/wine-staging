@@ -599,7 +599,7 @@
 @ stdcall GetConsoleCursorInfo(long ptr)
 @ stub GetConsoleCursorMode
 @ stdcall GetConsoleDisplayMode(ptr)
-@ stub GetConsoleFontInfo
+@ stdcall GetConsoleFontInfo(ptr long long ptr)
 @ stdcall GetConsoleFontSize(long long)
 @ stub GetConsoleHardwareState
 # @ stub GetConsoleHistoryInfo
@@ -682,8 +682,8 @@
 @ stdcall GetFileSizeEx(long ptr)
 @ stdcall GetFileTime(long ptr ptr ptr)
 @ stdcall GetFileType(long)
-# @ stub GetFinalPathNameByHandleA
-# @ stub GetFinalPathNameByHandleW
+@ stdcall GetFinalPathNameByHandleA(long ptr long long)
+@ stdcall GetFinalPathNameByHandleW(long ptr long long)
 @ stdcall GetFirmwareEnvironmentVariableA(str str ptr long)
 @ stdcall GetFirmwareEnvironmentVariableW(wstr wstr ptr long)
 @ stdcall GetFullPathNameA(str long ptr ptr)

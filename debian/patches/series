@@ -3,10 +3,11 @@ makefile.patch
 kfreebsd.patch
 sfnt2fon.patch
 manpages.patch
+unicode-9.patch
 version-string.patch
 
+disable/addons-download.patch
 disable/shlib-exit-calls.patch
-disable/external-installers.patch
 
 generate/opengl.patch
 generate/unicode.patch
@@ -21,4 +22,3 @@ addons.patch
 
 font-divbyzero.patch
 printer-resolution.patch
-manpages-typo.patch

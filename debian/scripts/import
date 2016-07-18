@@ -14,19 +14,31 @@ if [ ! -d ".git" ]; then
   exit 1
 fi
 
+version="$1"
+winehq="git://source.winehq.org/git/wine.git"
+tag="wine-$version"
+
+case $version in
+    1.8.*)
+        upstream_branch="upstream-1.8.x"
+        debian_branch="stretch"
+        ;;
+    *)
+        upstream_branch="upstream"
+        debian_branch="master"
+        ;;
+esac
+
 # ignore changes to files that will be automatically generated
 git update-index --assume-unchanged configure include/config.h.in
 
 # pull specified tag from upstream repository
-version="$1"
-winehq="git://source.winehq.org/git/wine.git"
-tag="wine-$version"
-git checkout upstream
+git checkout "$upstream_branch"
 git pull --no-edit $winehq tag "$tag" || echo "unable to fetch tag $tag"
 
 # merge upstream into master (favoring "their" changes)
-git checkout master
-git merge --strategy-option=theirs upstream
+git checkout "$debian_branch"
+git merge --strategy-option=theirs "$upstream_branch"
 
 # format the "New upstream release" message
 tag_time=`git cat-file tag "$tag" | sed -n 's/tagger .*<.*> \([0-9]*\) .*/\1/p'`

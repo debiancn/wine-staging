@@ -65,8 +65,8 @@ setup with "rm -rf ~/.wine". This will destroy everything you've installed,
 including configuration and data files, so if you have anything important,
 please back it up first. You can then start fresh.
 
-32-/64-bit
-==========
+Running 32-bit Windows applications on 64-bit systems
+=====================================================
 Most Windows binaries are 32-bit applications. You need to install wine32 (or
 wine32-development) to run them. wine64 (or wine64-development) alone cannot do
 this.
@@ -78,7 +78,7 @@ wine32-development). As root, execute e.g.:
 
 If you have wine32 and wine64 (or wine32-development and wine64-development)
 installed, Wine will default to a shared 64-bit prefix that runs most 32-bit
-Windows applications.
+Windows applications (WoW64).
 
 If this causes problems for an application, you may create a 32-bit prefix by
 running e.g.:
@@ -92,6 +92,23 @@ $ WINEPREFIX="$HOME/.wine32" wine-development application.exe
 If you don't want 64-bit at all, just uninstall wine64 (or
 wine-64-development).
 
+32-bit results from the tools (winegcc, ...) on 64-bit systems
+==============================================================
+You may generate 32-bit results with the programs in wine32-tools (or
+wine32-development-tools) as well as with those in wine64-tools (or
+wine64-development-tools).
+
+Enable multiarch (see above). Than install the matching 32-bit Wine development
+files. As root, execute e.g. on amd64:
+# apt install libwine-dev:i386
+# apt install libwine-development-dev:i386
+
+Use the programs with the option "-m32" (for winemaker --wine32). If you are
+using wine64(-development)-tools specify the arch-specific path to some files
+additionally, e.g.:
+$ winegcc -m32 -L/usr/lib/i386-linux-gnu/wine ...
+$ winegcc-development -m32 -L/usr/lib/i386-linux-gnu/wine-development ...
+
 Wine Gecko
 ==========
 The downloader for Wine Gecko is intentionally disabled in the Debian packages.
@@ -103,9 +120,27 @@ Wine version is available at:
 https://wiki.winehq.org/Gecko
 
 If the right libwine-gecko-*.deb package is not currently available, you can
-manually extract an associated upstream WineGecko tarball to
-/usr/share/wine-development/gecko. Or preferably, please provide help building
-the new Debian libwine-gecko-* package that is needed.
+download the Wine Gecko installers (on 64-bit systems you need both the 32-bit
+and the 64-bit version) and copy them to one of the following locations (in
+home their checksums get verified, in /usr/share not):
+- /usr/share/wine-gecko/
+- /usr/share/wine-development/gecko/ (only if you are using wine-development)
+- /usr/share/wine/gecko/
+- $XDG_CACHE_HOME/wine/
+- $HOME/.cache/wine/ (if XDG_CACHE_HOME is not set)
+Or preferably, please provide help building the new Debian libwine-gecko-*
+package that is needed.
+
+Wine Mono
+=========
+The downloader for Wine Mono is intentionally disabled in the Debian packages.
+Unfortunately Wine Mono is not available in the official Debian archives.
+
+You can find more information at:
+https://wiki.winehq.org/Mono
+
+You can download the Wine Mono installer and copy it to similar locations as
+shown for Wine Gecko above, just replace gecko with mono.
 
 Automatically Launching Windows Executables
 ===========================================

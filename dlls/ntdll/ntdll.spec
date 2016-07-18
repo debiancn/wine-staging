@@ -407,17 +407,17 @@
 @ stub RtlActivateActivationContextUnsafeFast
 @ stdcall RtlAddAccessAllowedAce(ptr long long ptr)
 @ stdcall RtlAddAccessAllowedAceEx(ptr long long long ptr)
-# @ stub RtlAddAccessAllowedObjectAce
+@ stdcall RtlAddAccessAllowedObjectAce(ptr long long long ptr ptr ptr)
 @ stdcall RtlAddAccessDeniedAce(ptr long long ptr)
 @ stdcall RtlAddAccessDeniedAceEx(ptr long long long ptr)
-# @ stub RtlAddAccessDeniedObjectAce
+@ stdcall RtlAddAccessDeniedObjectAce(ptr long long long ptr ptr ptr)
 @ stdcall RtlAddAce(ptr long long ptr long)
 @ stub RtlAddActionToRXact
 @ stdcall RtlAddAtomToAtomTable(ptr wstr ptr)
 @ stub RtlAddAttributeActionToRXact
 @ stdcall RtlAddAuditAccessAce(ptr long long ptr long long)
 @ stdcall RtlAddAuditAccessAceEx(ptr long long long ptr long long)
-# @ stub RtlAddAuditAccessObjectAce
+@ stdcall RtlAddAuditAccessObjectAce(ptr long long long ptr ptr ptr long long)
 # @ stub RtlAddCompoundAce
 # @ stub RtlAddRange
 @ cdecl -arch=arm,x86_64 RtlAddFunctionTable(ptr long long)

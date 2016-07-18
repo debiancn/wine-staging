@@ -16,14 +16,14 @@
 # @ stub AccessCheckByTypeResultListAndAuditAlarmW
 @ stdcall AddAccessAllowedAce (ptr long long ptr)
 @ stdcall AddAccessAllowedAceEx (ptr long long long ptr)
-# @ stub AddAccessAllowedObjectAce
+@ stdcall AddAccessAllowedObjectAce(ptr long long long ptr ptr ptr)
 @ stdcall AddAccessDeniedAce(ptr long long ptr)
 @ stdcall AddAccessDeniedAceEx(ptr long long long ptr)
-# @ stub AddAccessDeniedObjectAce
+@ stdcall AddAccessDeniedObjectAce(ptr long long long ptr ptr ptr)
 @ stdcall AddAce(ptr long long ptr long)
 @ stdcall AddAuditAccessAce(ptr long long ptr long long)
 @ stdcall AddAuditAccessAceEx(ptr long long long ptr long long)
-# @ stub AddAuditAccessObjectAce
+@ stdcall AddAuditAccessObjectAce(ptr long long long ptr ptr ptr long long)
 # @ stub AddConditionalAce
 @ stdcall AddMandatoryAce(ptr long long long ptr)
 # @ stub AddUsersToEncryptedFileEx

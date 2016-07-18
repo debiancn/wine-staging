@@ -1223,6 +1223,7 @@ static const struct gpu_description gpu_description_table[] =
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_9400GT,     "NVIDIA GeForce 9400 GT",           DRIVER_NVIDIA_GEFORCE8,  256 },
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_9500GT,     "NVIDIA GeForce 9500 GT",           DRIVER_NVIDIA_GEFORCE8,  256 },
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_9600GT,     "NVIDIA GeForce 9600 GT",           DRIVER_NVIDIA_GEFORCE8,  384 },
+    {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_9700MGT,    "NVIDIA GeForce 9700M GT",          DRIVER_NVIDIA_GEFORCE8,  512 },
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_9800GT,     "NVIDIA GeForce 9800 GT",           DRIVER_NVIDIA_GEFORCE8,  512 },
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_210,        "NVIDIA GeForce 210",               DRIVER_NVIDIA_GEFORCE8,  512 },
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GT220,      "NVIDIA GeForce GT 220",            DRIVER_NVIDIA_GEFORCE8,  512 },
@@ -1238,6 +1239,7 @@ static const struct gpu_description gpu_description_table[] =
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTS350M,    "NVIDIA GeForce GTS 350M",          DRIVER_NVIDIA_GEFORCE8,  1024},
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_410M,       "NVIDIA GeForce 410M",              DRIVER_NVIDIA_GEFORCE8,  512},
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GT420,      "NVIDIA GeForce GT 420",            DRIVER_NVIDIA_GEFORCE8,  2048},
+    {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GT425M,     "NVIDIA GeForce GT 425M",           DRIVER_NVIDIA_GEFORCE8,  1024},
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GT430,      "NVIDIA GeForce GT 430",            DRIVER_NVIDIA_GEFORCE8,  1024},
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GT440,      "NVIDIA GeForce GT 440",            DRIVER_NVIDIA_GEFORCE8,  1024},
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTS450,     "NVIDIA GeForce GTS 450",           DRIVER_NVIDIA_GEFORCE8,  1024},
@@ -1267,6 +1269,7 @@ static const struct gpu_description gpu_description_table[] =
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTX670,     "NVIDIA GeForce GTX 670",           DRIVER_NVIDIA_GEFORCE8,  2048},
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTX670MX,   "NVIDIA GeForce GTX 670MX",         DRIVER_NVIDIA_GEFORCE8,  3072},
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTX680,     "NVIDIA GeForce GTX 680",           DRIVER_NVIDIA_GEFORCE8,  2048},
+    {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GT730M,     "NVIDIA GeForce GT 730M",           DRIVER_NVIDIA_GEFORCE8,  1024},
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GT750M,     "NVIDIA GeForce GT 750M",           DRIVER_NVIDIA_GEFORCE8,  1024},
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTX750,     "NVIDIA GeForce GTX 750",           DRIVER_NVIDIA_GEFORCE8,  1024},
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTX750TI,   "NVIDIA GeForce GTX 750 Ti",        DRIVER_NVIDIA_GEFORCE8,  2048},
@@ -1276,8 +1279,25 @@ static const struct gpu_description gpu_description_table[] =
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTX770,     "NVIDIA GeForce GTX 770",           DRIVER_NVIDIA_GEFORCE8,  2048},
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTX780,     "NVIDIA GeForce GTX 780",           DRIVER_NVIDIA_GEFORCE8,  3072},
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTX780TI,   "NVIDIA GeForce GTX 780 Ti",        DRIVER_NVIDIA_GEFORCE8,  3072},
+    {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTXTITAN,   "NVIDIA GeForce GTX TITAN",         DRIVER_NVIDIA_GEFORCE8,  6144},
+    {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTXTITANB,  "NVIDIA GeForce GTX TITAN Black",   DRIVER_NVIDIA_GEFORCE8,  6144},
+    {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTXTITANX,  "NVIDIA GeForce GTX TITAN X",       DRIVER_NVIDIA_GEFORCE8,  12288},
+    {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTXTITANZ,  "NVIDIA GeForce GTX TITAN Z",       DRIVER_NVIDIA_GEFORCE8,  12288},
+    {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_820M,       "NVIDIA GeForce 820M",              DRIVER_NVIDIA_GEFORCE8,  2048},
+    {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_830M,       "NVIDIA GeForce 830M",              DRIVER_NVIDIA_GEFORCE8,  2048},
+    {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_840M,       "NVIDIA GeForce 840M",              DRIVER_NVIDIA_GEFORCE8,  2048},
+    {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_845M,       "NVIDIA GeForce 845M",              DRIVER_NVIDIA_GEFORCE8,  2048},
+    {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTX850M,    "NVIDIA GeForce GTX 850M",          DRIVER_NVIDIA_GEFORCE8,  2048},
+    {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTX860M,    "NVIDIA GeForce GTX 860M",          DRIVER_NVIDIA_GEFORCE8,  2048},
+    {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTX870M,    "NVIDIA GeForce GTX 870M",          DRIVER_NVIDIA_GEFORCE8,  3072},
+    {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTX880M,    "NVIDIA GeForce GTX 880M",          DRIVER_NVIDIA_GEFORCE8,  4096},
+    {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTX950,     "NVIDIA GeForce GTX 950",           DRIVER_NVIDIA_GEFORCE8,  2048},
+    {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTX950M,    "NVIDIA GeForce GTX 950M",          DRIVER_NVIDIA_GEFORCE8,  4096},
+    {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTX960,     "NVIDIA GeForce GTX 960",           DRIVER_NVIDIA_GEFORCE8,  4096},
+    {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTX960M,    "NVIDIA GeForce GTX 960M",          DRIVER_NVIDIA_GEFORCE8,  2048},
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTX970,     "NVIDIA GeForce GTX 970",           DRIVER_NVIDIA_GEFORCE8,  4096},
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTX970M,    "NVIDIA GeForce GTX 970M",          DRIVER_NVIDIA_GEFORCE8,  3072},
+    {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTX980,     "NVIDIA GeForce GTX 980",           DRIVER_NVIDIA_GEFORCE8,  4096},
 
     /* AMD cards */
     {HW_VENDOR_AMD,        CARD_AMD_RAGE_128PRO,           "ATI Rage Fury",                    DRIVER_AMD_RAGE_128PRO,  16  },
@@ -1717,9 +1737,26 @@ static const struct wined3d_renderer_table
 cards_nvidia_binary[] =
 {
     /* Direct 3D 11 */
+    {"GTX 980",                     CARD_NVIDIA_GEFORCE_GTX980},    /* GeForce 900 - highend */
     {"GTX 970M",                    CARD_NVIDIA_GEFORCE_GTX970M},   /* GeForce 900 - highend mobile*/
     {"GTX 970",                     CARD_NVIDIA_GEFORCE_GTX970},    /* GeForce 900 - highend */
+    {"GTX TITAN X",                 CARD_NVIDIA_GEFORCE_GTXTITANX}, /* Geforce 900 - highend */
+    {"GTX 960M",                    CARD_NVIDIA_GEFORCE_GTX960M},   /* GeForce 900 - midend high mobile */
+    {"GTX 960",                     CARD_NVIDIA_GEFORCE_GTX960},    /* GeForce 900 - midend high */
+    {"GTX 950M",                    CARD_NVIDIA_GEFORCE_GTX950M},   /* GeForce 900 - midend mobile */
+    {"GTX 950",                     CARD_NVIDIA_GEFORCE_GTX950},    /* GeForce 900 - midend */
+    {"GTX 880M",                    CARD_NVIDIA_GEFORCE_GTX880M},   /* GeForce 800 - mobile */
+    {"GTX 870M",                    CARD_NVIDIA_GEFORCE_GTX870M},   /* GeForce 800 - mobile */
+    {"GTX 860M",                    CARD_NVIDIA_GEFORCE_GTX860M},   /* GeForce 800 - mobile */
+    {"GTX 850M",                    CARD_NVIDIA_GEFORCE_GTX850M},   /* GeForce 800 - mobile */
+    {"GeForce 845M",                CARD_NVIDIA_GEFORCE_845M},      /* GeForce 800 - mobile */
+    {"GeForce 840M",                CARD_NVIDIA_GEFORCE_840M},      /* GeForce 800 - mobile */
+    {"GeForce 830M",                CARD_NVIDIA_GEFORCE_830M},      /* GeForce 800 - mobile */
+    {"GeForce 820M",                CARD_NVIDIA_GEFORCE_820M},      /* GeForce 800 - mobile */
     {"GTX 780 Ti",                  CARD_NVIDIA_GEFORCE_GTX780TI},  /* Geforce 700 - highend */
+    {"GTX TITAN Black",             CARD_NVIDIA_GEFORCE_GTXTITANB}, /* Geforce 700 - highend */
+    {"GTX TITAN Z",                 CARD_NVIDIA_GEFORCE_GTXTITANZ}, /* Geforce 700 - highend */
+    {"GTX TITAN",                   CARD_NVIDIA_GEFORCE_GTXTITAN},  /* Geforce 700 - highend */
     {"GTX 780",                     CARD_NVIDIA_GEFORCE_GTX780},    /* Geforce 700 - highend */
     {"GTX 770M",                    CARD_NVIDIA_GEFORCE_GTX770M},   /* Geforce 700 - midend high mobile */
     {"GTX 770",                     CARD_NVIDIA_GEFORCE_GTX770},    /* Geforce 700 - highend */
@@ -1728,6 +1765,7 @@ cards_nvidia_binary[] =
     {"GTX 750 Ti",                  CARD_NVIDIA_GEFORCE_GTX750TI},  /* Geforce 700 - midend */
     {"GTX 750",                     CARD_NVIDIA_GEFORCE_GTX750},    /* Geforce 700 - midend */
     {"GT 750M",                     CARD_NVIDIA_GEFORCE_GT750M},    /* Geforce 700 - midend mobile */
+    {"GT 730M",                     CARD_NVIDIA_GEFORCE_GT730M},    /* Geforce 700 - midend mobile */
     {"GTX 680",                     CARD_NVIDIA_GEFORCE_GTX680},    /* Geforce 600 - highend */
     {"GTX 670MX",                   CARD_NVIDIA_GEFORCE_GTX670MX},  /* Geforce 600 - highend */
     {"GTX 670",                     CARD_NVIDIA_GEFORCE_GTX670},    /* Geforce 600 - midend high */
@@ -1758,6 +1796,7 @@ cards_nvidia_binary[] =
     {"GTS 450",                     CARD_NVIDIA_GEFORCE_GTS450},    /* Geforce 400 - midend low */
     {"GT 440",                      CARD_NVIDIA_GEFORCE_GT440},     /* Geforce 400 - lowend */
     {"GT 430",                      CARD_NVIDIA_GEFORCE_GT430},     /* Geforce 400 - lowend */
+    {"GT 425M",                     CARD_NVIDIA_GEFORCE_GT425M},    /* Geforce 400 - lowend mobile */
     {"GT 420",                      CARD_NVIDIA_GEFORCE_GT420},     /* Geforce 400 - lowend */
     {"410M",                        CARD_NVIDIA_GEFORCE_410M},      /* Geforce 400 - lowend mobile */
     {"GT 330",                      CARD_NVIDIA_GEFORCE_GT330},     /* Geforce 300 - highend */
@@ -1782,6 +1821,7 @@ cards_nvidia_binary[] =
     {"GTS 250",                     CARD_NVIDIA_GEFORCE_9800GT},    /* Geforce 9 - highend / Geforce 200 - midend */
     {"GTS 150",                     CARD_NVIDIA_GEFORCE_9800GT},    /* Geforce 9 - highend / Geforce 200 - midend */
     {"9800",                        CARD_NVIDIA_GEFORCE_9800GT},    /* Geforce 9 - highend / Geforce 200 - midend */
+    {"9700M GT",                    CARD_NVIDIA_GEFORCE_9700MGT},   /* Geforce 9 - midend */
     {"GT 140",                      CARD_NVIDIA_GEFORCE_9600GT},    /* Geforce 9 - midend */
     {"9600",                        CARD_NVIDIA_GEFORCE_9600GT},    /* Geforce 9 - midend */
     {"GT 130",                      CARD_NVIDIA_GEFORCE_9500GT},    /* Geforce 9 - midend low / Geforce 200 - low */
@@ -1944,6 +1984,7 @@ cards_intel[] =
     {"Ivybridge Server",            CARD_INTEL_IVBS},
     {"Ivybridge Mobile",            CARD_INTEL_IVBM},
     {"Ivybridge Desktop",           CARD_INTEL_IVBD},
+    {"HD Graphics 4000",            CARD_INTEL_IVBD},   /* MacOS */
     /* Sandybridge */
     {"Sandybridge Server",          CARD_INTEL_SNBS},
     {"Sandybridge Mobile",          CARD_INTEL_SNBM},
@@ -2074,6 +2115,7 @@ cards_nvidia_mesa[] =
 {
     /* Maxwell */
     {"NV124",                       CARD_NVIDIA_GEFORCE_GTX970},
+    {"NV118",                       CARD_NVIDIA_GEFORCE_840M},
     {"NV117",                       CARD_NVIDIA_GEFORCE_GTX750},
     /* Kepler */
     {"NVF1",                        CARD_NVIDIA_GEFORCE_GTX780TI},
@@ -2082,6 +2124,7 @@ cards_nvidia_mesa[] =
     {"NVE4",                        CARD_NVIDIA_GEFORCE_GTX680},
     /* Fermi */
     {"NVD9",                        CARD_NVIDIA_GEFORCE_GT520},
+    {"NVD7",                        CARD_NVIDIA_GEFORCE_820M},
     {"NVCF",                        CARD_NVIDIA_GEFORCE_GTX550},
     {"NVCE",                        CARD_NVIDIA_GEFORCE_GTX560},
     {"NVC8",                        CARD_NVIDIA_GEFORCE_GTX570},

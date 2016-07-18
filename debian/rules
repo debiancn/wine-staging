@@ -12,8 +12,7 @@ DATDIR=usr/share/wine$(VERSION)
 INCDIR=usr/include/wine$(VERSION)
 LIBDIR=usr/lib/$(shell dpkg-architecture -qDEB_HOST_MULTIARCH)/wine$(VERSION)
 
-NCURSES=$(shell ./debian/scripts/dpkg-depgrep ncurses)
-FREETYPE=$(shell ./debian/scripts/dpkg-depgrep freetype)
+export VENDOR=$(shell dpkg-vendor --query Vendor && dpkg-parsechangelog -S Version)
 
 # enable verbose build log
 export DH_VERBOSE=1
@@ -63,6 +62,16 @@ export DEB_CFLAGS_MAINT_APPEND+=-Wno-error
 # additional files to generate
 INSTALLS=$(shell ls debian/*VERSION* | sed s/VERSION/$(VERSION)/) \
          debian/bug-control \
+
+# sonames to compute additional dependencies
+sonamesDepends=$(shell \
+    grep "^\#define SONAME_" include/config.h | \
+    grep -E "libfontconfig|libfreetype|libncurses" | \
+    cut -d\" -f2)
+sonamesRecommends=$(shell \
+    grep "^\#define SONAME_" include/config.h | \
+    grep -v libnetapi | \
+    cut -d\" -f2)
 
 debian/control: debian/control.in
 	sed s/VERSION/$(VERSION)/g < $< > $@
@@ -142,12 +151,22 @@ override_dh_auto_install-arch: $(INSTALLS)
 	    cp debian/scripts/wine-preloader debian/tmp/$(BINDIR)
 
 override_dh_strip:
-	dh_strip -Xwine-pthread -Xwine-kthread --ddeb-migration='libwine$(VERSION)-dbg (<< 1.8-2~)'
+	dh_strip --dbgsym-migration='libwine$(VERSION)-dbg (<< 1.8-2~)'
+
+override_dh_shlibdeps:
+	mkdir -p debian/tmp
+	./debian/scripts/sonames2elf $(sonamesDepends) > debian/tmp/elf.depends
+	./debian/scripts/sonames2elf $(sonamesRecommends) > debian/tmp/elf.recommends
+	dpkg-shlibdeps --warnings=1 \
+	    -pdlopen \
+	    -dDepends -edebian/tmp/elf.depends \
+	    -dRecommends -edebian/tmp/elf.recommends \
+	    -Tdebian/libwine$(VERSION).substvars
+	dh_shlibdeps
 
 override_dh_gencontrol:
 	dh_gencontrol -- \
 	    -Vbuilt:Using="$(shell dpkg-query -f '$${source:Package} (= $${source:Version}), ' -W khronos-api unicode-data)" \
-	    -Vdlopen:Depends="$(NCURSES), $(FREETYPE)" \
 
 override_dh_bugfiles:
 	dh_bugfiles -A
