@@ -196,9 +196,9 @@ static const event_info_t event_info[] = {
     {dblclickW,          ondblclickW,          EVENTT_MOUSE,  DISPID_EVMETH_ONDBLCLICK,
         EVENT_DEFAULTLISTENER|EVENT_BUBBLE|EVENT_CANCELABLE},
     {dragW,              ondragW,              EVENTT_MOUSE,  DISPID_EVMETH_ONDRAG,
-        EVENT_CANCELABLE},
+        EVENT_FIXME|EVENT_CANCELABLE},
     {dragstartW,         ondragstartW,         EVENTT_MOUSE,  DISPID_EVMETH_ONDRAGSTART,
-        EVENT_CANCELABLE},
+        EVENT_FIXME|EVENT_CANCELABLE},
     {errorW,             onerrorW,             EVENTT_NONE,   DISPID_EVMETH_ONERROR,
         EVENT_BIND_TO_BODY},
     {focusW,             onfocusW,             EVENTT_HTML,   DISPID_EVMETH_ONFOCUS,
@@ -842,7 +842,6 @@ static const tid_t HTMLEventObj_iface_tids[] = {
 static dispex_static_data_t HTMLEventObj_dispex = {
     NULL,
     DispCEventObj_tid,
-    NULL,
     HTMLEventObj_iface_tids
 };
 
@@ -902,10 +901,11 @@ HRESULT create_event_obj(IHTMLEventObj **ret)
 
 static inline event_target_t *get_event_target_data(EventTarget *event_target, BOOL alloc)
 {
+    const dispex_static_data_vtbl_t *vtbl = dispex_get_vtbl(&event_target->dispex);
     event_target_t **ptr;
 
-    ptr = event_target->dispex.data->vtbl && event_target->dispex.data->vtbl->get_event_target_ptr
-        ? event_target->dispex.data->vtbl->get_event_target_ptr(&event_target->dispex)
+    ptr = vtbl && vtbl->get_event_target_ptr
+        ? vtbl->get_event_target_ptr(&event_target->dispex)
         : &event_target->ptr;
     if(*ptr || !alloc)
         return *ptr;
@@ -1395,8 +1395,9 @@ void detach_events(HTMLDocumentNode *doc)
 /* Caller should ensure that it's called only once for given event in the target. */
 static void bind_event(EventTarget *event_target, eventid_t eid)
 {
-    if(event_target->dispex.data->vtbl->bind_event)
-        event_target->dispex.data->vtbl->bind_event(&event_target->dispex, eid);
+    const dispex_static_data_vtbl_t *vtbl = dispex_get_vtbl(&event_target->dispex);
+    if(vtbl->bind_event)
+        vtbl->bind_event(&event_target->dispex, eid);
     else
         FIXME("Unsupported event binding on target %p\n", event_target);
 }

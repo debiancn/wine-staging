@@ -1038,15 +1038,7 @@ BOOL WINAPI PtInRegion( HRGN hrgn, INT x, INT y )
 
     if ((obj = GDI_GetObjPtr( hrgn, OBJ_REGION )))
     {
-	int i;
-
-	if (obj->numRects > 0 && is_in_rect(&obj->extents, x, y))
-	    for (i = 0; i < obj->numRects; i++)
-		if (is_in_rect(&obj->rects[i], x, y))
-                {
-		    ret = TRUE;
-                    break;
-                }
+        region_find_pt( obj, x, y, &ret );
 	GDI_ReleaseObj( hrgn );
     }
     return ret;
@@ -1071,6 +1063,7 @@ BOOL WINAPI RectInRegion( HRGN hrgn, const RECT *rect )
     WINEREGION *obj;
     BOOL ret = FALSE;
     RECT rc;
+    int i;
 
     /* swap the coordinates to make right >= left and bottom >= top */
     /* (region building rectangles are normalized the same way) */
@@ -1079,29 +1072,23 @@ BOOL WINAPI RectInRegion( HRGN hrgn, const RECT *rect )
 
     if ((obj = GDI_GetObjPtr( hrgn, OBJ_REGION )))
     {
-	RECT *pCurRect, *pRectEnd;
-
-    /* this is (just) a useful optimization */
 	if ((obj->numRects > 0) && overlapping(&obj->extents, &rc))
 	{
-	    for (pCurRect = obj->rects, pRectEnd = pCurRect +
-	     obj->numRects; pCurRect < pRectEnd; pCurRect++)
+	    for (i = region_find_pt( obj, rc.left, rc.top, &ret ); !ret && i < obj->numRects; i++ )
 	    {
-	        if (pCurRect->bottom <= rc.top)
+	        if (obj->rects[i].bottom <= rc.top)
 		    continue;             /* not far enough down yet */
 
-		if (pCurRect->top >= rc.bottom)
+		if (obj->rects[i].top >= rc.bottom)
 		    break;                /* too far down */
 
-		if (pCurRect->right <= rc.left)
+		if (obj->rects[i].right <= rc.left)
 		    continue;              /* not far enough over yet */
 
-		if (pCurRect->left >= rc.right) {
+		if (obj->rects[i].left >= rc.right)
 		    continue;
-		}
 
 		ret = TRUE;
-		break;
 	    }
 	}
 	GDI_ReleaseObj(hrgn);
@@ -1598,6 +1585,28 @@ static INT REGION_Coalesce (
     return (curStart);
 }
 
+/**********************************************************************
+ *          REGION_compact
+ *
+ * To keep regions from growing without bound, shrink the array of rectangles
+ * to match the new number of rectangles in the region.
+ *
+ * Only do this if the number of rectangles allocated is more than
+ * twice the number of rectangles in the region.
+ */
+static void REGION_compact( WINEREGION *reg )
+{
+    if ((reg->numRects < reg->size / 2) && (reg->numRects > 2))
+    {
+        RECT *new_rects = HeapReAlloc( GetProcessHeap(), 0, reg->rects, reg->numRects * sizeof(RECT) );
+        if (new_rects)
+        {
+            reg->rects = new_rects;
+            reg->size = reg->numRects;
+        }
+    }
+}
+
 /***********************************************************************
  *           REGION_RegionOp
  *
@@ -1839,23 +1848,7 @@ static BOOL REGION_RegionOp(
 	REGION_Coalesce (&newReg, prevBand, curBand);
     }
 
-    /*
-     * A bit of cleanup. To keep regions from growing without bound,
-     * we shrink the array of rectangles to match the new number of
-     * rectangles in the region. This never goes to 0, however...
-     *
-     * Only do this stuff if the number of rectangles allocated is more than
-     * twice the number of rectangles in the region (a simple optimization...).
-     */
-    if ((newReg.numRects < (newReg.size >> 1)) && (newReg.numRects > 2))
-    {
-        RECT *new_rects = HeapReAlloc( GetProcessHeap(), 0, newReg.rects, newReg.numRects * sizeof(RECT) );
-        if (new_rects)
-        {
-            newReg.rects = new_rects;
-            newReg.size = newReg.numRects;
-        }
-    }
+    REGION_compact( &newReg );
     HeapFree( GetProcessHeap(), 0, destReg->rects );
     destReg->rects    = newReg.rects;
     destReg->size     = newReg.size;
@@ -2589,21 +2582,16 @@ static void REGION_FreeStorage(ScanLineListBlock *pSLLBlock)
  */
 static BOOL REGION_PtsToRegion( struct point_block *FirstPtBlock, WINEREGION *reg )
 {
-    RECT *rects;
     POINT *pts;
     struct point_block *pb;
-    int i;
+    int i, size, cur_band = 0, prev_band = 0;
     RECT *extents;
-    INT numRects;
 
     extents = &reg->extents;
 
-    for (pb = FirstPtBlock, numRects = 0; pb; pb = pb->next) numRects += pb->count;
-    if (!init_region( reg, numRects )) return FALSE;
+    for (pb = FirstPtBlock, size = 0; pb; pb = pb->next) size += pb->count;
+    if (!init_region( reg, size )) return FALSE;
 
-    reg->size = numRects;
-    rects = reg->rects - 1;
-    numRects = 0;
     extents->left = LARGE_COORDINATE,  extents->right = SMALL_COORDINATE;
 
     for (pb = FirstPtBlock; pb; pb = pb->next)
@@ -2613,36 +2601,34 @@ static BOOL REGION_PtsToRegion( struct point_block *FirstPtBlock, WINEREGION *re
 	for (pts = pb->pts; i--; pts += 2) {
 	    if (pts->x == pts[1].x)
 		continue;
-	    if (numRects && pts->x == rects->left && pts->y == rects->bottom &&
-		pts[1].x == rects->right &&
-		(numRects == 1 || rects[-1].top != rects->top) &&
-		(i && pts[2].y > pts[1].y)) {
-		rects->bottom = pts[1].y + 1;
-		continue;
-	    }
-	    numRects++;
-	    rects++;
-	    rects->left = pts->x;  rects->top = pts->y;
-	    rects->right = pts[1].x;  rects->bottom = pts[1].y + 1;
-	    if (rects->left < extents->left)
-		extents->left = rects->left;
-	    if (rects->right > extents->right)
-		extents->right = rects->right;
+
+            if (reg->numRects && pts[0].y != reg->rects[cur_band].top)
+            {
+                prev_band = REGION_Coalesce( reg, prev_band, cur_band );
+                cur_band = reg->numRects;
+            }
+
+            add_rect( reg, pts[0].x, pts[0].y, pts[1].x, pts[1].y + 1 );
+            if (pts[0].x < extents->left)
+                extents->left = pts[0].x;
+            if (pts[1].x > extents->right)
+                extents->right = pts[1].x;
         }
     }
 
-    if (numRects) {
-	extents->top = reg->rects->top;
-	extents->bottom = rects->bottom;
+    if (reg->numRects) {
+        REGION_Coalesce( reg, prev_band, cur_band );
+        extents->top = reg->rects[0].top;
+        extents->bottom = reg->rects[reg->numRects-1].bottom;
     } else {
 	extents->left = 0;
 	extents->top = 0;
 	extents->right = 0;
 	extents->bottom = 0;
     }
-    reg->numRects = numRects;
+    REGION_compact( reg );
 
-    return(TRUE);
+    return TRUE;
 }
 
 /***********************************************************************

@@ -2253,6 +2253,17 @@ MSVCRT_size_t CDECL MSVCRT__mbstowcs_l(MSVCRT_wchar_t *wcstr, const char *mbstr,
     else
         locinfo = locale->locinfo;
 
+    if(!locinfo->lc_codepage) {
+        if(!wcstr)
+            return strlen(mbstr);
+
+        for(i=0; i<count; i++) {
+            wcstr[i] = (unsigned char)mbstr[i];
+            if(!wcstr[i]) break;
+        }
+        return i;
+    }
+
     /* Ignore count parameter */
     if(!wcstr)
         return MultiByteToWideChar(locinfo->lc_codepage, 0, mbstr, -1, NULL, 0)-1;
@@ -2266,6 +2277,11 @@ MSVCRT_size_t CDECL MSVCRT__mbstowcs_l(MSVCRT_wchar_t *wcstr, const char *mbstr,
 
     size = MultiByteToWideChar(locinfo->lc_codepage, 0,
             mbstr, size, wcstr, count);
+    if(!size) {
+        if(count) wcstr[0] = '\0';
+        *MSVCRT__errno() = MSVCRT_EILSEQ;
+        return -1;
+    }
 
     if(size<count && wcstr)
         wcstr[size] = '\0';

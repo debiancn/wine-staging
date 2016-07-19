@@ -33,6 +33,95 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(enhmetafile);
 
+static const RECTL empty_bounds = { 0, 0, -1, -1 };
+
+/* determine if we can use 16-bit points to store all the input points */
+static BOOL can_use_short_points( const POINT *pts, UINT count )
+{
+    UINT i;
+
+    for (i = 0; i < count; i++)
+        if (((pts[i].x + 0x8000) & ~0xffff) || ((pts[i].y + 0x8000) & ~0xffff))
+            return FALSE;
+    return TRUE;
+}
+
+/* store points in either long or short format; return a pointer to the end of the stored data */
+static void *store_points( POINTL *dest, const POINT *pts, UINT count, BOOL short_points )
+{
+    if (short_points)
+    {
+        UINT i;
+        POINTS *dest_short = (POINTS *)dest;
+
+        for (i = 0; i < count; i++)
+        {
+            dest_short[i].x = pts[i].x;
+            dest_short[i].y = pts[i].y;
+        }
+        return dest_short + count;
+    }
+    else
+    {
+        memcpy( dest, pts, count * sizeof(*dest) );
+        return dest + count;
+    }
+}
+
+/* compute the bounds of an array of points, optionally including the current position */
+static void get_points_bounds( RECTL *bounds, const POINT *pts, UINT count, HDC hdc )
+{
+    UINT i;
+
+    if (hdc)
+    {
+        POINT cur_pt;
+        GetCurrentPositionEx( hdc, &cur_pt );
+        bounds->left = bounds->right = cur_pt.x;
+        bounds->top = bounds->bottom = cur_pt.y;
+    }
+    else if (count)
+    {
+        bounds->left = bounds->right = pts[0].x;
+        bounds->top = bounds->bottom = pts[0].y;
+    }
+    else *bounds = empty_bounds;
+
+    for (i = 0; i < count; i++)
+    {
+        bounds->left   = min( bounds->left, pts[i].x );
+        bounds->right  = max( bounds->right, pts[i].x );
+        bounds->top    = min( bounds->top, pts[i].y );
+        bounds->bottom = max( bounds->bottom, pts[i].y );
+    }
+}
+
+/* helper for path stroke and fill functions */
+static BOOL emfdrv_stroke_and_fill_path( PHYSDEV dev, INT type )
+{
+    EMRSTROKEANDFILLPATH emr;
+    int count;
+    POINT *points;
+    BYTE *flags;
+
+    emr.emr.iType = type;
+    emr.emr.nSize = sizeof(emr);
+
+    count = get_gdi_flat_path( dev->hdc, &points, &flags, NULL );
+    if (count >= 0)
+    {
+        get_points_bounds( &emr.rclBounds, points, count, 0 );
+        HeapFree( GetProcessHeap(), 0, points );
+        HeapFree( GetProcessHeap(), 0, flags );
+    }
+    else emr.rclBounds = empty_bounds;
+
+    if (!EMFDRV_WriteRecord( dev, &emr.emr )) return FALSE;
+    if (count < 0) return FALSE;
+    EMFDRV_UpdateBBox( dev, &emr.rclBounds );
+    return TRUE;
+}
+
 /**********************************************************************
  *	     EMFDRV_MoveTo
  */
@@ -53,7 +142,7 @@ BOOL EMFDRV_MoveTo(PHYSDEV dev, INT x, INT y)
  */
 BOOL EMFDRV_LineTo( PHYSDEV dev, INT x, INT y )
 {
-    EMFDRV_PDEVICE *physDev = (EMFDRV_PDEVICE*) dev;
+    EMFDRV_PDEVICE *physDev = get_emf_physdev( dev );
     POINT pt;
     EMRLINETO emr;
     RECTL bounds;
@@ -87,7 +176,7 @@ static BOOL
 EMFDRV_ArcChordPie( PHYSDEV dev, INT left, INT top, INT right, INT bottom,
 		    INT xstart, INT ystart, INT xend, INT yend, DWORD iType )
 {
-    EMFDRV_PDEVICE *physDev = (EMFDRV_PDEVICE*) dev;
+    EMFDRV_PDEVICE *physDev = get_emf_physdev( dev );
     INT temp, xCentre, yCentre, i;
     double angleStart, angleEnd;
     double xinterStart, yinterStart, xinterEnd, yinterEnd;
@@ -177,6 +266,15 @@ EMFDRV_ArcChordPie( PHYSDEV dev, INT left, INT top, INT right, INT bottom,
 	if(bounds.top > yCentre) bounds.top = yCentre;
 	else if(bounds.bottom < yCentre) bounds.bottom = yCentre;
     }
+    if (iType == EMR_ARCTO)
+    {
+        POINT pt;
+        GetCurrentPositionEx( dev->hdc, &pt );
+        bounds.left   = min( bounds.left, pt.x );
+        bounds.top    = min( bounds.top, pt.y );
+        bounds.right  = max( bounds.right, pt.x );
+        bounds.bottom = max( bounds.bottom, pt.y );
+    }
     if(!EMFDRV_WriteRecord( dev, &emr.emr ))
         return FALSE;
     if(!physDev->path)
@@ -193,6 +291,16 @@ BOOL EMFDRV_Arc( PHYSDEV dev, INT left, INT top, INT right, INT bottom,
 {
     return EMFDRV_ArcChordPie( dev, left, top, right, bottom, xstart, ystart,
 			       xend, yend, EMR_ARC );
+}
+
+/***********************************************************************
+ *           EMFDRV_ArcTo
+ */
+BOOL EMFDRV_ArcTo( PHYSDEV dev, INT left, INT top, INT right, INT bottom,
+                   INT xstart, INT ystart, INT xend, INT yend )
+{
+    return EMFDRV_ArcChordPie( dev, left, top, right, bottom, xstart, ystart,
+			       xend, yend, EMR_ARCTO );
 }
 
 /***********************************************************************
@@ -217,11 +325,29 @@ BOOL EMFDRV_Chord( PHYSDEV dev, INT left, INT top, INT right, INT bottom,
 }
 
 /***********************************************************************
+ *           EMFDRV_AngleArc
+ */
+BOOL EMFDRV_AngleArc( PHYSDEV dev, INT x, INT y, DWORD radius, FLOAT start, FLOAT sweep )
+{
+    EMRANGLEARC emr;
+
+    emr.emr.iType   = EMR_ANGLEARC;
+    emr.emr.nSize   = sizeof( emr );
+    emr.ptlCenter.x = x;
+    emr.ptlCenter.y = y;
+    emr.nRadius     = radius;
+    emr.eStartAngle = start;
+    emr.eSweepAngle = sweep;
+
+    return EMFDRV_WriteRecord( dev, &emr.emr );
+}
+
+/***********************************************************************
  *           EMFDRV_Ellipse
  */
 BOOL EMFDRV_Ellipse( PHYSDEV dev, INT left, INT top, INT right, INT bottom )
 {
-    EMFDRV_PDEVICE *physDev = (EMFDRV_PDEVICE*) dev;
+    EMFDRV_PDEVICE *physDev = get_emf_physdev( dev );
     EMRELLIPSE emr;
     INT temp;
 
@@ -254,7 +380,7 @@ BOOL EMFDRV_Ellipse( PHYSDEV dev, INT left, INT top, INT right, INT bottom )
  */
 BOOL EMFDRV_Rectangle(PHYSDEV dev, INT left, INT top, INT right, INT bottom)
 {
-    EMFDRV_PDEVICE *physDev = (EMFDRV_PDEVICE*) dev;
+    EMFDRV_PDEVICE *physDev = get_emf_physdev( dev );
     EMRRECTANGLE emr;
     INT temp;
 
@@ -288,7 +414,7 @@ BOOL EMFDRV_Rectangle(PHYSDEV dev, INT left, INT top, INT right, INT bottom)
 BOOL EMFDRV_RoundRect( PHYSDEV dev, INT left, INT top, INT right,
 		  INT bottom, INT ell_width, INT ell_height )
 {
-    EMFDRV_PDEVICE *physDev = (EMFDRV_PDEVICE*) dev;
+    EMFDRV_PDEVICE *physDev = get_emf_physdev( dev );
     EMRROUNDRECT emr;
     INT temp;
 
@@ -347,135 +473,28 @@ COLORREF EMFDRV_SetPixel( PHYSDEV dev, INT x, INT y, COLORREF color )
 static BOOL
 EMFDRV_Polylinegon( PHYSDEV dev, const POINT* pt, INT count, DWORD iType )
 {
-    EMFDRV_PDEVICE *physDev = (EMFDRV_PDEVICE*) dev;
+    EMFDRV_PDEVICE *physDev = get_emf_physdev( dev );
     EMRPOLYLINE *emr;
     DWORD size;
-    INT i;
-    BOOL ret;
+    BOOL ret, use_small_emr = can_use_short_points( pt, count );
 
-    size = sizeof(EMRPOLYLINE) + sizeof(POINTL) * (count - 1);
+    size = use_small_emr ? offsetof( EMRPOLYLINE16, apts[count] ) : offsetof( EMRPOLYLINE, aptl[count] );
 
     emr = HeapAlloc( GetProcessHeap(), 0, size );
-    emr->emr.iType = iType;
+    emr->emr.iType = use_small_emr ? iType + EMR_POLYLINE16 - EMR_POLYLINE : iType;
     emr->emr.nSize = size;
-
     emr->cptl = count;
-    memcpy(emr->aptl, pt, count * sizeof(POINTL));
 
-    if(physDev->path) {
-        emr->rclBounds.left = emr->rclBounds.top = 0;
-        emr->rclBounds.right = emr->rclBounds.bottom = -1;
-        ret = EMFDRV_WriteRecord( dev, &emr->emr );
-        HeapFree( GetProcessHeap(), 0, emr );
-        return ret;
-    }
+    store_points( emr->aptl, pt, count, use_small_emr );
 
-    if(iType == EMR_POLYBEZIERTO) {
-        POINT cur_pt;
-
-        GetCurrentPositionEx( dev->hdc, &cur_pt );
-        emr->rclBounds.left = emr->rclBounds.right = cur_pt.x;
-        emr->rclBounds.top = emr->rclBounds.bottom = cur_pt.y;
-        i = 0;
-    }
+    if (!physDev->path)
+        get_points_bounds( &emr->rclBounds, pt, count,
+                           (iType == EMR_POLYBEZIERTO || iType == EMR_POLYLINETO) ? dev->hdc : 0 );
     else
-    {
-        emr->rclBounds.left = emr->rclBounds.right = pt[0].x;
-        emr->rclBounds.top = emr->rclBounds.bottom = pt[0].y;
-        i = 1;
-    }
-
-    for(; i < count; i++) {
-        if(pt[i].x < emr->rclBounds.left)
-	    emr->rclBounds.left = pt[i].x;
-	else if(pt[i].x > emr->rclBounds.right)
-	    emr->rclBounds.right = pt[i].x;
-	if(pt[i].y < emr->rclBounds.top)
-	    emr->rclBounds.top = pt[i].y;
-	else if(pt[i].y > emr->rclBounds.bottom)
-	    emr->rclBounds.bottom = pt[i].y;
-    }
+        emr->rclBounds = empty_bounds;
 
     ret = EMFDRV_WriteRecord( dev, &emr->emr );
-    if(ret)
-        EMFDRV_UpdateBBox( dev, &emr->rclBounds );
-    HeapFree( GetProcessHeap(), 0, emr );
-    return ret;
-}
-
-
-/**********************************************************************
- *          EMFDRV_Polylinegon16
- *
- * Helper for EMFDRV_Poly{line|gon}
- *
- *  This is not a legacy function!
- *  We are using SHORT integers to save space.
- */
-static BOOL
-EMFDRV_Polylinegon16( PHYSDEV dev, const POINT* pt, INT count, DWORD iType )
-{
-    EMFDRV_PDEVICE *physDev = (EMFDRV_PDEVICE*) dev;
-    EMRPOLYLINE16 *emr;
-    DWORD size;
-    INT i;
-    BOOL ret;
-
-    /* check whether all points fit in the SHORT int POINT structure */
-    for(i = 0; i < count; i++) {
-        if( ((pt[i].x+0x8000) & ~0xffff ) || 
-            ((pt[i].y+0x8000) & ~0xffff ) )
-            return FALSE;
-    }
-
-    size = sizeof(EMRPOLYLINE16) + sizeof(POINTS) * (count - 1);
-
-    emr = HeapAlloc( GetProcessHeap(), 0, size );
-    emr->emr.iType = iType;
-    emr->emr.nSize = size;
-
-    emr->cpts = count;
-    for(i = 0; i < count; i++ ) {
-        emr->apts[i].x = pt[i].x;
-        emr->apts[i].y = pt[i].y;
-    }
-
-    if(physDev->path) {
-        emr->rclBounds.left = emr->rclBounds.top = 0;
-        emr->rclBounds.right = emr->rclBounds.bottom = -1;
-        ret = EMFDRV_WriteRecord( dev, &emr->emr );
-        HeapFree( GetProcessHeap(), 0, emr );
-        return ret;
-    }
-
-    if(iType == EMR_POLYBEZIERTO16) {
-        POINT cur_pt;
-
-        GetCurrentPositionEx( dev->hdc, &cur_pt );
-        emr->rclBounds.left = emr->rclBounds.right = cur_pt.x;
-        emr->rclBounds.top = emr->rclBounds.bottom = cur_pt.y;
-        i = 0;
-    }
-    else
-    {
-        emr->rclBounds.left = emr->rclBounds.right = pt[0].x;
-        emr->rclBounds.top = emr->rclBounds.bottom = pt[0].y;
-        i = 1;
-    }
-
-    for(; i < count; i++) {
-        if(pt[i].x < emr->rclBounds.left)
-	    emr->rclBounds.left = pt[i].x;
-	else if(pt[i].x > emr->rclBounds.right)
-	    emr->rclBounds.right = pt[i].x;
-	if(pt[i].y < emr->rclBounds.top)
-	    emr->rclBounds.top = pt[i].y;
-	else if(pt[i].y > emr->rclBounds.bottom)
-	    emr->rclBounds.bottom = pt[i].y;
-    }
-
-    ret = EMFDRV_WriteRecord( dev, &emr->emr );
-    if(ret)
+    if (ret && !physDev->path)
         EMFDRV_UpdateBBox( dev, &emr->rclBounds );
     HeapFree( GetProcessHeap(), 0, emr );
     return ret;
@@ -487,9 +506,15 @@ EMFDRV_Polylinegon16( PHYSDEV dev, const POINT* pt, INT count, DWORD iType )
  */
 BOOL EMFDRV_Polyline( PHYSDEV dev, const POINT* pt, INT count )
 {
-    if( EMFDRV_Polylinegon16( dev, pt, count, EMR_POLYLINE16 ) )
-        return TRUE;
     return EMFDRV_Polylinegon( dev, pt, count, EMR_POLYLINE );
+}
+
+/**********************************************************************
+ *          EMFDRV_PolylineTo
+ */
+BOOL EMFDRV_PolylineTo( PHYSDEV dev, const POINT* pt, INT count )
+{
+    return EMFDRV_Polylinegon( dev, pt, count, EMR_POLYLINETO );
 }
 
 /**********************************************************************
@@ -498,8 +523,6 @@ BOOL EMFDRV_Polyline( PHYSDEV dev, const POINT* pt, INT count )
 BOOL EMFDRV_Polygon( PHYSDEV dev, const POINT* pt, INT count )
 {
     if(count < 2) return FALSE;
-    if( EMFDRV_Polylinegon16( dev, pt, count, EMR_POLYGON16 ) )
-        return TRUE;
     return EMFDRV_Polylinegon( dev, pt, count, EMR_POLYGON );
 }
 
@@ -508,8 +531,6 @@ BOOL EMFDRV_Polygon( PHYSDEV dev, const POINT* pt, INT count )
  */
 BOOL EMFDRV_PolyBezier( PHYSDEV dev, const POINT *pts, DWORD count )
 {
-    if(EMFDRV_Polylinegon16( dev, pts, count, EMR_POLYBEZIER16 ))
-        return TRUE;
     return EMFDRV_Polylinegon( dev, pts, count, EMR_POLYBEZIER );
 }
 
@@ -518,8 +539,6 @@ BOOL EMFDRV_PolyBezier( PHYSDEV dev, const POINT *pts, DWORD count )
  */
 BOOL EMFDRV_PolyBezierTo( PHYSDEV dev, const POINT *pts, DWORD count )
 {
-    if(EMFDRV_Polylinegon16( dev, pts, count, EMR_POLYBEZIERTO16 ))
-        return TRUE;
     return EMFDRV_Polylinegon( dev, pts, count, EMR_POLYBEZIERTO );
 }
 
@@ -533,37 +552,17 @@ static BOOL
 EMFDRV_PolyPolylinegon( PHYSDEV dev, const POINT* pt, const INT* counts, UINT polys,
 			DWORD iType)
 {
-    EMFDRV_PDEVICE *physDev = (EMFDRV_PDEVICE*) dev;
+    EMFDRV_PDEVICE *physDev = get_emf_physdev( dev );
     EMRPOLYPOLYLINE *emr;
-    DWORD cptl = 0, poly, size, i;
-    INT point;
-    const RECTL empty = {0, 0, -1, -1};
-    RECTL bounds = empty;
-    const POINT *pts;
-    BOOL ret, use_small_emr = TRUE, bounds_valid = TRUE;
+    DWORD cptl = 0, poly, size;
+    BOOL ret, use_small_emr, bounds_valid = TRUE;
 
-    pts = pt;
     for(poly = 0; poly < polys; poly++) {
         cptl += counts[poly];
         if(counts[poly] < 2) bounds_valid = FALSE;
-	for(point = 0; point < counts[poly]; point++) {
-            /* check whether all points fit in the SHORT int POINT structure */
-            if( ((pts->x+0x8000) & ~0xffff ) ||
-                ((pts->y+0x8000) & ~0xffff ) )
-                use_small_emr = FALSE;
-            if(pts == pt) {
-                bounds.left = bounds.right = pts->x;
-                bounds.top = bounds.bottom = pts->y;
-            } else {
-                if(bounds.left > pts->x) bounds.left = pts->x;
-                else if(bounds.right < pts->x) bounds.right = pts->x;
-                if(bounds.top > pts->y) bounds.top = pts->y;
-                else if(bounds.bottom < pts->y) bounds.bottom = pts->y;
-            }
-	    pts++;
-	}
     }
     if(!cptl) bounds_valid = FALSE;
+    use_small_emr = can_use_short_points( pt, cptl );
 
     size = FIELD_OFFSET(EMRPOLYPOLYLINE, aPolyCounts[polys]);
     if(use_small_emr)
@@ -578,29 +577,16 @@ EMFDRV_PolyPolylinegon( PHYSDEV dev, const POINT* pt, const INT* counts, UINT po
 
     emr->emr.nSize = size;
     if(bounds_valid && !physDev->path)
-        emr->rclBounds = bounds;
+        get_points_bounds( &emr->rclBounds, pt, cptl, 0 );
     else
-        emr->rclBounds = empty;
+        emr->rclBounds = empty_bounds;
     emr->nPolys = polys;
     emr->cptl = cptl;
 
     if(polys)
     {
         memcpy( emr->aPolyCounts, counts, polys * sizeof(DWORD) );
-        if(cptl)
-        {
-            if(use_small_emr)
-            {
-                POINTS *out_pts = (POINTS *)(emr->aPolyCounts + polys);
-                for(i = 0; i < cptl; i++ )
-                {
-                    out_pts[i].x = pt[i].x;
-                    out_pts[i].y = pt[i].y;
-                }
-            }
-            else
-                memcpy( emr->aPolyCounts + polys, pt, cptl * sizeof(POINTL) );
-        }
+        store_points( (POINTL *)(emr->aPolyCounts + polys), pt, cptl, use_small_emr );
     }
 
     ret = EMFDRV_WriteRecord( dev, &emr->emr );
@@ -630,6 +616,43 @@ BOOL EMFDRV_PolyPolyline(PHYSDEV dev, const POINT* pt, const DWORD* counts, DWOR
 BOOL EMFDRV_PolyPolygon( PHYSDEV dev, const POINT* pt, const INT* counts, UINT polys )
 {
     return EMFDRV_PolyPolylinegon( dev, pt, counts, polys, EMR_POLYPOLYGON );
+}
+
+
+/**********************************************************************
+ *          EMFDRV_PolyDraw
+ */
+BOOL EMFDRV_PolyDraw( PHYSDEV dev, const POINT *pts, const BYTE *types, DWORD count )
+{
+    EMFDRV_PDEVICE *physDev = get_emf_physdev( dev );
+    EMRPOLYDRAW *emr;
+    BOOL ret;
+    BYTE *types_dest;
+    BOOL use_small_emr = can_use_short_points( pts, count );
+    DWORD size;
+
+    size = use_small_emr ? offsetof( EMRPOLYDRAW16, apts[count] ) : offsetof( EMRPOLYDRAW, aptl[count] );
+    size += (count + 3) & ~3;
+
+    if (!(emr = HeapAlloc( GetProcessHeap(), 0, size ))) return FALSE;
+
+    emr->emr.iType = use_small_emr ? EMR_POLYDRAW16 : EMR_POLYDRAW;
+    emr->emr.nSize = size;
+    emr->cptl = count;
+
+    types_dest = store_points( emr->aptl, pts, count, use_small_emr );
+    memcpy( types_dest, types, count );
+    if (count & 3) memset( types_dest + count, 0, 4 - (count & 3) );
+
+    if (!physDev->path)
+        get_points_bounds( &emr->rclBounds, pts, count, 0 );
+    else
+        emr->rclBounds = empty_bounds;
+
+    ret = EMFDRV_WriteRecord( dev, &emr->emr );
+    if (ret && !physDev->path) EMFDRV_UpdateBBox( dev, &emr->rclBounds );
+    HeapFree( GetProcessHeap(), 0, emr );
+    return ret;
 }
 
 
@@ -775,7 +798,7 @@ BOOL EMFDRV_InvertRgn( PHYSDEV dev, HRGN hrgn )
 BOOL EMFDRV_ExtTextOut( PHYSDEV dev, INT x, INT y, UINT flags, const RECT *lprect,
                         LPCWSTR str, UINT count, const INT *lpDx )
 {
-    EMFDRV_PDEVICE *physDev = (EMFDRV_PDEVICE*) dev;
+    EMFDRV_PDEVICE *physDev = get_emf_physdev( dev );
     EMREXTTEXTOUTW *pemr;
     DWORD nSize;
     BOOL ret;
@@ -963,4 +986,28 @@ BOOL EMFDRV_GradientFill( PHYSDEV dev, TRIVERTEX *vert_array, ULONG nvert,
     ret = EMFDRV_WriteRecord( dev, &emr->emr );
     HeapFree( GetProcessHeap(), 0, emr );
     return ret;
+}
+
+/**********************************************************************
+ *	     EMFDRV_FillPath
+ */
+BOOL EMFDRV_FillPath( PHYSDEV dev )
+{
+    return emfdrv_stroke_and_fill_path( dev, EMR_FILLPATH );
+}
+
+/**********************************************************************
+ *	     EMFDRV_StrokeAndFillPath
+ */
+BOOL EMFDRV_StrokeAndFillPath( PHYSDEV dev )
+{
+    return emfdrv_stroke_and_fill_path( dev, EMR_STROKEANDFILLPATH );
+}
+
+/**********************************************************************
+ *           EMFDRV_StrokePath
+ */
+BOOL EMFDRV_StrokePath( PHYSDEV dev )
+{
+    return emfdrv_stroke_and_fill_path( dev, EMR_STROKEPATH );
 }

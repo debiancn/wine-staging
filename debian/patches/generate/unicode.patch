@@ -10,7 +10,7 @@ author: Michael Gilbert <mgilbert@debian.org>
 -# base URLs for www.unicode.org files
 +# Locations of unicode files
  my $MAPPINGS = "http://www.unicode.org/Public/MAPPINGS";
--my $UNIDATA = "http://www.unicode.org/Public/8.0.0/ucd";
+-my $UNIDATA = "http://www.unicode.org/Public/9.0.0/ucd";
 -my $REPORTS = "http://www.unicode.org/reports";
 -my $RFCS = "http://www.rfc-editor.org/rfc";
 -my $VERTICALDATA = "http://www.unicode.org/Public/vertical/revision-15";
@@ -21,7 +21,7 @@ author: Michael Gilbert <mgilbert@debian.org>
  
  # Sort keys file
  my $SORTKEYS = "tr10/allkeys.txt";
-@@ -372,15 +372,8 @@ my %joining_forms =
+@@ -375,15 +375,8 @@ my %joining_forms =
  sub open_data_file($$)
  {
      my ($base, $name) = @_;
@@ -38,7 +38,7 @@ author: Michael Gilbert <mgilbert@debian.org>
      return *FILE;
  }
  
-@@ -2490,9 +2483,10 @@ dump_vertical( "dlls/gdi32/vertical.c" )
+@@ -2510,9 +2503,10 @@ dump_vertical( "dlls/gdi32/vertical.c" )
  dump_vertical( "dlls/wineps.drv/vertical.c" );
  dump_nameprep( "dlls/kernel32/nameprep.c" );
  

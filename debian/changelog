@@ -1,3 +1,39 @@
+wine-development (1.9.14-1) unstable; urgency=medium
+
+  * New upstream release 1.9.14, released Jul 8, 2016.
+  * - More Shader Model 5 support in Direct3D.
+  * - Some more write support in WebServices.
+  * - Performance improvements in GDI.
+  * - Some more progress towards the Direct3D command stream.
+  * - Various bug fixes.
+
+ -- Michael Gilbert <mgilbert@debian.org>  Sun, 10 Jul 2016 16:18:23 +0000
+
+wine-development (1.9.13-1) unstable; urgency=medium
+
+  * New upstream release 1.9.13, released Jun 24, 2016.
+    - More Shader Model 5 support in Direct3D.
+    - Unicode data updated to Unicode 9.0.0 (closes: #829080).
+    - Improvements to GDI paths and metafiles.
+    - More progress towards the Direct3D command stream.
+    - Joystick support improvements on Mac OS X.
+    - Various bug fixes.
+  * Refresh unicode.patch.
+  * Replace VERSION (value is empty or '-development') with DEBSUFFIX
+    ('-stable' or '-development') in user exposed files.
+  * Generate scripts (wine, wineserver, wineapploader, winegcc) with
+    hardcoded paths/names instead of runtime detection.
+  * Export DEBSUFFIX from d/rules.
+  * Use variable instead of '-development' in winemenubuilder.patch and
+    winegcc.patch.
+  * Update suggests libwine-gecko to 2.47 (needs packaging).
+  * Fix wineserver manpages for Debian's default persistence value (see:
+    #816020).
+  * Drop alternative depends on perl:any (now handled by debhelper).
+  * Bump build-dep on debhelper version to >= 9.20160702.
+
+ -- Jens Reyer <jre.winesim@gmail.com>  Sun, 03 Jul 2016 21:25:54 +0200
+
 wine-development (1.9.12-1~bpo8+1) jessie-backports; urgency=medium
 
   * Rebuild for jessie-backports.

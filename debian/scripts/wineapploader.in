@@ -2,6 +2,5 @@
 
 appname=$(basename "$0" .exe)
 name=$(echo $appname | cut -d- -f1)
-suffix=$(echo $appname | sed s/$name//)
 
-exec wine$suffix "$name.exe" "$@"
+exec wineDEBSUFFIX "$name.exe" "$@"

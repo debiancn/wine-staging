@@ -5,7 +5,7 @@ msgstr ""
 "Project-Id-Version: Wine\n"
 "Report-Msgid-Bugs-To: http://bugs.winehq.org\n"
 "POT-Creation-Date: N/A\n"
-"PO-Revision-Date: 2016-05-08 20:00+0200\n"
+"PO-Revision-Date: 2016-06-10 19:00+0200\n"
 "Last-Translator: Kim Malmo <berencamlost@msn.com>\n"
 "Language-Team: Norwegian Bokmål <alexsornes@gmail.com>\n"
 "Language: nb_NO\n"
@@ -5701,7 +5701,7 @@ msgstr "Krokprosedyren er ikke installert.\n"
 
 #: winerror.mc:2556
 msgid "Invalid list box message.\n"
-msgstr "Ugyldig melding for listeelement\n"
+msgstr "Ugyldig melding for listeelement.\n"
 
 #: winerror.mc:2561
 msgid "Invalid LB_SETCOUNT sent.\n"
@@ -11157,7 +11157,7 @@ msgstr "versjon 1.0"
 
 #: oleview.rc:103
 msgid "TypeLib files (*.tlb; *.olb; *.dll; *.ocx; *.exe)"
-msgstr "TypeLib-filer (*.tlb; *.olb; *.dll ;*.ocx; *.exe)"
+msgstr "TypeLib-filer (*.tlb; *.olb; *.dll; *.ocx; *.exe)"
 
 #: oleview.rc:106
 msgid "Bind to file via a File Moniker"
@@ -11544,6 +11544,15 @@ msgid ""
 "  REG [operation] /?\n"
 "\n"
 msgstr ""
+"Bruk:\n"
+"  REG [operasjon] [parametere]\n"
+"\n"
+"Støttede operasjoner:\n"
+"  ADD | DELETE | QUERY\n"
+"\n"
+"For hjelp med spesifikke operasjoner, skriv:\n"
+"  REG [operasjon] /?\n"
+"\n"
 
 #: reg.rc:36
 msgid ""
@@ -11648,24 +11657,20 @@ msgid "Search complete. Number of matches found: %1!d!\n"
 msgstr "Søk fullført. Antall treff: %1!d!\n"
 
 #: reg.rc:61
-#, fuzzy
-#| msgid "reg: Invalid key name\n"
 msgid "reg: Invalid syntax. "
-msgstr "reg: Ugyldig nøkkelnavn\n"
+msgstr "reg: Ugyldig syntaks. "
 
 #: reg.rc:62
-#, fuzzy
-#| msgid "uninstaller: Invalid option [%1]\n"
 msgid "reg: Invalid option [%1]. "
-msgstr "uninstaller: [%1] er et ugyldig valg.\n"
+msgstr "reg: [%1] er et ugyldig valg. "
 
 #: reg.rc:63
 msgid "Type \"REG /?\" for help.\n"
-msgstr ""
+msgstr "Skriv \"REG /?\" for hjelp.\n"
 
 #: reg.rc:64
 msgid "Type \"REG %1 /?\" for help.\n"
-msgstr ""
+msgstr "Skriv \"REG %1 /?\" for hjelp.\n"
 
 #: regedit.rc:34
 msgid "&Registry"
@@ -11880,6 +11885,94 @@ msgstr "(kan ikke vise verdi)"
 #: regedit.rc:207
 msgid "(unknown %d)"
 msgstr "(ukjent %d)"
+
+#: regedit.rc:359
+msgid ""
+"Usage:\n"
+"  regedit [options] [filename] [reg_key]\n"
+"\n"
+"Options:\n"
+"  [no option]    Launch the graphical version of this program.\n"
+"  /L:system.dat  The location of the system.dat file to be modified.\n"
+"                 Compatible with any other switch. Ignored.\n"
+"  /R:user.dat    The location of the user.dat file to be modified.\n"
+"                 Compatible with any other switch. Ignored.\n"
+"  /C             Import the contents of a registry file.\n"
+"  /D             Delete a specified registry key.\n"
+"  /E             Export the contents of a specified registry key to a file.\n"
+"                 If no key is specified, the entire registry is exported.\n"
+"  /S             Silent mode. No messages will be displayed.\n"
+"  /V             Launch the GUI in advanced mode. Ignored.\n"
+"  /?             Display this information and exit.\n"
+"  [filename]     The location of the file containing registry information "
+"to\n"
+"                 be imported. When used with [/E], this option specifies "
+"the\n"
+"                 file location where registry information will be exported.\n"
+"  [reg_key]      The registry key to be modified.\n"
+"\n"
+"Usage examples:\n"
+"  regedit \"import.reg\"\n"
+"  regedit /E \"export.reg\" \"HKEY_CURRENT_USER\\Console\"\n"
+"  regedit /D \"HKEY_LOCAL_MACHINE\\Error\\Path\"\n"
+msgstr ""
+"Bruk:\n"
+"  regedit [alternativer] [filnavn] [reg_key]\n"
+"\n"
+"Alternativer:\n"
+"  [Ingen alt.]   Kjør den grafiske versjonen av dette programmet.\n"
+"  /L:system.dat  Plasseringen til system.dat filen som skal modifiseres.\n"
+"                 Kompatibel med hvilken som helst annen bryter. Ignorert.\n"
+"  /R:user.dat    Plasseringen til user.dat filen som skal modifiseres.\n"
+"                 Kompatibel med hvilken som helst annen bryter. Ignorert.\n"
+"  /C             Importér innholdet av en registerfil.\n"
+"  /D             Slett en spesifikk registernøkkel.\n"
+"  /E             Eksportér innholdet av en spesifikk registernøkkel til en "
+"fil.\n"
+"                 Hvis ingen nøkkel er spesifisert, er hele registeret "
+"eksportert.\n"
+"  /S             Stille modus. Ingen beskjeder vil bli vist.\n"
+"  /V             Kjør GUI'et i avansert modus. Ignorert.\n"
+"  /?             Vis denne informasjonen og avslutt.\n"
+"  [filnavn]      Plasseringen til filen som inneholder registerinformasjonen "
+"som\n"
+"                 skal importeres. Når brukt med [/E], spesifiserer dette \n"
+"                 alternativet plasseringen hvor registerinformasjonen vil \n"
+"                 bli eksportert.\n"
+"  [reg_key]      Registernøkkelen som skal modifiseres.\n"
+"\n"
+"Brukseksempler:\n"
+"  regedit \"import.reg\"\n"
+"  regedit /E \"export.reg\" \"HKEY_CURRENT_USER\\Console\"\n"
+"  regedit /D \"HKEY_LOCAL_MACHINE\\Error\\Path\"\n"
+
+#: regedit.rc:360
+msgid "regedit: Invalid or unrecognized switch [%1]\n"
+msgstr "regedit: Ugyldig eller ukjent bryter [%1]\n"
+
+#: regedit.rc:361
+msgid "Type \"regedit /?\" for help.\n"
+msgstr "Skriv \"regedit /?\" for hjelp.\n"
+
+#: regedit.rc:362
+msgid "regedit: No filename was specified.\n"
+msgstr "regedit: Intet filnavn ble oppgitt.\n"
+
+#: regedit.rc:363
+msgid "regedit: No registry key was specified for removal.\n"
+msgstr "regedit: Ingen registernøkkel ble oppgitt for fjerning.\n"
+
+#: regedit.rc:364
+msgid "regedit: The file '%1' was not found.\n"
+msgstr "regedit: Filen \"%1\" ble ikke funnet.\n"
+
+#: regedit.rc:365
+msgid "regedit: Unable to open the file '%1'.\n"
+msgstr "regedit: Kan ikke åpne filen \"%1\".\n"
+
+#: regedit.rc:366
+msgid "regedit: Unhandled action.\n"
+msgstr "regedit: Uhåndtert handling.\n"
 
 #: regedit.rc:163
 msgid "Quits the registry editor"
@@ -12927,7 +13020,7 @@ msgid ""
 "WARNING: Debugging this process may result in loss of data.\n"
 "Are you sure you wish to attach the debugger?"
 msgstr ""
-"ADVERSEL: Å feilsøke denne prosessen kan føre til tap av data.\n"
+"ADVARSEL: Å feilsøke denne prosessen kan føre til tap av data.\n"
 "Er du sikker på at du vil koble til feilsøkeren?"
 
 #: taskmgr.rc:314
@@ -12988,7 +13081,7 @@ msgstr ""
 
 #: uninstaller.rc:33
 msgid "uninstaller: Invalid option [%1]\n"
-msgstr "uninstaller: [%1] er et ugyldig valg.\n"
+msgstr "uninstaller: [%1] er et ugyldig valg\n"
 
 #: uninstaller.rc:35
 msgid ""
@@ -13857,7 +13950,7 @@ msgid ""
 msgstr ""
 "  --backend={user|curses}  'user' lager et nytt vindu, mens 'curses'\n"
 "                            prøver å bruke gjeldende terminal som Wine-"
-"konsoll\n"
+"konsoll.\n"
 
 #: wineconsole.rc:53
 msgid "  <command>                The Wine program to launch in the console.\n"
@@ -13938,7 +14031,7 @@ msgstr "Klarte ikke lagre"
 
 #: winedbg.rc:44
 msgid "Loading detailed information, please wait..."
-msgstr "Laster detaljert informasjon. Vent litt ..."
+msgstr "Laster detaljert informasjon, vent litt ..."
 
 #: winefile.rc:29
 msgid "&Open\tEnter"

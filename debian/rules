@@ -5,6 +5,12 @@ DEB_BUILD_ARCH_OS=$(shell dpkg-architecture -qDEB_BUILD_ARCH_OS)
 DEB_BUILD_ARCH_BITS=$(shell dpkg-architecture -qDEB_BUILD_ARCH_BITS)
 
 VERSION=$(shell dpkg-parsechangelog -S Source | sed s/wine//g)
+ifeq (x$(VERSION), x)
+DEBSUFFIX=-stable
+else
+DEBSUFFIX=$(VERSION)
+endif
+export DEBSUFFIX
 
 MANDIR=usr/share/man
 BINDIR=usr/lib/wine$(VERSION)
@@ -76,13 +82,13 @@ debian/control: debian/control.in
 	sed s/VERSION/$(VERSION)/g < $< > $@
 
 debian/wine$(VERSION)%: debian/wineVERSION%
-	sed s/VERSION/$(VERSION)/g < $< > $@
+	sed "s/VERSION/$(VERSION)/g;s/DEBSUFFIX/$(DEBSUFFIX)/g" < $< > $@
 
 debian/wine32$(VERSION)%: debian/wine32VERSION%
-	sed s/VERSION/$(VERSION)/g < $< > $@
+	sed "s/VERSION/$(VERSION)/g;s/DEBSUFFIX/$(DEBSUFFIX)/g" < $< > $@
 
 debian/wine64$(VERSION)%: debian/wine64VERSION%
-	sed s/VERSION/$(VERSION)/g < $< > $@
+	sed "s/VERSION/$(VERSION)/g;s/DEBSUFFIX/$(DEBSUFFIX)/g" < $< > $@
 
 debian/libwine$(VERSION)%: debian/libwineVERSION%
 	sed s/VERSION/$(VERSION)/g < $< > $@
@@ -118,7 +124,11 @@ override_dh_auto_install-indep: $(INSTALLS)
 	mkdir -p debian/tmp
 	cp ANNOUNCE debian/tmp/changelog
 	cp programs/winedbg/README debian/tmp/README.winedbg
-	cp debian/scripts/wine debian/tmp/wine$(VERSION)
+	sed "s|BINDIR|$(BINDIR)|g" debian/scripts/wineserver.in > debian/tmp/wineserver
+	chmod 755 debian/tmp/wineserver
+	sed "s|DEBSUFFIX|$(DEBSUFFIX)|g" debian/scripts/wineapploader.in > debian/tmp/wineapploader
+	chmod 755 debian/tmp/wineapploader
+	sed "s|BINDIR|$(BINDIR)|g;s|VERSION|$(VERSION)|g" debian/scripts/wine.in > debian/tmp/wine$(DEBSUFFIX)
 	for dir in loader server programs/msiexec programs/winedbg \
 	    programs/wineconsole programs/regedit programs/regsvr32 \
 	    programs/wineboot programs/winefile programs/winepath \
@@ -127,7 +137,7 @@ override_dh_auto_install-indep: $(INSTALLS)
 	    make -C $$dir install-man; \
 	    done
 	for file in $$(find . ! -path "./debian/*" -name \*.man); do \
-	    rename=$$(basename $$file | sed "s/\\./$(VERSION)./;s/UTF-8\\.//"); \
+	    rename=$$(basename $$file | sed "s/\\./$(DEBSUFFIX)./;s/UTF-8\\.//"); \
 	    cp $$file debian/tmp/$$rename || true; \
 	    done
 
@@ -136,15 +146,18 @@ override_dh_auto_install-arch: $(INSTALLS)
 	cp ANNOUNCE debian/tmp/changelog
 	cp tools/winedump/README debian/tmp/README.winedump
 	cp server/wineserver debian/tmp/wineserver$(DEB_BUILD_ARCH_BITS)
-	sed "s|BINDIR|$(BINDIR)|g" debian/scripts/winegcc > debian/tmp/winegcc$(VERSION)
+	sed "s|BINDIR|$(BINDIR)|g" debian/scripts/winegcc.in > debian/tmp/winegcc$(DEBSUFFIX)
 	dh_auto_install
 	for file in $$(find . ! -path "./debian/*" -name \*.man); do \
-	    rename=$$(basename $$file | sed "s/\\./$(VERSION)./;s/UTF-8\\.//"); \
+	    rename=$$(basename $$file | sed "s/\\./$(DEBSUFFIX)./;s/UTF-8\\.//"); \
 	    cp $$file debian/tmp/$$rename || true; \
 	    done
-	cp loader/wine.man debian/tmp/usr/share/man/man1/wine64$(VERSION).1
+	cp loader/wine.man debian/tmp/usr/share/man/man1/wine64$(DEBSUFFIX).1
 	test -f debian/tmp/$(BINDIR)/wine-preloader || \
 	    cp debian/scripts/wine-preloader debian/tmp/$(BINDIR)
+
+override_dh_strip:
+	dh_strip --dbgsym-migration='libwine$(VERSION)-dbg (<< 1.9.0-1~)'
 
 override_dh_shlibdeps:
 	mkdir -p debian/tmp
@@ -156,9 +169,6 @@ override_dh_shlibdeps:
 	    -dRecommends -edebian/tmp/elf.recommends \
 	    -Tdebian/libwine$(VERSION).substvars
 	dh_shlibdeps
-
-override_dh_strip:
-	dh_strip --ddeb-migration='libwine$(VERSION)-dbg (<< 1.9.0-1~)'
 
 override_dh_gencontrol:
 	dh_gencontrol -- \

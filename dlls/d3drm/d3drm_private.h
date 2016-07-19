@@ -26,6 +26,10 @@
 
 #include "wine/list.h"
 
+#ifndef ARRAY_SIZE
+#define ARRAY_SIZE(a) (sizeof(a) / sizeof(*(a)))
+#endif
+
 struct d3drm_device;
 struct d3drm_object
 {
@@ -44,6 +48,39 @@ struct d3drm_texture
     D3DRMIMAGE *image;
 };
 
+struct d3drm_frame
+{
+    IDirect3DRMFrame IDirect3DRMFrame_iface;
+    IDirect3DRMFrame2 IDirect3DRMFrame2_iface;
+    IDirect3DRMFrame3 IDirect3DRMFrame3_iface;
+    IDirect3DRM *d3drm;
+    LONG ref;
+    struct d3drm_frame *parent;
+    ULONG nb_children;
+    ULONG children_capacity;
+    IDirect3DRMFrame3 **children;
+    ULONG nb_visuals;
+    ULONG visuals_capacity;
+    IDirect3DRMVisual **visuals;
+    ULONG nb_lights;
+    ULONG lights_capacity;
+    IDirect3DRMLight **lights;
+    D3DRMMATRIX4D transform;
+    D3DCOLOR scenebackground;
+};
+
+struct d3drm_viewport
+{
+    struct d3drm_object obj;
+    IDirect3DRMViewport IDirect3DRMViewport_iface;
+    IDirect3DRMViewport2 IDirect3DRMViewport2_iface;
+    IDirect3DRM *d3drm;
+    D3DVALUE back;
+    D3DVALUE front;
+    D3DVALUE field;
+    D3DRMPROJECTIONTYPE projection;
+};
+
 void d3drm_object_init(struct d3drm_object *object) DECLSPEC_HIDDEN;
 HRESULT d3drm_object_add_destroy_callback(struct d3drm_object *object, D3DRMOBJECTCALLBACK cb, void *ctx) DECLSPEC_HIDDEN;
 HRESULT d3drm_object_delete_destroy_callback(struct d3drm_object *object, D3DRMOBJECTCALLBACK cb, void *ctx) DECLSPEC_HIDDEN;
@@ -51,15 +88,15 @@ void d3drm_object_cleanup(IDirect3DRMObject *iface, struct d3drm_object *object)
 
 HRESULT d3drm_device_create(struct d3drm_device **out) DECLSPEC_HIDDEN;
 HRESULT d3drm_texture_create(struct d3drm_texture **texture, IDirect3DRM *d3drm) DECLSPEC_HIDDEN;
+HRESULT d3drm_frame_create(struct d3drm_frame **frame, IUnknown *parent_frame, IDirect3DRM *d3drm) DECLSPEC_HIDDEN;
+HRESULT d3drm_viewport_create(struct d3drm_viewport **viewport, IDirect3DRM *d3drm) DECLSPEC_HIDDEN;
 IDirect3DRMDevice *IDirect3DRMDevice_from_impl(struct d3drm_device *device) DECLSPEC_HIDDEN;
 IDirect3DRMDevice2 *IDirect3DRMDevice2_from_impl(struct d3drm_device *device) DECLSPEC_HIDDEN;
 IDirect3DRMDevice3 *IDirect3DRMDevice3_from_impl(struct d3drm_device *device) DECLSPEC_HIDDEN;
 HRESULT Direct3DRMFace_create(REFIID riid, IUnknown** ret_iface) DECLSPEC_HIDDEN;
-HRESULT Direct3DRMFrame_create(REFIID riid, IUnknown* parent_frame, IUnknown** ret_iface) DECLSPEC_HIDDEN;
 HRESULT Direct3DRMLight_create(IUnknown** ppObj) DECLSPEC_HIDDEN;
 HRESULT Direct3DRMMesh_create(IDirect3DRMMesh** obj) DECLSPEC_HIDDEN;
 HRESULT Direct3DRMMeshBuilder_create(REFIID riid, IUnknown** ppObj) DECLSPEC_HIDDEN;
-HRESULT Direct3DRMViewport_create(REFIID riid, IUnknown** ppObj) DECLSPEC_HIDDEN;
 HRESULT Direct3DRMMaterial_create(IDirect3DRMMaterial2** ret_iface) DECLSPEC_HIDDEN;
 
 HRESULT load_mesh_data(IDirect3DRMMeshBuilder3 *iface, IDirectXFileData *data,

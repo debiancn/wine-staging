@@ -1,9 +1,7 @@
 #!/bin/sh -e
 
-bindir="$(dirname $(readlink -f $0))"
-
-wineserver32=$bindir/wineserver32
-wineserver64=$bindir/wineserver64
+wineserver32=/BINDIR/wineserver32
+wineserver64=/BINDIR/wineserver64
 
 if test -x "$wineserver64"; then
     wineserver=$wineserver64

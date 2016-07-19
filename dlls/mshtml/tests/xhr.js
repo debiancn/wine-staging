@@ -1,7 +1,5 @@
 /*
- * Direct3D shader compiler main file
- *
- * Copyright 2010 Matteo Bruni for CodeWeavers
+ * Copyright 2016 Jacek Caban for CodeWeavers
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -16,27 +14,24 @@
  * You should have received a copy of the GNU Lesser General Public
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
- *
  */
 
-#include "config.h"
-#include "wine/port.h"
+function test_xhr() {
+    var xhr = new XMLHttpRequest();
 
-#include <stdarg.h>
+    xhr.onreadystatechange = function() {
+        if(xhr.readyState != 4)
+            return;
 
-#include "windef.h"
-#include "winbase.h"
-
-BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
-{
-    switch (fdwReason)
-    {
-        case DLL_WINE_PREATTACH:
-            return FALSE;    /* prefer native version */
-        case DLL_PROCESS_ATTACH:
-            DisableThreadLibraryCalls(hinstDLL);
-            break;
+        ok(xhr.responseText === "Testing...", "unexpected responseText " + xhr.responseText);
+        next_test();
     }
 
-    return TRUE;
+    xhr.open("POST", "echo.php", true);
+    xhr.setRequestHeader("X-Test", "True");
+    xhr.send("Testing...");
 }
+
+var tests = [
+    test_xhr
+];

@@ -1,7 +1,5 @@
 /*
- * Direct3D shader compiler main file
- *
- * Copyright 2010 Matteo Bruni for CodeWeavers
+ * Copyright 2016 Andrey Gusev
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -16,27 +14,20 @@
  * You should have received a copy of the GNU Lesser General Public
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
- *
  */
 
-#include "config.h"
-#include "wine/port.h"
+#ifndef __D3DX11_H__
+#define __D3DX11_H__
 
-#include <stdarg.h>
+#include <limits.h>
+#include <float.h>
 
-#include "windef.h"
-#include "winbase.h"
+#define D3DX11_DEFAULT        (0xffffffffu)
+#define D3DX11_FROM_FILE      (0xfffffffdu)
+#define DXGI_FORMAT_FROM_FILE ((DXGI_FORMAT)0xfffffffdu)
 
-BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
-{
-    switch (fdwReason)
-    {
-        case DLL_WINE_PREATTACH:
-            return FALSE;    /* prefer native version */
-        case DLL_PROCESS_ATTACH:
-            DisableThreadLibraryCalls(hinstDLL);
-            break;
-    }
+#include "d3d11.h"
+#include "d3dx11core.h"
+#include "d3dx11tex.h"
 
-    return TRUE;
-}
+#endif

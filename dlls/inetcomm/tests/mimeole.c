@@ -335,6 +335,7 @@ static void test_CreateMessage(void)
 static void test_MessageSetProp(void)
 {
     static const char topic[] = "wine topic";
+    static const WCHAR topicW[] = {'w','i','n','e',' ','t','o','p','i','c',0};
     HRESULT hr;
     IMimeMessage *msg;
     IMimeBody *body;
@@ -370,6 +371,7 @@ static void test_MessageSetProp(void)
     hr = IMimeBody_GetProp(body, "Wine-Topic", 0, &prop);
     ok(hr == MIME_E_NOT_FOUND, "ret %08x\n", hr);
 
+    prop.vt = VT_LPSTR;
     hr = IMimeBody_GetProp(body, "Thread-Topic", 0, &prop);
     ok(hr == S_OK, "ret %08x\n", hr);
     if(hr == S_OK)
@@ -386,6 +388,7 @@ static void test_MessageSetProp(void)
     ok(hr == S_OK, "ret %08x\n", hr);
     PropVariantClear(&prop);
 
+    prop.vt = VT_LPSTR;
     hr = IMimeBody_GetProp(body, PIDTOSTR(PID_HDR_SUBJECT), 0, &prop);
     ok(hr == S_OK, "ret %08x\n", hr);
     if(hr == S_OK)
@@ -396,12 +399,23 @@ static void test_MessageSetProp(void)
     }
 
     /* Using the name or PID returns the same result. */
+    prop.vt = VT_LPSTR;
     hr = IMimeBody_GetProp(body, "Subject", 0, &prop);
     ok(hr == S_OK, "ret %08x\n", hr);
     if(hr == S_OK)
     {
         ok(prop.vt == VT_LPSTR, "type %d\n", prop.vt);
         ok(!strcmp(prop.u.pszVal, topic), "got  %s\n", prop.u.pszVal);
+        PropVariantClear(&prop);
+    }
+
+    prop.vt = VT_LPWSTR;
+    hr = IMimeBody_GetProp(body, "Subject", 0, &prop);
+    ok(hr == S_OK, "ret %08x\n", hr);
+    if(hr == S_OK)
+    {
+        ok(prop.vt == VT_LPWSTR, "type %d\n", prop.vt);
+        ok(!lstrcmpW(prop.u.pwszVal, topicW), "got %s\n", wine_dbgstr_w(prop.u.pwszVal));
         PropVariantClear(&prop);
     }
 
@@ -419,6 +433,96 @@ static void test_MessageSetProp(void)
     hr = IMimeBody_SetProp(body, PIDTOSTR(124), 0, &prop);
     ok(hr == MIME_E_NOT_FOUND, "ret %08x\n", hr);
     PropVariantClear(&prop);
+
+    IMimeBody_Release(body);
+    IMimeMessage_Release(msg);
+}
+
+static void test_MessageGetPropInfo(void)
+{
+    static const char topic[] = "wine topic";
+    static const char subject[] = "wine testing";
+    HRESULT hr;
+    IMimeMessage *msg;
+    IMimeBody *body;
+    PROPVARIANT prop;
+    MIMEPROPINFO info;
+
+    hr = MimeOleCreateMessage(NULL, &msg);
+    ok(hr == S_OK, "ret %08x\n", hr);
+
+    PropVariantInit(&prop);
+
+    hr = IMimeMessage_BindToObject(msg, HBODY_ROOT, &IID_IMimeBody, (void**)&body);
+    ok(hr == S_OK, "ret %08x\n", hr);
+
+    prop.vt = VT_LPSTR;
+    prop.u.pszVal = CoTaskMemAlloc(strlen(topic)+1);
+    strcpy(prop.u.pszVal, topic);
+    hr = IMimeBody_SetProp(body, "Thread-Topic", 0, &prop);
+    ok(hr == S_OK, "ret %08x\n", hr);
+    PropVariantClear(&prop);
+
+    prop.vt = VT_LPSTR;
+    prop.u.pszVal = CoTaskMemAlloc(strlen(subject)+1);
+    strcpy(prop.u.pszVal, subject);
+    hr = IMimeBody_SetProp(body, PIDTOSTR(PID_HDR_SUBJECT), 0, &prop);
+    ok(hr == S_OK, "ret %08x\n", hr);
+    PropVariantClear(&prop);
+
+    memset(&info, 0, sizeof(info));
+    info.dwMask = PIM_ENCODINGTYPE | PIM_FLAGS | PIM_PROPID;
+    hr = IMimeBody_GetPropInfo(body, NULL, &info);
+    ok(hr == E_INVALIDARG, "ret %08x\n", hr);
+
+    memset(&info, 0, sizeof(info));
+    info.dwMask = PIM_ENCODINGTYPE | PIM_FLAGS | PIM_PROPID;
+    hr = IMimeBody_GetPropInfo(body, "Subject", NULL);
+    ok(hr == E_INVALIDARG, "ret %08x\n", hr);
+
+    memset(&info, 0xfe, sizeof(info));
+    info.dwMask = PIM_ENCODINGTYPE | PIM_FLAGS | PIM_PROPID;
+    hr = IMimeBody_GetPropInfo(body, "Subject", &info);
+    ok(hr == S_OK, "ret %08x\n", hr);
+    if(hr == S_OK)
+    {
+       ok(info.dwMask & (PIM_ENCODINGTYPE | PIM_FLAGS| PIM_PROPID), "Invalid mask 0x%08x\n", info.dwFlags);
+       todo_wine ok(info.dwFlags & 0x10000000, "Invalid flags 0x%08x\n", info.dwFlags);
+       ok(info.ietEncoding == 0, "Invalid encoding %d\n", info.ietEncoding);
+       ok(info.dwPropId == PID_HDR_SUBJECT, "Invalid propid %d\n", info.dwPropId);
+       ok(info.cValues == 0xfefefefe, "Invalid cValues %d\n", info.cValues);
+    }
+
+    memset(&info, 0xfe, sizeof(info));
+    info.dwMask = 0;
+    hr = IMimeBody_GetPropInfo(body, "Subject", &info);
+    ok(hr == S_OK, "ret %08x\n", hr);
+    if(hr == S_OK)
+    {
+       ok(info.dwMask == 0, "Invalid mask 0x%08x\n", info.dwFlags);
+       ok(info.dwFlags == 0xfefefefe, "Invalid flags 0x%08x\n", info.dwFlags);
+       ok(info.ietEncoding == -16843010, "Invalid encoding %d\n", info.ietEncoding);
+       ok(info.dwPropId == -16843010, "Invalid propid %d\n", info.dwPropId);
+    }
+
+    memset(&info, 0xfe, sizeof(info));
+    info.dwMask = 0;
+    info.dwPropId = 1024;
+    info.ietEncoding = 99;
+    hr = IMimeBody_GetPropInfo(body, "Subject", &info);
+    ok(hr == S_OK, "ret %08x\n", hr);
+    if(hr == S_OK)
+    {
+       ok(info.dwMask == 0, "Invalid mask 0x%08x\n", info.dwFlags);
+       ok(info.dwFlags == 0xfefefefe, "Invalid flags 0x%08x\n", info.dwFlags);
+       ok(info.ietEncoding == 99, "Invalid encoding %d\n", info.ietEncoding);
+       ok(info.dwPropId == 1024, "Invalid propid %d\n", info.dwPropId);
+    }
+
+    memset(&info, 0, sizeof(info));
+    info.dwMask = PIM_ENCODINGTYPE | PIM_FLAGS | PIM_PROPID;
+    hr = IMimeBody_GetPropInfo(body, "Invalid Property", &info);
+    ok(hr == MIME_E_NOT_FOUND, "ret %08x\n", hr);
 
     IMimeBody_Release(body);
     IMimeMessage_Release(msg);
@@ -514,6 +618,58 @@ static void test_BindToObject(void)
     IMimeMessage_Release(msg);
 }
 
+static void test_BodyDeleteProp(void)
+{
+    static const char topic[] = "wine topic";
+    HRESULT hr;
+    IMimeMessage *msg;
+    IMimeBody *body;
+    PROPVARIANT prop;
+
+    hr = MimeOleCreateMessage(NULL, &msg);
+    ok(hr == S_OK, "ret %08x\n", hr);
+
+    PropVariantInit(&prop);
+
+    hr = IMimeMessage_BindToObject(msg, HBODY_ROOT, &IID_IMimeBody, (void**)&body);
+    ok(hr == S_OK, "ret %08x\n", hr);
+
+    hr = IMimeBody_DeleteProp(body, "Subject");
+    ok(hr == MIME_E_NOT_FOUND, "ret %08x\n", hr);
+
+    hr = IMimeBody_DeleteProp(body, PIDTOSTR(PID_HDR_SUBJECT));
+    ok(hr == MIME_E_NOT_FOUND, "ret %08x\n", hr);
+
+    prop.vt = VT_LPSTR;
+    prop.u.pszVal = CoTaskMemAlloc(strlen(topic)+1);
+    strcpy(prop.u.pszVal, topic);
+    hr = IMimeBody_SetProp(body, "Subject", 0, &prop);
+    ok(hr == S_OK, "ret %08x\n", hr);
+    PropVariantClear(&prop);
+
+    hr = IMimeBody_DeleteProp(body, "Subject");
+    ok(hr == S_OK, "ret %08x\n", hr);
+
+    hr = IMimeBody_GetProp(body, "Subject", 0, &prop);
+    ok(hr == MIME_E_NOT_FOUND, "ret %08x\n", hr);
+
+    prop.vt = VT_LPSTR;
+    prop.u.pszVal = CoTaskMemAlloc(strlen(topic)+1);
+    strcpy(prop.u.pszVal, topic);
+    hr = IMimeBody_SetProp(body, PIDTOSTR(PID_HDR_SUBJECT), 0, &prop);
+    ok(hr == S_OK, "ret %08x\n", hr);
+    PropVariantClear(&prop);
+
+    hr = IMimeBody_DeleteProp(body, PIDTOSTR(PID_HDR_SUBJECT));
+    ok(hr == S_OK, "ret %08x\n", hr);
+
+    hr = IMimeBody_GetProp(body, PIDTOSTR(PID_HDR_SUBJECT), 0, &prop);
+    ok(hr == MIME_E_NOT_FOUND, "ret %08x\n", hr);
+
+    IMimeBody_Release(body);
+    IMimeMessage_Release(msg);
+}
+
 static void test_MimeOleGetPropertySchema(void)
 {
     HRESULT hr;
@@ -534,8 +690,10 @@ START_TEST(mimeole)
     test_Allocator();
     test_CreateMessage();
     test_MessageSetProp();
+    test_MessageGetPropInfo();
     test_MessageOptions();
     test_BindToObject();
+    test_BodyDeleteProp();
     test_MimeOleGetPropertySchema();
     OleUninitialize();
 }

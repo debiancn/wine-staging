@@ -5,14 +5,14 @@ msgstr ""
 "Project-Id-Version: Wine\n"
 "Report-Msgid-Bugs-To: http://bugs.winehq.org\n"
 "POT-Creation-Date: N/A\n"
-"PO-Revision-Date: 2016-05-26 20:47+0300\n"
+"PO-Revision-Date: 2016-07-07 13:26+0300\n"
 "Last-Translator: Nikolay Sivov <nsivov@codeweavers.com>\n"
 "Language-Team: Russian\n"
 "Language: ru\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"X-Generator: Poedit 1.8.7.1\n"
+"X-Generator: Poedit 1.8.8\n"
 
 #: appwiz.rc:58
 msgid "Install/Uninstall"
@@ -11891,6 +11891,91 @@ msgstr "(невозможно отобразить)"
 #: regedit.rc:207
 msgid "(unknown %d)"
 msgstr "(неизвестно %d)"
+
+#: regedit.rc:359
+msgid ""
+"Usage:\n"
+"  regedit [options] [filename] [reg_key]\n"
+"\n"
+"Options:\n"
+"  [no option]    Launch the graphical version of this program.\n"
+"  /L:system.dat  The location of the system.dat file to be modified.\n"
+"                 Compatible with any other switch. Ignored.\n"
+"  /R:user.dat    The location of the user.dat file to be modified.\n"
+"                 Compatible with any other switch. Ignored.\n"
+"  /C             Import the contents of a registry file.\n"
+"  /D             Delete a specified registry key.\n"
+"  /E             Export the contents of a specified registry key to a file.\n"
+"                 If no key is specified, the entire registry is exported.\n"
+"  /S             Silent mode. No messages will be displayed.\n"
+"  /V             Launch the GUI in advanced mode. Ignored.\n"
+"  /?             Display this information and exit.\n"
+"  [filename]     The location of the file containing registry information "
+"to\n"
+"                 be imported. When used with [/E], this option specifies "
+"the\n"
+"                 file location where registry information will be exported.\n"
+"  [reg_key]      The registry key to be modified.\n"
+"\n"
+"Usage examples:\n"
+"  regedit \"import.reg\"\n"
+"  regedit /E \"export.reg\" \"HKEY_CURRENT_USER\\Console\"\n"
+"  regedit /D \"HKEY_LOCAL_MACHINE\\Error\\Path\"\n"
+msgstr ""
+"Использование:\n"
+"  regedit [опции] [имя файла] [ключ реестра]\n"
+"\n"
+"Опции:\n"
+"  [без опций]    Запуск графического интерфейса программы.\n"
+"  /L:system.dat  Путь к редактируемому файлу system.dat.\n"
+"                 Совместима с любыми другими опциями. Игнорируется.\n"
+"  /R:user.dat    Путь к редактируемому файлу user.dat.\n"
+"                 Совместима с любыми другими опциями. Игнорируется.\n"
+"  /C             Импортировать содержимое файла реестра.\n"
+"  /D             Удалить указанный ключ.\n"
+"  /E             Экспортировать содержимое ключа в файл.\n"
+"                 Если ключ не указан, экспортируется весь реестр.\n"
+"  /S             Тихий режим. Сообщения не отображаются.\n"
+"  /V             Запуск графического интерфейса в расширенном режиме. "
+"Игнорируется.\n"
+"  /?             Показать эту справку и завершить программу.\n"
+"  [имя файла]    Путь файла, содержащего импортируемые данные.\n"
+"                 При использовании с [/E], эта опция указывает путь к файлу "
+"для экспорта данных.\n"
+"  [ключ реестра] Редактируемый ключ реестра.\n"
+"\n"
+"Примеры использования:\n"
+"  regedit \"import.reg\"\n"
+"  regedit /E \"export.reg\" \"HKEY_CURRENT_USER\\Console\"\n"
+"  regedit /D \"HKEY_LOCAL_MACHINE\\Error\\Path\"\n"
+
+#: regedit.rc:360
+msgid "regedit: Invalid or unrecognized switch [%1]\n"
+msgstr "regedit: неверный или неизвестный параметр [%1]\n"
+
+#: regedit.rc:361
+msgid "Type \"regedit /?\" for help.\n"
+msgstr "Для справки введите «regedit /?».\n"
+
+#: regedit.rc:362
+msgid "regedit: No filename was specified.\n"
+msgstr "regedit: имя файла не указано.\n"
+
+#: regedit.rc:363
+msgid "regedit: No registry key was specified for removal.\n"
+msgstr "regedit: не указан удаляемый ключ.\n"
+
+#: regedit.rc:364
+msgid "regedit: The file '%1' was not found.\n"
+msgstr "regedit: файл «%1» не найден.\n"
+
+#: regedit.rc:365
+msgid "regedit: Unable to open the file '%1'.\n"
+msgstr "regedit: не удалось открыть файл «%1».\n"
+
+#: regedit.rc:366
+msgid "regedit: Unhandled action.\n"
+msgstr "regedit: операция не поддерживается.\n"
 
 #: regedit.rc:163
 msgid "Quits the registry editor"

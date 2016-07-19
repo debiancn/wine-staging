@@ -89,7 +89,7 @@
 @ stub __dcrt_initial_narrow_environment
 @ cdecl __doserrno() MSVCRT___doserrno
 @ cdecl __dstbias() MSVCRT___p__dstbias
-@ stub __fpe_flt_rounds
+@ cdecl __fpe_flt_rounds()
 @ cdecl __fpecode()
 @ stub __initialize_lconv_for_unsigned_char
 @ stub __intrinsic_abnormal_termination
@@ -211,7 +211,7 @@
 @ cdecl _c_exit() MSVCRT__c_exit
 @ cdecl _cabs(long) MSVCRT__cabs
 @ cdecl _callnewh(long)
-@ stub _calloc_base
+@ cdecl _calloc_base(long long)
 @ cdecl _cexit() MSVCRT__cexit
 @ cdecl _cgets(ptr)
 @ stub _cgets_s
@@ -333,14 +333,14 @@
 @ cdecl _fputwchar(long) MSVCRT__fputwchar
 @ cdecl _fread_nolock(ptr long long ptr) MSVCRT__fread_nolock
 @ cdecl _fread_nolock_s(ptr long long long ptr) MSVCRT__fread_nolock_s
-@ stub _free_base
+@ cdecl _free_base(ptr)
 @ cdecl _free_locale(ptr) MSVCRT__free_locale
 @ cdecl _fseek_nolock(ptr long long) MSVCRT__fseek_nolock
 @ cdecl _fseeki64(ptr int64 long) MSVCRT__fseeki64
 @ cdecl _fseeki64_nolock(ptr int64 long) MSVCRT__fseeki64_nolock
 @ cdecl _fsopen(str str long) MSVCRT__fsopen
 @ cdecl _fstat32(long ptr) MSVCRT__fstat32
-@ stub _fstat32i64
+@ cdecl _fstat32i64(long ptr) MSVCRT__fstat32i64
 @ cdecl _fstat64(long ptr) MSVCRT__fstat64
 @ cdecl _fstat64i32(long ptr) MSVCRT__fstat64i32
 @ cdecl _ftell_nolock(ptr) MSVCRT__ftell_nolock
@@ -563,7 +563,7 @@
 @ cdecl _localtime64(ptr) MSVCRT__localtime64
 @ cdecl _localtime64_s(ptr ptr)
 @ cdecl _lock_file(ptr) MSVCRT__lock_file
-@ stub _lock_locales
+@ cdecl _lock_locales()
 @ cdecl _locking(long long long) MSVCRT__locking
 @ cdecl _logb(double) MSVCRT__logb
 @ cdecl -arch=arm,x86_64 _logbf(float) MSVCRT__logbf
@@ -580,7 +580,7 @@
 @ cdecl _ltow_s(long ptr long long) MSVCRT__ltow_s
 @ cdecl _makepath(ptr str str str str) MSVCRT__makepath
 @ cdecl _makepath_s(ptr long str str str str) MSVCRT__makepath_s
-@ stub _malloc_base
+@ cdecl _malloc_base(long)
 @ cdecl _mbbtombc(long)
 @ stub _mbbtombc_l
 @ cdecl _mbbtype(long long)
@@ -1859,7 +1859,7 @@
 @ stub _query_new_handler
 @ stub _query_new_mode
 @ cdecl _read(long ptr long) MSVCRT__read
-@ stub _realloc_base
+@ cdecl _realloc_base(ptr long)
 @ cdecl _recalloc(ptr long long)
 @ cdecl _register_onexit_function(ptr ptr) MSVCRT__register_onexit_function
 @ stub _register_thread_local_exe_atexit_callback
@@ -1892,7 +1892,7 @@
 @ cdecl _set_new_mode(long) MSVCRT__set_new_mode
 @ cdecl _set_printf_count_output(long) MSVCRT__set_printf_count_output
 @ cdecl _set_purecall_handler(ptr)
-@ stub _set_se_translator
+@ cdecl _set_se_translator(ptr) MSVCRT__set_se_translator
 @ cdecl _set_thread_local_invalid_parameter_handler(ptr)
 @ cdecl _seterrormode(long)
 @ cdecl -arch=i386 -norelay _setjmp3(ptr long) MSVCRT__setjmp3
@@ -2000,7 +2000,7 @@
 @ cdecl _unlink(str) MSVCRT__unlink
 @ cdecl _unloaddll(long)
 @ cdecl _unlock_file(ptr) MSVCRT__unlock_file
-@ stub _unlock_locales
+@ cdecl _unlock_locales()
 @ cdecl _utime32(str ptr)
 @ cdecl _utime64(str ptr)
 @ cdecl _waccess(wstr long) MSVCRT__waccess
@@ -2097,7 +2097,7 @@
 @ cdecl _wmktemp(wstr) MSVCRT__wmktemp
 @ cdecl _wmktemp_s(wstr long) MSVCRT__wmktemp_s
 @ varargs _wopen(wstr long) MSVCRT__wopen
-@ stub _wperror(wstr)
+@ cdecl _wperror(wstr) MSVCRT__wperror
 @ cdecl _wpopen(wstr wstr) MSVCRT__wpopen
 @ cdecl _wputenv(wstr)
 @ cdecl _wputenv_s(wstr wstr)
@@ -2286,7 +2286,7 @@
 @ stub fdimf
 @ stub fdiml
 @ stub feclearexcept
-@ stub fegetenv
+@ cdecl fegetenv(ptr) MSVCRT_fegetenv
 @ stub fegetexceptflag
 @ stub fegetround
 @ stub feholdexcept

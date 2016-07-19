@@ -1041,13 +1041,14 @@ HRESULT CDECL wined3d_device_init_3d(struct wined3d_device *device,
 
     if (swapchain_desc->backbuffer_count)
     {
+        struct wined3d_resource *back_buffer = &swapchain->back_buffers[0]->resource;
         struct wined3d_rendertarget_view_desc view_desc;
 
-        view_desc.format_id = swapchain_desc->backbuffer_format;
+        view_desc.format_id = back_buffer->format->id;
         view_desc.u.texture.level_idx = 0;
         view_desc.u.texture.layer_idx = 0;
         view_desc.u.texture.layer_count = 1;
-        if (FAILED(hr = wined3d_rendertarget_view_create(&view_desc, &swapchain->back_buffers[0]->resource,
+        if (FAILED(hr = wined3d_rendertarget_view_create(&view_desc, back_buffer,
                 NULL, &wined3d_null_parent_ops, &device->back_buffer_view)))
         {
             ERR("Failed to create rendertarget view, hr %#x.\n", hr);
@@ -3496,13 +3497,7 @@ HRESULT CDECL wined3d_device_draw_primitive(struct wined3d_device *device, UINT 
 {
     TRACE("device %p, start_vertex %u, vertex_count %u.\n", device, start_vertex, vertex_count);
 
-    if (device->state.load_base_vertex_index)
-    {
-        device->state.load_base_vertex_index = 0;
-        device_invalidate_state(device, STATE_BASEVERTEXINDEX);
-    }
-
-    wined3d_cs_emit_draw(device->cs, start_vertex, vertex_count, 0, 0, FALSE);
+    wined3d_cs_emit_draw(device->cs, 0, start_vertex, vertex_count, 0, 0, FALSE);
 
     return WINED3D_OK;
 }
@@ -3513,13 +3508,11 @@ void CDECL wined3d_device_draw_primitive_instanced(struct wined3d_device *device
     TRACE("device %p, start_vertex %u, vertex_count %u, start_instance %u, instance_count %u.\n",
             device, start_vertex, vertex_count, start_instance, instance_count);
 
-    wined3d_cs_emit_draw(device->cs, start_vertex, vertex_count, start_instance, instance_count, FALSE);
+    wined3d_cs_emit_draw(device->cs, 0, start_vertex, vertex_count, start_instance, instance_count, FALSE);
 }
 
 HRESULT CDECL wined3d_device_draw_indexed_primitive(struct wined3d_device *device, UINT start_idx, UINT index_count)
 {
-    const struct wined3d_gl_info *gl_info = &device->adapter->gl_info;
-
     TRACE("device %p, start_idx %u, index_count %u.\n", device, start_idx, index_count);
 
     if (!device->state.index_buffer)
@@ -3532,14 +3525,7 @@ HRESULT CDECL wined3d_device_draw_indexed_primitive(struct wined3d_device *devic
         return WINED3DERR_INVALIDCALL;
     }
 
-    if (!gl_info->supported[ARB_DRAW_ELEMENTS_BASE_VERTEX] &&
-            device->state.load_base_vertex_index != device->state.base_vertex_index)
-    {
-        device->state.load_base_vertex_index = device->state.base_vertex_index;
-        device_invalidate_state(device, STATE_BASEVERTEXINDEX);
-    }
-
-    wined3d_cs_emit_draw(device->cs, start_idx, index_count, 0, 0, TRUE);
+    wined3d_cs_emit_draw(device->cs, device->state.base_vertex_index, start_idx, index_count, 0, 0, TRUE);
 
     return WINED3D_OK;
 }
@@ -3550,7 +3536,8 @@ void CDECL wined3d_device_draw_indexed_primitive_instanced(struct wined3d_device
     TRACE("device %p, start_idx %u, index_count %u, start_instance %u, instance_count %u.\n",
             device, start_idx, index_count, start_instance, instance_count);
 
-    wined3d_cs_emit_draw(device->cs, start_idx, index_count, start_instance, instance_count, TRUE);
+    wined3d_cs_emit_draw(device->cs, device->state.base_vertex_index,
+            start_idx, index_count, start_instance, instance_count, TRUE);
 }
 
 static HRESULT wined3d_device_update_texture_3d(struct wined3d_device *device,
@@ -4865,11 +4852,13 @@ HRESULT CDECL wined3d_device_reset(struct wined3d_device *device,
     }
     if (swapchain->desc.backbuffer_count)
     {
-        view_desc.format_id = swapchain_desc->backbuffer_format;
+        struct wined3d_resource *back_buffer = &swapchain->back_buffers[0]->resource;
+
+        view_desc.format_id = back_buffer->format->id;
         view_desc.u.texture.level_idx = 0;
         view_desc.u.texture.layer_idx = 0;
         view_desc.u.texture.layer_count = 1;
-        if (FAILED(hr = wined3d_rendertarget_view_create(&view_desc, &swapchain->back_buffers[0]->resource,
+        if (FAILED(hr = wined3d_rendertarget_view_create(&view_desc, back_buffer,
                 NULL, &wined3d_null_parent_ops, &device->back_buffer_view)))
         {
             ERR("Failed to create rendertarget view, hr %#x.\n", hr);
@@ -5003,8 +4992,6 @@ void device_resource_released(struct wined3d_device *device, struct wined3d_reso
     unsigned int i;
 
     TRACE("device %p, resource %p, type %s.\n", device, resource, debug_d3dresourcetype(type));
-
-    context_resource_released(device, resource, type);
 
     for (i = 0; i < device->adapter->gl_info.limits.buffers; ++i)
     {

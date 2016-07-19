@@ -1863,7 +1863,7 @@ ME_FindText(ME_TextEditor *editor, DWORD flags, const CHARRANGE *chrg, const WCH
       cursor.nOffset++;
       if (cursor.nOffset == cursor.pRun->member.run.len)
       {
-        ME_NextRun(&cursor.pPara, &cursor.pRun);
+        ME_NextRun(&cursor.pPara, &cursor.pRun, TRUE);
         cursor.nOffset = 0;
       }
     }
@@ -1889,7 +1889,7 @@ ME_FindText(ME_TextEditor *editor, DWORD flags, const CHARRANGE *chrg, const WCH
 
       if (nCurEnd == 0)
       {
-        ME_PrevRun(&pCurPara, &pCurItem);
+        ME_PrevRun(&pCurPara, &pCurItem, TRUE);
         nCurEnd = pCurItem->member.run.len;
       }
 
@@ -1938,7 +1938,7 @@ ME_FindText(ME_TextEditor *editor, DWORD flags, const CHARRANGE *chrg, const WCH
         }
         if (nCurEnd - nMatched == 0)
         {
-          ME_PrevRun(&pCurPara, &pCurItem);
+          ME_PrevRun(&pCurPara, &pCurItem, TRUE);
           /* Don't care about pCurItem becoming NULL here; it's already taken
            * care of in the exterior loop condition */
           nCurEnd = pCurItem->member.run.len + nMatched;
@@ -1952,7 +1952,7 @@ ME_FindText(ME_TextEditor *editor, DWORD flags, const CHARRANGE *chrg, const WCH
       cursor.nOffset--;
       if (cursor.nOffset < 0)
       {
-        ME_PrevRun(&cursor.pPara, &cursor.pRun);
+        ME_PrevRun(&cursor.pPara, &cursor.pRun, TRUE);
         cursor.nOffset = cursor.pRun->member.run.len;
       }
     }
@@ -2627,6 +2627,11 @@ static int ME_CalculateClickCount(ME_TextEditor *editor, UINT msg, WPARAM wParam
     return clickNum;
 }
 
+static BOOL is_link( ME_Run *run )
+{
+    return (run->style->fmt.dwMask & CFM_LINK) && (run->style->fmt.dwEffects & CFE_LINK);
+}
+
 static BOOL ME_SetCursor(ME_TextEditor *editor)
 {
   ME_Cursor cursor;
@@ -2692,8 +2697,7 @@ static BOOL ME_SetCursor(ME_TextEditor *editor)
       ME_Run *run;
 
       run = &cursor.pRun->member.run;
-      if (run->style->fmt.dwMask & CFM_LINK &&
-          run->style->fmt.dwEffects & CFE_LINK)
+      if (is_link( run ))
       {
           ITextHost_TxSetCursor(editor->texthost,
                                 LoadCursorW(NULL, (WCHAR*)IDC_HAND),
@@ -3128,8 +3132,7 @@ static void ME_LinkNotify(ME_TextEditor *editor, UINT msg, WPARAM wParam, LPARAM
   ME_CharFromPos(editor, x, y, &cursor, &isExact);
   if (!isExact) return;
 
-  if (cursor.pRun->member.run.style->fmt.dwMask & CFM_LINK &&
-      cursor.pRun->member.run.style->fmt.dwEffects & CFE_LINK)
+  if (is_link( &cursor.pRun->member.run ))
   { /* The clicked run has CFE_LINK set */
     ME_DisplayItem *di;
 
@@ -3143,21 +3146,15 @@ static void ME_LinkNotify(ME_TextEditor *editor, UINT msg, WPARAM wParam, LPARAM
 
     /* find the first contiguous run with CFE_LINK set */
     info.chrg.cpMin = ME_GetCursorOfs(&cursor);
-    for (di = cursor.pRun->prev;
-         di && di->type == diRun && (di->member.run.style->fmt.dwMask & CFM_LINK) && (di->member.run.style->fmt.dwEffects & CFE_LINK);
-         di = di->prev)
-    {
-      info.chrg.cpMin -= di->member.run.len;
-    }
+    di = cursor.pRun;
+    while (ME_PrevRun( NULL, &di, FALSE ) && is_link( &di->member.run ))
+        info.chrg.cpMin -= di->member.run.len;
 
     /* find the last contiguous run with CFE_LINK set */
     info.chrg.cpMax = ME_GetCursorOfs(&cursor) + cursor.pRun->member.run.len;
-    for (di = cursor.pRun->next;
-         di && di->type == diRun && (di->member.run.style->fmt.dwMask & CFM_LINK) && (di->member.run.style->fmt.dwEffects & CFE_LINK);
-         di = di->next)
-    {
-      info.chrg.cpMax += di->member.run.len;
-    }
+    di = cursor.pRun;
+    while (ME_NextRun( NULL, &di, FALSE ) && is_link( &di->member.run ))
+        info.chrg.cpMax += di->member.run.len;
 
     ITextHost_TxNotify(editor->texthost, info.nmhdr.code, &info);
   }
@@ -3456,14 +3453,15 @@ LRESULT ME_HandleMessage(ME_TextEditor *editor, UINT msg, WPARAM wParam,
         ME_RewrapRepaint(editor);
       }
 
+      if ((changedSettings & settings & ES_NOHIDESEL) && !editor->bHaveFocus)
+          ME_InvalidateSelection( editor );
+
       if (changedSettings & settings & ECO_VERTICAL)
         FIXME("ECO_VERTICAL not implemented yet!\n");
       if (changedSettings & settings & ECO_AUTOHSCROLL)
         FIXME("ECO_AUTOHSCROLL not implemented yet!\n");
       if (changedSettings & settings & ECO_AUTOVSCROLL)
         FIXME("ECO_AUTOVSCROLL not implemented yet!\n");
-      if (changedSettings & settings & ECO_NOHIDESEL)
-        FIXME("ECO_NOHIDESEL not implemented yet!\n");
       if (changedSettings & settings & ECO_WANTRETURN)
         FIXME("ECO_WANTRETURN not implemented yet!\n");
       if (changedSettings & settings & ECO_AUTOWORDSELECTION)
@@ -4260,6 +4258,8 @@ LRESULT ME_HandleMessage(ME_TextEditor *editor, UINT msg, WPARAM wParam,
     editor->bHaveFocus = TRUE;
     ME_ShowCaret(editor);
     ME_SendOldNotify(editor, EN_SETFOCUS);
+    if (!editor->bHideSelection && !(editor->styleFlags & ES_NOHIDESEL))
+        ME_InvalidateSelection( editor );
     return 0;
   case WM_KILLFOCUS:
     ME_CommitUndo(editor); /* End coalesced undos for typed characters */
@@ -4267,6 +4267,8 @@ LRESULT ME_HandleMessage(ME_TextEditor *editor, UINT msg, WPARAM wParam,
     editor->wheel_remain = 0;
     ME_HideCaret(editor);
     ME_SendOldNotify(editor, EN_KILLFOCUS);
+    if (!editor->bHideSelection && !(editor->styleFlags & ES_NOHIDESEL))
+        ME_InvalidateSelection( editor );
     return 0;
   case WM_COMMAND:
     TRACE("editor wnd command = %d\n", LOWORD(wParam));
@@ -5109,7 +5111,7 @@ static BOOL ME_FindNextURLCandidate(ME_TextEditor *editor,
     }
 
     cursor.nOffset = 0;
-    if (!ME_NextRun(&cursor.pPara, &cursor.pRun))
+    if (!ME_NextRun(&cursor.pPara, &cursor.pRun, TRUE))
       goto done;
   }
 

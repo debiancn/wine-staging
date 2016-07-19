@@ -1543,7 +1543,8 @@ then
     AC_CHECK_HEADERS(cups/cups.h,
             [WINE_CHECK_SONAME(cups,cupsGetDefault,
                        [CUPS_CFLAGS="$ac_cups_cflags"],,
-                       [$ac_cups_libs])])
+                       [$ac_cups_libs])
+             AC_CHECK_HEADERS(cups/ppd.h)])
     CPPFLAGS="$ac_save_CPPFLAGS"
 fi
 WINE_NOTICE_WITH(cups,[test "x$ac_cv_lib_soname_cups" = "x"],
@@ -2841,7 +2842,7 @@ WINE_CONFIG_DLL(d3dx10_42)
 WINE_CONFIG_DLL(d3dx10_43,,[implib],[d3dx10])
 WINE_CONFIG_TEST(dlls/d3dx10_43/tests)
 WINE_CONFIG_DLL(d3dx11_42)
-WINE_CONFIG_DLL(d3dx11_43)
+WINE_CONFIG_DLL(d3dx11_43,,[implib],[d3dx11])
 WINE_CONFIG_DLL(d3dx9_24)
 WINE_CONFIG_DLL(d3dx9_25)
 WINE_CONFIG_DLL(d3dx9_26)
@@ -3147,7 +3148,7 @@ WINE_CONFIG_DLL(ntdll,,[implib])
 WINE_CONFIG_TEST(dlls/ntdll/tests)
 WINE_CONFIG_DLL(ntdsapi,,[implib])
 WINE_CONFIG_TEST(dlls/ntdsapi/tests)
-WINE_CONFIG_DLL(ntoskrnl.exe,,[implib])
+WINE_CONFIG_DLL(ntoskrnl.exe,,[implib],[ntoskrnl])
 WINE_CONFIG_DLL(ntprint)
 WINE_CONFIG_TEST(dlls/ntprint/tests)
 WINE_CONFIG_DLL(objsel,,[clean])
@@ -3293,7 +3294,7 @@ WINE_CONFIG_DLL(updspapi)
 WINE_CONFIG_DLL(url,,[implib])
 WINE_CONFIG_DLL(urlmon,,[clean,implib])
 WINE_CONFIG_TEST(dlls/urlmon/tests)
-WINE_CONFIG_DLL(usbd.sys,,[implib])
+WINE_CONFIG_DLL(usbd.sys,,[implib],[usbd])
 WINE_CONFIG_DLL(user.exe16,enable_win16)
 WINE_CONFIG_DLL(user32,,[clean,implib])
 WINE_CONFIG_TEST(dlls/user32/tests)

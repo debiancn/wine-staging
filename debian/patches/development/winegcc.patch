@@ -1,14 +1,53 @@
-description: call wine-development instead of wine from the winegcc shell script
+description: call wineDEBSUFFIX instead of wine from the winegcc shell script
 author: Michael Gilbert <mgilbert@debian.org>
+author: Jens Reyer <jre.winesim@gmail.com>
 
+--- a/tools/winegcc/Makefile.in
++++ b/tools/winegcc/Makefile.in
+@@ -2,6 +2,8 @@ PROGRAMS = winegcc
+ 
+ MANPAGES = winegcc.man.in
+ 
++EXTRADEFS = -DDEBSUFFIX="\"${DEBSUFFIX}\""
++
+ winegcc_SYMLINKS = winecpp wineg++
+ 
+ C_SRCS = \
 --- a/tools/winegcc/winegcc.c
 +++ b/tools/winegcc/winegcc.c
-@@ -131,7 +131,7 @@ static const char* app_loader_template =
+@@ -98,6 +98,8 @@
+ 
+ #include "utils.h"
+ 
++static const char wine_debsuffix[] = "wine" DEBSUFFIX;
++
+ static const char* app_loader_template =
+     "#!/bin/sh\n"
+     "\n"
+@@ -131,7 +133,7 @@ static const char* app_loader_template =
      "fi\n"
      "\n"
      "# determine the WINELOADER\n"
 -    "if [ ! -x \"$WINELOADER\" ]; then WINELOADER=\"wine\"; fi\n"
-+    "if [ ! -x \"$WINELOADER\" ]; then WINELOADER=\"wine-development\"; fi\n"
++    "if [ ! -x \"$WINELOADER\" ]; then WINELOADER=\"%s\"; fi\n"
      "\n"
      "# and try to start the app\n"
      "exec \"$WINELOADER\" \"$apppath\" \"$@\"\n"
+@@ -791,7 +793,7 @@ static void build(struct options* opts)
+     /* 'winegcc -o app xxx.exe.so' only creates the load script */
+     if (opts->files->size == 1 && strendswith(opts->files->base[0], ".exe.so"))
+     {
+-	create_file(output_file, 0755, app_loader_template, opts->files->base[0]);
++	create_file(output_file, 0755, app_loader_template, opts->files->base[0], wine_debsuffix);
+ 	return;
+     }
+ 
+@@ -1192,7 +1194,7 @@ static void build(struct options* opts)
+ 
+     /* create the loader script */
+     if (generate_app_loader)
+-        create_file(output_file, 0755, app_loader_template, strmake("%s.so", output_name));
++        create_file(output_file, 0755, app_loader_template, strmake("%s.so", output_name), wine_debsuffix);
+ }
+ 
+ 

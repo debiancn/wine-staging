@@ -3,6 +3,7 @@ kfreebsd.patch
 sfnt2fon.patch
 manpages.patch
 version-string.patch
+manpages-wineserver-persistence.patch
 
 disable/tests.patch
 disable/addons-download.patch

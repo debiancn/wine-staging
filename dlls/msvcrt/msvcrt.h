@@ -266,6 +266,9 @@ struct __thread_data {
     DWORD                           cached_cp;
     char                            cached_locale[131];
     void                           *unk10[100];
+#if _MSVCR_VER >= 140
+    MSVCRT_invalid_parameter_handler invalid_parameter_handler;
+#endif
 };
 
 typedef struct __thread_data thread_data_t;
@@ -906,6 +909,12 @@ struct MSVCRT__stat64 {
 #define MSVCRT__DN_FLUSH_OPERANDS_SAVE_RESULTS 0x02000000
 #define MSVCRT__DN_SAVE_OPERANDS_FLUSH_RESULTS 0x03000000
 #define MSVCRT__EM_AMBIGUOUS  0x80000000
+
+typedef struct
+{
+    unsigned int control;
+    unsigned int status;
+} fenv_t;
 
 #define MSVCRT_CLOCKS_PER_SEC 1000
 

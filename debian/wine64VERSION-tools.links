@@ -1,12 +1,12 @@
-usr/lib/wineVERSION/wmc usr/bin/wmcVERSION
-usr/lib/wineVERSION/wrc usr/bin/wrcVERSION
-usr/lib/wineVERSION/widl usr/bin/widlVERSION
-usr/lib/wineVERSION/winedump usr/bin/winedumpVERSION
-usr/lib/wineVERSION/winebuild usr/bin/winebuildVERSION
-usr/lib/wineVERSION/winemaker usr/bin/winemakerVERSION
+usr/lib/wineVERSION/wmc usr/bin/wmcDEBSUFFIX
+usr/lib/wineVERSION/wrc usr/bin/wrcDEBSUFFIX
+usr/lib/wineVERSION/widl usr/bin/widlDEBSUFFIX
+usr/lib/wineVERSION/winedump usr/bin/winedumpDEBSUFFIX
+usr/lib/wineVERSION/winebuild usr/bin/winebuildDEBSUFFIX
+usr/lib/wineVERSION/winemaker usr/bin/winemakerDEBSUFFIX
 
-usr/bin/winegccVERSION usr/bin/winecppVERSION
-usr/bin/winegccVERSION usr/bin/wineg++VERSION
+usr/bin/winegccDEBSUFFIX usr/bin/winecppDEBSUFFIX
+usr/bin/winegccDEBSUFFIX usr/bin/wineg++DEBSUFFIX
 
-usr/share/man/man1/winegccVERSION.1.gz usr/share/man/man1/winecppVERSION.1.gz
-usr/share/man/man1/winegccVERSION.1.gz usr/share/man/man1/wineg++VERSION.1.gz
+usr/share/man/man1/winegccDEBSUFFIX.1.gz usr/share/man/man1/winecppDEBSUFFIX.1.gz
+usr/share/man/man1/winegccDEBSUFFIX.1.gz usr/share/man/man1/wineg++DEBSUFFIX.1.gz

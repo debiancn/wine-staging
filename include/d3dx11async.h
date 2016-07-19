@@ -1,7 +1,5 @@
 /*
- * Direct3D shader compiler main file
- *
- * Copyright 2010 Matteo Bruni for CodeWeavers
+ * Copyright 2016 Matteo Bruni for CodeWeavers
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -16,27 +14,24 @@
  * You should have received a copy of the GNU Lesser General Public
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
- *
  */
 
-#include "config.h"
-#include "wine/port.h"
+#ifndef __D3DX11ASYNC_H__
+#define __D3DX11ASYNC_H__
 
-#include <stdarg.h>
+#include "d3dx11.h"
 
-#include "windef.h"
-#include "winbase.h"
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
-{
-    switch (fdwReason)
-    {
-        case DLL_WINE_PREATTACH:
-            return FALSE;    /* prefer native version */
-        case DLL_PROCESS_ATTACH:
-            DisableThreadLibraryCalls(hinstDLL);
-            break;
-    }
+HRESULT WINAPI D3DX11CompileFromMemory(const char *data, SIZE_T data_size, const char *filename,
+        const D3D10_SHADER_MACRO *defines, ID3D10Include *include, const char *entry_point,
+        const char *target, UINT sflags, UINT eflags, ID3DX11ThreadPump *pump, ID3D10Blob **shader,
+        ID3D10Blob **error_messages, HRESULT *hresult);
 
-    return TRUE;
+#ifdef __cplusplus
 }
+#endif
+
+#endif

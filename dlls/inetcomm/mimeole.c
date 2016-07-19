@@ -31,6 +31,7 @@
 #include "objbase.h"
 #include "ole2.h"
 #include "mimeole.h"
+#include "propvarutil.h"
 
 #include "wine/list.h"
 #include "wine/debug.h"
@@ -711,8 +712,42 @@ static HRESULT WINAPI MimeBody_GetPropInfo(
                                   LPMIMEPROPINFO pInfo)
 {
     MimeBody *This = impl_from_IMimeBody(iface);
-    FIXME("(%p)->(%s, %p) stub\n", This, debugstr_a(pszName), pInfo);
-    return E_NOTIMPL;
+    header_t *header;
+    HRESULT hr;
+    DWORD supported = PIM_PROPID | PIM_VTDEFAULT;
+
+    TRACE("(%p)->(%s, %p) semi-stub\n", This, debugstr_a(pszName), pInfo);
+
+    if(!pszName || !pInfo)
+        return E_INVALIDARG;
+
+    TRACE("mask 0x%04x\n", pInfo->dwMask);
+
+    if(pInfo->dwMask & ~supported)
+         FIXME("Unsupported mask flags 0x%04x\n", pInfo->dwMask & ~supported);
+
+    hr = find_prop(This, pszName, &header);
+    if(hr == S_OK)
+    {
+        if(pInfo->dwMask & PIM_CHARSET)
+            pInfo->hCharset = 0;
+        if(pInfo->dwMask & PIM_FLAGS)
+            pInfo->dwFlags = 0x00000000;
+        if(pInfo->dwMask & PIM_ROWNUMBER)
+            pInfo->dwRowNumber = 0;
+        if(pInfo->dwMask & PIM_ENCODINGTYPE)
+            pInfo->ietEncoding = 0;
+        if(pInfo->dwMask & PIM_VALUES)
+            pInfo->cValues = 0;
+        if(pInfo->dwMask & PIM_PROPID)
+            pInfo->dwPropId = header->prop->id;
+        if(pInfo->dwMask & PIM_VTDEFAULT)
+            pInfo->vtDefault = header->prop->default_vt;
+        if(pInfo->dwMask & PIM_VTCURRENT)
+            pInfo->vtCurrent = 0;
+    }
+
+    return hr;
 }
 
 static HRESULT WINAPI MimeBody_SetPropInfo(
@@ -751,7 +786,11 @@ static HRESULT WINAPI MimeBody_GetProp(
     hr = find_prop(This, pszName, &header);
     if(hr == S_OK)
     {
-        PropVariantCopy(pValue, &header->value);
+        TRACE("type %d->%d\n", header->value.vt, pValue->vt);
+
+        hr = PropVariantChangeType(pValue, &header->value, 0,  pValue->vt);
+        if(FAILED(hr))
+            FIXME("Conversion not currently supported (%d->%d)\n", header->value.vt, pValue->vt);
     }
 
     return hr;
@@ -864,8 +903,27 @@ static HRESULT WINAPI MimeBody_DeleteProp(
                                  LPCSTR pszName)
 {
     MimeBody *This = impl_from_IMimeBody(iface);
-    FIXME("(%p)->(%s) stub\n", This, debugstr_a(pszName));
-    return E_NOTIMPL;
+    header_t *cursor;
+    BOOL found;
+
+    TRACE("(%p)->(%s) stub\n", This, debugstr_a(pszName));
+
+    LIST_FOR_EACH_ENTRY(cursor, &This->headers, header_t, entry)
+    {
+        if(ISPIDSTR(pszName))
+            found = STRTOPID(pszName) == cursor->prop->id;
+        else
+            found = !lstrcmpiA(pszName, cursor->prop->name);
+
+        if(found)
+        {
+             list_remove(&cursor->entry);
+             HeapFree(GetProcessHeap(), 0, cursor);
+             return S_OK;
+        }
+    }
+
+    return MIME_E_NOT_FOUND;
 }
 
 static HRESULT WINAPI MimeBody_CopyProps(
@@ -2024,7 +2082,7 @@ static HRESULT WINAPI MimeMessage_Commit(
     DWORD dwFlags)
 {
     FIXME("(%p)->(0x%x)\n", iface, dwFlags);
-    return E_NOTIMPL;
+    return S_OK;
 }
 
 
@@ -2455,6 +2513,9 @@ static HRESULT WINAPI MimeMessage_SetOption(
         break;
     case OID_SAVEBODY_KEEPBOUNDARY:
         FIXME("OID_SAVEBODY_KEEPBOUNDARY (value %d): ignoring\n", pValue->u.boolVal);
+        break;
+    case OID_CLEANUP_TREE_ON_SAVE:
+        FIXME("OID_CLEANUP_TREE_ON_SAVE (value %d): ignoring\n", pValue->u.boolVal);
         break;
     default:
         FIXME("Unhandled oid %08x\n", oid);

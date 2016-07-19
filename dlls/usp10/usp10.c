@@ -1266,6 +1266,7 @@ static HRESULT _ItemizeInternal(const WCHAR *pwcInChars, int cInChars,
 {
 
 #define Numeric_space 0x0020
+#define ZWSP 0x200B
 #define ZWNJ 0x200C
 #define ZWJ  0x200D
 
@@ -3081,10 +3082,6 @@ HRESULT WINAPI ScriptShapeOpenType( HDC hdc, SCRIPT_CACHE *psc,
     ((ScriptCache *)*psc)->userScript = tagScript;
     ((ScriptCache *)*psc)->userLang = tagLangSys;
 
-    /* set fNoGlyphIndex non truetype/opentype fonts */
-    if (psa && !psa->fNoGlyphIndex && !((ScriptCache *)*psc)->sfnt)
-        psa->fNoGlyphIndex = TRUE;
-
     /* Initialize a SCRIPT_VISATTR and LogClust for each char in this run */
     for (i = 0; i < cChars; i++)
     {
@@ -3104,7 +3101,7 @@ HRESULT WINAPI ScriptShapeOpenType( HDC hdc, SCRIPT_CACHE *psc,
         pwLogClust[i] = idx;
     }
 
-    if (psa && !psa->fNoGlyphIndex)
+    if (psa && !psa->fNoGlyphIndex && ((ScriptCache *)*psc)->sfnt)
     {
         WCHAR *rChars;
         if ((hr = SHAPE_CheckFontForRequiredFeatures(hdc, (ScriptCache *)*psc, psa)) != S_OK) return hr;
@@ -3180,13 +3177,26 @@ HRESULT WINAPI ScriptShapeOpenType( HDC hdc, SCRIPT_CACHE *psc,
             if (rtl) idx = cChars - 1 - i;
             pwOutGlyphs[i] = pwcChars[idx];
 
+            if (!psa)
+                continue;
+
             /* overwrite some basic control glyphs to blank */
-            if (psa && psa->eScript == Script_Control &&
-                pwcChars[idx] < ((ScriptCache *)*psc)->tm.tmFirstChar)
+            if (psa->fNoGlyphIndex)
+            {
+                if (pwcChars[idx] == ZWSP || pwcChars[idx] == ZWNJ || pwcChars[idx] == ZWJ)
+                {
+                    pwOutGlyphs[i] = 0x20;
+                    pOutGlyphProps[i].sva.fZeroWidth = 1;
+                }
+            }
+            else if (psa->eScript == Script_Control)
             {
                 if (pwcChars[idx] == 0x0009 || pwcChars[idx] == 0x000A ||
                     pwcChars[idx] == 0x000D || pwcChars[idx] >= 0x001C)
+                {
                     pwOutGlyphs[i] = ((ScriptCache *)*psc)->sfp.wgBlank;
+                    pOutGlyphProps[i].sva.fZeroWidth = 1;
+                }
             }
         }
     }

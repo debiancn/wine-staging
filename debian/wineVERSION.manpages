@@ -1,18 +1,18 @@
-debian/tmp/wineVERSION.man
-debian/tmp/wineVERSION.de.man
-debian/tmp/wineVERSION.fr.man
-debian/tmp/wineVERSION.pl.man
+debian/tmp/wineDEBSUFFIX.man
+debian/tmp/wineDEBSUFFIX.de.man
+debian/tmp/wineDEBSUFFIX.fr.man
+debian/tmp/wineDEBSUFFIX.pl.man
 
-debian/tmp/wineserverVERSION.man
-debian/tmp/wineserverVERSION.de.man
-debian/tmp/wineserverVERSION.fr.man
+debian/tmp/wineserverDEBSUFFIX.man
+debian/tmp/wineserverDEBSUFFIX.de.man
+debian/tmp/wineserverDEBSUFFIX.fr.man
 
-debian/tmp/msiexecVERSION.man
-debian/tmp/regeditVERSION.man
-debian/tmp/winecfgVERSION.man
-debian/tmp/winedbgVERSION.man
-debian/tmp/winebootVERSION.man
-debian/tmp/winefileVERSION.man
-debian/tmp/winepathVERSION.man
-debian/tmp/regsvr32VERSION.man
-debian/tmp/wineconsoleVERSION.man
+debian/tmp/msiexecDEBSUFFIX.man
+debian/tmp/regeditDEBSUFFIX.man
+debian/tmp/winecfgDEBSUFFIX.man
+debian/tmp/winedbgDEBSUFFIX.man
+debian/tmp/winebootDEBSUFFIX.man
+debian/tmp/winefileDEBSUFFIX.man
+debian/tmp/winepathDEBSUFFIX.man
+debian/tmp/regsvr32DEBSUFFIX.man
+debian/tmp/wineconsoleDEBSUFFIX.man

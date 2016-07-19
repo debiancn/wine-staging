@@ -1,7 +1,7 @@
 @ stdcall D3DX11CheckVersion(long long)
 @ stub D3DX11CompileFromFileA
 @ stub D3DX11CompileFromFileW
-@ stub D3DX11CompileFromMemory
+@ stdcall D3DX11CompileFromMemory(str long str ptr ptr str str long long ptr ptr ptr ptr)
 @ stub D3DX11CompileFromResourceA
 @ stub D3DX11CompileFromResourceW
 @ stub D3DX11ComputeNormalMap
@@ -29,7 +29,7 @@
 @ stub D3DX11FilterTexture
 @ stub D3DX11GetImageInfoFromFileA
 @ stub D3DX11GetImageInfoFromFileW
-@ stub D3DX11GetImageInfoFromMemory
+@ stdcall D3DX11GetImageInfoFromMemory(ptr long ptr ptr ptr) d3dx11_43.D3DX11GetImageInfoFromMemory
 @ stub D3DX11GetImageInfoFromResourceA
 @ stub D3DX11GetImageInfoFromResourceW
 @ stub D3DX11LoadTextureFromTexture

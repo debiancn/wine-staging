@@ -21,10 +21,38 @@
 #include <stdlib.h>
 #include <wchar.h>
 #include <stdio.h>
+#include <float.h>
 
 #include <windef.h>
 #include <winbase.h>
 #include "wine/test.h"
+
+#define DEFINE_EXPECT(func) \
+    static BOOL expect_ ## func = FALSE, called_ ## func = FALSE
+
+#define SET_EXPECT(func) \
+    expect_ ## func = TRUE
+
+#define CHECK_EXPECT2(func) \
+    do { \
+        ok(expect_ ##func, "unexpected call " #func "\n"); \
+        called_ ## func = TRUE; \
+    }while(0)
+
+#define CHECK_EXPECT(func) \
+    do { \
+        CHECK_EXPECT2(func); \
+        expect_ ## func = FALSE; \
+    }while(0)
+
+#define CHECK_CALLED(func) \
+    do { \
+        ok(called_ ## func, "expected " #func "\n"); \
+        expect_ ## func = called_ ## func = FALSE; \
+    }while(0)
+
+DEFINE_EXPECT(global_invalid_parameter_handler);
+DEFINE_EXPECT(thread_invalid_parameter_handler);
 
 typedef int (CDECL *MSVCRT__onexit_t)(void);
 
@@ -38,17 +66,18 @@ typedef struct MSVCRT__onexit_table_t
 static int (CDECL *p_initialize_onexit_table)(MSVCRT__onexit_table_t *table);
 static int (CDECL *p_register_onexit_function)(MSVCRT__onexit_table_t *table, MSVCRT__onexit_t func);
 static int (CDECL *p_execute_onexit_table)(MSVCRT__onexit_table_t *table);
+static int (CDECL *p___fpe_flt_rounds)(void);
+static unsigned int (CDECL *p__controlfp)(unsigned int, unsigned int);
+static _invalid_parameter_handler (CDECL *p__set_invalid_parameter_handler)(_invalid_parameter_handler);
+static _invalid_parameter_handler (CDECL *p__get_invalid_parameter_handler)(void);
+static _invalid_parameter_handler (CDECL *p__set_thread_local_invalid_parameter_handler)(_invalid_parameter_handler);
+static _invalid_parameter_handler (CDECL *p__get_thread_local_invalid_parameter_handler)(void);
+static int (CDECL *p__ltoa_s)(LONG, char*, size_t, int);
 
 static void test__initialize_onexit_table(void)
 {
     MSVCRT__onexit_table_t table, table2;
     int ret;
-
-    if (!p_initialize_onexit_table)
-    {
-        win_skip("_initialize_onexit_table() is not available.\n");
-        return;
-    }
 
     ret = p_initialize_onexit_table(NULL);
     ok(ret == -1, "got %d\n", ret);
@@ -119,12 +148,6 @@ static void test__register_onexit_function(void)
     MSVCRT__onexit_t *f;
     int ret;
 
-    if (!p_register_onexit_function)
-    {
-        win_skip("_register_onexit_function() is not available.\n");
-        return;
-    }
-
     memset(&table, 0, sizeof(table));
     ret = p_initialize_onexit_table(&table);
     ok(ret == 0, "got %d\n", ret);
@@ -153,12 +176,6 @@ static void test__execute_onexit_table(void)
 {
     MSVCRT__onexit_table_t table;
     int ret;
-
-    if (!p_execute_onexit_table)
-    {
-        win_skip("_execute_onexit_table() is not available.\n");
-        return;
-    }
 
     ret = p_execute_onexit_table(NULL);
     ok(ret == -1, "got %d\n", ret);
@@ -211,20 +228,121 @@ static void test__execute_onexit_table(void)
     ok(g_onexit_called == 2, "got %d\n", g_onexit_called);
 }
 
-static void init(void)
+static void test___fpe_flt_rounds(void)
+{
+    unsigned int cfp = p__controlfp(0, 0);
+    int ret;
+
+    if(!cfp) {
+        skip("_controlfp not supported\n");
+        return;
+    }
+
+    ok((p__controlfp(_RC_NEAR, _RC_CHOP) & _RC_CHOP) == _RC_NEAR, "_controlfp(_RC_NEAR, _RC_CHOP) failed\n");
+    ret = p___fpe_flt_rounds();
+    ok(ret == 1, "__fpe_flt_rounds returned %d\n", ret);
+
+    ok((p__controlfp(_RC_UP, _RC_CHOP) & _RC_CHOP) == _RC_UP, "_controlfp(_RC_UP, _RC_CHOP) failed\n");
+    ret = p___fpe_flt_rounds();
+    ok(ret == 2 + (sizeof(void*)>sizeof(int)), "__fpe_flt_rounds returned %d\n", ret);
+
+    ok((p__controlfp(_RC_DOWN, _RC_CHOP) & _RC_CHOP) == _RC_DOWN, "_controlfp(_RC_DOWN, _RC_CHOP) failed\n");
+    ret = p___fpe_flt_rounds();
+    ok(ret == 3 - (sizeof(void*)>sizeof(int)), "__fpe_flt_rounds returned %d\n", ret);
+
+    ok((p__controlfp(_RC_CHOP, _RC_CHOP) & _RC_CHOP) == _RC_CHOP, "_controlfp(_RC_CHOP, _RC_CHOP) failed\n");
+    ret = p___fpe_flt_rounds();
+    ok(ret == 0, "__fpe_flt_rounds returned %d\n", ret);
+}
+
+static void __cdecl global_invalid_parameter_handler(
+        const wchar_t *expression, const wchar_t *function,
+        const wchar_t *file, unsigned line, uintptr_t arg)
+{
+    CHECK_EXPECT(global_invalid_parameter_handler);
+}
+
+static void __cdecl thread_invalid_parameter_handler(
+        const wchar_t *expression, const wchar_t *function,
+        const wchar_t *file, unsigned line, uintptr_t arg)
+{
+    CHECK_EXPECT(thread_invalid_parameter_handler);
+}
+
+static void test_invalid_parameter_handler(void)
+{
+    _invalid_parameter_handler ret;
+
+    ret = p__get_invalid_parameter_handler();
+    ok(!ret, "ret != NULL\n");
+
+    ret = p__get_thread_local_invalid_parameter_handler();
+    ok(!ret, "ret != NULL\n");
+
+    ret = p__set_thread_local_invalid_parameter_handler(thread_invalid_parameter_handler);
+    ok(!ret, "ret != NULL\n");
+
+    ret = p__get_thread_local_invalid_parameter_handler();
+    ok(ret == thread_invalid_parameter_handler, "ret = %p\n", ret);
+
+    ret = p__get_invalid_parameter_handler();
+    ok(!ret, "ret != NULL\n");
+
+    ret = p__set_invalid_parameter_handler(global_invalid_parameter_handler);
+    ok(!ret, "ret != NULL\n");
+
+    ret = p__get_invalid_parameter_handler();
+    ok(ret == global_invalid_parameter_handler, "ret = %p\n", ret);
+
+    ret = p__get_thread_local_invalid_parameter_handler();
+    ok(ret == thread_invalid_parameter_handler, "ret = %p\n", ret);
+
+    SET_EXPECT(thread_invalid_parameter_handler);
+    p__ltoa_s(0, NULL, 0, 0);
+    CHECK_CALLED(thread_invalid_parameter_handler);
+
+    ret = p__set_thread_local_invalid_parameter_handler(NULL);
+    ok(ret == thread_invalid_parameter_handler, "ret = %p\n", ret);
+
+    SET_EXPECT(global_invalid_parameter_handler);
+    p__ltoa_s(0, NULL, 0, 0);
+    CHECK_CALLED(global_invalid_parameter_handler);
+
+    ret = p__set_invalid_parameter_handler(NULL);
+    ok(ret == global_invalid_parameter_handler, "ret = %p\n", ret);
+}
+
+static BOOL init(void)
 {
     HMODULE module = LoadLibraryA("ucrtbase.dll");
+
+    if(!module) {
+        win_skip("ucrtbase.dll not available\n");
+        return FALSE;
+    }
 
     p_initialize_onexit_table = (void*)GetProcAddress(module, "_initialize_onexit_table");
     p_register_onexit_function = (void*)GetProcAddress(module, "_register_onexit_function");
     p_execute_onexit_table = (void*)GetProcAddress(module, "_execute_onexit_table");
+    p___fpe_flt_rounds = (void*)GetProcAddress(module, "__fpe_flt_rounds");
+    p__controlfp = (void*)GetProcAddress(module, "_controlfp");
+    p__set_invalid_parameter_handler = (void*)GetProcAddress(module, "_set_invalid_parameter_handler");
+    p__get_invalid_parameter_handler = (void*)GetProcAddress(module, "_get_invalid_parameter_handler");
+    p__set_thread_local_invalid_parameter_handler = (void*)GetProcAddress(module, "_set_thread_local_invalid_parameter_handler");
+    p__get_thread_local_invalid_parameter_handler = (void*)GetProcAddress(module, "_get_thread_local_invalid_parameter_handler");
+    p__ltoa_s = (void*)GetProcAddress(module, "_ltoa_s");
+
+    return TRUE;
 }
 
 START_TEST(misc)
 {
-    init();
+    if(!init())
+        return;
 
+    test_invalid_parameter_handler();
     test__initialize_onexit_table();
     test__register_onexit_function();
     test__execute_onexit_table();
+    test___fpe_flt_rounds();
 }

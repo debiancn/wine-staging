@@ -130,6 +130,9 @@ static const crack_url_test_t crack_url_tests[] = {
     {"HtTp://www.winehq.org/scheme",
         0, 4, INTERNET_SCHEME_HTTP, 7, 14, 23, 80, -1, 0, -1, 0, 21, 7, -1, 0,
         "HtTp", "www.winehq.org", "", "", "/scheme", ""},
+    {"http://www.winehq.org",
+        0, 4, INTERNET_SCHEME_HTTP, 7, 14, 23, 80, -1, 0, -1, 0, 21, 0, -1, 0,
+        "http", "www.winehq.org", "", "", "", ""},
     {"file:///C:/Program%20Files/Atmel/AVR%20Tools/STK500/STK500.xml",
         0, 4, INTERNET_SCHEME_FILE, -1, 0, -1, 0, -1, 0, -1, 0, 7, 55, -1, 0,
         "file", "", "", "", "C:\\Program Files\\Atmel\\AVR Tools\\STK500\\STK500.xml", ""},
@@ -246,9 +249,9 @@ static void test_crack_url(const crack_url_test_t *test)
        test->url, url.dwPasswordLength, test->pass_len);
 
     if(test->path_off == -1)
-        ok(!url.lpszUrlPath, "[%s] url.lpszPath = %p, expected NULL\n", test->url, url.lpszUrlPath);
+        ok(!url.lpszUrlPath, "[%s] url.lpszUrlPath = %p, expected NULL\n", test->url, url.lpszUrlPath);
     else
-        ok(url.lpszUrlPath == test->url+test->path_off, "[%s] url.lpszPath = %p, expected %p\n",
+        ok(url.lpszUrlPath == test->url+test->path_off, "[%s] url.lpszUrlPath = %p, expected %p\n",
            test->url, url.lpszUrlPath, test->url+test->path_off);
     ok(url.dwUrlPathLength == test->path_len, "[%s] url.lpszUrlPathLength = %d, expected %d\n",
        test->url, url.dwUrlPathLength, test->path_len);
@@ -326,9 +329,9 @@ static void test_crack_url(const crack_url_test_t *test)
     }
 
     if(test->path_off == -1)
-        ok(!urlw.lpszUrlPath, "[%s] urlw.lpszPath = %p, expected NULL\n", test->url, urlw.lpszUrlPath);
+        ok(!urlw.lpszUrlPath, "[%s] urlw.lpszUrlPath = %p, expected NULL\n", test->url, urlw.lpszUrlPath);
     else
-        ok(urlw.lpszUrlPath == buf+test->path_off, "[%s] urlw.lpszPath = %p, expected %p\n",
+        ok(urlw.lpszUrlPath == buf+test->path_off, "[%s] urlw.lpszUrlPath = %p, expected %p\n",
            test->url, urlw.lpszUrlPath, buf+test->path_off);
     ok(urlw.dwUrlPathLength == test->path_len, "[%s] urlw.lpszUrlPathLength = %d, expected %d\n",
        test->url, urlw.dwUrlPathLength, test->path_len);
@@ -714,11 +717,7 @@ static void InternetCrackUrlW_test(void)
     ok( comp.dwExtraInfoLength == 29, "extra length wrong\n");
  
     urlpart[0]=0;
-    scheme[0]=0;
-    extra[0]=0;
     host[0]=0;
-    user[0]=0;
-    pwd[0]=0;
     memset(&comp, 0, sizeof comp);
     comp.dwStructSize = sizeof comp;
     comp.lpszHostName = host;
@@ -736,11 +735,7 @@ static void InternetCrackUrlW_test(void)
     ok( comp.dwExtraInfoLength == 0, "extra length wrong\n");
 
     urlpart[0]=0;
-    scheme[0]=0;
-    extra[0]=0;
     host[0]=0;
-    user[0]=0;
-    pwd[0]=0;
     memset(&comp, 0, sizeof comp);
     comp.dwStructSize = sizeof comp;
     comp.lpszHostName = host;
@@ -811,6 +806,19 @@ static void InternetCrackUrlW_test(void)
     ok( r, "InternetCrackUrlW failed unexpectedly\n");
     ok( host[0] == 'x', "host should be x.org\n");
     ok( urlpart[0] == 0, "urlpart should be empty\n");
+
+    urlpart[0] = 0;
+    host[0] = 0;
+    memset(&comp, 0, sizeof(comp));
+    comp.dwStructSize = sizeof(comp);
+    comp.lpszHostName = host;
+    comp.dwHostNameLength = sizeof(host)/sizeof(host[0]);
+    comp.lpszUrlPath = urlpart;
+    comp.dwUrlPathLength = sizeof(urlpart)/sizeof(urlpart[0]);
+    r = InternetCrackUrlW(url3, 0, ICU_DECODE, &comp);
+    todo_wine ok(r, "InternetCrackUrlW failed unexpectedly\n");
+    todo_wine ok(!strcmp_wa(host, "x.org"), "host is %s, should be x.org\n", wine_dbgstr_w(host));
+    ok(urlpart[0] == 0, "urlpart should be empty\n");
 }
 
 static void fill_url_components(URL_COMPONENTSA *lpUrlComponents)

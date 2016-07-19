@@ -481,6 +481,7 @@ static int reg_delete(HKEY root, WCHAR *path, WCHAR *key_name, WCHAR *value_name
             }
             else break;
         }
+        HeapFree(GetProcessHeap(), 0, szValue);
     }
     else if (value_name || value_empty)
     {
@@ -818,6 +819,53 @@ static int reg_query(HKEY root, WCHAR *path, WCHAR *key_name, WCHAR *value_name,
     return ret;
 }
 
+static WCHAR *get_long_key(HKEY root, WCHAR *path)
+{
+    DWORD i, array_size = ARRAY_SIZE(root_rels), len;
+    WCHAR *long_key;
+    WCHAR fmt[] = {'%','s','\\','%','s',0};
+
+    for (i = 0; i < array_size; i++)
+    {
+        if (root == root_rels[i].key)
+            break;
+    }
+
+    len = strlenW(root_rels[i].long_name);
+
+    if (!path)
+    {
+        long_key = HeapAlloc(GetProcessHeap(), 0, (len + 1) * sizeof(WCHAR));
+        strcpyW(long_key, root_rels[i].long_name);
+        return long_key;
+    }
+
+    len += strlenW(path) + 1; /* add one for the backslash */
+    long_key = HeapAlloc(GetProcessHeap(), 0, (len + 1) * sizeof(WCHAR));
+    sprintfW(long_key, fmt, root_rels[i].long_name, path);
+    return long_key;
+}
+
+static BOOL parse_registry_key(const WCHAR *key, HKEY *root, WCHAR **path, WCHAR **long_key)
+{
+    if (!sane_path(key))
+        return FALSE;
+
+    *root = path_get_rootkey(key);
+    if (!*root)
+    {
+        output_message(STRING_INVALID_KEY);
+        return FALSE;
+    }
+
+    *path = strchrW(key, '\\');
+    if (*path) (*path)++;
+
+    *long_key = get_long_key(*root, *path);
+
+    return TRUE;
+}
+
 static BOOL is_help_switch(const WCHAR *s)
 {
     if (strlenW(s) > 2)
@@ -906,20 +954,8 @@ int wmain(int argc, WCHAR *argvW[])
         return 0;
     }
 
-    key_name = argvW[2];
-
-    if (!sane_path(key_name))
+    if (!parse_registry_key(argvW[2], &root, &path, &key_name))
         return 1;
-
-    root = path_get_rootkey(key_name);
-    if (!root)
-    {
-        output_message(STRING_INVALID_KEY);
-        return 1;
-    }
-
-    path = strchrW(key_name, '\\');
-    if (path) path++;
 
     for (i = 3; i < argc; i++)
     {

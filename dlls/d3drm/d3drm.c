@@ -51,6 +51,19 @@ static const char* get_IID_string(const GUID* guid)
     return "?";
 }
 
+static HRESULT d3drm_create_texture_object(void **object, IDirect3DRM *d3drm)
+{
+    struct d3drm_texture *texture;
+    HRESULT hr;
+
+    if (FAILED(hr = d3drm_texture_create(&texture, d3drm)))
+        return hr;
+
+    *object = &texture->IDirect3DRMTexture_iface;
+
+    return hr;
+}
+
 struct d3drm
 {
     IDirect3DRM IDirect3DRM_iface;
@@ -150,9 +163,17 @@ static HRESULT WINAPI d3drm1_CreateObject(IDirect3DRM *iface,
 static HRESULT WINAPI d3drm1_CreateFrame(IDirect3DRM *iface,
         IDirect3DRMFrame *parent_frame, IDirect3DRMFrame **frame)
 {
+    struct d3drm_frame *object;
+    HRESULT hr;
+
     TRACE("iface %p, parent_frame %p, frame %p.\n", iface, parent_frame, frame);
 
-    return Direct3DRMFrame_create(&IID_IDirect3DRMFrame, (IUnknown *)parent_frame, (IUnknown **)frame);
+    if (FAILED(hr = d3drm_frame_create(&object, (IUnknown *)parent_frame, iface)))
+        return hr;
+
+    *frame = &object->IDirect3DRMFrame_iface;
+
+    return D3DRM_OK;
 }
 
 static HRESULT WINAPI d3drm1_CreateMesh(IDirect3DRM *iface, IDirect3DRMMesh **mesh)
@@ -392,10 +413,12 @@ static HRESULT WINAPI d3drm1_CreateShadow(IDirect3DRM *iface, IDirect3DRMVisual 
 static HRESULT WINAPI d3drm1_CreateViewport(IDirect3DRM *iface, IDirect3DRMDevice *device,
         IDirect3DRMFrame *camera, DWORD x, DWORD y, DWORD width, DWORD height, IDirect3DRMViewport **viewport)
 {
+    struct d3drm *d3drm = impl_from_IDirect3DRM(iface);
+
     FIXME("iface %p, device %p, camera %p, x %u, y %u, width %u, height %u, viewport %p partial stub!\n",
             iface, device, camera, x, y, width, height, viewport);
 
-    return Direct3DRMViewport_create(&IID_IDirect3DRMViewport, (IUnknown **)viewport);
+    return IDirect3DRM2_CreateViewport(&d3drm->IDirect3DRM2_iface, device, camera, x, y, width, height, viewport);
 }
 
 static HRESULT WINAPI d3drm1_CreateWrap(IDirect3DRM *iface, D3DRMWRAPTYPE type, IDirect3DRMFrame *frame,
@@ -624,9 +647,18 @@ static HRESULT WINAPI d3drm2_CreateObject(IDirect3DRM2 *iface,
 static HRESULT WINAPI d3drm2_CreateFrame(IDirect3DRM2 *iface,
         IDirect3DRMFrame *parent_frame, IDirect3DRMFrame2 **frame)
 {
+    struct d3drm *d3drm = impl_from_IDirect3DRM2(iface);
+    struct d3drm_frame *object;
+    HRESULT hr;
+
     TRACE("iface %p, parent_frame %p, frame %p.\n", iface, parent_frame, frame);
 
-    return Direct3DRMFrame_create(&IID_IDirect3DRMFrame2, (IUnknown*)parent_frame, (IUnknown**)frame);
+    if (FAILED(hr = d3drm_frame_create(&object, (IUnknown *)parent_frame, &d3drm->IDirect3DRM_iface)))
+        return hr;
+
+    *frame = &object->IDirect3DRMFrame2_iface;
+
+    return D3DRM_OK;
 }
 
 static HRESULT WINAPI d3drm2_CreateMesh(IDirect3DRM2 *iface, IDirect3DRMMesh **mesh)
@@ -844,10 +876,19 @@ static HRESULT WINAPI d3drm2_CreateShadow(IDirect3DRM2 *iface, IDirect3DRMVisual
 static HRESULT WINAPI d3drm2_CreateViewport(IDirect3DRM2 *iface, IDirect3DRMDevice *device,
         IDirect3DRMFrame *camera, DWORD x, DWORD y, DWORD width, DWORD height, IDirect3DRMViewport **viewport)
 {
+    struct d3drm *d3drm = impl_from_IDirect3DRM2(iface);
+    struct d3drm_viewport *object;
+    HRESULT hr;
+
     FIXME("iface %p, device %p, camera %p, x %u, y %u, width %u, height %u, viewport %p partial stub!\n",
             iface, device, camera, x, y, width, height, viewport);
 
-    return Direct3DRMViewport_create(&IID_IDirect3DRMViewport, (IUnknown **)viewport);
+    if (FAILED(hr = d3drm_viewport_create(&object, &d3drm->IDirect3DRM_iface)))
+        return hr;
+
+    *viewport = &object->IDirect3DRMViewport_iface;
+
+    return D3DRM_OK;
 }
 
 static HRESULT WINAPI d3drm2_CreateWrap(IDirect3DRM2 *iface, D3DRMWRAPTYPE type, IDirect3DRMFrame *frame,
@@ -1078,7 +1119,18 @@ static HRESULT WINAPI d3drm3_CreateObject(IDirect3DRM3 *iface,
 {
     struct d3drm *d3drm = impl_from_IDirect3DRM3(iface);
     IUnknown *object;
+    unsigned int i;
     HRESULT hr;
+
+    static const struct
+    {
+        const CLSID *clsid;
+        HRESULT (*create_object)(void **object, IDirect3DRM *d3drm);
+    }
+    object_table[] =
+    {
+        {&CLSID_CDirect3DRMTexture, d3drm_create_texture_object},
+    };
 
     TRACE("iface %p, clsid %s, outer %p, iid %s, out %p.\n",
             iface, debugstr_guid(clsid), outer, debugstr_guid(iid), out);
@@ -1099,17 +1151,19 @@ static HRESULT WINAPI d3drm3_CreateObject(IDirect3DRM3 *iface,
         return E_NOTIMPL;
     }
 
-    if (IsEqualGUID(clsid, &CLSID_CDirect3DRMTexture))
+    for (i = 0; i < ARRAY_SIZE(object_table); ++i)
     {
-        struct d3drm_texture *texture;
-        if (FAILED(hr = d3drm_texture_create(&texture, &d3drm->IDirect3DRM_iface)))
+        if (IsEqualGUID(clsid, object_table[i].clsid))
         {
-            *out = NULL;
-            return hr;
+            if (FAILED(hr = object_table[i].create_object((void **)&object, &d3drm->IDirect3DRM_iface)))
+            {
+                *out = NULL;
+                return hr;
+            }
+            break;
         }
-        object = (IUnknown *)&texture->IDirect3DRMTexture3_iface;
     }
-    else
+    if (i == ARRAY_SIZE(object_table))
     {
         FIXME("%s not implemented. Returning CLASSFACTORY_E_FIRST.\n", debugstr_guid(clsid));
         *out = NULL;
@@ -1126,9 +1180,18 @@ static HRESULT WINAPI d3drm3_CreateObject(IDirect3DRM3 *iface,
 static HRESULT WINAPI d3drm3_CreateFrame(IDirect3DRM3 *iface,
         IDirect3DRMFrame3 *parent, IDirect3DRMFrame3 **frame)
 {
+    struct d3drm *d3drm = impl_from_IDirect3DRM3(iface);
+    struct d3drm_frame *object;
+    HRESULT hr;
+
     TRACE("iface %p, parent %p, frame %p.\n", iface, parent, frame);
 
-    return Direct3DRMFrame_create(&IID_IDirect3DRMFrame3, (IUnknown *)parent, (IUnknown **)frame);
+    if (FAILED(hr = d3drm_frame_create(&object, (IUnknown *)parent, &d3drm->IDirect3DRM_iface)))
+        return hr;
+
+    *frame = &object->IDirect3DRMFrame3_iface;
+
+    return D3DRM_OK;
 }
 
 static HRESULT WINAPI d3drm3_CreateMesh(IDirect3DRM3 *iface, IDirect3DRMMesh **mesh)
@@ -1397,10 +1460,19 @@ static HRESULT WINAPI d3drm3_CreateTextureFromSurface(IDirect3DRM3 *iface,
 static HRESULT WINAPI d3drm3_CreateViewport(IDirect3DRM3 *iface, IDirect3DRMDevice3 *device,
         IDirect3DRMFrame3 *camera, DWORD x, DWORD y, DWORD width, DWORD height, IDirect3DRMViewport2 **viewport)
 {
+    struct d3drm *d3drm = impl_from_IDirect3DRM3(iface);
+    struct d3drm_viewport *object;
+    HRESULT hr;
+
     FIXME("iface %p, device %p, camera %p, x %u, y %u, width %u, height %u, viewport %p partial stub!\n",
             iface, device, camera, x, y, width, height, viewport);
 
-    return Direct3DRMViewport_create(&IID_IDirect3DRMViewport2, (IUnknown **)viewport);
+    if (FAILED(hr = d3drm_viewport_create(&object, &d3drm->IDirect3DRM_iface)))
+        return hr;
+
+    *viewport = &object->IDirect3DRMViewport2_iface;
+
+    return D3DRM_OK;
 }
 
 static HRESULT WINAPI d3drm3_CreateWrap(IDirect3DRM3 *iface, D3DRMWRAPTYPE type, IDirect3DRMFrame3 *frame,

@@ -1,7 +1,5 @@
 /*
- * Direct3D shader compiler main file
- *
- * Copyright 2010 Matteo Bruni for CodeWeavers
+ * Copyright 2016 Jacek Caban for CodeWeavers
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -16,27 +14,36 @@
  * You should have received a copy of the GNU Lesser General Public
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
- *
  */
 
-#include "config.h"
-#include "wine/port.h"
+function next_test() {
+    var test = tests.shift();
+    window.setTimeout(function() {
+        try {
+            test();
+        }catch(e) {
+            ok(false, "Got exception " + ("message" in e ? e.message : e));
+        }
+    }, 0);
+}
 
-#include <stdarg.h>
+function run_tests() {
+    tests.push(reportSuccess);
+    next_test();
+}
 
-#include "windef.h"
-#include "winbase.h"
+function ok(b,m) {
+    return external.ok(b, m);
+}
 
-BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
-{
-    switch (fdwReason)
-    {
-        case DLL_WINE_PREATTACH:
-            return FALSE;    /* prefer native version */
-        case DLL_PROCESS_ATTACH:
-            DisableThreadLibraryCalls(hinstDLL);
-            break;
-    }
+function trace(m) {
+    external.trace(m);
+}
 
-    return TRUE;
+function win_skip(m) {
+    external.win_skip(m);
+}
+
+function reportSuccess() {
+    external.reportSuccess();
 }
