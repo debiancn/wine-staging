@@ -1,3 +1,10 @@
+wine (1.8.3-2~bpo8+1) jessie-backports; urgency=medium
+
+  * Rebuild for jessie-backports.
+  * Drop dbgsym workaround, now handled by new debhelper in backports.
+
+ -- Jens Reyer <jre.winesim@gmail.com>  Mon, 18 Jul 2016 02:04:02 +0200
+
 wine (1.8.3-2) unstable; urgency=medium
 
   * Backport upstream changes for building with Unicode 9.0 (closes: #829003).
