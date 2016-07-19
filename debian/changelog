@@ -1,3 +1,12 @@
+wine-development (1.9.14-1~bpo8+1) jessie-backports; urgency=medium
+
+  * Rebuild for jessie-backports.
+  * Drop dbgsym workaround, now handled by new debhelper in backports.
+  * Revert "Drop alternative depends on perl:any (now handled by debhelper)."
+    - debhelper in backports doesn't support this yet.
+
+ -- Jens Reyer <jre.winesim@gmail.com>  Tue, 19 Jul 2016 13:09:28 +0200
+
 wine-development (1.9.14-1) unstable; urgency=medium
 
   * New upstream release 1.9.14, released Jul 8, 2016.
