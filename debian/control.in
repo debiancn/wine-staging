@@ -7,7 +7,7 @@ Uploaders:
  Stephen Kitt <skitt@debian.org>,
  Jens Reyer <jre.winesim@gmail.com>,
 Build-Depends:
- debhelper (>= 9.20160702),
+ debhelper (>= 9.20151220),
  dh-autoreconf,
  libxi-dev,
  libxt-dev,
@@ -179,7 +179,7 @@ Section: libdevel
 Built-Using: ${built:Using}
 Depends:
  gcc | gcc-multilib:amd64 [i386],
- ${perl:Depends},
+ ${perl:Depends} | perl:any [i386],
  ${misc:Depends},
  ${shlibs:Depends},
  libwineVERSION-dev (= ${binary:Version}),
