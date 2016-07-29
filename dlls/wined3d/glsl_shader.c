@@ -744,7 +744,7 @@ static void shader_glsl_load_constants_f(const struct wined3d_shader *shader, co
 
     if (!shader->load_local_constsF)
     {
-        TRACE("No need to load local float constants for this shader\n");
+        TRACE("No need to load local float constants for this shader.\n");
         return;
     }
 
@@ -2548,7 +2548,10 @@ static void shader_glsl_get_register_name(const struct wined3d_shader_register *
                     switch (reg->data_type)
                     {
                         case WINED3D_DATA_FLOAT:
-                            wined3d_ftoa(*(const float *)reg->immconst_data, register_name);
+                            if (gl_info->supported[ARB_SHADER_BIT_ENCODING])
+                                sprintf(register_name, "uintBitsToFloat(%#xu)", reg->immconst_data[0]);
+                            else
+                                wined3d_ftoa(*(const float *)reg->immconst_data, register_name);
                             break;
                         case WINED3D_DATA_INT:
                             sprintf(register_name, "%#x", reg->immconst_data[0]);
@@ -2568,12 +2571,21 @@ static void shader_glsl_get_register_name(const struct wined3d_shader_register *
                     switch (reg->data_type)
                     {
                         case WINED3D_DATA_FLOAT:
-                            wined3d_ftoa(*(const float *)&reg->immconst_data[0], imm_str[0]);
-                            wined3d_ftoa(*(const float *)&reg->immconst_data[1], imm_str[1]);
-                            wined3d_ftoa(*(const float *)&reg->immconst_data[2], imm_str[2]);
-                            wined3d_ftoa(*(const float *)&reg->immconst_data[3], imm_str[3]);
-                            sprintf(register_name, "vec4(%s, %s, %s, %s)",
-                                    imm_str[0], imm_str[1], imm_str[2], imm_str[3]);
+                            if (gl_info->supported[ARB_SHADER_BIT_ENCODING])
+                            {
+                                sprintf(register_name, "uintBitsToFloat(uvec4(%#xu, %#xu, %#xu, %#xu))",
+                                        reg->immconst_data[0], reg->immconst_data[1],
+                                        reg->immconst_data[2], reg->immconst_data[3]);
+                            }
+                            else
+                            {
+                                wined3d_ftoa(*(const float *)&reg->immconst_data[0], imm_str[0]);
+                                wined3d_ftoa(*(const float *)&reg->immconst_data[1], imm_str[1]);
+                                wined3d_ftoa(*(const float *)&reg->immconst_data[2], imm_str[2]);
+                                wined3d_ftoa(*(const float *)&reg->immconst_data[3], imm_str[3]);
+                                sprintf(register_name, "vec4(%s, %s, %s, %s)",
+                                        imm_str[0], imm_str[1], imm_str[2], imm_str[3]);
+                            }
                             break;
                         case WINED3D_DATA_INT:
                             sprintf(register_name, "ivec4(%#x, %#x, %#x, %#x)",
@@ -3526,6 +3538,7 @@ static void shader_glsl_map2gl(const struct wined3d_shader_instruction *ins)
         case WINED3DSIH_ROUND_Z: instruction = "trunc"; break;
         case WINED3DSIH_SQRT: instruction = "sqrt"; break;
         case WINED3DSIH_UMAX: instruction = "max"; break;
+        case WINED3DSIH_UMIN: instruction = "min"; break;
         default: instruction = "";
             FIXME("Opcode %s not yet handled in GLSL.\n", debug_d3dshaderinstructionhandler(ins->handler_idx));
             break;
@@ -8725,6 +8738,7 @@ static const SHADER_HANDLER shader_glsl_instruction_handler_table[WINED3DSIH_TAB
     /* WINED3DSIH_LD_STRUCTURED                    */ NULL,
     /* WINED3DSIH_LD_UAV_TYPED                     */ NULL,
     /* WINED3DSIH_LIT                              */ shader_glsl_lit,
+    /* WINED3DSIH_LOD                              */ NULL,
     /* WINED3DSIH_LOG                              */ shader_glsl_scalar_op,
     /* WINED3DSIH_LOGP                             */ shader_glsl_scalar_op,
     /* WINED3DSIH_LOOP                             */ shader_glsl_loop,
@@ -8763,7 +8777,9 @@ static const SHADER_HANDLER shader_glsl_instruction_handler_table[WINED3DSIH_TAB
     /* WINED3DSIH_SAMPLE_C                         */ shader_glsl_sample_c,
     /* WINED3DSIH_SAMPLE_C_LZ                      */ shader_glsl_sample_c,
     /* WINED3DSIH_SAMPLE_GRAD                      */ shader_glsl_sample,
+    /* WINED3DSIH_SAMPLE_INFO                      */ NULL,
     /* WINED3DSIH_SAMPLE_LOD                       */ shader_glsl_sample,
+    /* WINED3DSIH_SAMPLE_POS                       */ NULL,
     /* WINED3DSIH_SETP                             */ NULL,
     /* WINED3DSIH_SGE                              */ shader_glsl_compare,
     /* WINED3DSIH_SGN                              */ shader_glsl_sgn,
@@ -8798,10 +8814,12 @@ static const SHADER_HANDLER shader_glsl_instruction_handler_table[WINED3DSIH_TAB
     /* WINED3DSIH_TEXREG2AR                        */ shader_glsl_texreg2ar,
     /* WINED3DSIH_TEXREG2GB                        */ shader_glsl_texreg2gb,
     /* WINED3DSIH_TEXREG2RGB                       */ shader_glsl_texreg2rgb,
+    /* WINED3DSIH_UBFE                             */ NULL,
     /* WINED3DSIH_UDIV                             */ shader_glsl_udiv,
     /* WINED3DSIH_UGE                              */ shader_glsl_relop,
     /* WINED3DSIH_ULT                              */ shader_glsl_relop,
     /* WINED3DSIH_UMAX                             */ shader_glsl_map2gl,
+    /* WINED3DSIH_UMIN                             */ shader_glsl_map2gl,
     /* WINED3DSIH_USHR                             */ shader_glsl_binop,
     /* WINED3DSIH_UTOF                             */ shader_glsl_to_float,
     /* WINED3DSIH_XOR                              */ shader_glsl_binop,
@@ -8954,8 +8972,11 @@ static void glsl_vertex_pipe_vdecl(struct wined3d_context *context,
     /* If the vertex declaration contains a transformed position attribute,
      * the draw uses the fixed function vertex pipeline regardless of any
      * vertex shader set by the application. */
-    if (transformed != wasrhw)
+    if (transformed != wasrhw
+            || context->stream_info.swizzle_map != context->last_swizzle_map)
         context->shader_update_mask |= 1u << WINED3D_SHADER_TYPE_VERTEX;
+
+    context->last_swizzle_map = context->stream_info.swizzle_map;
 
     if (!use_vs(state))
     {

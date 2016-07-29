@@ -475,12 +475,11 @@ static HRESULT shader_chunk_handler(const char *data, DWORD data_size, DWORD tag
     return S_OK;
 }
 
-static HRESULT parse_shader(ID3D10EffectVariable *variable, const char *data)
+static HRESULT parse_fx10_shader(const char *data, size_t data_size, DWORD offset, struct d3d10_effect_variable *v)
 {
-    struct d3d10_effect_variable *v = impl_from_ID3D10EffectVariable(variable);
     ID3D10Device *device = v->effect->device;
-    const char *ptr = data;
     DWORD dxbc_size;
+    const char *ptr;
     HRESULT hr;
 
     if (v->effect->used_shader_current >= v->effect->used_shader_count)
@@ -492,10 +491,21 @@ static HRESULT parse_shader(ID3D10EffectVariable *variable, const char *data)
     v->effect->used_shaders[v->effect->used_shader_current] = v;
     ++v->effect->used_shader_current;
 
-    if (!ptr) return S_OK;
+    if (offset >= data_size || !require_space(offset, 1, sizeof(dxbc_size), data_size))
+    {
+        WARN("Invalid offset %#x (data size %#lx).\n", offset, (long)data_size);
+        return E_FAIL;
+    }
 
+    ptr = data + offset;
     read_dword(&ptr, &dxbc_size);
     TRACE("dxbc size: %#x\n", dxbc_size);
+
+    if (!require_space(ptr - data, 1, dxbc_size, data_size))
+    {
+        WARN("Invalid dxbc size %#x (data size %#lx, offset %#x).\n", offset, (long)data_size, offset);
+        return E_FAIL;
+    }
 
     /* We got a shader VertexShader vs = NULL, so it is fine to skip this. */
     if (!dxbc_size) return S_OK;
@@ -588,11 +598,18 @@ static D3D10_SHADER_VARIABLE_TYPE d3d10_variable_type(DWORD t, BOOL is_object)
 
 static HRESULT parse_fx10_type(const char *data, size_t data_size, DWORD offset, struct d3d10_effect_type *t)
 {
-    const char *ptr = data + offset;
+    const char *ptr;
     DWORD unknown0;
     DWORD typeinfo;
     unsigned int i;
 
+    if (offset >= data_size || !require_space(offset, 6, sizeof(DWORD), data_size))
+    {
+        WARN("Invalid offset %#x (data size %#lx).\n", offset, (long)data_size);
+        return E_FAIL;
+    }
+
+    ptr = data + offset;
     read_dword(&ptr, &offset);
     TRACE("Type name at offset %#x.\n", offset);
 
@@ -621,9 +638,14 @@ static HRESULT parse_fx10_type(const char *data, size_t data_size, DWORD offset,
     switch (unknown0)
     {
         case 1:
-            t->member_count = 0;
+            if (!require_space(ptr - data, 1, sizeof(typeinfo), data_size))
+            {
+                WARN("Invalid offset %#x (data size %#lx).\n", offset, (long)data_size);
+                return E_FAIL;
+            }
 
             read_dword(&ptr, &typeinfo);
+            t->member_count = 0;
             t->column_count = (typeinfo & D3D10_FX10_TYPE_COLUMN_MASK) >> D3D10_FX10_TYPE_COLUMN_SHIFT;
             t->row_count = (typeinfo & D3D10_FX10_TYPE_ROW_MASK) >> D3D10_FX10_TYPE_ROW_SHIFT;
             t->basetype = d3d10_variable_type((typeinfo & D3D10_FX10_TYPE_BASETYPE_MASK) >> D3D10_FX10_TYPE_BASETYPE_SHIFT, FALSE);
@@ -641,13 +663,18 @@ static HRESULT parse_fx10_type(const char *data, size_t data_size, DWORD offset,
         case 2:
             TRACE("Type is an object.\n");
 
+            if (!require_space(ptr - data, 1, sizeof(typeinfo), data_size))
+            {
+                WARN("Invalid offset %#x (data size %#lx).\n", offset, (long)data_size);
+                return E_FAIL;
+            }
+
+            read_dword(&ptr, &typeinfo);
             t->member_count = 0;
             t->column_count = 0;
             t->row_count = 0;
-            t->type_class = D3D10_SVC_OBJECT;
-
-            read_dword(&ptr, &typeinfo);
             t->basetype = d3d10_variable_type(typeinfo, TRUE);
+            t->type_class = D3D10_SVC_OBJECT;
 
             TRACE("Type description: %#x.\n", typeinfo);
             TRACE("\tbasetype: %s.\n", debug_d3d10_shader_variable_type(t->basetype));
@@ -656,6 +683,12 @@ static HRESULT parse_fx10_type(const char *data, size_t data_size, DWORD offset,
 
          case 3:
             TRACE("Type is a structure.\n");
+
+            if (!require_space(ptr - data, 1, sizeof(t->member_count), data_size))
+            {
+                WARN("Invalid offset %#x (data size %#lx).\n", offset, (long)data_size);
+                return E_FAIL;
+            }
 
             read_dword(&ptr, &t->member_count);
             TRACE("Member count: %u.\n", t->member_count);
@@ -669,6 +702,13 @@ static HRESULT parse_fx10_type(const char *data, size_t data_size, DWORD offset,
             {
                 ERR("Failed to allocate members memory.\n");
                 return E_OUTOFMEMORY;
+            }
+
+            if (!require_space(ptr - data, t->member_count, 4 * sizeof(DWORD), data_size))
+            {
+                WARN("Invalid member count %#x (data size %#lx, offset %#x).\n",
+                        t->member_count, (long)data_size, offset);
+                return E_FAIL;
             }
 
             for (i = 0; i < t->member_count; ++i)
@@ -1304,6 +1344,7 @@ static HRESULT parse_fx10_object(const char *data, size_t data_size,
     HRESULT hr;
     struct d3d10_effect *effect = o->pass->technique->effect;
     ID3D10Effect *e = &effect->ID3D10Effect_iface;
+    struct d3d10_effect_variable *v;
     DWORD tmp, variable_idx = 0;
     const char *name;
     size_t name_len;
@@ -1431,12 +1472,12 @@ static HRESULT parse_fx10_object(const char *data, size_t data_size,
             read_dword(&data_ptr, &offset);
             TRACE("Effect object starts at offset %#x.\n", offset);
 
-            data_ptr = data + offset;
+            if (FAILED(hr = parse_fx10_anonymous_shader(effect,
+                    &effect->anonymous_shaders[effect->anonymous_shader_current], o->type)))
+                return hr;
 
-            hr = parse_fx10_anonymous_shader(effect, &effect->anonymous_shaders[effect->anonymous_shader_current], o->type);
-            if (FAILED(hr)) return hr;
-
-            variable = &effect->anonymous_shaders[effect->anonymous_shader_current].shader.ID3D10EffectVariable_iface;
+            v = &effect->anonymous_shaders[effect->anonymous_shader_current].shader;
+            variable = &v->ID3D10EffectVariable_iface;
             ++effect->anonymous_shader_current;
 
             switch (o->type)
@@ -1444,7 +1485,7 @@ static HRESULT parse_fx10_object(const char *data, size_t data_size,
                 case D3D10_EOT_VERTEXSHADER:
                 case D3D10_EOT_PIXELSHADER:
                 case D3D10_EOT_GEOMETRYSHADER:
-                    if (FAILED(hr = parse_shader(variable, data_ptr)))
+                    if (FAILED(hr = parse_fx10_shader(data, data_size, offset, v)))
                         return hr;
                     break;
 
@@ -1800,8 +1841,8 @@ static HRESULT parse_fx10_local_variable(const char *data, size_t data_size,
                 read_dword(ptr, &shader_offset);
                 TRACE("Shader offset: %#x.\n", shader_offset);
 
-                hr = parse_shader(&var->ID3D10EffectVariable_iface, data + shader_offset);
-                if (FAILED(hr)) return hr;
+                if (FAILED(hr = parse_fx10_shader(data, data_size, shader_offset, var)))
+                    return hr;
             }
             break;
 

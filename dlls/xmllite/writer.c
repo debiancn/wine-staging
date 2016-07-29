@@ -414,7 +414,6 @@ static HRESULT writer_close_starttag(xmlwriter *writer)
     if (!writer->starttagopen) return S_OK;
     hr = write_output_buffer(writer->output, gtW, ARRAY_SIZE(gtW));
     writer->starttagopen = FALSE;
-    writer->state = XmlWriterState_Content;
     return hr;
 }
 
@@ -704,21 +703,29 @@ static HRESULT WINAPI xmlwriter_WriteCData(IXmlWriter *iface, LPCWSTR data)
 
 static HRESULT WINAPI xmlwriter_WriteCharEntity(IXmlWriter *iface, WCHAR ch)
 {
+    static const WCHAR fmtW[] = {'&','#','x','%','x',';',0};
     xmlwriter *This = impl_from_IXmlWriter(iface);
+    WCHAR bufW[16];
 
-    FIXME("%p %x\n", This, ch);
+    TRACE("%p %#x\n", This, ch);
 
     switch (This->state)
     {
     case XmlWriterState_Initial:
         return E_UNEXPECTED;
+    case XmlWriterState_ElemStarted:
+        writer_close_starttag(This);
+        break;
     case XmlWriterState_DocClosed:
         return WR_E_INVALIDACTION;
     default:
         ;
     }
 
-    return E_NOTIMPL;
+    sprintfW(bufW, fmtW, ch);
+    write_output_buffer(This->output, bufW, -1);
+
+    return S_OK;
 }
 
 static HRESULT WINAPI xmlwriter_WriteChars(IXmlWriter *iface, const WCHAR *pwch, UINT cwch)
@@ -947,11 +954,19 @@ static HRESULT WINAPI xmlwriter_WriteFullEndElement(IXmlWriter *iface)
     if (!element)
         return WR_E_INVALIDACTION;
 
+    writer_close_starttag(This);
+    writer_dec_indent(This);
+
+    /* don't force full end tag to the next line */
+    if (This->state == XmlWriterState_ElemStarted)
+        This->state = XmlWriterState_Content;
+    else
+        write_node_indent(This);
+
     /* write full end tag */
     write_output_buffer(This->output, closeelementW, ARRAY_SIZE(closeelementW));
     write_output_buffer(This->output, element->qname, element->len);
     write_output_buffer(This->output, gtW, ARRAY_SIZE(gtW));
-    This->starttagopen = FALSE;
 
     return S_OK;
 }

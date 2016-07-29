@@ -150,6 +150,7 @@ static const char * const shader_opcode_names[] =
     /* WINED3DSIH_LD_STRUCTURED                    */ "ld_structured",
     /* WINED3DSIH_LD_UAV_TYPED                     */ "ld_uav_typed",
     /* WINED3DSIH_LIT                              */ "lit",
+    /* WINED3DSIH_LOD                              */ "lod",
     /* WINED3DSIH_LOG                              */ "log",
     /* WINED3DSIH_LOGP                             */ "logp",
     /* WINED3DSIH_LOOP                             */ "loop",
@@ -188,7 +189,9 @@ static const char * const shader_opcode_names[] =
     /* WINED3DSIH_SAMPLE_C                         */ "sample_c",
     /* WINED3DSIH_SAMPLE_C_LZ                      */ "sample_c_lz",
     /* WINED3DSIH_SAMPLE_GRAD                      */ "sample_d",
+    /* WINED3DSIH_SAMPLE_INFO                      */ "sample_info",
     /* WINED3DSIH_SAMPLE_LOD                       */ "sample_l",
+    /* WINED3DSIH_SAMPLE_POS                       */ "sample_pos",
     /* WINED3DSIH_SETP                             */ "setp",
     /* WINED3DSIH_SGE                              */ "sge",
     /* WINED3DSIH_SGN                              */ "sgn",
@@ -223,10 +226,12 @@ static const char * const shader_opcode_names[] =
     /* WINED3DSIH_TEXREG2AR                        */ "texreg2ar",
     /* WINED3DSIH_TEXREG2GB                        */ "texreg2gb",
     /* WINED3DSIH_TEXREG2RGB                       */ "texreg2rgb",
+    /* WINED3DSIH_UBFE                             */ "ubfe",
     /* WINED3DSIH_UDIV                             */ "udiv",
     /* WINED3DSIH_UGE                              */ "uge",
     /* WINED3DSIH_ULT                              */ "ult",
     /* WINED3DSIH_UMAX                             */ "umax",
+    /* WINED3DSIH_UMIN                             */ "umin",
     /* WINED3DSIH_USHR                             */ "ushr",
     /* WINED3DSIH_UTOF                             */ "utof",
     /* WINED3DSIH_XOR                              */ "xor",
@@ -1779,6 +1784,10 @@ static void shader_dump_register(struct wined3d_string_buffer *buffer,
             shader_addline(buffer, "vicp");
             break;
 
+        case WINED3DSPR_OUTCONTROLPOINT:
+            shader_addline(buffer, "vocp");
+            break;
+
         case WINED3DSPR_PATCHCONST:
             shader_addline(buffer, "vpc");
             break;
@@ -2413,13 +2422,20 @@ static void shader_trace_init(const struct wined3d_shader_frontend *fe, void *fe
             {
                 shader_addline(&buffer, "p");
             }
-            else if (ins.handler_idx == WINED3DSIH_RESINFO
-                    && ins.flags)
+            else if (ins.handler_idx == WINED3DSIH_RESINFO && ins.flags)
             {
                 switch (ins.flags)
                 {
                     case WINED3DSI_RESINFO_RCP_FLOAT: shader_addline(&buffer, "_rcpFloat"); break;
                     case WINED3DSI_RESINFO_UINT: shader_addline(&buffer, "_uint"); break;
+                    default: shader_addline(&buffer, "_unrecognized(%#x)", ins.flags);
+                }
+            }
+            else if (ins.handler_idx == WINED3DSIH_SAMPLE_INFO && ins.flags)
+            {
+                switch (ins.flags)
+                {
+                    case WINED3DSI_SAMPLE_INFO_UINT: shader_addline(&buffer, "_uint"); break;
                     default: shader_addline(&buffer, "_unrecognized(%#x)", ins.flags);
                 }
             }
@@ -2704,8 +2720,7 @@ static HRESULT shader_set_function(struct wined3d_shader *shader, const DWORD *b
         return WINED3DERR_INVALIDCALL;
     }
 
-    shader->function = HeapAlloc(GetProcessHeap(), 0, shader->functionLength);
-    if (!shader->function)
+    if (!(shader->function = HeapAlloc(GetProcessHeap(), 0, shader->functionLength)))
         return E_OUTOFMEMORY;
     memcpy(shader->function, byte_code, shader->functionLength);
 
@@ -2969,6 +2984,8 @@ static HRESULT shader_init(struct wined3d_shader *shader, struct wined3d_device 
         shader_cleanup(shader);
     }
 
+    shader->load_local_constsF = shader->lconst_inf_or_nan;
+
     return hr;
 }
 
@@ -2995,8 +3012,8 @@ static HRESULT vertex_shader_init(struct wined3d_shader *shader, struct wined3d_
         shader->u.vs.attributes[input->register_idx].usage_idx = input->semantic_idx;
     }
 
-    shader->load_local_constsF = (reg_maps->usesrelconstF && !list_empty(&shader->constantsF)) ||
-            shader->lconst_inf_or_nan;
+    if (reg_maps->usesrelconstF && !list_empty(&shader->constantsF))
+        shader->load_local_constsF = TRUE;
 
     return WINED3D_OK;
 }
@@ -3004,41 +3021,19 @@ static HRESULT vertex_shader_init(struct wined3d_shader *shader, struct wined3d_
 static HRESULT domain_shader_init(struct wined3d_shader *shader, struct wined3d_device *device,
         const struct wined3d_shader_desc *desc, void *parent, const struct wined3d_parent_ops *parent_ops)
 {
-    HRESULT hr;
-
-    if (FAILED(hr = shader_init(shader, device, desc, 0, WINED3D_SHADER_TYPE_DOMAIN, parent, parent_ops)))
-        return hr;
-
-    shader->load_local_constsF = shader->lconst_inf_or_nan;
-
-    return WINED3D_OK;
+    return shader_init(shader, device, desc, 0, WINED3D_SHADER_TYPE_DOMAIN, parent, parent_ops);
 }
 
 static HRESULT hull_shader_init(struct wined3d_shader *shader, struct wined3d_device *device,
         const struct wined3d_shader_desc *desc, void *parent, const struct wined3d_parent_ops *parent_ops)
 {
-    HRESULT hr;
-
-    if (FAILED(hr = shader_init(shader, device, desc, 0, WINED3D_SHADER_TYPE_HULL, parent, parent_ops)))
-        return hr;
-
-    shader->load_local_constsF = shader->lconst_inf_or_nan;
-
-    return WINED3D_OK;
+    return shader_init(shader, device, desc, 0, WINED3D_SHADER_TYPE_HULL, parent, parent_ops);
 }
 
 static HRESULT geometry_shader_init(struct wined3d_shader *shader, struct wined3d_device *device,
         const struct wined3d_shader_desc *desc, void *parent, const struct wined3d_parent_ops *parent_ops)
 {
-    HRESULT hr;
-
-    if (FAILED(hr = shader_init(shader, device, desc, 0,
-            WINED3D_SHADER_TYPE_GEOMETRY, parent, parent_ops)))
-        return hr;
-
-    shader->load_local_constsF = shader->lconst_inf_or_nan;
-
-    return WINED3D_OK;
+    return shader_init(shader, device, desc, 0, WINED3D_SHADER_TYPE_GEOMETRY, parent, parent_ops);
 }
 
 void find_gs_compile_args(const struct wined3d_state *state, const struct wined3d_shader *shader,
@@ -3324,8 +3319,6 @@ static HRESULT pixel_shader_init(struct wined3d_shader *shader, struct wined3d_d
         }
     }
 
-    shader->load_local_constsF = shader->lconst_inf_or_nan;
-
     return WINED3D_OK;
 }
 
@@ -3363,14 +3356,7 @@ void pixelshader_update_resource_types(struct wined3d_shader *shader, WORD tex_t
 static HRESULT compute_shader_init(struct wined3d_shader *shader, struct wined3d_device *device,
         const struct wined3d_shader_desc *desc, void *parent, const struct wined3d_parent_ops *parent_ops)
 {
-    HRESULT hr;
-
-    if (FAILED(hr = shader_init(shader, device, desc, 0, WINED3D_SHADER_TYPE_COMPUTE, parent, parent_ops)))
-        return hr;
-
-    shader->load_local_constsF = shader->lconst_inf_or_nan;
-
-    return WINED3D_OK;
+    return shader_init(shader, device, desc, 0, WINED3D_SHADER_TYPE_COMPUTE, parent, parent_ops);
 }
 
 HRESULT CDECL wined3d_shader_create_cs(struct wined3d_device *device, const struct wined3d_shader_desc *desc,

@@ -494,6 +494,7 @@ AC_CHECK_HEADERS(\
 	sys/statvfs.h \
 	sys/strtio.h \
 	sys/syscall.h \
+	sys/sysinfo.h \
 	sys/tihdr.h \
 	sys/time.h \
 	sys/timeout.h \
@@ -859,7 +860,7 @@ case $host_os in
 
     AC_SUBST(LIBWINE_SHAREDLIB,"libwine.so")
     AC_SUBST(LIBWINE_INSTALL_LIB,"libwine.so")
-    AC_SUBST(LIBWINE_LDFLAGS,"-shared")
+    AC_SUBST(LIBWINE_LDFLAGS,["-shared -Wl,-soname,libwine.so"])
     ;;
 
   *)
@@ -2535,6 +2536,7 @@ AC_CHECK_FUNCS(\
 	lrintf \
 	lround \
 	lroundf \
+	powl \
 	remainder \
 	remainderf \
 	rint \
@@ -3263,6 +3265,7 @@ WINE_CONFIG_DLL(softpub)
 WINE_CONFIG_DLL(sound.drv16,enable_win16)
 WINE_CONFIG_DLL(spoolss,,[implib])
 WINE_CONFIG_TEST(dlls/spoolss/tests)
+WINE_CONFIG_DLL(sspicli)
 WINE_CONFIG_DLL(stdole2.tlb,,[clean])
 WINE_CONFIG_DLL(stdole32.tlb,,[clean])
 WINE_CONFIG_DLL(sti,,[clean,implib])

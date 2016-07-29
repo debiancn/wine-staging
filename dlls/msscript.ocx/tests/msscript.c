@@ -33,6 +33,7 @@
 #define TESTSCRIPT_CLSID "{178fc164-f585-4e24-9c13-4bb7faf80746}"
 static const GUID CLSID_TestScript =
     {0x178fc164,0xf585,0x4e24,{0x9c,0x13,0x4b,0xb7,0xfa,0xf8,0x07,0x46}};
+static const WCHAR vbW[] = {'V','B','S','c','r','i','p','t',0};
 
 #ifdef _WIN64
 
@@ -92,6 +93,8 @@ DEFINE_EXPECT(SetInterfaceSafetyOptions);
 DEFINE_EXPECT(InitNew);
 DEFINE_EXPECT(Close);
 DEFINE_EXPECT(SetScriptSite);
+DEFINE_EXPECT(QI_IActiveScriptParse);
+DEFINE_EXPECT(SetScriptState_INITIALIZED);
 
 #define EXPECT_REF(obj,ref) _expect_ref((IUnknown*)obj, ref, __LINE__)
 static void _expect_ref(IUnknown* obj, ULONG ref, int line)
@@ -220,6 +223,7 @@ static HRESULT WINAPI ActiveScript_QueryInterface(IActiveScript *iface, REFIID r
     }
 
     if(IsEqualGUID(&IID_IActiveScriptParse, riid)) {
+        CHECK_EXPECT(QI_IActiveScriptParse);
         *ppv = &ActiveScriptParse;
         return S_OK;
     }
@@ -244,6 +248,7 @@ static ULONG WINAPI ActiveScript_Release(IActiveScript *iface)
 static HRESULT WINAPI ActiveScript_SetScriptSite(IActiveScript *iface, IActiveScriptSite *pass)
 {
     IActiveScriptSiteInterruptPoll *poll;
+    IActiveScriptSiteWindow *window;
     IActiveScriptSiteDebug *debug;
     IServiceProvider *service;
     ICanHandleException *canexpection;
@@ -255,26 +260,27 @@ static HRESULT WINAPI ActiveScript_SetScriptSite(IActiveScript *iface, IActiveSc
     ok(pass != NULL, "pass == NULL\n");
 
     hres = IActiveScriptSite_QueryInterface(pass, &IID_IActiveScriptSiteInterruptPoll, (void**)&poll);
-    ok(hres == E_NOINTERFACE, "Could not get IActiveScriptSiteInterruptPoll interface: %08x\n", hres);
+    ok(hres == E_NOINTERFACE, "Got IActiveScriptSiteInterruptPoll interface: %08x\n", hres);
 
     hres = IActiveScriptSite_GetLCID(pass, &lcid);
     ok(hres == S_OK, "GetLCID failed: %08x\n", hres);
 
     hres = IActiveScriptSite_OnStateChange(pass, (state = SCRIPTSTATE_INITIALIZED));
-todo_wine
     ok(hres == E_NOTIMPL, "OnStateChange failed: %08x\n", hres);
 
     hres = IActiveScriptSite_QueryInterface(pass, &IID_IActiveScriptSiteDebug, (void**)&debug);
-    ok(hres == E_NOINTERFACE, "Could not get IActiveScriptSiteDebug interface: %08x\n", hres);
+    ok(hres == E_NOINTERFACE, "Got IActiveScriptSiteDebug interface: %08x\n", hres);
 
     hres = IActiveScriptSite_QueryInterface(pass, &IID_ICanHandleException, (void**)&canexpection);
-    ok(hres == E_NOINTERFACE, "Could not get IID_ICanHandleException interface: %08x\n", hres);
+    ok(hres == E_NOINTERFACE, "Got IID_ICanHandleException interface: %08x\n", hres);
 
     hres = IActiveScriptSite_QueryInterface(pass, &IID_IServiceProvider, (void**)&service);
-todo_wine
     ok(hres == S_OK, "Could not get IServiceProvider interface: %08x\n", hres);
-    if(SUCCEEDED(hres))
-        IServiceProvider_Release(service);
+    IServiceProvider_Release(service);
+
+    hres = IActiveScriptSite_QueryInterface(pass, &IID_IActiveScriptSiteWindow, (void**)&window);
+    ok(hres == S_OK, "Could not get IActiveScriptSiteWindow interface: %08x\n", hres);
+    IActiveScriptSiteWindow_Release(window);
 
     site = pass;
     IActiveScriptSite_AddRef(site);
@@ -290,7 +296,13 @@ static HRESULT WINAPI ActiveScript_GetScriptSite(IActiveScript *iface, REFIID ri
 
 static HRESULT WINAPI ActiveScript_SetScriptState(IActiveScript *iface, SCRIPTSTATE ss)
 {
-    ok(0, "unexpected call\n");
+    if (ss == SCRIPTSTATE_INITIALIZED) {
+        CHECK_EXPECT(SetScriptState_INITIALIZED);
+        return S_OK;
+    }
+    else
+        ok(0, "unexpected call, state %u\n", ss);
+
     return E_NOTIMPL;
 }
 
@@ -671,7 +683,6 @@ static void test_olecontrol(void)
 
 static void test_Language(void)
 {
-    static const WCHAR vbW[] = {'V','B','S','c','r','i','p','t',0};
     static const WCHAR jsW[] = {'J','S','c','r','i','p','t',0};
     static const WCHAR vb2W[] = {'v','B','s','c','r','i','p','t',0};
     static const WCHAR dummyW[] = {'d','u','m','m','y',0};
@@ -683,14 +694,12 @@ static void test_Language(void)
             &IID_IScriptControl, (void**)&sc);
     ok(hr == S_OK, "got 0x%08x\n", hr);
 
-todo_wine {
     hr = IScriptControl_get_Language(sc, NULL);
     ok(hr == E_POINTER, "got 0x%08x\n", hr);
 
     str = (BSTR)0xdeadbeef;
     hr = IScriptControl_get_Language(sc, &str);
     ok(hr == S_OK, "got 0x%08x\n", hr);
-if (hr == S_OK)
     ok(str == NULL, "got %s\n", wine_dbgstr_w(str));
 
     str = SysAllocString(vbW);
@@ -715,7 +724,6 @@ if (hr == S_OK)
 
     hr = IScriptControl_get_Language(sc, &str);
     ok(hr == S_OK, "got 0x%08x\n", hr);
-if (hr == S_OK)
     ok(!lstrcmpW(str, vbW), "got %s\n", wine_dbgstr_w(str));
     SysFreeString(str);
 
@@ -725,7 +733,7 @@ if (hr == S_OK)
     SysFreeString(str);
 
     hr = IScriptControl_get_Language(sc, &str);
-if (hr == S_OK)
+    ok(hr == S_OK, "got 0x%08x\n", hr);
     ok(!lstrcmpW(str, jsW), "got %s\n", wine_dbgstr_w(str));
     SysFreeString(str);
 
@@ -735,8 +743,8 @@ if (hr == S_OK)
     hr = IScriptControl_get_Language(sc, &str);
     ok(hr == S_OK, "got 0x%08x\n", hr);
     ok(str == NULL, "got %s\n", wine_dbgstr_w(str));
+
     IScriptControl_Release(sc);
-}
 
     /* custom script engine */
     if (register_script_engine()) {
@@ -746,10 +754,10 @@ if (hr == S_OK)
                 &IID_IScriptControl, (void**)&sc);
         ok(hr == S_OK, "got 0x%08x\n", hr);
 
-    todo_wine {
         SET_EXPECT(CreateInstance);
         SET_EXPECT(SetInterfaceSafetyOptions);
         SET_EXPECT(SetScriptSite);
+        SET_EXPECT(QI_IActiveScriptParse);
         SET_EXPECT(InitNew);
 
         str = SysAllocString(testscriptW);
@@ -760,8 +768,10 @@ if (hr == S_OK)
         CHECK_CALLED(CreateInstance);
         CHECK_CALLED(SetInterfaceSafetyOptions);
         CHECK_CALLED(SetScriptSite);
+        CHECK_CALLED(QI_IActiveScriptParse);
         CHECK_CALLED(InitNew);
         hr = IScriptControl_get_Language(sc, &str);
+    todo_wine
         ok(hr == S_OK, "got 0x%08x\n", hr);
      if (hr == S_OK)
         ok(!lstrcmpW(testscriptW, str), "%s\n", wine_dbgstr_w(str));
@@ -775,17 +785,17 @@ if (hr == S_OK)
 
         CHECK_CALLED(Close);
     }
-    }
     else
         skip("Could not register TestScript engine\n");
 }
 
 static void test_connectionpoints(void)
 {
-    IConnectionPointContainer *container;
+    IConnectionPointContainer *container, *container2;
     IConnectionPoint *cp;
     IScriptControl *sc;
     HRESULT hr;
+    IID iid;
 
     hr = CoCreateInstance(&CLSID_ScriptControl, NULL, CLSCTX_INPROC_SERVER|CLSCTX_INPROC_HANDLER,
             &IID_IScriptControl, (void**)&sc);
@@ -799,10 +809,42 @@ static void test_connectionpoints(void)
 
     hr = IConnectionPointContainer_FindConnectionPoint(container, &IID_IPropertyNotifySink, &cp);
     ok(hr == S_OK, "got 0x%08x\n", hr);
+
+    if (0) /* crashes on win2k3 */
+    {
+        hr = IConnectionPoint_GetConnectionPointContainer(cp, NULL);
+        ok(hr == E_POINTER, "got 0x%08x\n", hr);
+    }
+
+    hr = IConnectionPoint_GetConnectionInterface(cp, &iid);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+    ok(IsEqualIID(&iid, &IID_IPropertyNotifySink), "got %s\n", wine_dbgstr_guid(&iid));
+
+    hr = IConnectionPoint_GetConnectionPointContainer(cp, &container2);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+    ok(container2 == container, "got %p, expected %p\n", container2, container);
+    IConnectionPointContainer_Release(container2);
+
     IConnectionPoint_Release(cp);
 
     hr = IConnectionPointContainer_FindConnectionPoint(container, &DIID_DScriptControlSource, &cp);
     ok(hr == S_OK, "got 0x%08x\n", hr);
+
+    if (0) /* crashes on win2k3 */
+    {
+        hr = IConnectionPoint_GetConnectionPointContainer(cp, NULL);
+        ok(hr == E_POINTER, "got 0x%08x\n", hr);
+    }
+
+    hr = IConnectionPoint_GetConnectionInterface(cp, &iid);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+    ok(IsEqualIID(&iid, &DIID_DScriptControlSource), "got %s\n", wine_dbgstr_guid(&iid));
+
+    hr = IConnectionPoint_GetConnectionPointContainer(cp, &container2);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+    ok(container2 == container, "got %p, expected %p\n", container2, container);
+    IConnectionPointContainer_Release(container2);
+
     IConnectionPoint_Release(cp);
 
     IConnectionPointContainer_Release(container);
@@ -828,10 +870,11 @@ static void test_quickactivate(void)
 
 static void test_viewobject(void)
 {
+    DWORD status, aspect, flags;
     IViewObjectEx *viewex;
     IScriptControl *sc;
     IViewObject *view;
-    DWORD status;
+    IAdviseSink *sink;
     HRESULT hr;
 
     hr = CoCreateInstance(&CLSID_ScriptControl, NULL, CLSCTX_INPROC_SERVER|CLSCTX_INPROC_HANDLER,
@@ -844,6 +887,33 @@ static void test_viewobject(void)
 
     hr = IScriptControl_QueryInterface(sc, &IID_IViewObject2, (void**)&view);
     ok(hr == S_OK, "got 0x%08x\n", hr);
+
+    sink = (IAdviseSink*)0xdeadbeef;
+    hr = IViewObject_GetAdvise(view, &aspect, &flags, &sink);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+    ok(aspect == DVASPECT_CONTENT, "got %u\n", aspect);
+    ok(flags == 0, "got %#x\n", flags);
+    ok(sink == NULL, "got %p\n", sink);
+
+    hr = IViewObject_SetAdvise(view, DVASPECT_CONTENT, 0, NULL);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+
+    hr = IViewObject_SetAdvise(view, DVASPECT_THUMBNAIL, 0, NULL);
+    ok(hr == DV_E_DVASPECT, "got 0x%08x\n", hr);
+
+    hr = IViewObject_SetAdvise(view, DVASPECT_ICON, 0, NULL);
+    ok(hr == DV_E_DVASPECT, "got 0x%08x\n", hr);
+
+    hr = IViewObject_SetAdvise(view, DVASPECT_DOCPRINT, 0, NULL);
+    ok(hr == DV_E_DVASPECT, "got 0x%08x\n", hr);
+
+    sink = (IAdviseSink*)0xdeadbeef;
+    hr = IViewObject_GetAdvise(view, &aspect, &flags, &sink);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+    ok(aspect == DVASPECT_CONTENT, "got %u\n", aspect);
+    ok(flags == 0, "got %#x\n", flags);
+    ok(sink == NULL, "got %p\n", sink);
+
     IViewObject_Release(view);
 
     hr = IScriptControl_QueryInterface(sc, &IID_IViewObjectEx, (void**)&viewex);
@@ -888,6 +958,134 @@ static void test_pointerinactive(void)
     IScriptControl_Release(sc);
 }
 
+static void test_timeout(void)
+{
+    IScriptControl *sc;
+    HRESULT hr;
+    LONG val;
+    BSTR str;
+
+    hr = CoCreateInstance(&CLSID_ScriptControl, NULL, CLSCTX_INPROC_SERVER|CLSCTX_INPROC_HANDLER,
+            &IID_IScriptControl, (void**)&sc);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+
+    hr = IScriptControl_get_Timeout(sc, NULL);
+    ok(hr == E_POINTER, "got 0x%08x\n", hr);
+
+    val = 0;
+    hr = IScriptControl_get_Timeout(sc, &val);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+    ok(val == 10000, "got %d\n", val);
+
+    hr = IScriptControl_put_Timeout(sc, -1);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+
+    val = 0;
+    hr = IScriptControl_get_Timeout(sc, &val);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+    ok(val == -1, "got %d\n", val);
+
+    hr = IScriptControl_put_Timeout(sc, -2);
+    ok(hr == CTL_E_INVALIDPROPERTYVALUE, "got 0x%08x\n", hr);
+
+    val = 0;
+    hr = IScriptControl_get_Timeout(sc, &val);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+    ok(val == -1, "got %d\n", val);
+
+    hr = IScriptControl_put_Timeout(sc, 0);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+
+    val = 1;
+    hr = IScriptControl_get_Timeout(sc, &val);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+    ok(val == 0, "got %d\n", val);
+
+    str = SysAllocString(vbW);
+    hr = IScriptControl_put_Language(sc, str);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+    SysFreeString(str);
+
+    val = 1;
+    hr = IScriptControl_get_Timeout(sc, &val);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+    ok(val == 0, "got %d\n", val);
+
+    hr = IScriptControl_put_Timeout(sc, 10000);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+
+    IScriptControl_Release(sc);
+}
+
+static void test_Reset(void)
+{
+    IScriptControl *sc;
+    HRESULT hr;
+    BSTR str;
+
+    hr = CoCreateInstance(&CLSID_ScriptControl, NULL, CLSCTX_INPROC_SERVER|CLSCTX_INPROC_HANDLER,
+            &IID_IScriptControl, (void**)&sc);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+
+    hr = IScriptControl_Reset(sc);
+    ok(hr == E_FAIL, "got 0x%08x\n", hr);
+
+    str = SysAllocString(vbW);
+    hr = IScriptControl_put_Language(sc, str);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+    SysFreeString(str);
+
+    hr = IScriptControl_Reset(sc);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+
+    hr = IScriptControl_get_Language(sc, &str);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+    ok(!lstrcmpW(str, vbW), "got %s\n", wine_dbgstr_w(str));
+    SysFreeString(str);
+
+    IScriptControl_Release(sc);
+
+    /* custom script engine */
+    if (register_script_engine()) {
+        static const WCHAR testscriptW[] = {'t','e','s','t','s','c','r','i','p','t',0};
+
+        hr = CoCreateInstance(&CLSID_ScriptControl, NULL, CLSCTX_INPROC_SERVER|CLSCTX_INPROC_HANDLER,
+                &IID_IScriptControl, (void**)&sc);
+        ok(hr == S_OK, "got 0x%08x\n", hr);
+
+        SET_EXPECT(CreateInstance);
+        SET_EXPECT(SetInterfaceSafetyOptions);
+        SET_EXPECT(SetScriptSite);
+        SET_EXPECT(QI_IActiveScriptParse);
+        SET_EXPECT(InitNew);
+
+        str = SysAllocString(testscriptW);
+        hr = IScriptControl_put_Language(sc, str);
+        ok(hr == S_OK, "got 0x%08x\n", hr);
+        SysFreeString(str);
+
+        SET_EXPECT(SetScriptState_INITIALIZED);
+        hr = IScriptControl_Reset(sc);
+        ok(hr == S_OK, "got 0x%08x\n", hr);
+        CHECK_CALLED(SetScriptState_INITIALIZED);
+
+        SET_EXPECT(SetScriptState_INITIALIZED);
+        hr = IScriptControl_Reset(sc);
+        ok(hr == S_OK, "got 0x%08x\n", hr);
+        CHECK_CALLED(SetScriptState_INITIALIZED);
+
+        init_registry(FALSE);
+
+        SET_EXPECT(Close);
+
+        IScriptControl_Release(sc);
+
+        CHECK_CALLED(Close);
+    }
+    else
+        skip("Could not register TestScript engine\n");
+}
+
 START_TEST(msscript)
 {
     IUnknown *unk;
@@ -911,6 +1109,8 @@ START_TEST(msscript)
     test_quickactivate();
     test_viewobject();
     test_pointerinactive();
+    test_timeout();
+    test_Reset();
 
     CoUninitialize();
 }

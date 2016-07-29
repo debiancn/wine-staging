@@ -385,6 +385,7 @@ enum wined3d_shader_register_type
     WINED3DSPR_OUTPOINTID,
     WINED3DSPR_FORKINSTID,
     WINED3DSPR_INCONTROLPOINT,
+    WINED3DSPR_OUTCONTROLPOINT,
     WINED3DSPR_PATCHCONST,
     WINED3DSPR_TESSCOORD,
     WINED3DSPR_GROUPSHAREDMEM,
@@ -494,6 +495,7 @@ enum wined3d_tessellator_partitioning
 #define WINED3DSI_INDEXED_DYNAMIC   0x4
 #define WINED3DSI_RESINFO_RCP_FLOAT 0x1
 #define WINED3DSI_RESINFO_UINT      0x2
+#define WINED3DSI_SAMPLE_INFO_UINT  0x1
 #define WINED3DSI_SAMPLER_COMPARISON_MODE 0x1
 
 enum wined3d_shader_rel_op
@@ -665,6 +667,7 @@ enum WINED3D_SHADER_INSTRUCTION_HANDLER
     WINED3DSIH_LD_STRUCTURED,
     WINED3DSIH_LD_UAV_TYPED,
     WINED3DSIH_LIT,
+    WINED3DSIH_LOD,
     WINED3DSIH_LOG,
     WINED3DSIH_LOGP,
     WINED3DSIH_LOOP,
@@ -703,7 +706,9 @@ enum WINED3D_SHADER_INSTRUCTION_HANDLER
     WINED3DSIH_SAMPLE_C,
     WINED3DSIH_SAMPLE_C_LZ,
     WINED3DSIH_SAMPLE_GRAD,
+    WINED3DSIH_SAMPLE_INFO,
     WINED3DSIH_SAMPLE_LOD,
+    WINED3DSIH_SAMPLE_POS,
     WINED3DSIH_SETP,
     WINED3DSIH_SGE,
     WINED3DSIH_SGN,
@@ -738,10 +743,12 @@ enum WINED3D_SHADER_INSTRUCTION_HANDLER
     WINED3DSIH_TEXREG2AR,
     WINED3DSIH_TEXREG2GB,
     WINED3DSIH_TEXREG2RGB,
+    WINED3DSIH_UBFE,
     WINED3DSIH_UDIV,
     WINED3DSIH_UGE,
     WINED3DSIH_ULT,
     WINED3DSIH_UMAX,
+    WINED3DSIH_UMIN,
     WINED3DSIH_USHR,
     WINED3DSIH_UTOF,
     WINED3DSIH_XOR,
@@ -1360,11 +1367,32 @@ enum fogsource {
     FOGSOURCE_COORD,
 };
 
-struct wined3d_occlusion_query
+/* Direct3D terminology with little modifications. We do not have an issued
+ * state because only the driver knows about it, but we have a created state
+ * because D3D allows GetData() on a created query, but OpenGL doesn't. */
+enum wined3d_query_state
 {
-    struct list entry;
-    GLuint id;
-    struct wined3d_context *context;
+    QUERY_CREATED,
+    QUERY_SIGNALLED,
+    QUERY_BUILDING
+};
+
+struct wined3d_query_ops
+{
+    HRESULT (*query_get_data)(struct wined3d_query *query, void *data, DWORD data_size, DWORD flags);
+    HRESULT (*query_issue)(struct wined3d_query *query, DWORD flags);
+};
+
+struct wined3d_query
+{
+    LONG ref;
+
+    void *parent;
+    struct wined3d_device *device;
+    enum wined3d_query_state state;
+    enum wined3d_query_type type;
+    DWORD data_size;
+    const struct wined3d_query_ops *query_ops;
 };
 
 union wined3d_gl_query_object
@@ -1375,6 +1403,8 @@ union wined3d_gl_query_object
 
 struct wined3d_event_query
 {
+    struct wined3d_query query;
+
     struct list entry;
     union wined3d_gl_query_object object;
     struct wined3d_context *context;
@@ -1395,8 +1425,19 @@ enum wined3d_event_query_result wined3d_event_query_finish(const struct wined3d_
 void wined3d_event_query_issue(struct wined3d_event_query *query, const struct wined3d_device *device) DECLSPEC_HIDDEN;
 BOOL wined3d_event_query_supported(const struct wined3d_gl_info *gl_info) DECLSPEC_HIDDEN;
 
+struct wined3d_occlusion_query
+{
+    struct wined3d_query query;
+
+    struct list entry;
+    GLuint id;
+    struct wined3d_context *context;
+};
+
 struct wined3d_timestamp_query
 {
+    struct wined3d_query query;
+
     struct list entry;
     GLuint id;
     struct wined3d_context *context;
@@ -1455,6 +1496,7 @@ struct wined3d_context
     DWORD hdc_has_format : 1;           /* only meaningful if hdc_is_private */
     DWORD update_shader_resource_bindings : 1;
     DWORD padding : 14;
+    DWORD last_swizzle_map; /* MAX_ATTRIBS, 16 */
     DWORD shader_update_mask;
     DWORD constant_update_mask;
     DWORD                   numbered_array_mask;
@@ -3043,35 +3085,6 @@ static inline void wined3d_cs_push_constants(struct wined3d_cs *cs, enum wined3d
     cs->ops->push_constants(cs, p, start_idx, count, constants);
 }
 
-/* Direct3D terminology with little modifications. We do not have an issued state
- * because only the driver knows about it, but we have a created state because d3d
- * allows GetData on a created issue, but opengl doesn't
- */
-enum query_state {
-    QUERY_CREATED,
-    QUERY_SIGNALLED,
-    QUERY_BUILDING
-};
-
-struct wined3d_query_ops
-{
-    HRESULT (*query_get_data)(struct wined3d_query *query, void *data, DWORD data_size, DWORD flags);
-    HRESULT (*query_issue)(struct wined3d_query *query, DWORD flags);
-};
-
-struct wined3d_query
-{
-    LONG ref;
-
-    void *parent;
-    const struct wined3d_query_ops *query_ops;
-    struct wined3d_device *device;
-    enum query_state         state;
-    enum wined3d_query_type type;
-    DWORD data_size;
-    void                     *extendedData;
-};
-
 /* TODO: Add tests and support for FLOAT16_4 POSITIONT, D3DCOLOR position, other
  * fixed function semantics as D3DCOLOR or FLOAT16 */
 enum wined3d_buffer_conversion_type
@@ -3623,7 +3636,7 @@ struct wined3d_format
     GLenum gl_vtx_type;
     GLint gl_vtx_format;
     GLboolean gl_normalized;
-    unsigned int component_size;
+    unsigned int attribute_size;
 
     GLint glInternal;
     GLint glGammaInternal;

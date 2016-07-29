@@ -5,7 +5,7 @@ msgstr ""
 "Project-Id-Version: Wine\n"
 "Report-Msgid-Bugs-To: http://bugs.winehq.org\n"
 "POT-Creation-Date: N/A\n"
-"PO-Revision-Date: 2016-07-06 11:31+0300\n"
+"PO-Revision-Date: 2016-07-16 12:20+0300\n"
 "Last-Translator: Aurimas Fišeras <aurimas@members.fsf.org>\n"
 "Language-Team: Lithuanian <komp_lt@konf.lt>\n"
 "Language: lt\n"
@@ -11681,6 +11681,10 @@ msgstr "Pagalbai įrašykite „REG /?“.\n"
 msgid "Type \"REG %1 /?\" for help.\n"
 msgstr "Pagalbai įrašykite „REG %1 /?“.\n"
 
+#: reg.rc:65 regedit.rc:205
+msgid "(value not set)"
+msgstr "(reikšmė nenustatyta)"
+
 #: regedit.rc:34
 msgid "&Registry"
 msgstr "R&egistras"
@@ -11883,10 +11887,6 @@ msgstr "Registro failai (*.reg)"
 msgid "Win9x/NT4 Registry files (REGEDIT4)"
 msgstr "Win9x/NT4 registro failai (REGEDIT4)"
 
-#: regedit.rc:205
-msgid "(value not set)"
-msgstr "(reikšmė nenustatyta)"
-
 #: regedit.rc:206
 msgid "(cannot display value)"
 msgstr "(negalima parodyti reikšmės)"
@@ -11979,6 +11979,69 @@ msgstr "regedit: Nepavyko atverti failo „%1“.\n"
 #: regedit.rc:366
 msgid "regedit: Unhandled action.\n"
 msgstr "regedit: Neapdorojamas veiksmas.\n"
+
+#: regedit.rc:367
+msgid "regedit: Out of memory! (%1!S!, line %2!u!)\n"
+msgstr "regedit: Trūksta atminties! (%1!S!, eilutė %2!u!)\n"
+
+#: regedit.rc:368
+msgid "regedit: Invalid hexadecimal value.\n"
+msgstr "regedit: Netinkama šešioliktainė reikšmė.\n"
+
+#: regedit.rc:369
+msgid ""
+"regedit: Unable to convert hexadecimal data. An invalid value was "
+"encountered at '%1'.\n"
+msgstr ""
+"regedit: Nepavyko konvertuoti šešioliktainių duomenų. Neteisinga reikšmė "
+"sutikta „%1“.\n"
+
+#: regedit.rc:370
+msgid "regedit: Unrecognized escape sequence [\\%1!c!]\n"
+msgstr "regedit: Neatpažinta kaitos seka [\\%1!c!]\n"
+
+#: regedit.rc:371
+msgid "regedit: Unsupported registry data type [%1]\n"
+msgstr "regedit: Nepalaikomas registro duomenų tipas [%1]\n"
+
+#: regedit.rc:372
+msgid "regedit: Unexpected end of line in '%1'.\n"
+msgstr "regedit: Netikėta eilutės pabaiga „%1“.\n"
+
+#: regedit.rc:373
+msgid "regedit: The line '%1' was not recognized.\n"
+msgstr "regedit: Eilutė „%1“ neatpažinta.\n"
+
+#: regedit.rc:374
+msgid "regedit: Unable to add the registry value '%1' to '%2'.\n"
+msgstr "regedit: Nepavyko pridėti registro reikšmės „%1“ į „%2“.\n"
+
+#: regedit.rc:375
+msgid "regedit: Unable to open the registry key '%1'.\n"
+msgstr "regedit: Nepavyko atverti registro rakto „%1“.\n"
+
+#: regedit.rc:376
+msgid "regedit: Unsupported registry data type [%1] encountered in '%2'.\n"
+msgstr "regedit: Nepalaikomas registro duomenų tipas [%1] sutiktas „%2“.\n"
+
+#: regedit.rc:377
+msgid "regedit: The registry value '%1' will be exported as binary data.\n"
+msgstr ""
+"regedit: Registro reikšmė „%1“ bus eksportuota kaip dvejetainiai duomenys.\n"
+
+#: regedit.rc:378
+msgid "regedit: Incorrect registry class specification in '%1'.\n"
+msgstr "regedit: Neteisinga registro klasės specifikacija „%1“.\n"
+
+#: regedit.rc:379
+msgid ""
+"regedit: Unable to export '%1'. The specified registry key was not found.\n"
+msgstr ""
+"regedit: Nepavyko eksportuoti „%1“. Nurodytas registro raktas nerastas.\n"
+
+#: regedit.rc:380
+msgid "regedit: Unable to delete the registry class '%1'.\n"
+msgstr "regedit: Nepavyko pašalinti registro klasės „%1“.\n"
 
 #: regedit.rc:163
 msgid "Quits the registry editor"

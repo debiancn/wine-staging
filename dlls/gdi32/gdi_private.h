@@ -205,6 +205,7 @@ extern BOOL intersect_vis_rectangles( struct bitblt_coords *dst, struct bitblt_c
 extern DWORD stretch_bits( const BITMAPINFO *src_info, struct bitblt_coords *src,
                            BITMAPINFO *dst_info, struct bitblt_coords *dst,
                            struct gdi_image_bits *bits, int mode ) DECLSPEC_HIDDEN;
+extern void get_mono_dc_colors( HDC hdc, BITMAPINFO *info, int count ) DECLSPEC_HIDDEN;
 
 /* brush.c */
 extern BOOL store_brush_pattern( LOGBRUSH *brush, struct brush_pattern *pattern ) DECLSPEC_HIDDEN;
@@ -308,6 +309,9 @@ extern BOOL GDI_dec_ref_count( HGDIOBJ handle ) DECLSPEC_HIDDEN;
 extern void GDI_hdc_using_object(HGDIOBJ obj, HDC hdc) DECLSPEC_HIDDEN;
 extern void GDI_hdc_not_using_object(HGDIOBJ obj, HDC hdc) DECLSPEC_HIDDEN;
 
+/* mapping.c */
+extern void lp_to_dp( DC *dc, POINT *points, INT count ) DECLSPEC_HIDDEN;
+
 /* metafile.c */
 extern HMETAFILE MF_Create_HMETAFILE(METAHEADER *mh) DECLSPEC_HIDDEN;
 extern METAHEADER *MF_CreateMetaHeaderDisk(METAHEADER *mr, LPCVOID filename, BOOL unicode ) DECLSPEC_HIDDEN;
@@ -336,7 +340,8 @@ typedef struct
 /* path.c */
 
 extern void free_gdi_path( struct gdi_path *path ) DECLSPEC_HIDDEN;
-extern int get_gdi_flat_path( HDC hdc, POINT **points, BYTE **flags, HRGN *rgn ) DECLSPEC_HIDDEN;
+extern struct gdi_path *get_gdi_flat_path( HDC hdc, HRGN *rgn ) DECLSPEC_HIDDEN;
+extern int get_gdi_path_data( struct gdi_path *path, POINT **points, BYTE **flags ) DECLSPEC_HIDDEN;
 extern BOOL PATH_SavePath( DC *dst, DC *src ) DECLSPEC_HIDDEN;
 extern BOOL PATH_RestorePath( DC *dst, DC *src ) DECLSPEC_HIDDEN;
 
@@ -353,12 +358,14 @@ extern BOOL add_rect_to_region( HRGN rgn, const RECT *rect ) DECLSPEC_HIDDEN;
 extern INT mirror_region( HRGN dst, HRGN src, INT width ) DECLSPEC_HIDDEN;
 extern BOOL REGION_FrameRgn( HRGN dest, HRGN src, INT x, INT y ) DECLSPEC_HIDDEN;
 
+#define RGN_DEFAULT_RECTS 4
 typedef struct
 {
     INT size;
     INT numRects;
     RECT *rects;
     RECT extents;
+    RECT rects_buf[RGN_DEFAULT_RECTS];
 } WINEREGION;
 
 /* return the region data without making a copy */

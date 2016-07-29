@@ -89,6 +89,8 @@ struct gdi_path
     int          allocated;
     BOOL         newStroke;
     POINT        pos;         /* current cursor position */
+    POINT        points_buf[NUM_ENTRIES_INITIAL];
+    BYTE         flags_buf[NUM_ENTRIES_INITIAL];
 };
 
 struct path_physdev
@@ -104,8 +106,8 @@ static inline struct path_physdev *get_path_physdev( PHYSDEV dev )
 
 void free_gdi_path( struct gdi_path *path )
 {
-    HeapFree( GetProcessHeap(), 0, path->points );
-    HeapFree( GetProcessHeap(), 0, path->flags );
+    if (path->points != path->points_buf)
+        HeapFree( GetProcessHeap(), 0, path->points );
     HeapFree( GetProcessHeap(), 0, path );
 }
 
@@ -119,13 +121,22 @@ static struct gdi_path *alloc_gdi_path( int count )
         return NULL;
     }
     count = max( NUM_ENTRIES_INITIAL, count );
-    path->points = HeapAlloc( GetProcessHeap(), 0, count * sizeof(*path->points) );
-    path->flags = HeapAlloc( GetProcessHeap(), 0, count * sizeof(*path->flags) );
-    if (!path->points || !path->flags)
+    if (count > NUM_ENTRIES_INITIAL)
     {
-        free_gdi_path( path );
-        SetLastError( ERROR_NOT_ENOUGH_MEMORY );
-        return NULL;
+        path->points = HeapAlloc( GetProcessHeap(), 0,
+                                  count * (sizeof(path->points[0]) + sizeof(path->flags[0])) );
+        if (!path->points)
+        {
+            HeapFree( GetProcessHeap(), 0, path );
+            SetLastError( ERROR_NOT_ENOUGH_MEMORY );
+            return NULL;
+        }
+        path->flags = (BYTE *)(path->points + count);
+    }
+    else
+    {
+        path->points = path->points_buf;
+        path->flags = path->flags_buf;
     }
     path->count = 0;
     path->allocated = count;
@@ -136,24 +147,13 @@ static struct gdi_path *alloc_gdi_path( int count )
 
 static struct gdi_path *copy_gdi_path( const struct gdi_path *src_path )
 {
-    struct gdi_path *path = HeapAlloc( GetProcessHeap(), 0, sizeof(*path) );
+    struct gdi_path *path = alloc_gdi_path( src_path->count );
 
-    if (!path)
-    {
-        SetLastError( ERROR_NOT_ENOUGH_MEMORY );
-        return NULL;
-    }
-    path->count = path->allocated = src_path->count;
+    if (!path) return NULL;
+
+    path->count = src_path->count;
     path->newStroke = src_path->newStroke;
     path->pos = src_path->pos;
-    path->points = HeapAlloc( GetProcessHeap(), 0, path->count * sizeof(*path->points) );
-    path->flags = HeapAlloc( GetProcessHeap(), 0, path->count * sizeof(*path->flags) );
-    if (!path->points || !path->flags)
-    {
-        free_gdi_path( path );
-        SetLastError( ERROR_NOT_ENOUGH_MEMORY );
-        return NULL;
-    }
     memcpy( path->points, src_path->points, path->count * sizeof(*path->points) );
     memcpy( path->flags, src_path->flags, path->count * sizeof(*path->flags) );
     return path;
@@ -190,30 +190,39 @@ static inline INT int_from_fixed(FIXED f)
  * been allocated; allocates larger arrays and copies the existing entries
  * to those arrays, if necessary. Returns TRUE if successful, else FALSE.
  */
-static BOOL PATH_ReserveEntries(struct gdi_path *pPath, INT count)
+static BOOL PATH_ReserveEntries(struct gdi_path *path, INT count)
 {
-    POINT *pPointsNew;
-    BYTE    *pFlagsNew;
+    POINT *pts_new;
+    int size;
 
     assert(count>=0);
 
     /* Do we have to allocate more memory? */
-    if(count > pPath->allocated)
+    if (count > path->allocated)
     {
         /* Find number of entries to allocate. We let the size of the array
          * grow exponentially, since that will guarantee linear time
          * complexity. */
-        count = max( pPath->allocated * 2, count );
+        count = max( path->allocated * 2, count );
+        size = count * (sizeof(path->points[0]) + sizeof(path->flags[0]));
 
-        pPointsNew = HeapReAlloc( GetProcessHeap(), 0, pPath->points, count * sizeof(POINT) );
-        if (!pPointsNew) return FALSE;
-        pPath->points = pPointsNew;
+        if (path->points == path->points_buf)
+        {
+            pts_new = HeapAlloc( GetProcessHeap(), 0, size );
+            if (!pts_new) return FALSE;
+            memcpy( pts_new, path->points, path->count * sizeof(path->points[0]) );
+            memcpy( pts_new + count, path->flags, path->count * sizeof(path->flags[0]) );
+        }
+        else
+        {
+            pts_new = HeapReAlloc( GetProcessHeap(), 0, path->points, size );
+            if (!pts_new) return FALSE;
+            memmove( pts_new + count, pts_new + path->allocated, path->count * sizeof(path->flags[0]) );
+        }
 
-        pFlagsNew = HeapReAlloc( GetProcessHeap(), 0, pPath->flags, count * sizeof(BYTE) );
-        if (!pFlagsNew) return FALSE;
-        pPath->flags = pFlagsNew;
-
-        pPath->allocated = count;
+        path->points = pts_new;
+        path->flags = (BYTE *)(pts_new + count);
+        path->allocated = count;
     }
     return TRUE;
 }
@@ -525,29 +534,22 @@ static BOOL PATH_DoArcPart(struct gdi_path *pPath, FLOAT_POINT corners[],
 }
 
 /* retrieve a flattened path in device coordinates, and optionally its region */
-/* the DC path is deleted; the returned data must be freed by caller */
+/* the DC path is deleted; the returned data must be freed by caller using free_gdi_path() */
 /* helper for stroke_and_fill_path in the DIB driver */
-int get_gdi_flat_path( HDC hdc, POINT **points, BYTE **flags, HRGN *rgn )
+struct gdi_path *get_gdi_flat_path( HDC hdc, HRGN *rgn )
 {
     DC *dc = get_dc_ptr( hdc );
-    int ret = -1;
+    struct gdi_path *ret = NULL;
 
-    if (!dc) return -1;
+    if (!dc) return NULL;
 
     if (dc->path)
     {
-        struct gdi_path *path = PATH_FlattenPath( dc->path );
+        ret = PATH_FlattenPath( dc->path );
 
         free_gdi_path( dc->path );
         dc->path = NULL;
-        if (path)
-        {
-            ret = path->count;
-            *points = path->points;
-            *flags = path->flags;
-            if (rgn) *rgn = path_to_region( path, GetPolyFillMode( hdc ));
-            HeapFree( GetProcessHeap(), 0, path );
-        }
+        if (ret && rgn) *rgn = path_to_region( ret, GetPolyFillMode( hdc ) );
     }
     else SetLastError( ERROR_CAN_NOT_COMPLETE );
 
@@ -555,6 +557,12 @@ int get_gdi_flat_path( HDC hdc, POINT **points, BYTE **flags, HRGN *rgn )
     return ret;
 }
 
+int get_gdi_path_data( struct gdi_path *path, POINT **pts, BYTE **flags )
+{
+    *pts = path->points;
+    *flags = path->flags;
+    return path->count;
+}
 
 /***********************************************************************
  *           BeginPath    (GDI32.@)

@@ -22,12 +22,28 @@
 #include "initguid.h"
 #include "ole2.h"
 #include "olectl.h"
+#include "objsafe.h"
+#include "activscp.h"
 #include "rpcproxy.h"
 #include "msscript.h"
 
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(msscript);
+
+#ifdef _WIN64
+
+#define IActiveScriptParse_Release IActiveScriptParse64_Release
+#define IActiveScriptParse_InitNew IActiveScriptParse64_InitNew
+#define IActiveScriptParse_ParseScriptText IActiveScriptParse64_ParseScriptText
+
+#else
+
+#define IActiveScriptParse_Release IActiveScriptParse32_Release
+#define IActiveScriptParse_InitNew IActiveScriptParse32_InitNew
+#define IActiveScriptParse_ParseScriptText IActiveScriptParse32_ParseScriptText
+
+#endif
 
 struct ScriptControl;
 typedef struct ConnectionPoint ConnectionPoint;
@@ -38,6 +54,17 @@ struct ConnectionPoint {
     const IID *riid;
     ConnectionPoint *next;
 };
+
+typedef struct ScriptHost {
+    IActiveScriptSite IActiveScriptSite_iface;
+    IActiveScriptSiteWindow IActiveScriptSiteWindow_iface;
+    IServiceProvider IServiceProvider_iface;
+    LONG ref;
+
+    IActiveScript *script;
+    IActiveScriptParse *parse;
+    CLSID clsid;
+} ScriptHost;
 
 struct ScriptControl {
     IScriptControl IScriptControl_iface;
@@ -51,11 +78,18 @@ struct ScriptControl {
     LONG ref;
     IOleClientSite *site;
     SIZEL extent;
+    LONG timeout;
 
     /* connection points */
     ConnectionPoint *cp_list;
     ConnectionPoint cp_scsource;
     ConnectionPoint cp_propnotif;
+
+    /* IViewObject sink */
+    IAdviseSink *view_sink;
+    DWORD view_sink_flags;
+
+    ScriptHost *host;
 };
 
 static HINSTANCE msscript_instance;
@@ -184,6 +218,323 @@ static inline ConnectionPoint *impl_from_IConnectionPoint(IConnectionPoint *ifac
     return CONTAINING_RECORD(iface, ConnectionPoint, IConnectionPoint_iface);
 }
 
+static inline ScriptHost *impl_from_IActiveScriptSite(IActiveScriptSite *iface)
+{
+    return CONTAINING_RECORD(iface, ScriptHost, IActiveScriptSite_iface);
+}
+
+static inline ScriptHost *impl_from_IActiveScriptSiteWindow(IActiveScriptSiteWindow *iface)
+{
+    return CONTAINING_RECORD(iface, ScriptHost, IActiveScriptSiteWindow_iface);
+}
+
+static inline ScriptHost *impl_from_IServiceProvider(IServiceProvider *iface)
+{
+    return CONTAINING_RECORD(iface, ScriptHost, IServiceProvider_iface);
+}
+
+/* IActiveScriptSite */
+static HRESULT WINAPI ActiveScriptSite_QueryInterface(IActiveScriptSite *iface, REFIID riid, void **ppv)
+{
+    ScriptHost *This = impl_from_IActiveScriptSite(iface);
+
+    if(IsEqualGUID(&IID_IUnknown, riid)) {
+        TRACE("(%p)->(IID_IUnknown %p)\n", This, ppv);
+        *ppv = &This->IActiveScriptSite_iface;
+    }else if(IsEqualGUID(&IID_IActiveScriptSite, riid)) {
+        TRACE("(%p)->(IID_IActiveScriptSite %p)\n", This, ppv);
+        *ppv = &This->IActiveScriptSite_iface;
+    }else if(IsEqualGUID(&IID_IActiveScriptSiteWindow, riid)) {
+        TRACE("(%p)->(IID_IActiveScriptSiteWindow %p)\n", This, ppv);
+        *ppv = &This->IActiveScriptSiteWindow_iface;
+    }else if(IsEqualGUID(&IID_IServiceProvider, riid)) {
+        TRACE("(%p)->(IID_IServiceProvider %p)\n", This, ppv);
+        *ppv = &This->IServiceProvider_iface;
+    }else {
+        FIXME("(%p)->(%s %p)\n", This, debugstr_guid(riid), ppv);
+        *ppv = NULL;
+        return E_NOINTERFACE;
+    }
+
+    IUnknown_AddRef((IUnknown*)*ppv);
+    return S_OK;
+}
+
+static ULONG WINAPI ActiveScriptSite_AddRef(IActiveScriptSite *iface)
+{
+    ScriptHost *This = impl_from_IActiveScriptSite(iface);
+    LONG ref = InterlockedIncrement(&This->ref);
+
+    TRACE("(%p) ref=%d\n", This, ref);
+
+    return ref;
+}
+
+static void release_script_engine(ScriptHost *host)
+{
+    if (host->script) {
+        IActiveScript_Close(host->script);
+        IActiveScript_Release(host->script);
+    }
+
+    if (host->parse)
+        IActiveScriptParse_Release(host->parse);
+
+    host->parse = NULL;
+    host->script = NULL;
+
+    IActiveScriptSite_Release(&host->IActiveScriptSite_iface);
+}
+
+static ULONG WINAPI ActiveScriptSite_Release(IActiveScriptSite *iface)
+{
+    ScriptHost *This = impl_from_IActiveScriptSite(iface);
+    LONG ref = InterlockedDecrement(&This->ref);
+
+    TRACE("(%p) ref=%d\n", This, ref);
+
+    if(!ref)
+        heap_free(This);
+
+    return ref;
+}
+
+static HRESULT WINAPI ActiveScriptSite_GetLCID(IActiveScriptSite *iface, LCID *lcid)
+{
+    ScriptHost *This = impl_from_IActiveScriptSite(iface);
+
+    TRACE("(%p, %p)\n", This, lcid);
+
+    *lcid = GetUserDefaultLCID();
+    return S_OK;
+}
+
+static HRESULT WINAPI ActiveScriptSite_GetItemInfo(IActiveScriptSite *iface, LPCOLESTR name, DWORD returnmask,
+    IUnknown **item, ITypeInfo **ti)
+{
+    ScriptHost *This = impl_from_IActiveScriptSite(iface);
+
+    FIXME("(%p, %s, %#x, %p, %p)\n", This, debugstr_w(name), returnmask, item, ti);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI ActiveScriptSite_GetDocVersionString(IActiveScriptSite *iface, BSTR *version)
+{
+    ScriptHost *This = impl_from_IActiveScriptSite(iface);
+
+    FIXME("(%p, %p)\n", This, version);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI ActiveScriptSite_OnScriptTerminate(IActiveScriptSite *iface, const VARIANT *result,
+    const EXCEPINFO *ei)
+{
+    ScriptHost *This = impl_from_IActiveScriptSite(iface);
+
+    FIXME("(%p, %s, %p)\n", This, debugstr_variant(result), ei);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI ActiveScriptSite_OnStateChange(IActiveScriptSite *iface, SCRIPTSTATE state)
+{
+    ScriptHost *This = impl_from_IActiveScriptSite(iface);
+
+    FIXME("(%p, %d)\n", This, state);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI ActiveScriptSite_OnScriptError(IActiveScriptSite *iface, IActiveScriptError *script_error)
+{
+    ScriptHost *This = impl_from_IActiveScriptSite(iface);
+
+    FIXME("(%p, %p)\n", This, script_error);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI ActiveScriptSite_OnEnterScript(IActiveScriptSite *iface)
+{
+    ScriptHost *This = impl_from_IActiveScriptSite(iface);
+
+    FIXME("(%p)\n", This);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI ActiveScriptSite_OnLeaveScript(IActiveScriptSite *iface)
+{
+    ScriptHost *This = impl_from_IActiveScriptSite(iface);
+
+    FIXME("(%p)\n", This);
+
+    return E_NOTIMPL;
+}
+
+static const IActiveScriptSiteVtbl ActiveScriptSiteVtbl = {
+    ActiveScriptSite_QueryInterface,
+    ActiveScriptSite_AddRef,
+    ActiveScriptSite_Release,
+    ActiveScriptSite_GetLCID,
+    ActiveScriptSite_GetItemInfo,
+    ActiveScriptSite_GetDocVersionString,
+    ActiveScriptSite_OnScriptTerminate,
+    ActiveScriptSite_OnStateChange,
+    ActiveScriptSite_OnScriptError,
+    ActiveScriptSite_OnEnterScript,
+    ActiveScriptSite_OnLeaveScript
+};
+
+/* IActiveScriptSiteWindow */
+static HRESULT WINAPI ActiveScriptSiteWindow_QueryInterface(IActiveScriptSiteWindow *iface, REFIID riid, void **obj)
+{
+    ScriptHost *This = impl_from_IActiveScriptSiteWindow(iface);
+    return IActiveScriptSite_QueryInterface(&This->IActiveScriptSite_iface, riid, obj);
+}
+
+static ULONG WINAPI ActiveScriptSiteWindow_AddRef(IActiveScriptSiteWindow *iface)
+{
+    ScriptHost *This = impl_from_IActiveScriptSiteWindow(iface);
+    return IActiveScriptSite_AddRef(&This->IActiveScriptSite_iface);
+}
+
+static ULONG WINAPI ActiveScriptSiteWindow_Release(IActiveScriptSiteWindow *iface)
+{
+    ScriptHost *This = impl_from_IActiveScriptSiteWindow(iface);
+    return IActiveScriptSite_Release(&This->IActiveScriptSite_iface);
+}
+
+static HRESULT WINAPI ActiveScriptSiteWindow_GetWindow(IActiveScriptSiteWindow *iface, HWND *hwnd)
+{
+    ScriptHost *This = impl_from_IActiveScriptSiteWindow(iface);
+
+    FIXME("(%p, %p)\n", This, hwnd);
+
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI ActiveScriptSiteWindow_EnableModeless(IActiveScriptSiteWindow *iface, BOOL enable)
+{
+    ScriptHost *This = impl_from_IActiveScriptSiteWindow(iface);
+
+    FIXME("(%p, %d)\n", This, enable);
+
+    return E_NOTIMPL;
+}
+
+static const IActiveScriptSiteWindowVtbl ActiveScriptSiteWindowVtbl = {
+    ActiveScriptSiteWindow_QueryInterface,
+    ActiveScriptSiteWindow_AddRef,
+    ActiveScriptSiteWindow_Release,
+    ActiveScriptSiteWindow_GetWindow,
+    ActiveScriptSiteWindow_EnableModeless
+};
+
+/* IServiceProvider */
+static HRESULT WINAPI ServiceProvider_QueryInterface(IServiceProvider *iface, REFIID riid, void **obj)
+{
+    ScriptHost *This = impl_from_IServiceProvider(iface);
+    return IActiveScriptSite_QueryInterface(&This->IActiveScriptSite_iface, riid, obj);
+}
+
+static ULONG WINAPI ServiceProvider_AddRef(IServiceProvider *iface)
+{
+    ScriptHost *This = impl_from_IServiceProvider(iface);
+    return IActiveScriptSite_AddRef(&This->IActiveScriptSite_iface);
+}
+
+static ULONG WINAPI ServiceProvider_Release(IServiceProvider *iface)
+{
+    ScriptHost *This = impl_from_IServiceProvider(iface);
+    return IActiveScriptSite_Release(&This->IActiveScriptSite_iface);
+}
+
+static HRESULT WINAPI ServiceProvider_QueryService(IServiceProvider *iface, REFGUID service,
+    REFIID riid, void **obj)
+{
+    ScriptHost *This = impl_from_IServiceProvider(iface);
+
+    FIXME("(%p)->(%s %s %p)\n", This, debugstr_guid(service), debugstr_guid(riid), obj);
+
+    return E_NOTIMPL;
+}
+
+static const IServiceProviderVtbl ServiceProviderVtbl = {
+    ServiceProvider_QueryInterface,
+    ServiceProvider_AddRef,
+    ServiceProvider_Release,
+    ServiceProvider_QueryService
+};
+
+static HRESULT init_script_host(const CLSID *clsid, ScriptHost **ret)
+{
+    IObjectSafety *objsafety;
+    ScriptHost *host;
+    HRESULT hr;
+
+    *ret = NULL;
+
+    host = heap_alloc(sizeof(*host));
+    if (!host)
+        return E_OUTOFMEMORY;
+
+    host->IActiveScriptSite_iface.lpVtbl = &ActiveScriptSiteVtbl;
+    host->IActiveScriptSiteWindow_iface.lpVtbl = &ActiveScriptSiteWindowVtbl;
+    host->IServiceProvider_iface.lpVtbl = &ServiceProviderVtbl;
+    host->ref = 1;
+    host->script = NULL;
+    host->parse = NULL;
+    host->clsid = *clsid;
+
+    hr = CoCreateInstance(&host->clsid, NULL, CLSCTX_INPROC_SERVER|CLSCTX_INPROC_HANDLER,
+            &IID_IActiveScript, (void**)&host->script);
+    if (FAILED(hr)) {
+        WARN("Failed to create an instance for %s, %#x\n", debugstr_guid(clsid), hr);
+        goto failed;
+    }
+
+    hr = IActiveScript_QueryInterface(host->script, &IID_IObjectSafety, (void**)&objsafety);
+    if (FAILED(hr)) {
+        FIXME("Could not get IObjectSafety, %#x\n", hr);
+        goto failed;
+    }
+
+    hr = IObjectSafety_SetInterfaceSafetyOptions(objsafety, &IID_IActiveScriptParse, INTERFACESAFE_FOR_UNTRUSTED_DATA, 0);
+    IObjectSafety_Release(objsafety);
+    if (FAILED(hr)) {
+        FIXME("SetInterfaceSafetyOptions failed, %#x\n", hr);
+        goto failed;
+    }
+
+    hr = IActiveScript_SetScriptSite(host->script, &host->IActiveScriptSite_iface);
+    if (FAILED(hr)) {
+        WARN("SetScriptSite failed, %#x\n", hr);
+        goto failed;
+    }
+
+    hr = IActiveScript_QueryInterface(host->script, &IID_IActiveScriptParse, (void**)&host->parse);
+    if (FAILED(hr)) {
+        WARN("Failed to get IActiveScriptParse, %#x\n", hr);
+        goto failed;
+    }
+
+    hr = IActiveScriptParse_InitNew(host->parse);
+    if (FAILED(hr)) {
+        WARN("InitNew failed, %#x\n", hr);
+        goto failed;
+    }
+
+    *ret = host;
+    return S_OK;
+
+failed:
+    release_script_engine(host);
+    return hr;
+}
+
 static HRESULT WINAPI ScriptControl_QueryInterface(IScriptControl *iface, REFIID riid, void **ppv)
 {
     ScriptControl *This = impl_from_IScriptControl(iface);
@@ -257,6 +608,8 @@ static ULONG WINAPI ScriptControl_Release(IScriptControl *iface)
     if(!ref) {
         if (This->site)
             IOleClientSite_Release(This->site);
+        if (This->host)
+            release_script_engine(This->host);
         heap_free(This);
     }
 
@@ -321,15 +674,47 @@ static HRESULT WINAPI ScriptControl_Invoke(IScriptControl *iface, DISPID dispIdM
 static HRESULT WINAPI ScriptControl_get_Language(IScriptControl *iface, BSTR *p)
 {
     ScriptControl *This = impl_from_IScriptControl(iface);
-    FIXME("(%p)->(%p)\n", This, p);
-    return E_NOTIMPL;
+    LPOLESTR progidW;
+    HRESULT hr;
+
+    TRACE("(%p)->(%p)\n", This, p);
+
+    if (!p)
+        return E_POINTER;
+
+    *p = NULL;
+
+    if (!This->host)
+        return S_OK;
+
+    hr = ProgIDFromCLSID(&This->host->clsid, &progidW);
+    if (FAILED(hr))
+        return hr;
+
+    *p = SysAllocString(progidW);
+    CoTaskMemFree(progidW);
+    return *p ? S_OK : E_OUTOFMEMORY;
 }
 
 static HRESULT WINAPI ScriptControl_put_Language(IScriptControl *iface, BSTR language)
 {
     ScriptControl *This = impl_from_IScriptControl(iface);
-    FIXME("(%p)->(%s)\n", This, debugstr_w(language));
-    return E_NOTIMPL;
+    CLSID clsid;
+
+    TRACE("(%p)->(%s)\n", This, debugstr_w(language));
+
+    if (language && FAILED(CLSIDFromProgID(language, &clsid)))
+        return CTL_E_INVALIDPROPERTYVALUE;
+
+    if (This->host) {
+        release_script_engine(This->host);
+        This->host = NULL;
+    }
+
+    if (!language)
+        return S_OK;
+
+    return init_script_host(&clsid, &This->host);
 }
 
 static HRESULT WINAPI ScriptControl_get_State(IScriptControl *iface, ScriptControlStates *p)
@@ -363,15 +748,30 @@ static HRESULT WINAPI ScriptControl_get_SitehWnd(IScriptControl *iface, LONG *p)
 static HRESULT WINAPI ScriptControl_get_Timeout(IScriptControl *iface, LONG *p)
 {
     ScriptControl *This = impl_from_IScriptControl(iface);
-    FIXME("(%p)->(%p)\n", This, p);
-    return E_NOTIMPL;
+
+    TRACE("(%p)->(%p)\n", This, p);
+
+    if (!p)
+        return E_POINTER;
+
+    *p = This->timeout;
+    return S_OK;
 }
 
-static HRESULT WINAPI ScriptControl_put_Timeout(IScriptControl *iface, LONG milliseconds)
+static HRESULT WINAPI ScriptControl_put_Timeout(IScriptControl *iface, LONG timeout)
 {
     ScriptControl *This = impl_from_IScriptControl(iface);
-    FIXME("(%p)->(%d)\n", This, milliseconds);
-    return E_NOTIMPL;
+
+    TRACE("(%p)->(%d)\n", This, timeout);
+
+    if (timeout < -1)
+        return CTL_E_INVALIDPROPERTYVALUE;
+
+    if (timeout != -1)
+        FIXME("execution timeout ignored\n");
+
+    This->timeout = timeout;
+    return S_OK;
 }
 
 static HRESULT WINAPI ScriptControl_get_AllowUI(IScriptControl *iface, VARIANT_BOOL *p)
@@ -447,8 +847,13 @@ static HRESULT WINAPI ScriptControl_AddObject(IScriptControl *iface, BSTR name, 
 static HRESULT WINAPI ScriptControl_Reset(IScriptControl *iface)
 {
     ScriptControl *This = impl_from_IScriptControl(iface);
-    FIXME("(%p)\n", This);
-    return E_NOTIMPL;
+
+    TRACE("(%p)\n", This);
+
+    if (!This->host)
+        return E_FAIL;
+
+    return IActiveScript_SetScriptState(This->host->script, SCRIPTSTATE_INITIALIZED);
 }
 
 static HRESULT WINAPI ScriptControl_AddCode(IScriptControl *iface, BSTR code)
@@ -1032,22 +1437,42 @@ static HRESULT WINAPI ViewObject_Unfreeze(IViewObjectEx *iface, DWORD freeze)
     return E_NOTIMPL;
 }
 
-static HRESULT WINAPI ViewObject_SetAdvise(IViewObjectEx *iface, DWORD aspects, DWORD advf, IAdviseSink *sink)
+static HRESULT WINAPI ViewObject_SetAdvise(IViewObjectEx *iface, DWORD aspects, DWORD flags, IAdviseSink *sink)
 {
     ScriptControl *This = impl_from_IViewObjectEx(iface);
 
-    FIXME("(%p)->(%d %d %p)\n", This, aspects, advf, sink);
+    TRACE("(%p)->(%d %#x %p)\n", This, aspects, flags, sink);
 
-    return E_NOTIMPL;
+    if (aspects != DVASPECT_CONTENT)
+        return DV_E_DVASPECT;
+
+    This->view_sink_flags = flags;
+    if (This->view_sink)
+        IAdviseSink_Release(This->view_sink);
+    This->view_sink = sink;
+    if (This->view_sink)
+        IAdviseSink_AddRef(This->view_sink);
+
+    return S_OK;
 }
 
-static HRESULT WINAPI ViewObject_GetAdvise(IViewObjectEx *iface, DWORD *aspects, DWORD *advf, IAdviseSink **sink)
+static HRESULT WINAPI ViewObject_GetAdvise(IViewObjectEx *iface, DWORD *aspects, DWORD *flags, IAdviseSink **sink)
 {
     ScriptControl *This = impl_from_IViewObjectEx(iface);
 
-    FIXME("(%p)->(%p %p %p)\n", This, aspects, advf, sink);
+    TRACE("(%p)->(%p %p %p)\n", This, aspects, flags, sink);
 
-    return E_NOTIMPL;
+    if (aspects)
+        *aspects = DVASPECT_CONTENT;
+    if (flags)
+        *flags = This->view_sink_flags;
+    if (sink) {
+        *sink = This->view_sink;
+        if (*sink)
+            IAdviseSink_AddRef(*sink);
+    }
+
+    return S_OK;
 }
 
 static HRESULT WINAPI ViewObject_GetExtent(IViewObjectEx *iface, DWORD draw_aspect, LONG index,
@@ -1282,9 +1707,10 @@ static HRESULT WINAPI ConnectionPoint_GetConnectionInterface(IConnectionPoint *i
 {
     ConnectionPoint *This = impl_from_IConnectionPoint(iface);
 
-    FIXME("(%p)->(%p)\n", This, iid);
+    TRACE("(%p)->(%p)\n", This, iid);
 
-    return E_NOTIMPL;
+    *iid = *This->riid;
+    return S_OK;
 }
 
 static HRESULT WINAPI ConnectionPoint_GetConnectionPointContainer(IConnectionPoint *iface,
@@ -1292,9 +1718,15 @@ static HRESULT WINAPI ConnectionPoint_GetConnectionPointContainer(IConnectionPoi
 {
     ConnectionPoint *This = impl_from_IConnectionPoint(iface);
 
-    FIXME("(%p)->(%p)\n", This, container);
+    TRACE("(%p)->(%p)\n", This, container);
 
-    return E_NOTIMPL;
+    if (!container)
+        return E_POINTER;
+
+    *container = &This->control->IConnectionPointContainer_iface;
+    IConnectionPointContainer_AddRef(*container);
+
+    return S_OK;
 }
 
 static HRESULT WINAPI ConnectionPoint_Advise(IConnectionPoint *iface, IUnknown *unk_sink,
@@ -1372,6 +1804,10 @@ static HRESULT WINAPI ScriptControl_CreateInstance(IClassFactory *iface, IUnknow
     script_control->ref = 1;
     script_control->site = NULL;
     script_control->cp_list = NULL;
+    script_control->host = NULL;
+    script_control->timeout = 10000;
+    script_control->view_sink_flags = 0;
+    script_control->view_sink = NULL;
 
     ConnectionPoint_Init(&script_control->cp_scsource, script_control, &DIID_DScriptControlSource);
     ConnectionPoint_Init(&script_control->cp_propnotif, script_control, &IID_IPropertyNotifySink);

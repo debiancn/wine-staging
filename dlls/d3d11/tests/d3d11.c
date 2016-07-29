@@ -24,6 +24,13 @@
 #include "wine/test.h"
 #include <limits.h>
 
+#define BITS_NNAN 0xffc00000
+#define BITS_NAN  0x7fc00000
+#define BITS_NINF 0xff800000
+#define BITS_INF  0x7f800000
+#define BITS_N1_0 0xbf800000
+#define BITS_1_0  0x3f800000
+
 #define SWAPCHAIN_FLAG_SHADER_INPUT             0x1
 
 static const D3D_FEATURE_LEVEL d3d11_feature_levels[] =
@@ -50,6 +57,11 @@ struct vec3
 struct vec4
 {
     float x, y, z, w;
+};
+
+struct uvec4
+{
+    unsigned int x, y, z, w;
 };
 
 struct device_desc
@@ -104,6 +116,11 @@ static BOOL compare_vec4(const struct vec4 *v1, const struct vec4 *v2, unsigned 
             && compare_float(v1->y, v2->y, ulps)
             && compare_float(v1->z, v2->z, ulps)
             && compare_float(v1->w, v2->w, ulps);
+}
+
+static BOOL compare_uvec4(const struct uvec4* v1, const struct uvec4 *v2)
+{
+    return v1->x == v2->x && v1->y == v2->y && v1->z == v2->z && v1->w == v2->w;
 }
 
 static BOOL compare_color(DWORD c1, DWORD c2, BYTE max_diff)
@@ -658,6 +675,11 @@ static const struct vec4 *get_readback_vec4(struct texture_readback *rb, unsigne
     return &((const struct vec4 *)rb->map_desc.pData)[rb->map_desc.RowPitch * y / sizeof(struct vec4) + x];
 }
 
+static const struct uvec4 *get_readback_uvec4(struct texture_readback *rb, unsigned int x, unsigned int y)
+{
+    return &((const struct uvec4 *)rb->map_desc.pData)[rb->map_desc.RowPitch * y / sizeof(struct uvec4) + x];
+}
+
 static void release_texture_readback(struct texture_readback *rb)
 {
     ID3D11DeviceContext_Unmap(rb->immediate_context, rb->texture, rb->sub_resource_idx);
@@ -804,6 +826,52 @@ static void check_texture_vec4_(unsigned int line, ID3D11Texture2D *texture,
     sub_resource_count = texture_desc.ArraySize * texture_desc.MipLevels;
     for (sub_resource_idx = 0; sub_resource_idx < sub_resource_count; ++sub_resource_idx)
         check_texture_sub_resource_vec4_(line, texture, sub_resource_idx, expected_value, max_diff);
+}
+
+#define check_texture_sub_resource_uvec4(a, b, c) check_texture_sub_resource_uvec4_(__LINE__, a, b, c)
+static void check_texture_sub_resource_uvec4_(unsigned int line, ID3D11Texture2D *texture,
+        unsigned int sub_resource_idx, const struct uvec4 *expected_value)
+{
+    struct texture_readback rb;
+    unsigned int x = 0, y = 0;
+    struct uvec4 value = {0};
+    BOOL all_match = TRUE;
+
+    get_texture_readback(texture, sub_resource_idx, &rb);
+    for (y = 0; y < rb.height; ++y)
+    {
+        for (x = 0; x < rb.width; ++x)
+        {
+            value = *get_readback_uvec4(&rb, x, y);
+            if (!compare_uvec4(&value, expected_value))
+            {
+                all_match = FALSE;
+                break;
+            }
+        }
+        if (!all_match)
+            break;
+    }
+    release_texture_readback(&rb);
+    ok_(__FILE__, line)(all_match,
+            "Got {0x%08x, 0x%08x, 0x%08x, 0x%08x}, expected {0x%08x, 0x%08x, 0x%08x, 0x%08x} "
+            "at (%u, %u), sub-resource %u.\n",
+            value.x, value.y, value.z, value.w,
+            expected_value->x, expected_value->y, expected_value->z, expected_value->w,
+            x, y, sub_resource_idx);
+}
+
+#define check_texture_uvec4(a, b) check_texture_uvec4_(__LINE__, a, b)
+static void check_texture_uvec4_(unsigned int line, ID3D11Texture2D *texture,
+        const struct uvec4 *expected_value)
+{
+    unsigned int sub_resource_idx, sub_resource_count;
+    D3D11_TEXTURE2D_DESC texture_desc;
+
+    ID3D11Texture2D_GetDesc(texture, &texture_desc);
+    sub_resource_count = texture_desc.ArraySize * texture_desc.MipLevels;
+    for (sub_resource_idx = 0; sub_resource_idx < sub_resource_count; ++sub_resource_idx)
+        check_texture_sub_resource_uvec4_(line, texture, sub_resource_idx, expected_value);
 }
 
 static ID3D11Device *create_device(const struct device_desc *desc)
@@ -1504,6 +1572,8 @@ static void test_create_texture2d(void)
         {DXGI_FORMAT_R32G32B32A32_TYPELESS,  2, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
         {DXGI_FORMAT_R32G32B32A32_TYPELESS,  9, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
         {DXGI_FORMAT_R32G32B32A32_TYPELESS,  1, D3D11_BIND_DEPTH_STENCIL,   0, FALSE, FALSE},
+        {DXGI_FORMAT_R32G32B32A32_UINT,      1, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
+        {DXGI_FORMAT_R32G32B32A32_SINT,      1, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
         {DXGI_FORMAT_R32G32B32_TYPELESS,     1, D3D11_BIND_SHADER_RESOURCE, 0, TRUE,  FALSE},
         {DXGI_FORMAT_R16G16B16A16_TYPELESS,  1, D3D11_BIND_SHADER_RESOURCE, 0, TRUE,  FALSE},
         {DXGI_FORMAT_R16G16B16A16_TYPELESS,  1, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
@@ -1531,10 +1601,15 @@ static void test_create_texture2d(void)
         {DXGI_FORMAT_R8G8_SNORM,             1, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
         {DXGI_FORMAT_R16_TYPELESS,           1, D3D11_BIND_SHADER_RESOURCE, 0, TRUE,  FALSE},
         {DXGI_FORMAT_R16_TYPELESS,           1, D3D11_BIND_DEPTH_STENCIL,   0, TRUE,  FALSE},
+        {DXGI_FORMAT_R16_TYPELESS,           1, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
+        {DXGI_FORMAT_R16_UINT,               1, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
+        {DXGI_FORMAT_R16_SINT,               1, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
         {DXGI_FORMAT_R8_TYPELESS,            1, D3D11_BIND_SHADER_RESOURCE, 0, TRUE,  FALSE},
         {DXGI_FORMAT_R8G8B8A8_UNORM,         1, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
         {DXGI_FORMAT_R8G8B8A8_UNORM,         1, D3D11_BIND_DEPTH_STENCIL,   0, FALSE, FALSE},
+        {DXGI_FORMAT_R8G8B8A8_UINT,          1, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
         {DXGI_FORMAT_R8G8B8A8_SNORM,         1, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
+        {DXGI_FORMAT_R8G8B8A8_SINT,          1, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
         {DXGI_FORMAT_D24_UNORM_S8_UINT,      1, D3D11_BIND_RENDER_TARGET,   0, FALSE, FALSE},
         {DXGI_FORMAT_D32_FLOAT,              1, D3D11_BIND_RENDER_TARGET,   0, FALSE, FALSE},
     };
@@ -2106,7 +2181,7 @@ static void test_texture3d_interfaces(void)
     ok(!refcount, "Device has %u references left.\n", refcount);
 }
 
-static void test_buffer_interfaces(void)
+static void test_create_buffer(void)
 {
     ID3D10Buffer *d3d10_buffer;
     D3D11_BUFFER_DESC desc;
@@ -2118,6 +2193,7 @@ static void test_buffer_interfaces(void)
 
     static const struct test
     {
+        BOOL succeeds;
         BOOL implements_d3d10_interfaces;
         UINT bind_flags;
         UINT misc_flags;
@@ -2125,65 +2201,171 @@ static void test_buffer_interfaces(void)
         UINT expected_bind_flags;
         UINT expected_misc_flags;
     }
-    desc_conversion_tests[] =
+    tests[] =
     {
         {
-            TRUE,
+            TRUE, TRUE,
             D3D11_BIND_VERTEX_BUFFER, 0, 0,
             D3D10_BIND_VERTEX_BUFFER, 0
         },
         {
-            TRUE,
+            TRUE, TRUE,
             D3D11_BIND_INDEX_BUFFER, 0, 0,
             D3D10_BIND_INDEX_BUFFER, 0
         },
         {
-            TRUE,
+            TRUE, TRUE,
             D3D11_BIND_CONSTANT_BUFFER, 0, 0,
             D3D10_BIND_CONSTANT_BUFFER, 0
         },
         {
-            TRUE,
+            TRUE, TRUE,
             D3D11_BIND_SHADER_RESOURCE, 0, 0,
             D3D10_BIND_SHADER_RESOURCE, 0
         },
         {
-            TRUE,
+            TRUE, TRUE,
             D3D11_BIND_STREAM_OUTPUT, 0, 0,
             D3D10_BIND_STREAM_OUTPUT, 0
         },
         {
-            TRUE,
+            TRUE, TRUE,
             D3D11_BIND_RENDER_TARGET, 0, 0,
             D3D10_BIND_RENDER_TARGET, 0
         },
         {
-            TRUE,
+            TRUE, TRUE,
             D3D11_BIND_UNORDERED_ACCESS, 0, 0,
             D3D11_BIND_UNORDERED_ACCESS, 0
         },
         {
-            TRUE,
+            TRUE, TRUE,
             0, D3D11_RESOURCE_MISC_SHARED, 0,
             0, D3D10_RESOURCE_MISC_SHARED
         },
         {
-            TRUE,
+            TRUE, TRUE,
             0, D3D11_RESOURCE_MISC_DRAWINDIRECT_ARGS, 0,
             0, 0
         },
         {
-            TRUE,
+            FALSE, FALSE,
+            D3D11_BIND_VERTEX_BUFFER, D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS, 0,
+        },
+        {
+            FALSE, FALSE,
+            D3D11_BIND_INDEX_BUFFER, D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS, 0,
+        },
+        {
+            FALSE, FALSE,
+            D3D11_BIND_CONSTANT_BUFFER, D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS, 0,
+        },
+        {
+            TRUE, TRUE,
             D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS, 0,
             D3D10_BIND_SHADER_RESOURCE, 0
         },
         {
-            FALSE /* Structured buffers do not implement ID3D10Buffer. */,
+            FALSE, FALSE,
+            D3D11_BIND_STREAM_OUTPUT, D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS, 0,
+        },
+        {
+            FALSE, FALSE,
+            D3D11_BIND_RENDER_TARGET, D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS, 0,
+        },
+        {
+            TRUE, TRUE,
+            D3D11_BIND_UNORDERED_ACCESS, D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS, 0,
+            D3D11_BIND_UNORDERED_ACCESS, 0
+        },
+        {
+            FALSE, FALSE,
+            0, D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS, 0,
+        },
+        /* Structured buffers do not implement ID3D10Buffer. */
+        {
+            TRUE, FALSE,
             0, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 16,
+        },
+        {
+            TRUE, FALSE,
+            D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 16,
+        },
+        {
+            FALSE, FALSE,
+            D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, ~0u,
+        },
+        {
+            FALSE, FALSE,
+            D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 0,
+        },
+        {
+            FALSE, FALSE,
+            D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 1,
+        },
+        {
+            FALSE, FALSE,
+            D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 2,
+        },
+        {
+            FALSE, FALSE,
+            D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 3,
+        },
+        {
+            TRUE, FALSE,
+            D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 4,
+        },
+        {
+            FALSE, FALSE,
+            D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 5,
+        },
+        {
+            TRUE, FALSE,
+            D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 8,
+        },
+        {
+            TRUE, FALSE,
+            D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 512,
+        },
+        {
+            FALSE, FALSE,
+            D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 513,
+        },
+        {
+            TRUE, FALSE,
+            D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 1024,
+        },
+        {
+            TRUE, TRUE,
+            0, 0, 513,
             0, 0
         },
         {
-            TRUE,
+            TRUE, TRUE,
+            D3D11_BIND_CONSTANT_BUFFER, 0, 513,
+            D3D10_BIND_CONSTANT_BUFFER, 0
+        },
+        {
+            TRUE, TRUE,
+            D3D11_BIND_SHADER_RESOURCE, 0, 513,
+            D3D10_BIND_SHADER_RESOURCE, 0
+        },
+        {
+            TRUE, TRUE,
+            D3D11_BIND_UNORDERED_ACCESS, 0, 513,
+            D3D11_BIND_UNORDERED_ACCESS, 0
+        },
+        {
+            FALSE, FALSE,
+            0, D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS | D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 16,
+        },
+        {
+            FALSE, FALSE,
+            D3D11_BIND_SHADER_RESOURCE,
+            D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS | D3D11_RESOURCE_MISC_BUFFER_STRUCTURED, 16,
+        },
+        {
+            TRUE, TRUE,
             0, D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX, 0,
             0, D3D10_RESOURCE_MISC_SHARED_KEYEDMUTEX
         },
@@ -2209,11 +2391,13 @@ static void test_buffer_interfaces(void)
         return;
     }
 
-    for (i = 0; i < sizeof(desc_conversion_tests) / sizeof(*desc_conversion_tests); ++i)
+    for (i = 0; i < sizeof(tests) / sizeof(*tests); ++i)
     {
-        const struct test *current = &desc_conversion_tests[i];
+        const struct test *current = &tests[i];
+        D3D11_BUFFER_DESC obtained_desc;
         D3D10_BUFFER_DESC d3d10_desc;
         ID3D10Device *d3d10_device;
+        HRESULT expected_hr;
 
         desc.ByteWidth = 1024;
         desc.Usage = D3D11_USAGE_DEFAULT;
@@ -2223,13 +2407,34 @@ static void test_buffer_interfaces(void)
         desc.StructureByteStride = current->structure_stride;
 
         hr = ID3D11Device_CreateBuffer(device, &desc, NULL, &buffer);
+        expected_hr = current->succeeds ? S_OK : E_INVALIDARG;
         /* Shared resources are not supported by REF and WARP devices. */
-        ok(SUCCEEDED(hr) || broken(hr == E_OUTOFMEMORY), "Test %u: Failed to create a buffer, hr %#x.\n", i, hr);
+        ok(hr == expected_hr || broken(hr == E_OUTOFMEMORY), "Test %u: Got hr %#x, expected %#x.\n",
+                i, hr, expected_hr);
         if (FAILED(hr))
         {
-            win_skip("Failed to create a buffer, skipping test %u.\n", i);
+            if (hr == E_OUTOFMEMORY)
+                win_skip("Failed to create a buffer, skipping test %u.\n", i);
             continue;
         }
+
+        if (!(desc.MiscFlags & D3D11_RESOURCE_MISC_BUFFER_STRUCTURED))
+            desc.StructureByteStride = 0;
+
+        ID3D11Buffer_GetDesc(buffer, &obtained_desc);
+
+        ok(obtained_desc.ByteWidth == desc.ByteWidth,
+                "Test %u: Got unexpected ByteWidth %u.\n", i, obtained_desc.ByteWidth);
+        ok(obtained_desc.Usage == desc.Usage,
+                "Test %u: Got unexpected Usage %u.\n", i, obtained_desc.Usage);
+        ok(obtained_desc.BindFlags == desc.BindFlags,
+                "Test %u: Got unexpected BindFlags %#x.\n", i, obtained_desc.BindFlags);
+        ok(obtained_desc.CPUAccessFlags == desc.CPUAccessFlags,
+                "Test %u: Got unexpected CPUAccessFlags %#x.\n", i, obtained_desc.CPUAccessFlags);
+        ok(obtained_desc.MiscFlags == desc.MiscFlags,
+                "Test %u: Got unexpected MiscFlags %#x.\n", i, obtained_desc.MiscFlags);
+        ok(obtained_desc.StructureByteStride == desc.StructureByteStride,
+                "Test %u: Got unexpected StructureByteStride %u.\n", i, obtained_desc.StructureByteStride);
 
         hr = ID3D11Buffer_QueryInterface(buffer, &IID_ID3D10Buffer, (void **)&d3d10_buffer);
         ID3D11Buffer_Release(buffer);
@@ -2855,6 +3060,7 @@ static void test_create_shader_resource_view(void)
     ULONG refcount, expected_refcount;
     ID3D11ShaderResourceView *srview;
     D3D_FEATURE_LEVEL feature_level;
+    D3D11_BUFFER_DESC buffer_desc;
     ID3D11Device *device, *tmp;
     ID3D11Texture3D *texture3d;
     ID3D11Texture2D *texture2d;
@@ -3049,6 +3255,40 @@ static void test_create_shader_resource_view(void)
 
     ID3D11ShaderResourceView_Release(srview);
     ID3D11Buffer_Release(buffer);
+
+    if (feature_level >= D3D_FEATURE_LEVEL_11_0)
+    {
+        buffer_desc.ByteWidth = 1024;
+        buffer_desc.Usage = D3D11_USAGE_DEFAULT;
+        buffer_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        buffer_desc.CPUAccessFlags = 0;
+        buffer_desc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+        buffer_desc.StructureByteStride = 4;
+
+        hr = ID3D11Device_CreateBuffer(device, &buffer_desc, NULL, &buffer);
+        ok(SUCCEEDED(hr), "Failed to create a buffer, hr %#x.\n", hr);
+
+        hr = ID3D11Device_CreateShaderResourceView(device, (ID3D11Resource *)buffer, NULL, &srview);
+        ok(SUCCEEDED(hr), "Got unexpected hr %#x.\n", hr);
+
+        memset(&srv_desc, 0, sizeof(srv_desc));
+        ID3D11ShaderResourceView_GetDesc(srview, &srv_desc);
+
+        ok(srv_desc.Format == DXGI_FORMAT_UNKNOWN, "Got unexpected format %#x.\n", srv_desc.Format);
+        ok(srv_desc.ViewDimension == D3D11_SRV_DIMENSION_BUFFER, "Got unexpected view dimension %#x.\n",
+                srv_desc.ViewDimension);
+        ok(!U(srv_desc).Buffer.FirstElement, "Got unexpected first element %u.\n",
+                U(srv_desc).Buffer.FirstElement);
+        ok(U(srv_desc).Buffer.NumElements == 256, "Got unexpected num elements %u.\n",
+                U(srv_desc).Buffer.NumElements);
+
+        ID3D11ShaderResourceView_Release(srview);
+        ID3D11Buffer_Release(buffer);
+    }
+    else
+    {
+        skip("Structured buffers require feature level 11_0.\n");
+    }
 
     texture2d_desc.Width = 512;
     texture2d_desc.Height = 512;
@@ -8414,6 +8654,7 @@ static void test_input_assembler(void)
         LAYOUT_SINT8,
         LAYOUT_UNORM8,
         LAYOUT_SNORM8,
+        LAYOUT_UNORM10_2,
 
         LAYOUT_COUNT,
     };
@@ -8427,15 +8668,13 @@ static void test_input_assembler(void)
     ID3D11InputLayout *input_layout[LAYOUT_COUNT];
     ID3D11Buffer *vb_position, *vb_attribute;
     struct d3d11_test_context test_context;
-    unsigned int i, x, y, max_data_size;
     D3D11_TEXTURE2D_DESC texture_desc;
+    unsigned int i, j, stride, offset;
     ID3D11Texture2D *render_target;
     ID3D11DeviceContext *context;
     ID3D11RenderTargetView *rtv;
-    struct texture_readback rb;
     ID3D11PixelShader *ps;
     ID3D11Device *device;
-    UINT stride, offset;
     HRESULT hr;
 
     static const DXGI_FORMAT layout_formats[LAYOUT_COUNT] =
@@ -8449,6 +8688,7 @@ static void test_input_assembler(void)
         DXGI_FORMAT_R8G8B8A8_SINT,
         DXGI_FORMAT_R8G8B8A8_UNORM,
         DXGI_FORMAT_R8G8B8A8_SNORM,
+        DXGI_FORMAT_R10G10B10A2_UNORM,
     };
     static const struct
     {
@@ -8559,63 +8799,70 @@ static void test_input_assembler(void)
         0x00000000, 0x00101e46, 0x00000000, 0x0500002b, 0x001020f2, 0x00000001, 0x00101e46, 0x00000001,
         0x0100003e,
     };
-    static const float float32_data[] =
-    {
-        1.0f, 2.0f, 3.0f, 4.0f, 1.0f, 2.0f, 3.0f, 4.0f, 1.0f, 2.0f, 3.0f, 4.0f, 1.0f, 2.0f, 3.0f, 4.0f,
-    };
-    static const unsigned short uint16_data[] =
-    {
-        6, 8, 55, 777, 6, 8, 55, 777, 6, 8, 55, 777, 6, 8, 55, 777,
-    };
-    static const short sint16_data[] =
-    {
-        -1, 33, 8, -77, -1, 33, 8, -77, -1, 33, 8, -77, -1, 33, 8, -77,
-    };
-    static const unsigned short unorm16_data[] =
-    {
-        0, 16383, 32767, 65535, 0, 16383, 32767, 65535, 0, 16383, 32767, 65535, 0, 16383, 32767, 65535,
-    };
-    static const short snorm16_data[] =
-    {
-        -32768, 0, 32767, 0, -32768, 0, 32767, 0, -32768, 0, 32767, 0, -32768, 0, 32767, 0,
-    };
-    static const unsigned char uint8_data[] =
-    {
-        0, 64, 128, 255, 0, 64, 128, 255, 0, 64, 128, 255, 0, 64, 128, 255,
-    };
-    static const signed char sint8_data[] =
-    {
-        -128, 0, 127, 64, -128, 0, 127, 64, -128, 0, 127, 64, -128, 0, 127, 64,
-    };
+    static const float float32_data[] = {1.0f, 2.0f, 3.0f, 4.0f};
+    static const unsigned short uint16_data[] = {6, 8, 55, 777};
+    static const short sint16_data[] = {-1, 33, 8, -77};
+    static const unsigned short unorm16_data[] = {0, 16383, 32767, 65535};
+    static const short snorm16_data[] = {-32768, 0, 32767, 0};
+    static const unsigned char uint8_data[] = {0, 64, 128, 255};
+    static const signed char sint8_data[] = {-128, 0, 127, 64};
+    static const unsigned int uint32_zero = 0;
+    static const unsigned int uint32_max = 0xffffffff;
+    static const unsigned int unorm10_2_data= 0xa00003ff;
+    static const unsigned int g10_data = 0x000ffc00;
+    static const unsigned int a2_data = 0xc0000000;
     static const struct
     {
         enum layout_id layout_id;
         unsigned int stride;
-        unsigned int data_size;
         const void *data;
         struct vec4 expected_color;
         BOOL todo;
     }
     tests[] =
     {
-        {LAYOUT_FLOAT32, 4 * sizeof(*float32_data), sizeof(float32_data), float32_data,
+        {LAYOUT_FLOAT32,   sizeof(float32_data),   float32_data,
                 {1.0f, 2.0f, 3.0f, 4.0f}},
-        {LAYOUT_UINT16,  4 * sizeof(*uint16_data),  sizeof(uint16_data),  uint16_data,
+        {LAYOUT_UINT16,    sizeof(uint16_data),    uint16_data,
                 {6.0f, 8.0f, 55.0f, 777.0f}, TRUE},
-        {LAYOUT_SINT16,  4 * sizeof(*sint16_data),  sizeof(sint16_data),  sint16_data,
+        {LAYOUT_SINT16,    sizeof(sint16_data),    sint16_data,
                 {-1.0f, 33.0f, 8.0f, -77.0f}, TRUE},
-        {LAYOUT_UNORM16, 4 * sizeof(*unorm16_data), sizeof(unorm16_data), unorm16_data,
+        {LAYOUT_UNORM16,   sizeof(unorm16_data),   unorm16_data,
                 {0.0f, 16383.0f / 65535.0f, 32767.0f / 65535.0f, 1.0f}},
-        {LAYOUT_SNORM16, 4 * sizeof(*snorm16_data), sizeof(snorm16_data), snorm16_data,
+        {LAYOUT_SNORM16,   sizeof(snorm16_data),   snorm16_data,
                 {-1.0f, 0.0f, 1.0f, 0.0f}},
-        {LAYOUT_UINT8,   4 * sizeof(*uint8_data),   sizeof(uint8_data),   uint8_data,
+        {LAYOUT_UINT8,     sizeof(uint32_zero),    &uint32_zero,
+                {0.0f, 0.0f, 0.0f, 0.0f}},
+        {LAYOUT_UINT8,     sizeof(uint32_max),     &uint32_max,
+                {255.0f, 255.0f, 255.0f, 255.0f}},
+        {LAYOUT_UINT8,     sizeof(uint8_data),     uint8_data,
                 {0.0f, 64.0f, 128.0f, 255.0f}},
-        {LAYOUT_SINT8,   4 * sizeof(*sint8_data),   sizeof(sint8_data),   sint8_data,
+        {LAYOUT_SINT8,     sizeof(uint32_zero),    &uint32_zero,
+                {0.0f, 0.0f, 0.0f, 0.0f}},
+        {LAYOUT_SINT8,     sizeof(uint32_max),     &uint32_max,
+                {-1.0f, -1.0f, -1.0f, -1.0f}},
+        {LAYOUT_SINT8,     sizeof(sint8_data),     sint8_data,
                 {-128.0f, 0.0f, 127.0f, 64.0f}},
-        {LAYOUT_UNORM8,  4 * sizeof(*uint8_data),   sizeof(uint8_data),   uint8_data,
+        {LAYOUT_UNORM8,    sizeof(uint32_zero),    &uint32_zero,
+                {0.0f, 0.0f, 0.0f, 0.0f}},
+        {LAYOUT_UNORM8,    sizeof(uint32_max),     &uint32_max,
+                {1.0f, 1.0f, 1.0f, 1.0f}},
+        {LAYOUT_UNORM8,    sizeof(uint8_data),     uint8_data,
                 {0.0f, 64.0f / 255.0f, 128.0f / 255.0f, 1.0f}},
-        {LAYOUT_SNORM8,  4 * sizeof(*sint8_data),   sizeof(sint8_data),   sint8_data,
+        {LAYOUT_SNORM8,    sizeof(uint32_zero),    &uint32_zero,
+                {0.0f, 0.0f, 0.0f, 0.0f}},
+        {LAYOUT_SNORM8,    sizeof(sint8_data),     sint8_data,
                 {-1.0f, 0.0f, 1.0f, 64.0f / 127.0f}},
+        {LAYOUT_UNORM10_2, sizeof(uint32_zero),    &uint32_zero,
+                {0.0f, 0.0f, 0.0f, 0.0f}},
+        {LAYOUT_UNORM10_2, sizeof(uint32_max),     &uint32_max,
+                {1.0f, 1.0f, 1.0f, 1.0f}},
+        {LAYOUT_UNORM10_2, sizeof(g10_data),       &g10_data,
+                {0.0f, 1.0f, 0.0f, 0.0f}},
+        {LAYOUT_UNORM10_2, sizeof(a2_data),        &a2_data,
+                {0.0f, 0.0f, 0.0f, 1.0f}},
+        {LAYOUT_UNORM10_2, sizeof(unorm10_2_data), &unorm10_2_data,
+                {1.0f, 0.0f, 512.0f / 1023.0f, 2.0f / 3.0f}},
     };
 
     if (!init_test_context(&test_context, NULL))
@@ -8643,15 +8890,8 @@ static void test_input_assembler(void)
         ok(SUCCEEDED(hr), "Failed to create input layout for format %#x, hr %#x.\n", layout_formats[i], hr);
     }
 
-    max_data_size = 0;
-    for (i = 0; i < sizeof(tests) / sizeof(*tests); ++i)
-    {
-        if (tests[i].data_size > max_data_size)
-            max_data_size = tests[i].data_size;
-    }
-
     vb_position = create_buffer(device, D3D11_BIND_VERTEX_BUFFER, sizeof(quad), quad);
-    vb_attribute = create_buffer(device, D3D11_BIND_VERTEX_BUFFER, max_data_size, NULL);
+    vb_attribute = create_buffer(device, D3D11_BIND_VERTEX_BUFFER, 1024, NULL);
 
     texture_desc.Width = 640;
     texture_desc.Height = 480;
@@ -8681,14 +8921,19 @@ static void test_input_assembler(void)
     for (i = 0; i < sizeof(tests) / sizeof(*tests); ++i)
     {
         D3D11_BOX box = {0, 0, 0, 1, 1, 1};
-        const struct vec4 *color;
 
         assert(tests[i].layout_id < LAYOUT_COUNT);
         ID3D11DeviceContext_IASetInputLayout(context, input_layout[tests[i].layout_id]);
 
-        box.right = tests[i].data_size;
-        ID3D11DeviceContext_UpdateSubresource(context, (ID3D11Resource *)vb_attribute, 0,
-                &box, tests[i].data, 0, 0);
+        assert(4 * tests[i].stride <= 1024);
+        box.right = tests[i].stride;
+        for (j = 0; j < 4; ++j)
+        {
+            ID3D11DeviceContext_UpdateSubresource(context, (ID3D11Resource *)vb_attribute, 0,
+                    &box, tests[i].data, 0, 0);
+            box.left += tests[i].stride;
+            box.right += tests[i].stride;
+        }
 
         stride = tests[i].stride;
         ID3D11DeviceContext_IASetVertexBuffers(context, 1, 1, &vb_attribute, &stride, &offset);
@@ -8710,6 +8955,7 @@ static void test_input_assembler(void)
             case DXGI_FORMAT_R32G32B32A32_FLOAT:
             case DXGI_FORMAT_R16G16B16A16_UNORM:
             case DXGI_FORMAT_R16G16B16A16_SNORM:
+            case DXGI_FORMAT_R10G10B10A2_UNORM:
             case DXGI_FORMAT_R8G8B8A8_UNORM:
             case DXGI_FORMAT_R8G8B8A8_SNORM:
                 ID3D11DeviceContext_VSSetShader(context, vs_float, NULL, 0);
@@ -8717,19 +8963,7 @@ static void test_input_assembler(void)
         }
 
         ID3D11DeviceContext_Draw(context, 4, 0);
-
-        get_texture_readback(render_target, 0, &rb);
-        for (y = 0; y < rb.height; ++y)
-        {
-            for (x = 0; x < rb.width; ++x)
-            {
-                color = get_readback_vec4(&rb, x, y);
-                ok(compare_vec4(color, &tests[i].expected_color, 2),
-                        "Test %u: Got unexpected color {%.8e, %.8e, %.8e, %.8e} at (%u, %u).\n",
-                        i, color->x, color->y, color->z, color->w, x, y);
-            }
-        }
-        release_texture_readback(&rb);
+        check_texture_vec4(render_target, &tests[i].expected_color, 2);
     }
 
     ID3D11Texture2D_Release(render_target);
@@ -9046,6 +9280,9 @@ static void test_create_unordered_access_view(void)
     U(uav_desc).Buffer.NumElements = 64;
     U(uav_desc).Buffer.Flags = 0;
 
+    hr = ID3D11Device_CreateUnorderedAccessView(device, (ID3D11Resource *)buffer, NULL, &uav);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
     expected_refcount = get_refcount((IUnknown *)device) + 1;
     hr = ID3D11Device_CreateUnorderedAccessView(device, (ID3D11Resource *)buffer, &uav_desc, &uav);
     ok(SUCCEEDED(hr), "Failed to create unordered access view, hr %#x.\n", hr);
@@ -9058,6 +9295,28 @@ static void test_create_unordered_access_view(void)
     refcount = get_refcount((IUnknown *)device);
     ok(refcount == expected_refcount, "Got unexpected refcount %u, expected %u.\n", refcount, expected_refcount);
     ID3D11Device_Release(tmp);
+
+    ID3D11UnorderedAccessView_Release(uav);
+    ID3D11Buffer_Release(buffer);
+
+    buffer_desc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+    buffer_desc.StructureByteStride = 4;
+
+    hr = ID3D11Device_CreateBuffer(device, &buffer_desc, NULL, &buffer);
+    ok(SUCCEEDED(hr), "Failed to create a buffer, hr %#x.\n", hr);
+
+    hr = ID3D11Device_CreateUnorderedAccessView(device, (ID3D11Resource *)buffer, NULL, &uav);
+    ok(SUCCEEDED(hr), "Got unexpected hr %#x.\n", hr);
+
+    memset(&uav_desc, 0, sizeof(uav_desc));
+    ID3D11UnorderedAccessView_GetDesc(uav, &uav_desc);
+
+    ok(uav_desc.Format == DXGI_FORMAT_UNKNOWN, "Got unexpected format %#x.\n", uav_desc.Format);
+    ok(uav_desc.ViewDimension == D3D11_UAV_DIMENSION_BUFFER, "Got unexpected view dimension %#x.\n",
+            uav_desc.ViewDimension);
+    ok(!U(uav_desc).Buffer.FirstElement, "Got unexpected first element %u.\n", U(uav_desc).Buffer.FirstElement);
+    ok(U(uav_desc).Buffer.NumElements == 256, "Got unexpected num elements %u.\n", U(uav_desc).Buffer.NumElements);
+    ok(!U(uav_desc).Buffer.Flags, "Got unexpected flags %u.\n", U(uav_desc).Buffer.Flags);
 
     ID3D11UnorderedAccessView_Release(uav);
     ID3D11Buffer_Release(buffer);
@@ -9262,6 +9521,241 @@ static void test_immediate_constant_buffer(void)
     release_test_context(&test_context);
 }
 
+static void test_fp_specials(void)
+{
+    struct d3d11_test_context test_context;
+    D3D11_TEXTURE2D_DESC texture_desc;
+    ID3D11DeviceContext *context;
+    ID3D11RenderTargetView *rtv;
+    ID3D11Texture2D *texture;
+    ID3D11PixelShader *ps;
+    ID3D11Device *device;
+    HRESULT hr;
+
+    static const DWORD ps_code[] =
+    {
+#if 0
+        float4 main() : SV_Target
+        {
+            return float4(0.0f / 0.0f, 1.0f / 0.0f, -1.0f / 0.0f, 1.0f);
+        }
+#endif
+        0x43425844, 0x86d7f319, 0x14cde598, 0xe7ce83a8, 0x0e06f3f0, 0x00000001, 0x000000b0, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x52444853, 0x00000038, 0x00000040, 0x0000000e,
+        0x03000065, 0x001020f2, 0x00000000, 0x08000036, 0x001020f2, 0x00000000, 0x00004002, 0xffc00000,
+        0x7f800000, 0xff800000, 0x3f800000, 0x0100003e,
+    };
+    static const struct uvec4 expected_result = {BITS_NNAN, BITS_INF, BITS_NINF, BITS_1_0};
+
+    if (!init_test_context(&test_context, NULL))
+        return;
+
+    device = test_context.device;
+    context = test_context.immediate_context;
+
+    hr = ID3D11Device_CreatePixelShader(device, ps_code, sizeof(ps_code), NULL, &ps);
+    ok(SUCCEEDED(hr), "Failed to create pixel shader, hr %#x.\n", hr);
+    ID3D11DeviceContext_PSSetShader(context, ps, NULL, 0);
+
+    ID3D11Texture2D_GetDesc(test_context.backbuffer, &texture_desc);
+    texture_desc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    hr = ID3D11Device_CreateTexture2D(device, &texture_desc, NULL, &texture);
+    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
+
+    hr = ID3D11Device_CreateRenderTargetView(device, (ID3D11Resource *)texture, NULL, &rtv);
+    ok(SUCCEEDED(hr), "Failed to create render target view, hr %#x.\n", hr);
+
+    ID3D11DeviceContext_OMSetRenderTargets(context, 1, &rtv, NULL);
+
+    draw_quad(&test_context);
+    check_texture_uvec4(texture, &expected_result);
+
+    ID3D11PixelShader_Release(ps);
+    ID3D11Texture2D_Release(texture);
+    ID3D11RenderTargetView_Release(rtv);
+    release_test_context(&test_context);
+}
+
+static void test_uint_shader_instructions(void)
+{
+    struct shader
+    {
+        const DWORD *code;
+        size_t size;
+        D3D_FEATURE_LEVEL required_feature_level;
+    };
+
+    struct d3d11_test_context test_context;
+    D3D11_TEXTURE2D_DESC texture_desc;
+    D3D_FEATURE_LEVEL feature_level;
+    ID3D11DeviceContext *context;
+    ID3D11RenderTargetView *rtv;
+    ID3D11Texture2D *texture;
+    ID3D11PixelShader *ps;
+    ID3D11Device *device;
+    ID3D11Buffer *cb;
+    unsigned int i;
+    HRESULT hr;
+
+    static const DWORD ps_bfi_code[] =
+    {
+#if 0
+        uint4 v;
+
+        uint4 main() : SV_Target
+        {
+            return uint4(4 * v.x + 1, 4 * v.y + 2, 4 * v.z + 3, 4 * v.w);
+        }
+#endif
+        0x43425844, 0xb1a78f7c, 0xaf9d6725, 0x251fdbfc, 0x23c60c00, 0x00000001, 0x00000118, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x000000a0, 0x00000050, 0x00000028,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000,
+        0x1500008c, 0x00102072, 0x00000000, 0x00004002, 0x0000001e, 0x0000001e, 0x0000001e, 0x00000000,
+        0x00004002, 0x00000002, 0x00000002, 0x00000002, 0x00000000, 0x00208246, 0x00000000, 0x00000000,
+        0x00004002, 0x00000001, 0x00000002, 0x00000003, 0x00000000, 0x08000029, 0x00102082, 0x00000000,
+        0x0020803a, 0x00000000, 0x00000000, 0x00004001, 0x00000002, 0x0100003e,
+    };
+    static const DWORD ps_bfrev_code[] =
+    {
+#if 0
+        uint bits;
+
+        uint4 main() : SV_Target
+        {
+            return uint4(reversebits(bits), reversebits(reversebits(bits)),
+                    reversebits(bits & 0xFFFF), reversebits(bits >> 16));
+        }
+#endif
+        0x43425844, 0x73daef82, 0xe52befa3, 0x8504d5f0, 0xebdb321d, 0x00000001, 0x00000154, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x000000dc, 0x00000050, 0x00000037,
+        0x0100086a, 0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000,
+        0x02000068, 0x00000001, 0x08000001, 0x00100012, 0x00000000, 0x0020800a, 0x00000000, 0x00000000,
+        0x00004001, 0x0000ffff, 0x0500008d, 0x00102042, 0x00000000, 0x0010000a, 0x00000000, 0x08000055,
+        0x00100012, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x00004001, 0x00000010, 0x0500008d,
+        0x00102082, 0x00000000, 0x0010000a, 0x00000000, 0x0600008d, 0x00100012, 0x00000000, 0x0020800a,
+        0x00000000, 0x00000000, 0x0500008d, 0x00102022, 0x00000000, 0x0010000a, 0x00000000, 0x05000036,
+        0x00102012, 0x00000000, 0x0010000a, 0x00000000, 0x0100003e,
+    };
+    static const DWORD ps_ftou_code[] =
+    {
+#if 0
+        float f;
+
+        uint4 main() : SV_Target
+        {
+            return uint4(f, -f, 0, 0);
+        }
+#endif
+        0x43425844, 0xfde0ee2d, 0x812b339a, 0xb9fc36d2, 0x5820bec6, 0x00000001, 0x000000f4, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x52444853, 0x0000007c, 0x00000040, 0x0000001f,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000, 0x0600001c,
+        0x00102012, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x0700001c, 0x00102022, 0x00000000,
+        0x8020800a, 0x00000041, 0x00000000, 0x00000000, 0x08000036, 0x001020c2, 0x00000000, 0x00004002,
+        0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x0100003e,
+    };
+    static const DWORD ps_not_code[] =
+    {
+#if 0
+        uint bits[2];
+
+        uint4 main() : SV_Target
+        {
+            return uint4(~bits[0], ~(bits[0] ^ ~0u), ~bits[1], ~(bits[1] ^ ~0u));
+        }
+#endif
+        0x43425844, 0x1d56b429, 0xb5f4c0e1, 0x496a0bfd, 0xfc6f8e6f, 0x00000001, 0x00000140, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x52444853, 0x000000c8, 0x00000040, 0x00000032,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000002, 0x03000065, 0x001020f2, 0x00000000, 0x02000068,
+        0x00000001, 0x08000057, 0x00100012, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x00004001,
+        0xffffffff, 0x0500003b, 0x00102022, 0x00000000, 0x0010000a, 0x00000000, 0x08000057, 0x00100012,
+        0x00000000, 0x0020800a, 0x00000000, 0x00000001, 0x00004001, 0xffffffff, 0x0500003b, 0x00102082,
+        0x00000000, 0x0010000a, 0x00000000, 0x0600003b, 0x00102012, 0x00000000, 0x0020800a, 0x00000000,
+        0x00000000, 0x0600003b, 0x00102042, 0x00000000, 0x0020800a, 0x00000000, 0x00000001, 0x0100003e,
+    };
+    static const struct shader ps_bfi = {ps_bfi_code, sizeof(ps_bfi_code), D3D_FEATURE_LEVEL_11_0};
+    static const struct shader ps_bfrev = {ps_bfrev_code, sizeof(ps_bfrev_code), D3D_FEATURE_LEVEL_11_0};
+    static const struct shader ps_ftou = {ps_ftou_code, sizeof(ps_ftou_code), D3D_FEATURE_LEVEL_10_0};
+    static const struct shader ps_not = {ps_not_code, sizeof(ps_not_code), D3D_FEATURE_LEVEL_10_0};
+    static const struct
+    {
+        const struct shader *ps;
+        unsigned int bits[4];
+        struct uvec4 expected_result;
+        BOOL todo;
+    }
+    tests[] =
+    {
+        {&ps_bfi,   {  0,   0,   0,   0}, {1,  2,  3,  0}, TRUE},
+        {&ps_bfi,   {  1,   1,   1,   1}, {5,  6,  7,  4}, TRUE},
+        {&ps_bfi,   {  2,   3,   4,   5}, {9, 14, 19, 20}, TRUE},
+        {&ps_bfi,   {~0u, ~0u, ~0u, ~0u}, {0xfffffffd, 0xfffffffe, 0xffffffff, 0xfffffffc}, TRUE},
+        {&ps_bfrev, {0x12345678}, {0x1e6a2c48, 0x12345678, 0x1e6a0000, 0x2c480000}, TRUE},
+        {&ps_bfrev, {0xffff0000}, {0x0000ffff, 0xffff0000, 0x00000000, 0xffff0000}, TRUE},
+        {&ps_bfrev, {0xffffffff}, {0xffffffff, 0xffffffff, 0xffff0000, 0xffff0000}, TRUE},
+        {&ps_ftou,  {BITS_NNAN}, { 0,  0}},
+        {&ps_ftou,  {BITS_NAN},  { 0,  0}},
+        {&ps_ftou,  {BITS_NINF}, { 0, ~0u}},
+        {&ps_ftou,  {BITS_INF},  {~0u, 0}},
+        {&ps_ftou,  {BITS_N1_0}, { 0,  1}},
+        {&ps_ftou,  {BITS_1_0},  { 1,  0}},
+        {&ps_not,   {0x00000000, 0xffffffff}, {0xffffffff, 0x00000000, 0x00000000, 0xffffffff}},
+        {&ps_not,   {0xf0f0f0f0, 0x0f0f0f0f}, {0x0f0f0f0f, 0xf0f0f0f0, 0xf0f0f0f0, 0x0f0f0f0f}},
+    };
+
+    if (!init_test_context(&test_context, NULL))
+        return;
+
+    device = test_context.device;
+    context = test_context.immediate_context;
+    feature_level = ID3D11Device_GetFeatureLevel(device);
+
+    cb = create_buffer(device, D3D11_BIND_CONSTANT_BUFFER, 4 * sizeof(tests[0].bits), NULL);
+    ID3D11DeviceContext_PSSetConstantBuffers(context, 0, 1, &cb);
+
+    ID3D11Texture2D_GetDesc(test_context.backbuffer, &texture_desc);
+    texture_desc.Format = DXGI_FORMAT_R32G32B32A32_UINT;
+    hr = ID3D11Device_CreateTexture2D(device, &texture_desc, NULL, &texture);
+    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
+
+    hr = ID3D11Device_CreateRenderTargetView(device, (ID3D11Resource *)texture, NULL, &rtv);
+    ok(SUCCEEDED(hr), "Failed to create render target view, hr %#x.\n", hr);
+
+    ID3D11DeviceContext_OMSetRenderTargets(context, 1, &rtv, NULL);
+
+    for (i = 0; i < sizeof(tests) / sizeof(*tests); ++i)
+    {
+        if (feature_level < tests[i].ps->required_feature_level)
+            continue;
+
+        hr = ID3D11Device_CreatePixelShader(device, tests[i].ps->code, tests[i].ps->size, NULL, &ps);
+        ok(SUCCEEDED(hr), "Failed to create pixel shader, hr %#x.\n", hr);
+        ID3D11DeviceContext_PSSetShader(context, ps, NULL, 0);
+
+        ID3D11DeviceContext_UpdateSubresource(context, (ID3D11Resource *)cb, 0, NULL, tests[i].bits, 0, 0);
+
+        draw_quad(&test_context);
+        todo_wine_if(tests[i].todo)
+        check_texture_uvec4(texture, &tests[i].expected_result);
+
+        ID3D11PixelShader_Release(ps);
+    }
+
+    ID3D11Buffer_Release(cb);
+    ID3D11Texture2D_Release(texture);
+    ID3D11RenderTargetView_Release(rtv);
+    release_test_context(&test_context);
+}
+
 START_TEST(d3d11)
 {
     test_create_device();
@@ -9271,7 +9765,7 @@ START_TEST(d3d11)
     test_texture2d_interfaces();
     test_create_texture3d();
     test_texture3d_interfaces();
-    test_buffer_interfaces();
+    test_create_buffer();
     test_create_depthstencil_view();
     test_depthstencil_view_interfaces();
     test_create_rendertarget_view();
@@ -9312,4 +9806,6 @@ START_TEST(d3d11)
     test_check_feature_support();
     test_create_unordered_access_view();
     test_immediate_constant_buffer();
+    test_fp_specials();
+    test_uint_shader_instructions();
 }

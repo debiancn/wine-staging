@@ -106,6 +106,7 @@ static inline BYTE *get_pixel_ptr_1(const dib_info *dib, int x, int y)
 
 static const BYTE pixel_masks_4[2] = {0xf0, 0x0f};
 static const BYTE pixel_masks_1[8] = {0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01};
+static const BYTE edge_masks_1[8] = {0xff, 0x7f, 0x3f, 0x1f, 0x0f, 0x07, 0x03, 0x01};
 
 static inline void do_rop_32(DWORD *ptr, DWORD and, DWORD xor)
 {
@@ -226,33 +227,275 @@ static inline void do_rop_codes_line_rev_4(BYTE *dst, int dst_x, const BYTE *src
     }
 }
 
-static inline void do_rop_codes_line_1(BYTE *dst, int dst_x, const BYTE *src, int src_x,
-                                      struct rop_codes *codes, int len)
+/**************************************************
+ *             get_src_byte_1
+ *
+ * Return a byte representing 8 pixels of src data
+ * that is aligned with the dst.
+ *
+ * off is the number of bits that src is ahead of dst
+ * measured from the start.  If off is +ve then we need to
+ * grab data from src[0] and src[1].  If off is -ve we use
+ * last (which is equivalent to src[-1]) and src[0].  For
+ * the first call in a line the last component will not be
+ * needed so it's safe for the caller to zero-init it.
+ *
+ * S   |.....xxx|xxxxxxxx
+ * D   |..xxxxxx|xxxxxxxx   off = +3
+ *
+ * S   |..xxxxxx|xxxxxxxx
+ * D   |.....xxx|xxxxxxxx   off = -3
+ */
+static inline BYTE get_src_byte_1(const BYTE *src, int off, BYTE *last)
 {
     BYTE src_val;
 
-    for (src += src_x / 8, dst += dst_x / 8; len > 0; len--, dst_x++, src_x++)
+    if (off == 0)
+        src_val = src[0];
+    else if (off > 0)
+        src_val = (src[0] << off) | (src[1] >> (8 - off));
+    else
     {
-        src_val = *src & pixel_masks_1[src_x & 7] ? 0xff : 0;
-        do_rop_codes_mask_8( dst, src_val, codes, pixel_masks_1[dst_x & 7] );
-        if ((src_x & 7) == 7) src++;
-        if ((dst_x & 7) == 7) dst++;
+       src_val = (*last << (8 + off)) | (src[0] >> -off);
+       *last = src[0];
+    }
+
+    return src_val;
+}
+
+static inline void do_rop_codes_line_1(BYTE *dst, int dst_x, const BYTE *src, int src_x,
+                                       struct rop_codes *codes, int len, int rop2)
+{
+    BYTE src_val, last_src = 0;
+    int off = (src_x & 7) - (dst_x & 7), i, full_bytes;
+    int dst_end = dst_x + len;
+    BYTE mask;
+
+    src += src_x / 8;
+    dst += dst_x / 8;
+
+    /* Handle special case of all of dst in one byte. */
+    if ((dst_x & ~7) == ((dst_end - 1) & ~7))
+    {
+        if (off == 0)
+            src_val = src[0];
+        else if (off > 0)
+        {
+            src_val = src[0] << off;
+            if ((dst_end & 7) + off > 8)
+                src_val |= (src[1] >> (8 - off));
+        }
+        else
+            src_val = src[0] >> -off;
+
+        mask = edge_masks_1[dst_x & 7];
+        if (dst_end & 7)
+            mask &= ~edge_masks_1[dst_end & 7];
+        do_rop_codes_mask_8( dst, src_val, codes, mask );
+        return;
+    }
+
+    if (dst_x & 7)
+    {
+        src_val = get_src_byte_1( src, off, &last_src );
+        mask = edge_masks_1[dst_x & 7];
+        do_rop_codes_mask_8( dst, src_val, codes, mask );
+        src++;
+        dst++;
+    }
+
+    full_bytes = (dst_end - ((dst_x + 7) & ~7)) / 8;
+
+    if (off == 0)
+    {
+        if (rop2 == R2_COPYPEN)
+        {
+            memmove( dst, src, full_bytes );
+            src += full_bytes;
+            dst += full_bytes;
+        }
+        else
+        {
+            for (i = 0; i < full_bytes; i++, src++, dst++)
+                do_rop_codes_8( dst, src[0], codes );
+        }
+    }
+    else if (off > 0)
+    {
+        if (rop2 == R2_COPYPEN)
+        {
+            for (i = 0; i < full_bytes; i++, src++, dst++)
+                dst[0] = (src[0] << off) | (src[1] >> (8 - off));
+        }
+        else
+        {
+            for (i = 0; i < full_bytes; i++, src++, dst++)
+                do_rop_codes_8( dst, (src[0] << off) | (src[1] >> (8 - off)), codes );
+        }
+    }
+    else
+    {
+        if (rop2 == R2_COPYPEN)
+        {
+            for (i = 0; i < full_bytes; i++, src++, dst++)
+            {
+                src_val = (last_src << (8 + off)) | (src[0] >> -off);
+                last_src = src[0];
+                dst[0] = src_val;
+            }
+        }
+        else
+        {
+            for (i = 0; i < full_bytes; i++, src++, dst++)
+            {
+                src_val = (last_src << (8 + off)) | (src[0] >> -off);
+                last_src = src[0];
+                do_rop_codes_8( dst, src_val, codes );
+            }
+        }
+    }
+
+    if (dst_end & 7)
+    {
+        if (off > 0 && (dst_end & 7) + off <= 8)
+            /* Don't read src[1] if everything's in src[0]. */
+            src_val = src[0] << off;
+        else if (off < 0 && (dst_end & 7) + off <= 0)
+            /* Don't read src[0] if everything's in last_src. */
+            src_val = last_src << (8 + off);
+        else
+            src_val = get_src_byte_1( src, off, &last_src );
+        mask = ~edge_masks_1[dst_end & 7];
+        do_rop_codes_mask_8( dst, src_val, codes, mask );
     }
 }
 
-static inline void do_rop_codes_line_rev_1(BYTE *dst, int dst_x, const BYTE *src, int src_x,
-                                          struct rop_codes *codes, int len)
+/**************************************************
+ *             get_src_byte_rev_1
+ *
+ * Return a byte representing 8 pixels of src data
+ * that is aligned with the dst.
+ *
+ * off is the number of bits that src is ahead of dst
+ * measured from the end.  If off is +ve then we need to
+ * grab data from src[0] and last (which is equivalent to src[1]).
+ * If off is -ve we use src[-1]) and src[0].  For the first call
+ * in a line the last component wil not be needed so it is safe
+ * for the caller to zero-init it.
+ *
+ * S   xxxxxxxx|xxxxxx..|
+ * D   xxxxxxxx|xxx.....|   off = +3
+ *
+ * S   xxxxxxxx|xxx.....|
+ * D   xxxxxxxx|xxxxxx..|   off = -3
+ */
+static inline BYTE get_src_byte_rev_1(const BYTE *src, int off, BYTE *last)
 {
     BYTE src_val;
 
-    src_x += len - 1;
-    dst_x += len - 1;
-    for (src += src_x / 8, dst += dst_x / 8; len > 0; len--, dst_x--, src_x--)
+    if (off == 0)
+        src_val = src[0];
+    else if (off > 0)
     {
-        src_val = *src & pixel_masks_1[src_x & 7] ? 0xff : 0;
-        do_rop_codes_mask_8( dst, src_val, codes, pixel_masks_1[dst_x & 7] );
-        if ((src_x & 7) == 0) src--;
-        if ((dst_x & 7) == 0) dst--;
+        src_val = (src[0] << off) | (*last >> (8 - off));
+        *last = *src;
+    }
+    else
+        src_val = (src[-1] << (8 + off)) | (src[0] >> -off);
+
+    return src_val;
+}
+
+static inline void do_rop_codes_line_rev_1(BYTE *dst, int dst_x, const BYTE *src, int src_x,
+                                           struct rop_codes *codes, int len, int rop2)
+{
+    BYTE src_val, last_src = 0;
+    int src_end = src_x + len, dst_end = dst_x + len;
+    int off = ((src_end - 1) & 7) - ((dst_end - 1) & 7), i, full_bytes;
+    BYTE mask;
+
+    /* Handle special case of all of dst in one byte. */
+    if ((dst_x & ~7) == ((dst_end - 1) & ~7))
+    {
+        do_rop_codes_line_1(dst, dst_x, src, src_x, codes, len, rop2);
+        return;
+    }
+
+    src += (src_end - 1) / 8;
+    dst += (dst_end - 1) / 8;
+
+    if (dst_end & 7)
+    {
+        src_val = get_src_byte_rev_1( src, off, &last_src );
+        mask = ~edge_masks_1[dst_end & 7];
+        do_rop_codes_mask_8( dst, src_val, codes, mask );
+        src--;
+        dst--;
+    }
+
+    full_bytes = (dst_end - ((dst_x + 7) & ~7)) / 8;
+
+    if (off == 0)
+    {
+        if (rop2 == R2_COPYPEN)
+        {
+            memmove( dst, src, full_bytes );
+            src -= full_bytes;
+            dst -= full_bytes;
+        }
+        else
+        {
+            for (i = 0; i < full_bytes; i++, src--, dst--)
+                do_rop_codes_8( dst, src[0], codes );
+        }
+    }
+    else if (off > 0)
+    {
+        if (rop2 == R2_COPYPEN)
+        {
+            for (i = 0; i < full_bytes; i++, src--, dst--)
+            {
+                src_val = (src[0] << off) | (last_src >> (8 - off));
+                last_src = src[0];
+                dst[0] = src_val;
+            }
+        }
+        else
+        {
+            for (i = 0; i < full_bytes; i++, src--, dst--)
+            {
+                src_val = (src[0] << off) | (last_src >> (8 - off));
+                last_src = src[0];
+                do_rop_codes_8( dst, src_val, codes );
+            }
+        }
+    }
+    else
+    {
+        if (rop2 == R2_COPYPEN)
+        {
+            for (i = 0; i < full_bytes; i++, src--, dst--)
+                dst[0] = (src[-1] << (8 + off)) | (src[0] >> -off);
+        }
+        else
+        {
+            for (i = 0; i < full_bytes; i++, src--, dst--)
+                do_rop_codes_8( dst, (src[-1] << (8 + off)) | (src[0] >> -off), codes );
+        }
+    }
+
+    if (dst_x & 7)
+    {
+        if (off < 0 && (dst_x & 7) + off >= 0)
+            /* Don't read src[-1] if everything's in src[0]. */
+            src_val = src[0] >> -off;
+        else if (off > 0 && (dst_x & 7) + off >= 8)
+            /* Don't read src[0] if everything's in last_src. */
+            src_val = last_src >> (8 - off);
+        else
+            src_val = get_src_byte_rev_1( src, off, &last_src );
+        mask = edge_masks_1[dst_x & 7];
+        do_rop_codes_mask_8( dst, src_val, codes, mask );
     }
 }
 
@@ -526,7 +769,6 @@ static void solid_rects_1(const dib_info *dib, int num, const RECT *rc, DWORD an
     int x, y, i;
     BYTE byte_and = (and & 1) ? 0xff : 0;
     BYTE byte_xor = (xor & 1) ? 0xff : 0;
-    static const BYTE masks[8] = {0xff, 0x7f, 0x3f, 0x1f, 0x0f, 0x07, 0x03, 0x01};
 
     for(i = 0; i < num; i++, rc++)
     {
@@ -539,7 +781,7 @@ static void solid_rects_1(const dib_info *dib, int num, const RECT *rc, DWORD an
 
         if ((left & ~7) == (right & ~7)) /* Special case for lines that start and end in the same byte */
         {
-            BYTE mask = masks[left & 7] & ~masks[right & 7];
+            BYTE mask = edge_masks_1[left & 7] & ~edge_masks_1[right & 7];
 
             for(y = rc->top; y < rc->bottom; y++, start += dib->stride)
             {
@@ -553,14 +795,14 @@ static void solid_rects_1(const dib_info *dib, int num, const RECT *rc, DWORD an
                 ptr = start;
 
                 if(left & 7)
-                    do_rop_8(ptr++, byte_and | ~masks[left & 7], byte_xor & masks[left & 7]);
+                    do_rop_8(ptr++, byte_and | ~edge_masks_1[left & 7], byte_xor & edge_masks_1[left & 7]);
 
                 for(x = (left + 7) & ~7; x < (right & ~7); x += 8)
                     do_rop_8(ptr++, byte_and, byte_xor);
 
                 if(right & 7)
                     /* this is inverted wrt start mask */
-                    do_rop_8(ptr, byte_and | masks[right & 7], byte_xor & ~masks[right & 7]);
+                    do_rop_8(ptr, byte_and | edge_masks_1[right & 7], byte_xor & ~edge_masks_1[right & 7]);
             }
         }
         else
@@ -572,12 +814,12 @@ static void solid_rects_1(const dib_info *dib, int num, const RECT *rc, DWORD an
                 ptr = start;
 
                 if(left & 7)
-                    do_rop_8(ptr++, ~masks[left & 7], byte_xor & masks[left & 7]);
+                    do_rop_8(ptr++, ~edge_masks_1[left & 7], byte_xor & edge_masks_1[left & 7]);
 
                 memset( ptr, byte_xor, byte_len );
 
                 if(right & 7)
-                    do_rop_8(ptr + byte_len, masks[right & 7], byte_xor & ~masks[right & 7]);
+                    do_rop_8(ptr + byte_len, edge_masks_1[right & 7], byte_xor & ~edge_masks_1[right & 7]);
             }
         }
     }
@@ -1585,9 +1827,9 @@ static void copy_rect_1(const dib_info *dst, const RECT *rc,
     for (y = rc->top; y < rc->bottom; y++, dst_start += dst_stride, src_start += src_stride)
     {
         if (overlap & OVERLAP_RIGHT)
-            do_rop_codes_line_rev_1( dst_start, left & 7, src_start, org_x & 7, &codes, right - left );
+            do_rop_codes_line_rev_1( dst_start, left & 7, src_start, org_x & 7, &codes, right - left, rop2 );
         else
-            do_rop_codes_line_1( dst_start, left & 7, src_start, org_x & 7, &codes, right - left );
+            do_rop_codes_line_1( dst_start, left & 7, src_start, org_x & 7, &codes, right - left, rop2 );
     }
 }
 
@@ -5019,6 +5261,345 @@ static BOOL gradient_rect_null( const dib_info *dib, const RECT *rc, const TRIVE
     return TRUE;
 }
 
+static void mask_rect_32( const dib_info *dst, const RECT *rc,
+                          const dib_info *src, const POINT *origin, int rop2 )
+{
+    DWORD *dst_start = get_pixel_ptr_32(dst, rc->left, rc->top), dst_colors[2];
+    DWORD src_val, bit_val, i, full, pos;
+    struct rop_codes codes;
+    int x, y;
+    const RGBQUAD *color_table = get_dib_color_table( src );
+    BYTE *src_start = get_pixel_ptr_1(src, origin->x, origin->y);
+
+    get_rop_codes( rop2, &codes );
+
+    if (dst->funcs == &funcs_8888)
+        for (i = 0; i < sizeof(dst_colors) / sizeof(dst_colors[0]); i++)
+            dst_colors[i] = color_table[i].rgbRed << 16 | color_table[i].rgbGreen << 8 |
+                color_table[i].rgbBlue;
+    else
+        for (i = 0; i < sizeof(dst_colors) / sizeof(dst_colors[0]); i++)
+            dst_colors[i] = put_field(color_table[i].rgbRed,   dst->red_shift,   dst->red_len) |
+                            put_field(color_table[i].rgbGreen, dst->green_shift, dst->green_len) |
+                            put_field(color_table[i].rgbBlue,  dst->blue_shift,  dst->blue_len);
+
+    for (y = rc->top; y < rc->bottom; y++)
+    {
+        pos = origin->x & 7;
+
+        for (x = 0; x < rc->right - rc->left && pos < 8; x++, pos++)
+        {
+            bit_val = (src_start[pos / 8] & pixel_masks_1[pos % 8]) ? 1 : 0;
+            do_rop_codes_32( dst_start + x, dst_colors[bit_val], &codes );
+        }
+
+        full = ((rc->right - rc->left) - x) / 8;
+        for (i = 0; i < full; i++, pos += 8)
+        {
+            src_val = src_start[pos / 8];
+
+            bit_val = (src_val >> 7) & 1;
+            do_rop_codes_32( dst_start + x++, dst_colors[bit_val], &codes );
+            bit_val = (src_val >> 6) & 1;
+            do_rop_codes_32( dst_start + x++, dst_colors[bit_val], &codes );
+            bit_val = (src_val >> 5) & 1;
+            do_rop_codes_32( dst_start + x++, dst_colors[bit_val], &codes );
+            bit_val = (src_val >> 4) & 1;
+            do_rop_codes_32( dst_start + x++, dst_colors[bit_val], &codes );
+            bit_val = (src_val >> 3) & 1;
+            do_rop_codes_32( dst_start + x++, dst_colors[bit_val], &codes );
+            bit_val = (src_val >> 2) & 1;
+            do_rop_codes_32( dst_start + x++, dst_colors[bit_val], &codes );
+            bit_val = (src_val >> 1) & 1;
+            do_rop_codes_32( dst_start + x++, dst_colors[bit_val], &codes );
+            bit_val = src_val & 1;
+            do_rop_codes_32( dst_start + x++, dst_colors[bit_val], &codes );
+        }
+
+        for ( ; x < rc->right - rc->left; x++, pos++)
+        {
+            bit_val = (src_start[pos / 8] & pixel_masks_1[pos % 8]) ? 1 : 0;
+            do_rop_codes_32( dst_start + x, dst_colors[bit_val], &codes );
+        }
+
+        dst_start += dst->stride / 4;
+        src_start += src->stride;
+    }
+}
+
+static void mask_rect_24( const dib_info *dst, const RECT *rc,
+                          const dib_info *src, const POINT *origin, int rop2 )
+{
+    BYTE *dst_start = get_pixel_ptr_24(dst, rc->left, rc->top);
+    DWORD src_val, bit_val, i, full, pos;
+    struct rop_codes codes;
+    int x, y;
+    const RGBQUAD *color_table = get_dib_color_table( src );
+    BYTE *src_start = get_pixel_ptr_1(src, origin->x, origin->y);
+    RGBQUAD rgb;
+
+    get_rop_codes( rop2, &codes );
+
+    for (y = rc->top; y < rc->bottom; y++)
+    {
+        pos = origin->x & 7;
+
+        for (x = 0; x < rc->right - rc->left && pos < 8; x++, pos++)
+        {
+            bit_val = (src_start[pos / 8] & pixel_masks_1[pos % 8]) ? 1 : 0;
+            rgb = color_table[bit_val];
+            do_rop_codes_8( dst_start + x * 3, rgb.rgbBlue, &codes );
+            do_rop_codes_8( dst_start + x * 3 + 1, rgb.rgbGreen, &codes );
+            do_rop_codes_8( dst_start + x * 3 + 2, rgb.rgbRed, &codes );
+        }
+
+        full = ((rc->right - rc->left) - x) / 8;
+        for (i = 0; i < full; i++, pos += 8)
+        {
+            src_val = src_start[pos / 8];
+
+            bit_val = (src_val >> 7) & 1;
+            rgb = color_table[bit_val];
+            do_rop_codes_8( dst_start + x * 3, rgb.rgbBlue, &codes );
+            do_rop_codes_8( dst_start + x * 3 + 1, rgb.rgbGreen, &codes );
+            do_rop_codes_8( dst_start + x * 3 + 2, rgb.rgbRed, &codes );
+            x++;
+
+            bit_val = (src_val >> 6) & 1;
+            rgb = color_table[bit_val];
+            do_rop_codes_8( dst_start + x * 3, rgb.rgbBlue, &codes );
+            do_rop_codes_8( dst_start + x * 3 + 1, rgb.rgbGreen, &codes );
+            do_rop_codes_8( dst_start + x * 3 + 2, rgb.rgbRed, &codes );
+            x++;
+
+            bit_val = (src_val >> 5) & 1;
+            rgb = color_table[bit_val];
+            do_rop_codes_8( dst_start + x * 3, rgb.rgbBlue, &codes );
+            do_rop_codes_8( dst_start + x * 3 + 1, rgb.rgbGreen, &codes );
+            do_rop_codes_8( dst_start + x * 3 + 2, rgb.rgbRed, &codes );
+            x++;
+
+            bit_val = (src_val >> 4) & 1;
+            rgb = color_table[bit_val];
+            do_rop_codes_8( dst_start + x * 3, rgb.rgbBlue, &codes );
+            do_rop_codes_8( dst_start + x * 3 + 1, rgb.rgbGreen, &codes );
+            do_rop_codes_8( dst_start + x * 3 + 2, rgb.rgbRed, &codes );
+            x++;
+
+            bit_val = (src_val >> 3) & 1;
+            rgb = color_table[bit_val];
+            do_rop_codes_8( dst_start + x * 3, rgb.rgbBlue, &codes );
+            do_rop_codes_8( dst_start + x * 3 + 1, rgb.rgbGreen, &codes );
+            do_rop_codes_8( dst_start + x * 3 + 2, rgb.rgbRed, &codes );
+            x++;
+
+            bit_val = (src_val >> 2) & 1;
+            rgb = color_table[bit_val];
+            do_rop_codes_8( dst_start + x * 3, rgb.rgbBlue, &codes );
+            do_rop_codes_8( dst_start + x * 3 + 1, rgb.rgbGreen, &codes );
+            do_rop_codes_8( dst_start + x * 3 + 2, rgb.rgbRed, &codes );
+            x++;
+
+            bit_val = (src_val >> 1) & 1;
+            rgb = color_table[bit_val];
+            do_rop_codes_8( dst_start + x * 3, rgb.rgbBlue, &codes );
+            do_rop_codes_8( dst_start + x * 3 + 1, rgb.rgbGreen, &codes );
+            do_rop_codes_8( dst_start + x * 3 + 2, rgb.rgbRed, &codes );
+            x++;
+
+            bit_val = src_val & 1;
+            rgb = color_table[bit_val];
+            do_rop_codes_8( dst_start + x * 3, rgb.rgbBlue, &codes );
+            do_rop_codes_8( dst_start + x * 3 + 1, rgb.rgbGreen, &codes );
+            do_rop_codes_8( dst_start + x * 3 + 2, rgb.rgbRed, &codes );
+            x++;
+        }
+
+        for ( ; x < rc->right - rc->left; x++, pos++)
+        {
+            bit_val = (src_start[pos / 8] & pixel_masks_1[pos % 8]) ? 1 : 0;
+            rgb = color_table[bit_val];
+            do_rop_codes_8( dst_start + x * 3, rgb.rgbBlue, &codes );
+            do_rop_codes_8( dst_start + x * 3 + 1, rgb.rgbGreen, &codes );
+            do_rop_codes_8( dst_start + x * 3 + 2, rgb.rgbRed, &codes );
+        }
+
+        dst_start += dst->stride;
+        src_start += src->stride;
+    }
+}
+
+static void mask_rect_16( const dib_info *dst, const RECT *rc,
+                          const dib_info *src, const POINT *origin, int rop2 )
+{
+    WORD *dst_start = get_pixel_ptr_16(dst, rc->left, rc->top), dst_colors[2];
+    DWORD src_val, bit_val, i, full, pos;
+    struct rop_codes codes;
+    int x, y;
+    const RGBQUAD *color_table = get_dib_color_table( src );
+    BYTE *src_start = get_pixel_ptr_1(src, origin->x, origin->y);
+
+    get_rop_codes( rop2, &codes );
+
+    if (dst->funcs == &funcs_555)
+        for (i = 0; i < sizeof(dst_colors) / sizeof(dst_colors[0]); i++)
+            dst_colors[i] = ((color_table[i].rgbRed   << 7) & 0x7c00) |
+                            ((color_table[i].rgbGreen << 2) & 0x03e0) |
+                            ((color_table[i].rgbBlue  >> 3) & 0x001f);
+    else
+        for (i = 0; i < sizeof(dst_colors) / sizeof(dst_colors[0]); i++)
+            dst_colors[i] = put_field(color_table[i].rgbRed,   dst->red_shift,   dst->red_len) |
+                            put_field(color_table[i].rgbGreen, dst->green_shift, dst->green_len) |
+                            put_field(color_table[i].rgbBlue,  dst->blue_shift,  dst->blue_len);
+
+    for (y = rc->top; y < rc->bottom; y++)
+    {
+        pos = origin->x & 7;
+
+        for (x = 0; x < rc->right - rc->left && pos < 8; x++, pos++)
+        {
+            bit_val = (src_start[pos / 8] & pixel_masks_1[pos % 8]) ? 1 : 0;
+            do_rop_codes_16( dst_start + x, dst_colors[bit_val], &codes );
+        }
+
+        full = ((rc->right - rc->left) - x) / 8;
+        for (i = 0; i < full; i++, pos += 8)
+        {
+            src_val = src_start[pos / 8];
+
+            bit_val = (src_val >> 7) & 1;
+            do_rop_codes_16( dst_start + x++, dst_colors[bit_val], &codes );
+            bit_val = (src_val >> 6) & 1;
+            do_rop_codes_16( dst_start + x++, dst_colors[bit_val], &codes );
+            bit_val = (src_val >> 5) & 1;
+            do_rop_codes_16( dst_start + x++, dst_colors[bit_val], &codes );
+            bit_val = (src_val >> 4) & 1;
+            do_rop_codes_16( dst_start + x++, dst_colors[bit_val], &codes );
+            bit_val = (src_val >> 3) & 1;
+            do_rop_codes_16( dst_start + x++, dst_colors[bit_val], &codes );
+            bit_val = (src_val >> 2) & 1;
+            do_rop_codes_16( dst_start + x++, dst_colors[bit_val], &codes );
+            bit_val = (src_val >> 1) & 1;
+            do_rop_codes_16( dst_start + x++, dst_colors[bit_val], &codes );
+            bit_val = src_val & 1;
+            do_rop_codes_16( dst_start + x++, dst_colors[bit_val], &codes );
+        }
+
+        for ( ; x < rc->right - rc->left; x++, pos++)
+        {
+            bit_val = (src_start[pos / 8] & pixel_masks_1[pos % 8]) ? 1 : 0;
+            do_rop_codes_16( dst_start + x, dst_colors[bit_val], &codes );
+        }
+
+        dst_start += dst->stride / 2;
+        src_start += src->stride;
+    }
+}
+
+static void mask_rect_8( const dib_info *dst, const RECT *rc,
+                         const dib_info *src, const POINT *origin, int rop2 )
+{
+    BYTE *dst_start = get_pixel_ptr_8(dst, rc->left, rc->top), dst_colors[2];
+    DWORD src_val, bit_val, i, full, pos;
+    struct rop_codes codes;
+    int x, y;
+    const RGBQUAD *color_table = get_dib_color_table( src );
+    BYTE *src_start = get_pixel_ptr_1(src, origin->x, origin->y);
+
+    get_rop_codes( rop2, &codes );
+
+    for (i = 0; i < sizeof(dst_colors) / sizeof(dst_colors[0]); i++)
+        dst_colors[i] = rgb_to_pixel_colortable( dst, color_table[i].rgbRed, color_table[i].rgbGreen,
+                                                 color_table[i].rgbBlue );
+
+    for (y = rc->top; y < rc->bottom; y++)
+    {
+        pos = origin->x & 7;
+
+        for (x = 0; x < rc->right - rc->left && pos < 8; x++, pos++)
+        {
+            bit_val = (src_start[pos / 8] & pixel_masks_1[pos % 8]) ? 1 : 0;
+            do_rop_codes_8( dst_start + x, dst_colors[bit_val], &codes );
+        }
+
+        full = ((rc->right - rc->left) - x) / 8;
+        for (i = 0; i < full; i++, pos += 8)
+        {
+            src_val = src_start[pos / 8];
+
+            bit_val = (src_val >> 7) & 1;
+            do_rop_codes_8( dst_start + x++, dst_colors[bit_val], &codes );
+            bit_val = (src_val >> 6) & 1;
+            do_rop_codes_8( dst_start + x++, dst_colors[bit_val], &codes );
+            bit_val = (src_val >> 5) & 1;
+            do_rop_codes_8( dst_start + x++, dst_colors[bit_val], &codes );
+            bit_val = (src_val >> 4) & 1;
+            do_rop_codes_8( dst_start + x++, dst_colors[bit_val], &codes );
+            bit_val = (src_val >> 3) & 1;
+            do_rop_codes_8( dst_start + x++, dst_colors[bit_val], &codes );
+            bit_val = (src_val >> 2) & 1;
+            do_rop_codes_8( dst_start + x++, dst_colors[bit_val], &codes );
+            bit_val = (src_val >> 1) & 1;
+            do_rop_codes_8( dst_start + x++, dst_colors[bit_val], &codes );
+            bit_val = src_val & 1;
+            do_rop_codes_8( dst_start + x++, dst_colors[bit_val], &codes );
+        }
+
+        for ( ; x < rc->right - rc->left; x++, pos++)
+        {
+            bit_val = (src_start[pos / 8] & pixel_masks_1[pos % 8]) ? 1 : 0;
+            do_rop_codes_8( dst_start + x, dst_colors[bit_val], &codes );
+        }
+
+        dst_start += dst->stride;
+        src_start += src->stride;
+    }
+}
+
+static void mask_rect_4( const dib_info *dst, const RECT *rc,
+                         const dib_info *src, const POINT *origin, int rop2 )
+{
+    BYTE *dst_start = get_pixel_ptr_4(dst, rc->left, rc->top), dst_colors[2], *dst_ptr;
+    DWORD bit_val, i, pos;
+    struct rop_codes codes;
+    int x, y;
+    int left = dst->rect.left + rc->left;
+    int right = dst->rect.left + rc->right;
+    const RGBQUAD *color_table = get_dib_color_table( src );
+    BYTE *src_start = get_pixel_ptr_1(src, origin->x, origin->y);
+
+    get_rop_codes( rop2, &codes );
+
+    for (i = 0; i < sizeof(dst_colors) / sizeof(dst_colors[0]); i++)
+    {
+        dst_colors[i] = rgb_to_pixel_colortable( dst, color_table[i].rgbRed, color_table[i].rgbGreen,
+                                                 color_table[i].rgbBlue );
+        /* Set high nibble to match so we don't need to shift it later. */
+        dst_colors[i] |= dst_colors[i] << 4;
+    }
+
+    for (y = rc->top; y < rc->bottom; y++)
+    {
+        pos = origin->x & 7;
+
+        for (x = left, dst_ptr = dst_start; x < right; x++, pos++)
+        {
+            bit_val = (src_start[pos / 8] & pixel_masks_1[pos % 8]) ? 1 : 0;
+            if (x & 1)
+                do_rop_codes_mask_8( dst_ptr++, dst_colors[bit_val], &codes, 0x0f );
+            else
+                do_rop_codes_mask_8( dst_ptr, dst_colors[bit_val], &codes, 0xf0 );
+        }
+        dst_start += dst->stride;
+        src_start += src->stride;
+    }
+}
+
+static void mask_rect_null( const dib_info *dst, const RECT *rc,
+                            const dib_info *src, const POINT *origin, int rop2 )
+{
+}
+
 static inline BYTE aa_color( BYTE dst, BYTE text, BYTE min_comp, BYTE max_comp )
 {
     if (dst == text) return dst;
@@ -6338,6 +6919,7 @@ const primitive_funcs funcs_8888 =
     copy_rect_32,
     blend_rect_8888,
     gradient_rect_8888,
+    mask_rect_32,
     draw_glyph_8888,
     draw_subpixel_glyph_8888,
     get_pixel_32,
@@ -6358,6 +6940,7 @@ const primitive_funcs funcs_32 =
     copy_rect_32,
     blend_rect_32,
     gradient_rect_32,
+    mask_rect_32,
     draw_glyph_32,
     draw_subpixel_glyph_32,
     get_pixel_32,
@@ -6378,6 +6961,7 @@ const primitive_funcs funcs_24 =
     copy_rect_24,
     blend_rect_24,
     gradient_rect_24,
+    mask_rect_24,
     draw_glyph_24,
     draw_subpixel_glyph_24,
     get_pixel_24,
@@ -6398,6 +6982,7 @@ const primitive_funcs funcs_555 =
     copy_rect_16,
     blend_rect_555,
     gradient_rect_555,
+    mask_rect_16,
     draw_glyph_555,
     draw_subpixel_glyph_555,
     get_pixel_16,
@@ -6418,6 +7003,7 @@ const primitive_funcs funcs_16 =
     copy_rect_16,
     blend_rect_16,
     gradient_rect_16,
+    mask_rect_16,
     draw_glyph_16,
     draw_subpixel_glyph_16,
     get_pixel_16,
@@ -6438,6 +7024,7 @@ const primitive_funcs funcs_8 =
     copy_rect_8,
     blend_rect_8,
     gradient_rect_8,
+    mask_rect_8,
     draw_glyph_8,
     draw_subpixel_glyph_null,
     get_pixel_8,
@@ -6458,6 +7045,7 @@ const primitive_funcs funcs_4 =
     copy_rect_4,
     blend_rect_4,
     gradient_rect_4,
+    mask_rect_4,
     draw_glyph_4,
     draw_subpixel_glyph_null,
     get_pixel_4,
@@ -6478,6 +7066,7 @@ const primitive_funcs funcs_1 =
     copy_rect_1,
     blend_rect_1,
     gradient_rect_1,
+    mask_rect_null,
     draw_glyph_1,
     draw_subpixel_glyph_null,
     get_pixel_1,
@@ -6498,6 +7087,7 @@ const primitive_funcs funcs_null =
     copy_rect_null,
     blend_rect_null,
     gradient_rect_null,
+    mask_rect_null,
     draw_glyph_null,
     draw_subpixel_glyph_null,
     get_pixel_null,

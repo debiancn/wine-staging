@@ -175,9 +175,44 @@ static HRESULT osx_to_win32_hresult(HRESULT in)
     return in;
 }
 
-static void CFSetApplierFunctionCopyToCFArray(const void *value, void *context)
+static long get_device_property_long(IOHIDDeviceRef device, CFStringRef key)
 {
-    CFArrayAppendValue( ( CFMutableArrayRef ) context, value );
+    CFTypeRef ref;
+    long result = 0;
+
+    if (device)
+    {
+        assert(IOHIDDeviceGetTypeID() == CFGetTypeID(device));
+
+        ref = IOHIDDeviceGetProperty(device, key);
+
+        if (ref && CFNumberGetTypeID() == CFGetTypeID(ref))
+            CFNumberGetValue((CFNumberRef)ref, kCFNumberLongType, &result);
+    }
+
+    return result;
+}
+
+static long get_device_location_ID(IOHIDDeviceRef device)
+{
+    return get_device_property_long(device, CFSTR(kIOHIDLocationIDKey));
+}
+
+static void copy_set_to_array(const void *value, void *context)
+{
+    CFArrayAppendValue(context, value);
+}
+
+static CFComparisonResult device_location_comparator(const void *val1, const void *val2, void *context)
+{
+    IOHIDDeviceRef device1 = (IOHIDDeviceRef)val1, device2 = (IOHIDDeviceRef)val2;
+    long loc1 = get_device_location_ID(device1), loc2 = get_device_location_ID(device2);
+
+    if (loc1 < loc2)
+        return kCFCompareLessThan;
+    else if (loc1 > loc2)
+        return kCFCompareGreaterThan;
+    return kCFCompareEqualTo;
 }
 
 static const char* debugstr_cf(CFTypeRef t)
@@ -212,8 +247,9 @@ static const char* debugstr_cf(CFTypeRef t)
 
 static const char* debugstr_device(IOHIDDeviceRef device)
 {
-    return wine_dbg_sprintf("<IOHIDDevice %p product %s>", device,
-                            debugstr_cf(IOHIDDeviceGetProperty(device, CFSTR(kIOHIDProductKey))));
+    return wine_dbg_sprintf("<IOHIDDevice %p product %s IOHIDLocationID %lu>", device,
+                            debugstr_cf(IOHIDDeviceGetProperty(device, CFSTR(kIOHIDProductKey))),
+                            get_device_location_ID(device));
 }
 
 static const char* debugstr_element(IOHIDElementRef element)
@@ -449,10 +485,13 @@ static int find_osx_devices(void)
     if (devset)
     {
         CFIndex num_devices, num_main_elements, idx;
-        CFMutableArrayRef devices = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
-        CFSetApplyFunction(devset, CFSetApplierFunctionCopyToCFArray, devices);
-        CFRelease( devset);
-        num_devices = CFArrayGetCount(devices);
+        CFMutableArrayRef devices;
+
+        num_devices = CFSetGetCount(devset);
+        devices = CFArrayCreateMutable(kCFAllocatorDefault, num_devices, &kCFTypeArrayCallBacks);
+        CFSetApplyFunction(devset, copy_set_to_array, devices);
+        CFRelease(devset);
+        CFArraySortValues(devices, CFRangeMake(0, num_devices), device_location_comparator, NULL);
 
         device_main_elements = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
         if (!device_main_elements)

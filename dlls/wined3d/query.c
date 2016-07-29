@@ -25,6 +25,33 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(d3d);
 
+static void wined3d_query_init(struct wined3d_query *query, struct wined3d_device *device,
+        enum wined3d_query_type type, DWORD data_size, const struct wined3d_query_ops *query_ops, void *parent)
+{
+    query->ref = 1;
+    query->parent = parent;
+    query->device = device;
+    query->state = QUERY_CREATED;
+    query->type = type;
+    query->data_size = data_size;
+    query->query_ops = query_ops;
+}
+
+static struct wined3d_event_query *wined3d_event_query_from_query(struct wined3d_query *query)
+{
+    return CONTAINING_RECORD(query, struct wined3d_event_query, query);
+}
+
+static struct wined3d_occlusion_query *wined3d_occlusion_query_from_query(struct wined3d_query *query)
+{
+    return CONTAINING_RECORD(query, struct wined3d_occlusion_query, query);
+}
+
+static struct wined3d_timestamp_query *wined3d_timestamp_query_from_query(struct wined3d_query *query)
+{
+    return CONTAINING_RECORD(query, struct wined3d_timestamp_query, query);
+}
+
 BOOL wined3d_event_query_supported(const struct wined3d_gl_info *gl_info)
 {
     return gl_info->supported[ARB_SYNC] || gl_info->supported[NV_FENCE] || gl_info->supported[APPLE_FENCE];
@@ -243,26 +270,33 @@ static void wined3d_query_destroy_object(void *object)
      * context, and (still) leaking the actual query. */
     if (query->type == WINED3D_QUERY_TYPE_EVENT)
     {
-        struct wined3d_event_query *event_query = query->extendedData;
-        if (event_query) wined3d_event_query_destroy(event_query);
+        wined3d_event_query_destroy(wined3d_event_query_from_query(query));
     }
     else if (query->type == WINED3D_QUERY_TYPE_OCCLUSION)
     {
-        struct wined3d_occlusion_query *oq = query->extendedData;
+        struct wined3d_occlusion_query *oq = wined3d_occlusion_query_from_query(query);
 
-        if (oq->context) context_free_occlusion_query(oq);
-        HeapFree(GetProcessHeap(), 0, query->extendedData);
+        if (oq->context)
+            context_free_occlusion_query(oq);
+        HeapFree(GetProcessHeap(), 0, oq);
     }
     else if (query->type == WINED3D_QUERY_TYPE_TIMESTAMP)
     {
-        struct wined3d_timestamp_query *tq = query->extendedData;
+        struct wined3d_timestamp_query *tq = wined3d_timestamp_query_from_query(query);
 
         if (tq->context)
             context_free_timestamp_query(tq);
-        HeapFree(GetProcessHeap(), 0, query->extendedData);
+        HeapFree(GetProcessHeap(), 0, tq);
     }
-
-    HeapFree(GetProcessHeap(), 0, query);
+    else if (query->type == WINED3D_QUERY_TYPE_TIMESTAMP_DISJOINT
+            || query->type == WINED3D_QUERY_TYPE_TIMESTAMP_FREQ)
+    {
+        HeapFree(GetProcessHeap(), 0, query);
+    }
+    else
+    {
+        ERR("Query %p has invalid type %#x.\n", query, query->type);
+    }
 }
 
 ULONG CDECL wined3d_query_decref(struct wined3d_query *query)
@@ -308,7 +342,7 @@ static void fill_query_data(void *out, unsigned int out_size, const void *result
 static HRESULT wined3d_occlusion_query_ops_get_data(struct wined3d_query *query,
         void *data, DWORD size, DWORD flags)
 {
-    struct wined3d_occlusion_query *oq = query->extendedData;
+    struct wined3d_occlusion_query *oq = wined3d_occlusion_query_from_query(query);
     struct wined3d_device *device = query->device;
     const struct wined3d_gl_info *gl_info = &device->adapter->gl_info;
     struct wined3d_context *context;
@@ -335,14 +369,6 @@ static HRESULT wined3d_occlusion_query_ops_get_data(struct wined3d_query *query,
         /* Msdn says this returns an error, but our tests show that S_FALSE is returned */
         TRACE("Query is building, returning S_FALSE\n");
         return S_FALSE;
-    }
-
-    if (!gl_info->supported[ARB_OCCLUSION_QUERY])
-    {
-        WARN("%p Occlusion queries not supported. Returning 1.\n", query);
-        samples = 1;
-        fill_query_data(data, size, &samples, sizeof(samples));
-        return S_OK;
     }
 
     if (oq->context->tid != GetCurrentThreadId())
@@ -383,20 +409,14 @@ static HRESULT wined3d_occlusion_query_ops_get_data(struct wined3d_query *query,
 static HRESULT wined3d_event_query_ops_get_data(struct wined3d_query *query,
         void *data, DWORD size, DWORD flags)
 {
-    struct wined3d_event_query *event_query = query->extendedData;
-    BOOL signaled;
+    struct wined3d_event_query *event_query = wined3d_event_query_from_query(query);
     enum wined3d_event_query_result ret;
+    BOOL signaled;
 
     TRACE("query %p, data %p, size %#x, flags %#x.\n", query, data, size, flags);
 
-    if (!data || !size) return S_OK;
-    if (!event_query)
-    {
-        WARN("Event query not supported by GL, reporting GPU idle.\n");
-        signaled = TRUE;
-        fill_query_data(data, size, &signaled, sizeof(signaled));
+    if (!data || !size)
         return S_OK;
-    }
 
     ret = wined3d_event_query_test(event_query, query->device);
     switch(ret)
@@ -444,19 +464,15 @@ static HRESULT wined3d_event_query_ops_issue(struct wined3d_query *query, DWORD 
 {
     TRACE("query %p, flags %#x.\n", query, flags);
 
-    TRACE("(%p) : flags %#x, type D3DQUERY_EVENT\n", query, flags);
     if (flags & WINED3DISSUE_END)
     {
-        struct wined3d_event_query *event_query = query->extendedData;
-
-        /* Faked event query support */
-        if (!event_query) return WINED3D_OK;
+        struct wined3d_event_query *event_query = wined3d_event_query_from_query(query);
 
         wined3d_event_query_issue(event_query, query->device);
     }
     else if (flags & WINED3DISSUE_BEGIN)
     {
-        /* Started implicitly at device creation */
+        /* Started implicitly at query creation. */
         ERR("Event query issued with START flag - what to do?\n");
     }
 
@@ -470,76 +486,69 @@ static HRESULT wined3d_event_query_ops_issue(struct wined3d_query *query, DWORD 
 
 static HRESULT wined3d_occlusion_query_ops_issue(struct wined3d_query *query, DWORD flags)
 {
+    struct wined3d_occlusion_query *oq = wined3d_occlusion_query_from_query(query);
     struct wined3d_device *device = query->device;
     const struct wined3d_gl_info *gl_info = &device->adapter->gl_info;
+    struct wined3d_context *context;
 
     TRACE("query %p, flags %#x.\n", query, flags);
 
-    if (gl_info->supported[ARB_OCCLUSION_QUERY])
+    /* This is allowed according to MSDN and our tests. Reset the query and
+     * restart. */
+    if (flags & WINED3DISSUE_BEGIN)
     {
-        struct wined3d_occlusion_query *oq = query->extendedData;
-        struct wined3d_context *context;
-
-        /* This is allowed according to msdn and our tests. Reset the query and restart */
-        if (flags & WINED3DISSUE_BEGIN)
+        if (query->state == QUERY_BUILDING)
         {
-            if (query->state == QUERY_BUILDING)
+            if (oq->context->tid != GetCurrentThreadId())
             {
-                if (oq->context->tid != GetCurrentThreadId())
-                {
-                    FIXME("Wrong thread, can't restart query.\n");
+                FIXME("Wrong thread, can't restart query.\n");
 
-                    context_free_occlusion_query(oq);
-                    context = context_acquire(query->device, NULL);
-                    context_alloc_occlusion_query(context, oq);
-                }
-                else
-                {
-                    context = context_acquire(device, context_get_rt_surface(oq->context));
-
-                    GL_EXTCALL(glEndQuery(GL_SAMPLES_PASSED));
-                    checkGLcall("glEndQuery()");
-                }
-            }
-            else
-            {
-                if (oq->context) context_free_occlusion_query(oq);
+                context_free_occlusion_query(oq);
                 context = context_acquire(query->device, NULL);
                 context_alloc_occlusion_query(context, oq);
             }
-
-            GL_EXTCALL(glBeginQuery(GL_SAMPLES_PASSED, oq->id));
-            checkGLcall("glBeginQuery()");
-
-            context_release(context);
-        }
-        if (flags & WINED3DISSUE_END)
-        {
-            /* Msdn says _END on a non-building occlusion query returns an error, but
-             * our tests show that it returns OK. But OpenGL doesn't like it, so avoid
-             * generating an error
-             */
-            if (query->state == QUERY_BUILDING)
+            else
             {
-                if (oq->context->tid != GetCurrentThreadId())
-                {
-                    FIXME("Wrong thread, can't end query.\n");
-                }
-                else
-                {
-                    context = context_acquire(device, context_get_rt_surface(oq->context));
+                context = context_acquire(device, context_get_rt_surface(oq->context));
 
-                    GL_EXTCALL(glEndQuery(GL_SAMPLES_PASSED));
-                    checkGLcall("glEndQuery()");
-
-                    context_release(context);
-                }
+                GL_EXTCALL(glEndQuery(GL_SAMPLES_PASSED));
+                checkGLcall("glEndQuery()");
             }
         }
+        else
+        {
+            if (oq->context)
+                context_free_occlusion_query(oq);
+            context = context_acquire(query->device, NULL);
+            context_alloc_occlusion_query(context, oq);
+        }
+
+        GL_EXTCALL(glBeginQuery(GL_SAMPLES_PASSED, oq->id));
+        checkGLcall("glBeginQuery()");
+
+        context_release(context);
     }
-    else
+    if (flags & WINED3DISSUE_END)
     {
-        FIXME("%p Occlusion queries not supported.\n", query);
+        /* MSDN says END on a non-building occlusion query returns an error,
+         * but our tests show that it returns OK. But OpenGL doesn't like it,
+         * so avoid generating an error. */
+        if (query->state == QUERY_BUILDING)
+        {
+            if (oq->context->tid != GetCurrentThreadId())
+            {
+                FIXME("Wrong thread, can't end query.\n");
+            }
+            else
+            {
+                context = context_acquire(device, context_get_rt_surface(oq->context));
+
+                GL_EXTCALL(glEndQuery(GL_SAMPLES_PASSED));
+                checkGLcall("glEndQuery()");
+
+                context_release(context);
+            }
+        }
     }
 
     if (flags & WINED3DISSUE_BEGIN)
@@ -553,7 +562,7 @@ static HRESULT wined3d_occlusion_query_ops_issue(struct wined3d_query *query, DW
 static HRESULT wined3d_timestamp_query_ops_get_data(struct wined3d_query *query,
         void *data, DWORD size, DWORD flags)
 {
-    struct wined3d_timestamp_query *tq = query->extendedData;
+    struct wined3d_timestamp_query *tq = wined3d_timestamp_query_from_query(query);
     struct wined3d_device *device = query->device;
     const struct wined3d_gl_info *gl_info = &device->adapter->gl_info;
     struct wined3d_context *context;
@@ -612,38 +621,29 @@ static HRESULT wined3d_timestamp_query_ops_get_data(struct wined3d_query *query,
 
 static HRESULT wined3d_timestamp_query_ops_issue(struct wined3d_query *query, DWORD flags)
 {
+    struct wined3d_timestamp_query *tq = wined3d_timestamp_query_from_query(query);
     struct wined3d_device *device = query->device;
     const struct wined3d_gl_info *gl_info = &device->adapter->gl_info;
+    struct wined3d_context *context;
 
     TRACE("query %p, flags %#x.\n", query, flags);
 
-    if (gl_info->supported[ARB_TIMER_QUERY])
+    if (flags & WINED3DISSUE_BEGIN)
     {
-        struct wined3d_timestamp_query *tq = query->extendedData;
-        struct wined3d_context *context;
-
-        if (flags & WINED3DISSUE_BEGIN)
-        {
-            WARN("Ignoring WINED3DISSUE_BEGIN with a TIMESTAMP query.\n");
-        }
-        if (flags & WINED3DISSUE_END)
-        {
-            if (tq->context)
-                context_free_timestamp_query(tq);
-            context = context_acquire(query->device, NULL);
-            context_alloc_timestamp_query(context, tq);
-            GL_EXTCALL(glQueryCounter(tq->id, GL_TIMESTAMP));
-            checkGLcall("glQueryCounter()");
-            context_release(context);
-        }
+        WARN("Ignoring WINED3DISSUE_BEGIN with a TIMESTAMP query.\n");
     }
-    else
-    {
-        ERR("Timestamp queries not supported.\n");
-    }
-
     if (flags & WINED3DISSUE_END)
+    {
+        if (tq->context)
+            context_free_timestamp_query(tq);
+        context = context_acquire(query->device, NULL);
+        context_alloc_timestamp_query(context, tq);
+        GL_EXTCALL(glQueryCounter(tq->id, GL_TIMESTAMP));
+        checkGLcall("glQueryCounter()");
+        context_release(context);
+
         query->state = QUERY_SIGNALLED;
+    }
 
     return WINED3D_OK;
 }
@@ -692,11 +692,61 @@ static const struct wined3d_query_ops event_query_ops =
     wined3d_event_query_ops_issue,
 };
 
+static HRESULT wined3d_event_query_create(struct wined3d_device *device,
+        enum wined3d_query_type type, void *parent, struct wined3d_query **query)
+{
+    const struct wined3d_gl_info *gl_info = &device->adapter->gl_info;
+    struct wined3d_event_query *object;
+
+    TRACE("device %p, type %#x, parent %p, query %p.\n", device, type, parent, query);
+
+    if (!wined3d_event_query_supported(gl_info))
+    {
+        WARN("Event queries not supported.\n");
+        return WINED3DERR_NOTAVAILABLE;
+    }
+
+    if (!(object = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*object))))
+        return E_OUTOFMEMORY;
+
+    wined3d_query_init(&object->query, device, type, sizeof(BOOL), &event_query_ops, parent);
+
+    TRACE("Created query %p.\n", object);
+    *query = &object->query;
+
+    return WINED3D_OK;
+}
+
 static const struct wined3d_query_ops occlusion_query_ops =
 {
     wined3d_occlusion_query_ops_get_data,
     wined3d_occlusion_query_ops_issue,
 };
+
+static HRESULT wined3d_occlusion_query_create(struct wined3d_device *device,
+        enum wined3d_query_type type, void *parent, struct wined3d_query **query)
+{
+    const struct wined3d_gl_info *gl_info = &device->adapter->gl_info;
+    struct wined3d_occlusion_query *object;
+
+    TRACE("device %p, type %#x, parent %p, query %p.\n", device, type, parent, query);
+
+    if (!gl_info->supported[ARB_OCCLUSION_QUERY])
+    {
+        WARN("Unsupported in local OpenGL implementation: ARB_OCCLUSION_QUERY.\n");
+        return WINED3DERR_NOTAVAILABLE;
+    }
+
+    if (!(object = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*object))))
+        return E_OUTOFMEMORY;
+
+    wined3d_query_init(&object->query, device, type, sizeof(DWORD), &occlusion_query_ops, parent);
+
+    TRACE("Created query %p.\n", object);
+    *query = &object->query;
+
+    return WINED3D_OK;
+}
 
 static const struct wined3d_query_ops timestamp_query_ops =
 {
@@ -704,109 +754,62 @@ static const struct wined3d_query_ops timestamp_query_ops =
     wined3d_timestamp_query_ops_issue,
 };
 
+static HRESULT wined3d_timestamp_query_create(struct wined3d_device *device,
+        enum wined3d_query_type type, void *parent, struct wined3d_query **query)
+{
+    const struct wined3d_gl_info *gl_info = &device->adapter->gl_info;
+    struct wined3d_timestamp_query *object;
+
+    TRACE("device %p, type %#x, parent %p, query %p.\n", device, type, parent, query);
+
+    if (!gl_info->supported[ARB_TIMER_QUERY])
+    {
+        WARN("Unsupported in local OpenGL implementation: ARB_TIMER_QUERY.\n");
+        return WINED3DERR_NOTAVAILABLE;
+    }
+
+    if (!(object = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*object))))
+        return E_OUTOFMEMORY;
+
+    wined3d_query_init(&object->query, device, type, sizeof(UINT64), &timestamp_query_ops, parent);
+
+    TRACE("Created query %p.\n", object);
+    *query = &object->query;
+
+    return WINED3D_OK;
+}
+
 static const struct wined3d_query_ops timestamp_disjoint_query_ops =
 {
     wined3d_timestamp_disjoint_query_ops_get_data,
     wined3d_timestamp_disjoint_query_ops_issue,
 };
 
-static HRESULT query_init(struct wined3d_query *query, struct wined3d_device *device,
-        enum wined3d_query_type type, void *parent)
+static HRESULT wined3d_timestamp_disjoint_query_create(struct wined3d_device *device,
+        enum wined3d_query_type type, void *parent, struct wined3d_query **query)
 {
     const struct wined3d_gl_info *gl_info = &device->adapter->gl_info;
+    struct wined3d_query *object;
 
-    query->parent = parent;
+    TRACE("device %p, type %#x, parent %p, query %p.\n", device, type, parent, query);
 
-    switch (type)
+    if (!gl_info->supported[ARB_TIMER_QUERY])
     {
-        case WINED3D_QUERY_TYPE_OCCLUSION:
-            TRACE("Occlusion query.\n");
-            if (!gl_info->supported[ARB_OCCLUSION_QUERY])
-            {
-                WARN("Unsupported in local OpenGL implementation: ARB_OCCLUSION_QUERY.\n");
-                return WINED3DERR_NOTAVAILABLE;
-            }
-            query->query_ops = &occlusion_query_ops;
-            query->data_size = sizeof(DWORD);
-            query->extendedData = HeapAlloc(GetProcessHeap(), 0, sizeof(struct wined3d_occlusion_query));
-            if (!query->extendedData)
-            {
-                ERR("Failed to allocate occlusion query extended data.\n");
-                return E_OUTOFMEMORY;
-            }
-            ((struct wined3d_occlusion_query *)query->extendedData)->context = NULL;
-            break;
-
-        case WINED3D_QUERY_TYPE_EVENT:
-            TRACE("Event query.\n");
-            if (!wined3d_event_query_supported(gl_info))
-            {
-                /* Half-Life 2 needs this query. It does not render the main
-                 * menu correctly otherwise. Pretend to support it, faking
-                 * this query does not do much harm except potentially
-                 * lowering performance. */
-                FIXME("Event query: Unimplemented, but pretending to be supported.\n");
-            }
-            query->query_ops = &event_query_ops;
-            query->data_size = sizeof(BOOL);
-            query->extendedData = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(struct wined3d_event_query));
-            if (!query->extendedData)
-            {
-                ERR("Failed to allocate event query memory.\n");
-                return E_OUTOFMEMORY;
-            }
-            break;
-
-        case WINED3D_QUERY_TYPE_TIMESTAMP:
-            TRACE("Timestamp query.\n");
-            if (!gl_info->supported[ARB_TIMER_QUERY])
-            {
-                WARN("Unsupported in local OpenGL implementation: ARB_TIMER_QUERY.\n");
-                return WINED3DERR_NOTAVAILABLE;
-            }
-            query->query_ops = &timestamp_query_ops;
-            query->data_size = sizeof(UINT64);
-            query->extendedData = HeapAlloc(GetProcessHeap(), 0, sizeof(struct wined3d_timestamp_query));
-            if (!query->extendedData)
-            {
-                ERR("Failed to allocate timestamp query extended data.\n");
-                return E_OUTOFMEMORY;
-            }
-            ((struct wined3d_timestamp_query *)query->extendedData)->context = NULL;
-            break;
-
-        case WINED3D_QUERY_TYPE_TIMESTAMP_DISJOINT:
-        case WINED3D_QUERY_TYPE_TIMESTAMP_FREQ:
-            TRACE("TIMESTAMP_DISJOINT query.\n");
-            if (!gl_info->supported[ARB_TIMER_QUERY])
-            {
-                WARN("Unsupported in local OpenGL implementation: ARB_TIMER_QUERY.\n");
-                return WINED3DERR_NOTAVAILABLE;
-            }
-            query->query_ops = &timestamp_disjoint_query_ops;
-            query->data_size = type == WINED3D_QUERY_TYPE_TIMESTAMP_DISJOINT
-                    ? sizeof(struct wined3d_query_data_timestamp_disjoint) : sizeof(UINT64);
-            query->extendedData = NULL;
-            break;
-
-        case WINED3D_QUERY_TYPE_VCACHE:
-        case WINED3D_QUERY_TYPE_RESOURCE_MANAGER:
-        case WINED3D_QUERY_TYPE_VERTEX_STATS:
-        case WINED3D_QUERY_TYPE_PIPELINE_TIMINGS:
-        case WINED3D_QUERY_TYPE_INTERFACE_TIMINGS:
-        case WINED3D_QUERY_TYPE_VERTEX_TIMINGS:
-        case WINED3D_QUERY_TYPE_PIXEL_TIMINGS:
-        case WINED3D_QUERY_TYPE_BANDWIDTH_TIMINGS:
-        case WINED3D_QUERY_TYPE_CACHE_UTILIZATION:
-        default:
-            FIXME("Unhandled query type %#x.\n", type);
-            return WINED3DERR_NOTAVAILABLE;
+        WARN("Unsupported in local OpenGL implementation: ARB_TIMER_QUERY.\n");
+        return WINED3DERR_NOTAVAILABLE;
     }
 
-    query->type = type;
-    query->state = QUERY_CREATED;
-    query->device = device;
-    query->ref = 1;
+    if (!(object = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*object))))
+        return E_OUTOFMEMORY;
+
+    if (type == WINED3D_QUERY_TYPE_TIMESTAMP_DISJOINT)
+        wined3d_query_init(object, device, type,
+                sizeof(struct wined3d_query_data_timestamp_disjoint), &timestamp_disjoint_query_ops, parent);
+    else
+        wined3d_query_init(object, device, type, sizeof(UINT64), &timestamp_disjoint_query_ops, parent);
+
+    TRACE("Created query %p.\n", object);
+    *query = object;
 
     return WINED3D_OK;
 }
@@ -814,24 +817,25 @@ static HRESULT query_init(struct wined3d_query *query, struct wined3d_device *de
 HRESULT CDECL wined3d_query_create(struct wined3d_device *device,
         enum wined3d_query_type type, void *parent, struct wined3d_query **query)
 {
-    struct wined3d_query *object;
-    HRESULT hr;
-
     TRACE("device %p, type %#x, parent %p, query %p.\n", device, type, parent, query);
 
-    object = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*object));
-    if (!object)
-        return E_OUTOFMEMORY;
-
-    if (FAILED(hr = query_init(object, device, type, parent)))
+    switch (type)
     {
-        WARN("Failed to initialize query, hr %#x.\n", hr);
-        HeapFree(GetProcessHeap(), 0, object);
-        return hr;
+        case WINED3D_QUERY_TYPE_EVENT:
+            return wined3d_event_query_create(device, type, parent, query);
+
+        case WINED3D_QUERY_TYPE_OCCLUSION:
+            return wined3d_occlusion_query_create(device, type, parent, query);
+
+        case WINED3D_QUERY_TYPE_TIMESTAMP:
+            return wined3d_timestamp_query_create(device, type, parent, query);
+
+        case WINED3D_QUERY_TYPE_TIMESTAMP_DISJOINT:
+        case WINED3D_QUERY_TYPE_TIMESTAMP_FREQ:
+            return wined3d_timestamp_disjoint_query_create(device, type, parent, query);
+
+        default:
+            FIXME("Unhandled query type %#x.\n", type);
+            return WINED3DERR_NOTAVAILABLE;
     }
-
-    TRACE("Created query %p.\n", object);
-    *query = object;
-
-    return WINED3D_OK;
 }

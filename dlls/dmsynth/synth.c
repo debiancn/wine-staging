@@ -72,8 +72,6 @@ static ULONG WINAPI IDirectMusicSynth8Impl_AddRef(LPDIRECTMUSICSYNTH8 iface)
 
     TRACE("(%p)->(): new ref = %u\n", This, ref);
 
-    DMSYNTH_LockModule();
-
     return ref;
 }
 
@@ -88,9 +86,8 @@ static ULONG WINAPI IDirectMusicSynth8Impl_Release(LPDIRECTMUSICSYNTH8 iface)
         if (This->pLatencyClock)
             IReferenceClock_Release(This->pLatencyClock);
         HeapFree(GetProcessHeap(), 0, This);
+        DMSYNTH_UnlockModule();
     }
-
-    DMSYNTH_UnlockModule();
 
     return ref;
 }
@@ -575,14 +572,14 @@ static const IKsControlVtbl DMSynthImpl_IKsControl_Vtbl = {
 };
 
 /* for ClassFactory */
-HRESULT WINAPI DMUSIC_CreateDirectMusicSynthImpl(REFIID riid, void **ppobj, IUnknown *outer)
+HRESULT WINAPI DMUSIC_CreateDirectMusicSynthImpl(REFIID riid, void **ppobj)
 {
     static const WCHAR descrW[] = {'M','i','c','r','o','s','o','f','t',' ',
         'S','y','n','t','h','e','s','i','z','e','r',0};
     IDirectMusicSynth8Impl *obj;
     HRESULT hr;
 
-    TRACE("(%s, %p, %p)\n", debugstr_guid(riid), ppobj, outer);
+    TRACE("(%s, %p)\n", debugstr_guid(riid), ppobj);
 
     obj = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*obj));
     if (NULL == obj) {
@@ -605,7 +602,9 @@ HRESULT WINAPI DMUSIC_CreateDirectMusicSynthImpl(REFIID riid, void **ppobj, IUnk
     obj->pCaps.dwEffectFlags = DMUS_EFFECT_REVERB;
     strcpyW(obj->pCaps.wszDescription, descrW);
 
+    DMSYNTH_LockModule();
     hr = IDirectMusicSynth8_QueryInterface(&obj->IDirectMusicSynth8_iface, riid, ppobj);
     IDirectMusicSynth8_Release(&obj->IDirectMusicSynth8_iface);
+
     return hr;
 }

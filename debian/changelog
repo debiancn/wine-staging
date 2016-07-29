@@ -1,3 +1,14 @@
+wine-development (1.9.15-1) unstable; urgency=medium
+
+  * New upstream release 1.9.15, released Jul 22, 2016.
+    - More shader instructions in Direct3D.
+    - Performance improvements in GDI.
+    - Active Scripting improvements.
+    - Additional stream support in the C++ runtime.
+    - Various bug fixes.
+
+ -- Michael Gilbert <mgilbert@debian.org>  Sat, 23 Jul 2016 04:12:22 +0000
+
 wine-development (1.9.14-1~bpo8+1) jessie-backports; urgency=medium
 
   * Rebuild for jessie-backports.
@@ -10,11 +21,11 @@ wine-development (1.9.14-1~bpo8+1) jessie-backports; urgency=medium
 wine-development (1.9.14-1) unstable; urgency=medium
 
   * New upstream release 1.9.14, released Jul 8, 2016.
-  * - More Shader Model 5 support in Direct3D.
-  * - Some more write support in WebServices.
-  * - Performance improvements in GDI.
-  * - Some more progress towards the Direct3D command stream.
-  * - Various bug fixes.
+    - More Shader Model 5 support in Direct3D.
+    - Some more write support in WebServices.
+    - Performance improvements in GDI.
+    - Some more progress towards the Direct3D command stream.
+    - Various bug fixes.
 
  -- Michael Gilbert <mgilbert@debian.org>  Sun, 10 Jul 2016 16:18:23 +0000
 

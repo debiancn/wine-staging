@@ -933,6 +933,7 @@ static void test_CreateGdiCompatibleTextLayout(void)
 
 static void test_CreateTextFormat(void)
 {
+    static const WCHAR emptyW[] = {0};
     IDWriteFontCollection *collection, *syscoll;
     DWRITE_PARAGRAPH_ALIGNMENT paralign;
     DWRITE_READING_DIRECTION readdir;
@@ -948,6 +949,34 @@ static void test_CreateTextFormat(void)
     HRESULT hr;
 
     factory = create_factory();
+
+    /* zero/negative font size */
+    hr = IDWriteFactory_CreateTextFormat(factory, tahomaW, NULL, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL, 0.0f, enusW, &format);
+    ok(hr == E_INVALIDARG, "got 0x%08x\n", hr);
+
+    hr = IDWriteFactory_CreateTextFormat(factory, tahomaW, NULL, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL, -10.0f, enusW, &format);
+    ok(hr == E_INVALIDARG, "got 0x%08x\n", hr);
+
+    /* invalid font properties */
+    hr = IDWriteFactory_CreateTextFormat(factory, tahomaW, NULL, 1000, DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL, 10.0f, enusW, &format);
+    ok(hr == E_INVALIDARG, "got 0x%08x\n", hr);
+
+    hr = IDWriteFactory_CreateTextFormat(factory, tahomaW, NULL, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_ITALIC + 1,
+        DWRITE_FONT_STRETCH_NORMAL, 10.0f, enusW, &format);
+    ok(hr == E_INVALIDARG, "got 0x%08x\n", hr);
+
+    hr = IDWriteFactory_CreateTextFormat(factory, tahomaW, NULL, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_ITALIC,
+        10, 10.0f, enusW, &format);
+    ok(hr == E_INVALIDARG, "got 0x%08x\n", hr);
+
+    /* empty family name */
+    hr = IDWriteFactory_CreateTextFormat(factory, emptyW, NULL, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL, 10.0f, enusW, &format);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+    IDWriteTextFormat_Release(format);
 
     hr = IDWriteFactory_CreateTextFormat(factory, tahomaW, NULL, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
         DWRITE_FONT_STRETCH_NORMAL, 10.0, enusW, &format);
@@ -1039,6 +1068,13 @@ if (0) /* crashes on native */
 
     hr = IDWriteTextFormat_SetTrimming(format, &trimming, NULL);
     ok(hr == S_OK, "got 0x%08x\n", hr);
+
+    /* invalid granularity */
+    trimming.granularity = 10;
+    trimming.delimiter = 0;
+    trimming.delimiterCount = 0;
+    hr = IDWriteTextFormat_SetTrimming(format, &trimming, NULL);
+    ok(hr == E_INVALIDARG, "got 0x%08x\n", hr);
 
     IDWriteTextFormat_Release(format);
     IDWriteFactory_Release(factory);
@@ -1212,6 +1248,11 @@ static void test_fontweight(void)
     ok(hr == S_OK, "got 0x%08x\n", hr);
     ok(weight == DWRITE_FONT_WEIGHT_NORMAL, "got %d\n", weight);
     ok(range.length == 6, "got %d\n", range.length);
+
+    range.startPosition = 0;
+    range.length = 6;
+    hr = IDWriteTextLayout_SetFontWeight(layout, 1000, range);
+    ok(hr == E_INVALIDARG, "got 0x%08x\n", hr);
 
     size = IDWriteTextLayout_GetMaxWidth(layout);
     ok(size == 100.0, "got %.2f\n", size);
@@ -1742,13 +1783,17 @@ static void test_GetClusterMetrics(void)
     static const WCHAR str4W[] = {'a',' ',0};
     DWRITE_INLINE_OBJECT_METRICS inline_metrics;
     DWRITE_CLUSTER_METRICS metrics[22];
+    DWRITE_TEXT_METRICS text_metrics;
+    DWRITE_TRIMMING trimming_options;
     IDWriteTextLayout1 *layout1;
     IDWriteInlineObject *trimm;
     IDWriteTextFormat *format;
     IDWriteTextLayout *layout;
+    DWRITE_LINE_METRICS line;
     DWRITE_TEXT_RANGE range;
     IDWriteFactory *factory;
     UINT32 count, i;
+    FLOAT width;
     HRESULT hr;
 
     factory = create_factory();
@@ -2089,6 +2134,47 @@ todo_wine
     ok(metrics[3].isWhitespace == 1, "got %d\n", metrics[3].isWhitespace);
     ok(metrics[4].isWhitespace == 0, "got %d\n", metrics[4].isWhitespace);
     ok(metrics[5].isWhitespace == 1, "got %d\n", metrics[5].isWhitespace);
+
+    IDWriteTextLayout_Release(layout);
+
+    /* trigger line trimming */
+    hr = IDWriteFactory_CreateTextLayout(factory, strW, lstrlenW(strW), format, 100.0f, 200.0f, &layout);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+
+    count = 0;
+    memset(metrics, 0, sizeof(metrics));
+    hr = IDWriteTextLayout_GetClusterMetrics(layout, metrics, 4, &count);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+    ok(count == 4, "got %u\n", count);
+
+    hr = IDWriteTextLayout_GetMetrics(layout, &text_metrics);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+
+    width = metrics[0].width + inline_metrics.width;
+    ok(width < text_metrics.width, "unexpected trimming sign width\n");
+
+    /* enable trimming, reduce layout width so only first cluster and trimming sign fits */
+    trimming_options.granularity = DWRITE_TRIMMING_GRANULARITY_CHARACTER;
+    trimming_options.delimiter = 0;
+    trimming_options.delimiterCount = 0;
+    hr = IDWriteTextLayout_SetTrimming(layout, &trimming_options, trimm);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+
+    hr = IDWriteTextLayout_SetMaxWidth(layout, width);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+
+    count = 0;
+    memset(metrics, 0, sizeof(metrics));
+    hr = IDWriteTextLayout_GetClusterMetrics(layout, metrics, 4, &count);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+    ok(count == 4, "got %u\n", count);
+
+    hr = IDWriteTextLayout_GetLineMetrics(layout, &line, 1, &count);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+    ok(count == 1, "got %u\n", count);
+todo_wine
+    ok(line.length == 4, "got %u\n", line.length);
+    ok(line.isTrimmed, "got %d\n", line.isTrimmed);
 
     IDWriteTextLayout_Release(layout);
 

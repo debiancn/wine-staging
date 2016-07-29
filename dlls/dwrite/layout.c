@@ -224,10 +224,10 @@ struct layout_cluster {
 };
 
 enum layout_recompute_mask {
-    RECOMPUTE_NOMINAL_RUNS   = 1 << 0,
-    RECOMPUTE_MINIMAL_WIDTH  = 1 << 1,
-    RECOMPUTE_EFFECTIVE_RUNS = 1 << 2,
-    RECOMPUTE_EVERYTHING     = 0xffff
+    RECOMPUTE_CLUSTERS      = 1 << 0,
+    RECOMPUTE_MINIMAL_WIDTH = 1 << 1,
+    RECOMPUTE_LINES         = 1 << 2,
+    RECOMPUTE_EVERYTHING    = 0xffff
 };
 
 struct dwrite_textlayout {
@@ -408,6 +408,30 @@ static inline HRESULT format_set_flowdirection(struct dwrite_textformat_data *fo
         return E_INVALIDARG;
     if (changed) *changed = format->flow != direction;
     format->flow = direction;
+    return S_OK;
+}
+
+static inline HRESULT format_set_trimming(struct dwrite_textformat_data *format,
+    DWRITE_TRIMMING const *trimming, IDWriteInlineObject *trimming_sign, BOOL *changed)
+{
+    if (changed)
+        *changed = FALSE;
+
+    if ((UINT32)trimming->granularity > DWRITE_TRIMMING_GRANULARITY_WORD)
+        return E_INVALIDARG;
+
+    if (changed) {
+        *changed = !!memcmp(&format->trimming, trimming, sizeof(*trimming));
+        if (format->trimmingsign != trimming_sign)
+            *changed = TRUE;
+    }
+
+    format->trimming = *trimming;
+    if (format->trimmingsign)
+        IDWriteInlineObject_Release(format->trimmingsign);
+    format->trimmingsign = trimming_sign;
+    if (format->trimmingsign)
+        IDWriteInlineObject_AddRef(format->trimmingsign);
     return S_OK;
 }
 
@@ -1037,7 +1061,7 @@ static HRESULT layout_compute(struct dwrite_textlayout *layout)
 {
     HRESULT hr;
 
-    if (!(layout->recompute & RECOMPUTE_NOMINAL_RUNS))
+    if (!(layout->recompute & RECOMPUTE_CLUSTERS))
         return S_OK;
 
     /* nominal breakpoints are evaluated only once, because string never changes */
@@ -1076,7 +1100,7 @@ static HRESULT layout_compute(struct dwrite_textlayout *layout)
         }
     }
 
-    layout->recompute &= ~RECOMPUTE_NOMINAL_RUNS;
+    layout->recompute &= ~RECOMPUTE_CLUSTERS;
     return hr;
 }
 
@@ -1714,7 +1738,7 @@ static HRESULT layout_compute_effective_runs(struct dwrite_textlayout *layout)
     UINT32 i, start, line, textpos;
     HRESULT hr;
 
-    if (!(layout->recompute & RECOMPUTE_EFFECTIVE_RUNS))
+    if (!(layout->recompute & RECOMPUTE_LINES))
         return S_OK;
 
     hr = layout_compute(layout);
@@ -1910,7 +1934,7 @@ static HRESULT layout_compute_effective_runs(struct dwrite_textlayout *layout)
 
     layout->metrics.heightIncludingTrailingWhitespace = layout->metrics.height; /* FIXME: not true for vertical text */
 
-    layout->recompute &= ~RECOMPUTE_EFFECTIVE_RUNS;
+    layout->recompute &= ~RECOMPUTE_LINES;
     return hr;
 }
 
@@ -2865,6 +2889,9 @@ static HRESULT WINAPI dwritetextlayout_SetFontWeight(IDWriteTextLayout3 *iface, 
 
     TRACE("(%p)->(%d %s)\n", This, weight, debugstr_range(&range));
 
+    if ((UINT32)weight > DWRITE_FONT_WEIGHT_ULTRA_BLACK)
+        return E_INVALIDARG;
+
     value.range = range;
     value.u.weight = weight;
     return set_layout_range_attr(This, LAYOUT_RANGE_ATTR_WEIGHT, &value);
@@ -3765,7 +3792,7 @@ static HRESULT WINAPI dwritetextformat_layout_SetTextAlignment(IDWriteTextFormat
         return hr;
 
     /* if layout is not ready there's nothing to align */
-    if (changed && !(This->recompute & RECOMPUTE_EFFECTIVE_RUNS))
+    if (changed && !(This->recompute & RECOMPUTE_LINES))
         layout_apply_text_alignment(This);
 
     return S_OK;
@@ -3784,7 +3811,7 @@ static HRESULT WINAPI dwritetextformat_layout_SetParagraphAlignment(IDWriteTextF
         return hr;
 
     /* if layout is not ready there's nothing to align */
-    if (changed && !(This->recompute & RECOMPUTE_EFFECTIVE_RUNS))
+    if (changed && !(This->recompute & RECOMPUTE_LINES))
         layout_apply_par_alignment(This);
 
     return S_OK;
@@ -3803,7 +3830,7 @@ static HRESULT WINAPI dwritetextformat_layout_SetWordWrapping(IDWriteTextFormat1
         return hr;
 
     if (changed)
-        This->recompute |= RECOMPUTE_EFFECTIVE_RUNS;
+        This->recompute |= RECOMPUTE_LINES;
 
     return S_OK;
 }
@@ -3855,8 +3882,17 @@ static HRESULT WINAPI dwritetextformat_layout_SetTrimming(IDWriteTextFormat1 *if
     IDWriteInlineObject *trimming_sign)
 {
     struct dwrite_textlayout *This = impl_layout_from_IDWriteTextFormat1(iface);
-    FIXME("(%p)->(%p %p): stub\n", This, trimming, trimming_sign);
-    return E_NOTIMPL;
+    BOOL changed;
+    HRESULT hr;
+
+    TRACE("(%p)->(%p %p)\n", This, trimming, trimming_sign);
+
+    hr = format_set_trimming(&This->format, trimming, trimming_sign, &changed);
+
+    if (changed)
+        This->recompute |= RECOMPUTE_LINES;
+
+    return hr;
 }
 
 static HRESULT WINAPI dwritetextformat_layout_SetLineSpacing(IDWriteTextFormat1 *iface, DWRITE_LINE_SPACING_METHOD method,
@@ -4660,8 +4696,8 @@ static HRESULT WINAPI dwritetrimmingsign_GetMetrics(IDWriteInlineObject *iface, 
 static HRESULT WINAPI dwritetrimmingsign_GetOverhangMetrics(IDWriteInlineObject *iface, DWRITE_OVERHANG_METRICS *overhangs)
 {
     struct dwrite_trimmingsign *This = impl_from_IDWriteInlineObject(iface);
-    FIXME("(%p)->(%p): stub\n", This, overhangs);
-    return E_NOTIMPL;
+    TRACE("(%p)->(%p)\n", This, overhangs);
+    return IDWriteTextLayout_GetOverhangMetrics(This->layout, overhangs);
 }
 
 static HRESULT WINAPI dwritetrimmingsign_GetBreakConditions(IDWriteInlineObject *iface, DWRITE_BREAK_CONDITION *before,
@@ -4839,14 +4875,7 @@ static HRESULT WINAPI dwritetextformat_SetTrimming(IDWriteTextFormat2 *iface, DW
 {
     struct dwrite_textformat *This = impl_from_IDWriteTextFormat2(iface);
     TRACE("(%p)->(%p %p)\n", This, trimming, trimming_sign);
-
-    This->format.trimming = *trimming;
-    if (This->format.trimmingsign)
-        IDWriteInlineObject_Release(This->format.trimmingsign);
-    This->format.trimmingsign = trimming_sign;
-    if (This->format.trimmingsign)
-        IDWriteInlineObject_AddRef(This->format.trimmingsign);
-    return S_OK;
+    return format_set_trimming(&This->format, trimming, trimming_sign, NULL);
 }
 
 static HRESULT WINAPI dwritetextformat_SetLineSpacing(IDWriteTextFormat2 *iface, DWRITE_LINE_SPACING_METHOD method,
@@ -5132,6 +5161,14 @@ HRESULT create_textformat(const WCHAR *family_name, IDWriteFontCollection *colle
     struct dwrite_textformat *This;
 
     *format = NULL;
+
+    if (size <= 0.0f)
+        return E_INVALIDARG;
+
+    if (((UINT32)weight > DWRITE_FONT_WEIGHT_ULTRA_BLACK) ||
+        ((UINT32)stretch > DWRITE_FONT_STRETCH_ULTRA_EXPANDED) ||
+        ((UINT32)style > DWRITE_FONT_STYLE_ITALIC))
+        return E_INVALIDARG;
 
     This = heap_alloc(sizeof(struct dwrite_textformat));
     if (!This) return E_OUTOFMEMORY;

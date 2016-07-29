@@ -5,7 +5,7 @@ msgstr ""
 "Project-Id-Version: Wine\n"
 "Report-Msgid-Bugs-To: http://bugs.winehq.org\n"
 "POT-Creation-Date: N/A\n"
-"PO-Revision-Date: 2016-05-05 21:44+0200\n"
+"PO-Revision-Date: 2016-07-16 20:50+0200\n"
 "Last-Translator: Andrey Gusev <andrey.goosev@gmail.com>\n"
 "Language-Team: Ukrainian\n"
 "Language: uk\n"
@@ -11763,6 +11763,10 @@ msgstr "Введіть \"REG /?\" для довідки.\n"
 msgid "Type \"REG %1 /?\" for help.\n"
 msgstr "Введіть \"REG %1 /?\" для довідки.\n"
 
+#: reg.rc:65 regedit.rc:205
+msgid "(value not set)"
+msgstr "(значення не задане)"
+
 #: regedit.rc:34
 msgid "&Registry"
 msgstr "&Реєстр"
@@ -11965,10 +11969,6 @@ msgstr "Файли реєстру (*.reg)"
 msgid "Win9x/NT4 Registry files (REGEDIT4)"
 msgstr "Файли реєстру Win9x/NT4 (REGEDIT4)"
 
-#: regedit.rc:205
-msgid "(value not set)"
-msgstr "(значення не задане)"
-
 #: regedit.rc:206
 msgid "(cannot display value)"
 msgstr "(неможливо відобразити значення)"
@@ -12061,6 +12061,69 @@ msgstr "regedit: Неможливо відкрити файл '%1'.\n"
 #: regedit.rc:366
 msgid "regedit: Unhandled action.\n"
 msgstr "regedit: Непідтримувана операція.\n"
+
+#: regedit.rc:367
+msgid "regedit: Out of memory! (%1!S!, line %2!u!)\n"
+msgstr "regedit: Недостатньо пам'яті! (%1!S!, рядок %2!u!)\n"
+
+#: regedit.rc:368
+msgid "regedit: Invalid hexadecimal value.\n"
+msgstr "regedit: Невірне шістнадцяткове значення.\n"
+
+#: regedit.rc:369
+msgid ""
+"regedit: Unable to convert hexadecimal data. An invalid value was "
+"encountered at '%1'.\n"
+msgstr ""
+"regedit: Неможливо конвертувати дані у шістнадцятковому форматі. Невірне "
+"значення '%1'.\n"
+
+#: regedit.rc:370
+msgid "regedit: Unrecognized escape sequence [\\%1!c!]\n"
+msgstr "regedit: Нерозпізнана послідовність [\\%1!c!]\n"
+
+#: regedit.rc:371
+msgid "regedit: Unsupported registry data type [%1]\n"
+msgstr "regedit: Непідтримуваний тип даних [%1]\n"
+
+#: regedit.rc:372
+msgid "regedit: Unexpected end of line in '%1'.\n"
+msgstr "regedit: Неочікуваний кінець рядка у '%1'.\n"
+
+#: regedit.rc:373
+msgid "regedit: The line '%1' was not recognized.\n"
+msgstr "regedit: Рядок '%1' не був розпізнаний.\n"
+
+#: regedit.rc:374
+msgid "regedit: Unable to add the registry value '%1' to '%2'.\n"
+msgstr "regedit: Неможливо додати значення '%1' у '%2'.\n"
+
+#: regedit.rc:375
+msgid "regedit: Unable to open the registry key '%1'.\n"
+msgstr "regedit: Неможливо відкрити ключ '%1'.\n"
+
+#: regedit.rc:376
+msgid "regedit: Unsupported registry data type [%1] encountered in '%2'.\n"
+msgstr "regedit: '%2' містить непідтримуваний тип даних [%1].\n"
+
+#: regedit.rc:377
+msgid "regedit: The registry value '%1' will be exported as binary data.\n"
+msgstr ""
+"regedit: Значення реєстру '%1' буде експортоване у двійковому вигляді.\n"
+
+#: regedit.rc:378
+msgid "regedit: Incorrect registry class specification in '%1'.\n"
+msgstr "regedit: Невірний формат ключа реєстру у '%1'.\n"
+
+#: regedit.rc:379
+msgid ""
+"regedit: Unable to export '%1'. The specified registry key was not found.\n"
+msgstr ""
+"regedit: Неможливо експортувати '%1'. Вказаний ключ не був знайдений.\n"
+
+#: regedit.rc:380
+msgid "regedit: Unable to delete the registry class '%1'.\n"
+msgstr "regedit: Неможливо видалити клас реєстру '%1'.\n"
 
 #: regedit.rc:163
 msgid "Quits the registry editor"

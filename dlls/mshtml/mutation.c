@@ -337,13 +337,13 @@ static nsresult run_insert_script(HTMLDocumentNode *doc, nsISupports *script_ifa
 
     IHTMLWindow2_AddRef(&window->base.IHTMLWindow2_iface);
 
-    doc_insert_script(window, script_elem);
+    doc_insert_script(window, script_elem, TRUE);
 
     while(!list_empty(&window->script_queue)) {
         iter = LIST_ENTRY(list_head(&window->script_queue), script_queue_entry_t, entry);
         list_remove(&iter->entry);
         if(!iter->script->parsed)
-            doc_insert_script(window, iter->script);
+            doc_insert_script(window, iter->script, TRUE);
         IHTMLScriptElement_Release(&iter->script->IHTMLScriptElement_iface);
         heap_free(iter);
     }
@@ -767,20 +767,10 @@ static void NSAPI nsDocumentObserver_BindToDocument(nsIDocumentObserver *iface, 
 
     nsres = nsIContent_QueryInterface(aContent, &IID_nsIDOMHTMLScriptElement, (void**)&nsscript);
     if(NS_SUCCEEDED(nsres)) {
-        HTMLScriptElement *script_elem;
-        HRESULT hres;
-
         TRACE("script element\n");
 
-        hres = script_elem_from_nsscript(This, nsscript, &script_elem);
+        add_script_runner(This, run_bind_to_tree, (nsISupports*)nsscript, NULL);
         nsIDOMHTMLScriptElement_Release(nsscript);
-        if(FAILED(hres))
-            return;
-
-        if(script_elem->parse_on_bind)
-            add_script_runner(This, run_insert_script, (nsISupports*)nsscript, NULL);
-
-        IHTMLScriptElement_Release(&script_elem->IHTMLScriptElement_iface);
         return;
     }
 

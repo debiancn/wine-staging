@@ -11431,6 +11431,10 @@ msgstr ""
 msgid "Type \"REG %1 /?\" for help.\n"
 msgstr ""
 
+#: reg.rc:65 regedit.rc:205
+msgid "(value not set)"
+msgstr "(vrijednost nije postavljena)"
+
 #: regedit.rc:34
 msgid "&Registry"
 msgstr "&Registar"
@@ -11632,10 +11636,6 @@ msgstr "Datotoeke registra (*.reg)"
 msgid "Win9x/NT4 Registry files (REGEDIT4)"
 msgstr ""
 
-#: regedit.rc:205
-msgid "(value not set)"
-msgstr "(vrijednost nije postavljena)"
-
 #: regedit.rc:206
 msgid "(cannot display value)"
 msgstr "(ne mogu prikazati vrijednost)"
@@ -11706,6 +11706,83 @@ msgstr "Datoteka se ne može otvoriti."
 #| msgid "Invalid handle operation.\n"
 msgid "regedit: Unhandled action.\n"
 msgstr "Neispravna operacija poveznice.\n"
+
+#: regedit.rc:367
+msgid "regedit: Out of memory! (%1!S!, line %2!u!)\n"
+msgstr ""
+
+#: regedit.rc:368
+#, fuzzy
+#| msgid "Error: Invalid key name\n"
+msgid "regedit: Invalid hexadecimal value.\n"
+msgstr "Greška: Neispravan naziv ključa\n"
+
+#: regedit.rc:369
+msgid ""
+"regedit: Unable to convert hexadecimal data. An invalid value was "
+"encountered at '%1'.\n"
+msgstr ""
+
+#: regedit.rc:370
+msgid "regedit: Unrecognized escape sequence [\\%1!c!]\n"
+msgstr ""
+
+#: regedit.rc:371
+#, fuzzy
+#| msgid "Unsupported type.\n"
+msgid "regedit: Unsupported registry data type [%1]\n"
+msgstr "Nepodržan tip.\n"
+
+#: regedit.rc:372
+#, fuzzy
+#| msgid "Could not open the file."
+msgid "regedit: Unexpected end of line in '%1'.\n"
+msgstr "Datoteka se ne može otvoriti."
+
+#: regedit.rc:373
+msgid "regedit: The line '%1' was not recognized.\n"
+msgstr ""
+
+#: regedit.rc:374
+#, fuzzy
+#| msgid "Could not open the file."
+msgid "regedit: Unable to add the registry value '%1' to '%2'.\n"
+msgstr "Datoteka se ne može otvoriti."
+
+#: regedit.rc:375
+#, fuzzy
+#| msgid "Could not open the file."
+msgid "regedit: Unable to open the registry key '%1'.\n"
+msgstr "Datoteka se ne može otvoriti."
+
+#: regedit.rc:376
+#, fuzzy
+#| msgid "Unsupported type.\n"
+msgid "regedit: Unsupported registry data type [%1] encountered in '%2'.\n"
+msgstr "Nepodržan tip.\n"
+
+#: regedit.rc:377
+msgid "regedit: The registry value '%1' will be exported as binary data.\n"
+msgstr ""
+
+#: regedit.rc:378
+msgid "regedit: Incorrect registry class specification in '%1'.\n"
+msgstr ""
+
+#: regedit.rc:379
+#, fuzzy
+#| msgid ""
+#| "Error: The system was unable to find the specified registry key or value\n"
+msgid ""
+"regedit: Unable to export '%1'. The specified registry key was not found.\n"
+msgstr ""
+"Greška: Sustav nije mogao pronaći navedeni ključ ili vrijednost u registru.\n"
+
+#: regedit.rc:380
+#, fuzzy
+#| msgid "Could not open the file."
+msgid "regedit: Unable to delete the registry class '%1'.\n"
+msgstr "Datoteka se ne može otvoriti."
 
 #: regedit.rc:163
 msgid "Quits the registry editor"

@@ -154,6 +154,13 @@ typedef struct _ostream {
     int unknown;
 } ostream;
 
+/* class istream */
+typedef struct {
+    const int *vbtable;
+    int extract_delim;
+    int count;
+} istream;
+
 /* ??_7streambuf@@6B@ */
 extern const vtable_ptr MSVCP_streambuf_vtable;
 /* ??_7filebuf@@6B@ */
@@ -166,6 +173,8 @@ extern const vtable_ptr MSVCP_stdiobuf_vtable;
 extern const vtable_ptr MSVCP_ios_vtable;
 /* ??_7ostream@@6B@ */
 extern const vtable_ptr MSVCP_ostream_vtable;
+/* ??_7istream@@6B@ */
+extern const vtable_ptr MSVCP_istream_vtable;
 
 #ifndef __GNUC__
 void __asm_dummy_vtables(void) {
@@ -222,6 +231,8 @@ void __asm_dummy_vtables(void) {
             VTABLE_ADD_FUNC(ios_vector_dtor));
     __ASM_VTABLE(ostream,
             VTABLE_ADD_FUNC(ostream_vector_dtor));
+    __ASM_VTABLE(istream,
+            VTABLE_ADD_FUNC(istream_vector_dtor));
 #ifndef __GNUC__
 }
 #endif
@@ -231,6 +242,8 @@ void __asm_dummy_vtables(void) {
 
 /* ??_8ostream@@7B@ */
 const int ostream_vbtable[] = {0, VBTABLE_ENTRY(ostream, FIELD_OFFSET(ostream, vbtable), ios)};
+/* ??_8istream@@7B@ */
+const int istream_vbtable[] = {0, VBTABLE_ENTRY(istream, FIELD_OFFSET(istream, vbtable), ios)};
 
 DEFINE_RTTI_DATA0(streambuf, 0, ".?AVstreambuf@@")
 DEFINE_RTTI_DATA1(filebuf, 0, &streambuf_rtti_base_descriptor, ".?AVfilebuf@@")
@@ -238,6 +251,7 @@ DEFINE_RTTI_DATA1(strstreambuf, 0, &streambuf_rtti_base_descriptor, ".?AVstrstre
 DEFINE_RTTI_DATA1(stdiobuf, 0, &streambuf_rtti_base_descriptor, ".?AVstdiobuf@@")
 DEFINE_RTTI_DATA0(ios, 0, ".?AVios@@")
 DEFINE_RTTI_DATA1(ostream, sizeof(ostream), &ios_rtti_base_descriptor, ".?AVostream@@")
+DEFINE_RTTI_DATA1(istream, sizeof(istream), &ios_rtti_base_descriptor, ".?AVistream@@")
 
 /* ??0streambuf@@IAE@PADH@Z */
 /* ??0streambuf@@IEAA@PEADH@Z */
@@ -1126,8 +1140,8 @@ int __thiscall filebuf_sync(filebuf *this)
         count = this->base.pptr - this->base.pbase;
         if (count > 0 && _write(this->fd, this->base.pbase, count) != count)
             return EOF;
-        this->base.pbase = this->base.pptr = this->base.epptr = NULL;
     }
+    this->base.pbase = this->base.pptr = this->base.epptr = NULL;
     /* flush input buffer */
     if (this->base.egptr != NULL) {
         offset = this->base.egptr - this->base.gptr;
@@ -1143,8 +1157,8 @@ int __thiscall filebuf_sync(filebuf *this)
             if (_lseek(this->fd, -offset, SEEK_CUR) < 0)
                 return EOF;
         }
-        this->base.eback = this->base.gptr = this->base.egptr = NULL;
     }
+    this->base.eback = this->base.gptr = this->base.egptr = NULL;
     return 0;
 }
 
@@ -2864,6 +2878,679 @@ ostream* __cdecl ostream_flush_manip(ostream *this)
    return ostream_flush(this);
 }
 
+static inline ios* istream_get_ios(const istream *this)
+{
+    return (ios*)((char*)this + this->vbtable[1]);
+}
+
+static inline ios* istream_to_ios(const istream *this)
+{
+    return (ios*)((char*)this + istream_vbtable[1]);
+}
+
+static inline istream* ios_to_istream(const ios *base)
+{
+    return (istream*)((char*)base - istream_vbtable[1]);
+}
+
+/* ??0istream@@QAE@PAVstreambuf@@@Z */
+/* ??0istream@@QEAA@PEAVstreambuf@@@Z */
+DEFINE_THISCALL_WRAPPER(istream_sb_ctor, 12)
+istream* __thiscall istream_sb_ctor(istream *this, streambuf *sb, BOOL virt_init)
+{
+    ios *base;
+
+    TRACE("(%p %p %d)\n", this, sb, virt_init);
+
+    if (virt_init) {
+        this->vbtable = istream_vbtable;
+        base = istream_get_ios(this);
+        ios_sb_ctor(base, sb);
+    } else {
+        base = istream_get_ios(this);
+        ios_init(base, sb);
+    }
+    base->vtable = &MSVCP_istream_vtable;
+    base->flags |= FLAGS_skipws;
+    this->extract_delim = 0;
+    this->count = 0;
+    return this;
+}
+
+/* ??0istream@@IAE@ABV0@@Z */
+/* ??0istream@@IEAA@AEBV0@@Z */
+DEFINE_THISCALL_WRAPPER(istream_copy_ctor, 12)
+istream* __thiscall istream_copy_ctor(istream *this, const istream *copy, BOOL virt_init)
+{
+    return istream_sb_ctor(this, istream_get_ios(copy)->sb, virt_init);
+}
+
+/* ??0istream@@IAE@XZ */
+/* ??0istream@@IEAA@XZ */
+DEFINE_THISCALL_WRAPPER(istream_ctor, 8)
+istream* __thiscall istream_ctor(istream *this, BOOL virt_init)
+{
+    ios *base;
+
+    TRACE("(%p %d)\n", this, virt_init);
+
+    if (virt_init) {
+        this->vbtable = istream_vbtable;
+        base = istream_get_ios(this);
+        ios_ctor(base);
+    } else
+        base = istream_get_ios(this);
+    base->vtable = &MSVCP_istream_vtable;
+    base->flags |= FLAGS_skipws;
+    this->extract_delim = 0;
+    this->count = 0;
+    return this;
+}
+
+/* ??1istream@@UAE@XZ */
+/* ??1istream@@UEAA@XZ */
+DEFINE_THISCALL_WRAPPER(istream_dtor, 4)
+void __thiscall istream_dtor(ios *base)
+{
+    istream *this = ios_to_istream(base);
+
+    TRACE("(%p)\n", this);
+}
+
+/* ??4istream@@IAEAAV0@PAVstreambuf@@@Z */
+/* ??4istream@@IEAAAEAV0@PEAVstreambuf@@@Z */
+DEFINE_THISCALL_WRAPPER(istream_assign_sb, 8)
+istream* __thiscall istream_assign_sb(istream *this, streambuf *sb)
+{
+    ios *base = istream_get_ios(this);
+
+    TRACE("(%p %p)\n", this, sb);
+
+    ios_init(base, sb);
+    base->state &= IOSTATE_badbit;
+    base->delbuf = 0;
+    base->tie = NULL;
+    base->flags = FLAGS_skipws;
+    base->precision = 6;
+    base->fill = ' ';
+    base->width = 0;
+    this->count = 0;
+    return this;
+}
+
+/* ??4istream@@IAEAAV0@ABV0@@Z */
+/* ??4istream@@IEAAAEAV0@AEBV0@@Z */
+DEFINE_THISCALL_WRAPPER(istream_assign, 8)
+istream* __thiscall istream_assign(istream *this, const istream *rhs)
+{
+    return istream_assign_sb(this, istream_get_ios(rhs)->sb);
+}
+
+/* ??_Distream@@QAEXXZ */
+/* ??_Distream@@QEAAXXZ */
+DEFINE_THISCALL_WRAPPER(istream_vbase_dtor, 4)
+void __thiscall istream_vbase_dtor(istream *this)
+{
+    ios *base = istream_to_ios(this);
+
+    TRACE("(%p)\n", this);
+
+    istream_dtor(base);
+    ios_dtor(base);
+}
+
+/* ??_Eistream@@UAEPAXI@Z */
+DEFINE_THISCALL_WRAPPER(istream_vector_dtor, 8)
+istream* __thiscall istream_vector_dtor(ios *base, unsigned int flags)
+{
+    istream *this = ios_to_istream(base);
+
+    TRACE("(%p %x)\n", this, flags);
+
+    if (flags & 2) {
+        /* we have an array, with the number of elements stored before the first object */
+        INT_PTR i, *ptr = (INT_PTR *)this-1;
+
+        for (i = *ptr-1; i >= 0; i--)
+            istream_vbase_dtor(this+i);
+        MSVCRT_operator_delete(ptr);
+    } else {
+        istream_vbase_dtor(this);
+        if (flags & 1)
+            MSVCRT_operator_delete(this);
+    }
+    return this;
+}
+
+/* ??_Gistream@@UAEPAXI@Z */
+DEFINE_THISCALL_WRAPPER(istream_scalar_dtor, 8)
+istream* __thiscall istream_scalar_dtor(ios *base, unsigned int flags)
+{
+    istream *this = ios_to_istream(base);
+
+    TRACE("(%p %x)\n", this, flags);
+
+    istream_vbase_dtor(this);
+    if (flags & 1) MSVCRT_operator_delete(this);
+    return this;
+}
+
+/* ?eatwhite@istream@@QAEXXZ */
+/* ?eatwhite@istream@@QEAAXXZ */
+DEFINE_THISCALL_WRAPPER(istream_eatwhite, 4)
+void __thiscall istream_eatwhite(istream *this)
+{
+    ios *base = istream_get_ios(this);
+    int c;
+
+    TRACE("(%p)\n", this);
+
+    ios_lockbuf(base);
+    for (c = streambuf_sgetc(base->sb); isspace(c); c = streambuf_snextc(base->sb));
+    ios_unlockbuf(base);
+    if (c == EOF)
+        ios_clear(base, base->state | IOSTATE_eofbit);
+}
+
+/* ?gcount@istream@@QBEHXZ */
+/* ?gcount@istream@@QEBAHXZ */
+DEFINE_THISCALL_WRAPPER(istream_gcount, 4)
+int __thiscall istream_gcount(const istream *this)
+{
+    TRACE("(%p)\n", this);
+    return this->count;
+}
+
+/* ?ipfx@istream@@QAEHH@Z */
+/* ?ipfx@istream@@QEAAHH@Z */
+DEFINE_THISCALL_WRAPPER(istream_ipfx, 8)
+int __thiscall istream_ipfx(istream *this, int need)
+{
+    ios *base = istream_get_ios(this);
+
+    TRACE("(%p %d)\n", this, need);
+
+    if (need)
+        this->count = 0;
+    if (!ios_good(base)) {
+        ios_clear(base, base->state | IOSTATE_failbit);
+        return 0;
+    }
+    ios_lock(base);
+    ios_lockbuf(base);
+    if (base->tie && (!need || streambuf_in_avail(base->sb) < need))
+        ostream_flush(base->tie);
+    if ((base->flags & FLAGS_skipws) && !need) {
+        istream_eatwhite(this);
+        if (base->state & IOSTATE_eofbit) {
+            base->state |= IOSTATE_failbit;
+            ios_unlockbuf(base);
+            ios_unlock(base);
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* ?isfx@istream@@QAEXXZ */
+/* ?isfx@istream@@QEAAXXZ */
+DEFINE_THISCALL_WRAPPER(istream_isfx, 4)
+void __thiscall istream_isfx(istream *this)
+{
+    ios *base = istream_get_ios(this);
+
+    TRACE("(%p)\n", this);
+
+    ios_unlockbuf(base);
+    ios_unlock(base);
+}
+
+/* ?get@istream@@IAEAAV1@PADHH@Z */
+/* ?get@istream@@IEAAAEAV1@PEADHH@Z */
+DEFINE_THISCALL_WRAPPER(istream_get_str_delim, 16)
+istream* __thiscall istream_get_str_delim(istream *this, char *str, int count, int delim)
+{
+    ios *base = istream_get_ios(this);
+    int ch, i = 0;
+
+    TRACE("(%p %p %d %d)\n", this, str, count, delim);
+
+    if (istream_ipfx(this, 1)) {
+        while (i < count - 1) {
+            if ((ch = streambuf_sgetc(base->sb)) == EOF) {
+                base->state |= IOSTATE_eofbit;
+                if (!i) /* tried to read, but not a single character was obtained */
+                    base->state |= IOSTATE_failbit;
+                break;
+            }
+            if (ch == delim) {
+                if (this->extract_delim) { /* discard the delimiter */
+                    streambuf_stossc(base->sb);
+                    this->count++;
+                }
+                break;
+            }
+            if (str)
+                str[i] = ch;
+            streambuf_stossc(base->sb);
+            i++;
+        }
+        this->count += i;
+        istream_isfx(this);
+    }
+    if (str && count) /* append a null terminator, unless a string of 0 characters was requested */
+        str[i] = 0;
+    this->extract_delim = 0;
+    return this;
+}
+
+/* ?get@istream@@QAEAAV1@PACHD@Z */
+/* ?get@istream@@QEAAAEAV1@PEACHD@Z */
+/* ?get@istream@@QAEAAV1@PADHD@Z */
+/* ?get@istream@@QEAAAEAV1@PEADHD@Z */
+DEFINE_THISCALL_WRAPPER(istream_get_str, 16)
+istream* __thiscall istream_get_str(istream *this, char *str, int count, char delim)
+{
+    return istream_get_str_delim(this, str, count, (unsigned char) delim);
+}
+
+/* ?get@istream@@QAEAAV1@PAEHD@Z */
+/* ?get@istream@@QEAAAEAV1@PEAEHD@Z */
+DEFINE_THISCALL_WRAPPER(istream_get_unsigned_str, 16)
+istream* __thiscall istream_get_unsigned_str(istream *this, unsigned char *str, int count, char delim)
+{
+    return istream_get_str(this, (char*) str, count, delim);
+}
+
+static int istream_internal_get_char(istream *this, char *ch)
+{
+    ios *base = istream_get_ios(this);
+    int ret = EOF;
+
+    TRACE("(%p %p)\n", this, ch);
+
+    if (istream_ipfx(this, 1)) {
+        if ((ret = streambuf_sbumpc(base->sb)) != EOF) {
+            this->count = 1;
+        } else {
+            base->state |= IOSTATE_eofbit;
+            if (ch)
+                base->state |= IOSTATE_failbit;
+        }
+        if (ch)
+            *ch = ret;
+        istream_isfx(this);
+    }
+    return ret;
+}
+
+/* ?get@istream@@QAEAAV1@AAC@Z */
+/* ?get@istream@@QEAAAEAV1@AEAC@Z */
+/* ?get@istream@@QAEAAV1@AAD@Z */
+/* ?get@istream@@QEAAAEAV1@AEAD@Z */
+DEFINE_THISCALL_WRAPPER(istream_get_char, 8)
+istream* __thiscall istream_get_char(istream *this, char *ch)
+{
+    istream_internal_get_char(this, ch);
+    return this;
+}
+
+/* ?get@istream@@QAEAAV1@AAE@Z */
+/* ?get@istream@@QEAAAEAV1@AEAE@Z */
+DEFINE_THISCALL_WRAPPER(istream_get_unsigned_char, 8)
+istream* __thiscall istream_get_unsigned_char(istream *this, unsigned char *ch)
+{
+    istream_internal_get_char(this, (char*) ch);
+    return this;
+}
+
+/* ?get@istream@@QAEHXZ */
+/* ?get@istream@@QEAAHXZ */
+DEFINE_THISCALL_WRAPPER(istream_get, 4)
+int __thiscall istream_get(istream *this)
+{
+    return istream_internal_get_char(this, NULL);
+}
+
+/* ?get@istream@@QAEAAV1@AAVstreambuf@@D@Z */
+/* ?get@istream@@QEAAAEAV1@AEAVstreambuf@@D@Z */
+DEFINE_THISCALL_WRAPPER(istream_get_sb, 12)
+istream* __thiscall istream_get_sb(istream *this, streambuf *sb, char delim)
+{
+    ios *base = istream_get_ios(this);
+    int ch;
+
+    TRACE("(%p %p %c)\n", this, sb, delim);
+
+    if (istream_ipfx(this, 1)) {
+        for (ch = streambuf_sgetc(base->sb); ch != delim; ch = streambuf_snextc(base->sb)) {
+            if (ch == EOF) {
+                base->state |= IOSTATE_eofbit;
+                break;
+            }
+            if (streambuf_sputc(sb, ch) == EOF)
+                base->state |= IOSTATE_failbit;
+            this->count++;
+        }
+        istream_isfx(this);
+    }
+    return this;
+}
+
+/* ?getline@istream@@QAEAAV1@PACHD@Z */
+/* ?getline@istream@@QEAAAEAV1@PEACHD@Z */
+/* ?getline@istream@@QAEAAV1@PADHD@Z */
+/* ?getline@istream@@QEAAAEAV1@PEADHD@Z */
+DEFINE_THISCALL_WRAPPER(istream_getline, 16)
+istream* __thiscall istream_getline(istream *this, char *str, int count, char delim)
+{
+    ios *base = istream_get_ios(this);
+
+    TRACE("(%p %p %d %c)\n", this, str, count, delim);
+
+    ios_lock(base);
+    this->extract_delim++;
+    istream_get_str_delim(this, str, count, (unsigned char) delim);
+    ios_unlock(base);
+    return this;
+}
+
+/* ?getline@istream@@QAEAAV1@PAEHD@Z */
+/* ?getline@istream@@QEAAAEAV1@PEAEHD@Z */
+DEFINE_THISCALL_WRAPPER(istream_getline_unsigned, 16)
+istream* __thiscall istream_getline_unsigned(istream *this, unsigned char *str, int count, char delim)
+{
+    return istream_getline(this, (char*) str, count, delim);
+}
+
+/* ?ignore@istream@@QAEAAV1@HH@Z */
+/* ?ignore@istream@@QEAAAEAV1@HH@Z */
+DEFINE_THISCALL_WRAPPER(istream_ignore, 12)
+istream* __thiscall istream_ignore(istream *this, int count, int delim)
+{
+    ios *base = istream_get_ios(this);
+
+    TRACE("(%p %d %d)\n", this, count, delim);
+
+    ios_lock(base);
+    this->extract_delim++;
+    istream_get_str_delim(this, NULL, count + 1, delim);
+    ios_unlock(base);
+    return this;
+}
+
+/* ?peek@istream@@QAEHXZ */
+/* ?peek@istream@@QEAAHXZ */
+DEFINE_THISCALL_WRAPPER(istream_peek, 4)
+int __thiscall istream_peek(istream *this)
+{
+    ios *base = istream_get_ios(this);
+    int ret = EOF;
+
+    TRACE("(%p)\n", this);
+
+    if (istream_ipfx(this, 1)) {
+        ret = streambuf_sgetc(base->sb);
+        istream_isfx(this);
+    }
+    return ret;
+}
+
+/* ?putback@istream@@QAEAAV1@D@Z */
+/* ?putback@istream@@QEAAAEAV1@D@Z */
+DEFINE_THISCALL_WRAPPER(istream_putback, 8)
+istream* __thiscall istream_putback(istream *this, char ch)
+{
+    ios *base = istream_get_ios(this);
+
+    TRACE("(%p %c)\n", this, ch);
+
+    if (ios_good(base)) {
+        ios_lockbuf(base);
+        if (streambuf_sputbackc(base->sb, ch) == EOF)
+            ios_clear(base, base->state | IOSTATE_failbit);
+        ios_unlockbuf(base);
+    }
+    return this;
+}
+
+/* ?read@istream@@QAEAAV1@PACH@Z */
+/* ?read@istream@@QEAAAEAV1@PEACH@Z */
+/* ?read@istream@@QAEAAV1@PADH@Z */
+/* ?read@istream@@QEAAAEAV1@PEADH@Z */
+DEFINE_THISCALL_WRAPPER(istream_read, 12)
+istream* __thiscall istream_read(istream *this, char *str, int count)
+{
+    ios *base = istream_get_ios(this);
+
+    TRACE("(%p %p %d)\n", this, str, count);
+
+    if (istream_ipfx(this, 1)) {
+        if ((this->count = streambuf_sgetn(base->sb, str, count)) != count)
+            base->state = IOSTATE_eofbit | IOSTATE_failbit;
+        istream_isfx(this);
+    }
+    return this;
+}
+
+/* ?read@istream@@QAEAAV1@PAEH@Z */
+/* ?read@istream@@QEAAAEAV1@PEAEH@Z */
+DEFINE_THISCALL_WRAPPER(istream_read_unsigned, 12)
+istream* __thiscall istream_read_unsigned(istream *this, unsigned char *str, int count)
+{
+    return istream_read(this, (char*) str, count);
+}
+
+/* ?seekg@istream@@QAEAAV1@J@Z */
+/* ?seekg@istream@@QEAAAEAV1@J@Z */
+DEFINE_THISCALL_WRAPPER(istream_seekg, 8)
+istream* __thiscall istream_seekg(istream *this, streampos pos)
+{
+    ios *base = istream_get_ios(this);
+
+    TRACE("(%p %d)\n", this, pos);
+
+    ios_lockbuf(base);
+    if (streambuf_seekpos(base->sb, pos, OPENMODE_in) == EOF)
+        ios_clear(base, base->state | IOSTATE_failbit);
+    ios_unlockbuf(base);
+    return this;
+}
+
+/* ?seekg@istream@@QAEAAV1@JW4seek_dir@ios@@@Z */
+/* ?seekg@istream@@QEAAAEAV1@JW4seek_dir@ios@@@Z */
+DEFINE_THISCALL_WRAPPER(istream_seekg_offset, 12)
+istream* __thiscall istream_seekg_offset(istream *this, streamoff off, ios_seek_dir dir)
+{
+    ios *base = istream_get_ios(this);
+
+    TRACE("(%p %d %d)\n", this, off, dir);
+
+    ios_lockbuf(base);
+    if (call_streambuf_seekoff(base->sb, off, dir, OPENMODE_in) == EOF)
+        ios_clear(base, base->state | IOSTATE_failbit);
+    ios_unlockbuf(base);
+    return this;
+}
+
+/* ?sync@istream@@QAEHXZ */
+/* ?sync@istream@@QEAAHXZ */
+DEFINE_THISCALL_WRAPPER(istream_sync, 4)
+int __thiscall istream_sync(istream *this)
+{
+    ios *base = istream_get_ios(this);
+    int ret;
+
+    TRACE("(%p)\n", this);
+
+    ios_lockbuf(base);
+    if ((ret = call_streambuf_sync(base->sb)) == EOF)
+        ios_clear(base, base->state | IOSTATE_badbit | IOSTATE_failbit);
+    ios_unlockbuf(base);
+    return ret;
+}
+
+/* ?tellg@istream@@QAEJXZ */
+/* ?tellg@istream@@QEAAJXZ */
+DEFINE_THISCALL_WRAPPER(istream_tellg, 4)
+streampos __thiscall istream_tellg(istream *this)
+{
+    ios *base = istream_get_ios(this);
+    streampos pos;
+
+    TRACE("(%p)\n", this);
+
+    ios_lockbuf(base);
+    if ((pos = call_streambuf_seekoff(base->sb, 0, SEEKDIR_cur, OPENMODE_in)) == EOF)
+        ios_clear(base, base->state | IOSTATE_failbit);
+    ios_unlockbuf(base);
+    return pos;
+}
+
+static int getint_is_valid_digit(char ch, int base)
+{
+    if (base == 8) return (ch >= '0' && ch <= '7');
+    if (base == 16) return isxdigit(ch);
+    return isdigit(ch);
+}
+
+/* ?getint@istream@@AAEHPAD@Z */
+/* ?getint@istream@@AEAAHPEAD@Z */
+DEFINE_THISCALL_WRAPPER(istream_getint, 8)
+int __thiscall istream_getint(istream *this, char *str)
+{
+    ios *base = istream_get_ios(this);
+    int ch, num_base = 0, i = 0;
+    BOOL scan_sign = TRUE, scan_prefix = TRUE, scan_x = FALSE, valid_integer = FALSE;
+
+    TRACE("(%p %p)\n", this, str);
+
+    if (istream_ipfx(this, 0)) {
+        num_base = (base->flags & FLAGS_dec) ? 10 :
+            (base->flags & FLAGS_hex) ? 16 :
+            (base->flags & FLAGS_oct) ? 8 : 0; /* 0 = autodetect */
+        /* scan valid characters, up to 15 (hard limit on Windows) */
+        for (ch = streambuf_sgetc(base->sb); i < 15; ch = streambuf_snextc(base->sb)) {
+            if ((ch == '+' || ch == '-') && scan_sign) {
+                /* no additional sign allowed */
+                scan_sign = FALSE;
+            } else if ((ch == 'x' || ch == 'X') && scan_x) {
+                /* only hex digits can (and must) follow */
+                scan_x = valid_integer = FALSE;
+                num_base = 16;
+            } else if (ch == '0' && scan_prefix) {
+                /* might be the octal prefix, the beginning of the hex prefix or a decimal zero */
+                scan_sign = scan_prefix = FALSE;
+                scan_x = !num_base || num_base == 16;
+                valid_integer = TRUE;
+                if (!num_base)
+                    num_base = 8;
+            } else if (getint_is_valid_digit(ch, num_base)) {
+                /* only digits in the corresponding base can follow */
+                scan_sign = scan_prefix = scan_x = FALSE;
+                valid_integer = TRUE;
+            } else {
+                /* unexpected character, stop scanning */
+                if (!valid_integer) {
+                    /* the result is not a valid integer */
+                    base->state |= IOSTATE_failbit;
+                    /* put any extracted character back into the stream */
+                    while (i > 0)
+                        if (streambuf_sputbackc(base->sb, str[--i]) == EOF)
+                            base->state |= IOSTATE_badbit; /* characters have been lost for good */
+                } else if (ch == EOF) {
+                    base->state |= IOSTATE_eofbit;
+                    if (scan_x && !(base->flags & ios_basefield)) {
+                        /* when autodetecting, a single zero followed by EOF is regarded as decimal */
+                        num_base = 0;
+                    }
+                }
+                break;
+            }
+            str[i++] = ch;
+        }
+        /* append a null terminator */
+        str[i] = 0;
+        istream_isfx(this);
+    }
+    return num_base;
+}
+
+/* ?getdouble@istream@@AAEHPADH@Z */
+/* ?getdouble@istream@@AEAAHPEADH@Z */
+DEFINE_THISCALL_WRAPPER(istream_getdouble, 12)
+int __thiscall istream_getdouble(istream *this, char *str, int count)
+{
+    ios *base = istream_get_ios(this);
+    int ch, i = 0;
+    BOOL scan_sign = TRUE, scan_dot = TRUE, scan_exp = TRUE,
+        valid_mantissa = FALSE, valid_exponent = FALSE;
+
+    TRACE("(%p %p %d)\n", this, str, count);
+
+    if (istream_ipfx(this, 0)) {
+        if (!count) {
+            /* can't output anything */
+            base->state |= IOSTATE_failbit;
+            i = -1;
+        } else {
+            /* valid mantissas: +d. +.d +d.d (where d are sequences of digits and the sign is optional) */
+            /* valid exponents: e+d E+d (where d are sequences of digits and the sign is optional) */
+            for (ch = streambuf_sgetc(base->sb); i < count; ch = streambuf_snextc(base->sb)) {
+                if ((ch == '+' || ch == '-') && scan_sign) {
+                    /* no additional sign allowed */
+                    scan_sign = FALSE;
+                } else if (ch == '.' && scan_dot) {
+                    /* no sign or additional dot allowed */
+                    scan_sign = scan_dot = FALSE;
+                } else if ((ch == 'e' || ch == 'E') && scan_exp) {
+                    /* sign is allowed again but not dots or exponents */
+                    scan_sign = TRUE;
+                    scan_dot = scan_exp = FALSE;
+                } else if (isdigit(ch)) {
+                    if (scan_exp)
+                        valid_mantissa = TRUE;
+                    else
+                        valid_exponent = TRUE;
+                     /* no sign allowed after a digit */
+                    scan_sign = FALSE;
+                } else {
+                    /* unexpected character, stop scanning */
+                    /* check whether the result is a valid double */
+                    if (!scan_exp && !valid_exponent) {
+                        /* put the last character back into the stream, usually the 'e' or 'E' */
+                        if (streambuf_sputbackc(base->sb, str[i--]) == EOF)
+                            base->state |= IOSTATE_badbit; /* characters have been lost for good */
+                    } else if (ch == EOF)
+                        base->state |= IOSTATE_eofbit;
+                    if (!valid_mantissa)
+                        base->state |= IOSTATE_failbit;
+                    break;
+                }
+                str[i++] = ch;
+            }
+            /* check if character limit has been reached */
+            if (i == count) {
+                base->state |= IOSTATE_failbit;
+                i--;
+            }
+            /* append a null terminator */
+            str[i] = 0;
+        }
+        istream_isfx(this);
+    }
+    return i;
+}
+
+/* ?ws@@YAAAVistream@@AAV1@@Z */
+/* ?ws@@YAAEAVistream@@AEAV1@@Z */
+istream* __cdecl istream_ws(istream *this)
+{
+    TRACE("(%p)\n", this);
+    istream_eatwhite(this);
+    return this;
+}
+
 /******************************************************************
  *		 ??0ostrstream@@QAE@XZ (MSVCRTI.@)
  */
@@ -2939,6 +3626,7 @@ static void init_io(void *base)
     init_stdiobuf_rtti(base);
     init_ios_rtti(base);
     init_ostream_rtti(base);
+    init_istream_rtti(base);
 #endif
 }
 

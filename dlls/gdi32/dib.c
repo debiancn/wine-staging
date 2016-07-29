@@ -490,7 +490,7 @@ INT nulldrv_StretchDIBits( PHYSDEV dev, INT xDst, INT yDst, INT widthDst, INT he
     rect.top    = yDst;
     rect.right  = xDst + widthDst;
     rect.bottom = yDst + heightDst;
-    LPtoDP( dc->hSelf, (POINT *)&rect, 2 );
+    lp_to_dp( dc, (POINT *)&rect, 2 );
     dst.x      = rect.left;
     dst.y      = rect.top;
     dst.width  = rect.right - rect.left;
@@ -581,14 +581,7 @@ INT nulldrv_StretchDIBits( PHYSDEV dev, INT xDst, INT yDst, INT widthDst, INT he
         if (dst_info->bmiHeader.biBitCount == 1 && !dst_colors)
         {
             if (src_info->bmiHeader.biBitCount > 1)
-            {
-                COLORREF color = GetBkColor( dev->hdc );
-                dst_info->bmiColors[0].rgbRed      = GetRValue( color );
-                dst_info->bmiColors[0].rgbGreen    = GetGValue( color );
-                dst_info->bmiColors[0].rgbBlue     = GetBValue( color );
-                dst_info->bmiColors[0].rgbReserved = 0;
-                dst_info->bmiHeader.biClrUsed = 1;
-            }
+                get_mono_dc_colors( dev->hdc, dst_info, 1 );
             else
             {
                 memcpy( dst_info->bmiColors, src_info->bmiColors, 2 * sizeof(dst_info->bmiColors[0]) );
@@ -855,7 +848,7 @@ INT nulldrv_SetDIBitsToDevice( PHYSDEV dev, INT x_dst, INT y_dst, DWORD cx, DWOR
 
     pt.x = x_dst;
     pt.y = y_dst;
-    LPtoDP( dev->hdc, &pt, 1 );
+    lp_to_dp( dc, &pt, 1 );
     dst.x = pt.x;
     dst.y = pt.y;
     dst.width = cx;
@@ -1485,8 +1478,8 @@ HBITMAP WINAPI CreateDIBitmap( HDC hdc, const BITMAPINFOHEADER *header,
 /***********************************************************************
  *           CreateDIBSection    (GDI32.@)
  */
-HBITMAP WINAPI CreateDIBSection(HDC hdc, const BITMAPINFO *bmi, UINT usage,
-                                VOID **bits, HANDLE section, DWORD offset)
+HBITMAP WINAPI DECLSPEC_HOTPATCH CreateDIBSection(HDC hdc, const BITMAPINFO *bmi, UINT usage,
+                                                  void **bits, HANDLE section, DWORD offset)
 {
     char buffer[FIELD_OFFSET( BITMAPINFO, bmiColors[256] )];
     BITMAPINFO *info = (BITMAPINFO *)buffer;

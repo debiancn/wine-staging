@@ -38,6 +38,9 @@
 #ifdef HAVE_SYS_MMAN_H
 # include <sys/mman.h>
 #endif
+#ifdef HAVE_SYS_SYSINFO_H
+# include <sys/sysinfo.h>
+#endif
 #ifdef HAVE_VALGRIND_VALGRIND_H
 # include <valgrind/valgrind.h>
 #endif
@@ -1356,11 +1359,22 @@ void virtual_init_threading(void)
  */
 void virtual_get_system_info( SYSTEM_BASIC_INFORMATION *info )
 {
+#ifdef HAVE_SYS_SYSINFO_H
+    struct sysinfo sinfo;
+#endif
+
     info->unknown                 = 0;
     info->KeMaximumIncrement      = 0;  /* FIXME */
     info->PageSize                = page_size;
     info->MmLowestPhysicalPage    = 1;
     info->MmHighestPhysicalPage   = 0x7fffffff / page_size;
+#ifdef HAVE_SYS_SYSINFO_H
+    if (!sysinfo(&sinfo))
+    {
+        ULONG64 total = (ULONG64)sinfo.totalram * sinfo.mem_unit;
+        info->MmHighestPhysicalPage = max(1, total / page_size);
+    }
+#endif
     info->MmNumberOfPhysicalPages = info->MmHighestPhysicalPage - info->MmLowestPhysicalPage;
     info->AllocationGranularity   = get_mask(0) + 1;
     info->LowestUserAddress       = (void *)0x10000;
@@ -2723,7 +2737,6 @@ NTSTATUS WINAPI NtUnmapViewOfSection( HANDLE process, PVOID addr )
     struct file_view *view;
     NTSTATUS status = STATUS_NOT_MAPPED_VIEW;
     sigset_t sigset;
-    void *base = ROUND_ADDR( addr, page_mask );
 
     if (process != NtCurrentProcess())
     {
@@ -2740,7 +2753,7 @@ NTSTATUS WINAPI NtUnmapViewOfSection( HANDLE process, PVOID addr )
     }
 
     server_enter_uninterrupted_section( &csVirtual, &sigset );
-    if ((view = VIRTUAL_FindView( base, 0 )) && (base == view->base) && !(view->protect & VPROT_VALLOC))
+    if ((view = VIRTUAL_FindView( addr, 0 )) && !(view->protect & VPROT_VALLOC))
     {
         delete_view( view );
         status = STATUS_SUCCESS;

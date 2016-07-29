@@ -168,6 +168,7 @@ static const struct wined3d_extension_map gl_extension_map[] =
     {"GL_ARB_vertex_buffer_object",         ARB_VERTEX_BUFFER_OBJECT      },
     {"GL_ARB_vertex_program",               ARB_VERTEX_PROGRAM            },
     {"GL_ARB_vertex_shader",                ARB_VERTEX_SHADER             },
+    {"GL_ARB_vertex_type_2_10_10_10_rev",   ARB_VERTEX_TYPE_2_10_10_10_REV},
 
     /* ATI */
     {"GL_ATI_fragment_shader",              ATI_FRAGMENT_SHADER           },
@@ -1587,7 +1588,8 @@ static void init_driver_info(struct wined3d_driver_info *driver_info,
      *   This could be an indication that our database is not up to date, so this should be fixed.
      */
     if ((version_info = get_driver_version_info(driver, driver_model))
-            || (version_info = get_driver_version_info(driver, DRIVER_MODEL_NT5X)))
+            || (version_info = get_driver_version_info(driver, DRIVER_MODEL_NT5X))
+            || (version_info = get_driver_version_info(driver, DRIVER_MODEL_NT6X)))
     {
         driver_info->name = version_info->driver_name;
         driver_info->version_high = MAKEDWORD_VERSION(driver_os_version, version_info->version);
@@ -3543,6 +3545,7 @@ static BOOL wined3d_adapter_init_gl_caps(struct wined3d_adapter *adapter, DWORD 
         {ARB_TEXTURE_RGB10_A2UI,           MAKEDWORD_VERSION(3, 3)},
         {ARB_TEXTURE_SWIZZLE,              MAKEDWORD_VERSION(3, 3)},
         {ARB_TIMER_QUERY,                  MAKEDWORD_VERSION(3, 3)},
+        {ARB_VERTEX_TYPE_2_10_10_10_REV,   MAKEDWORD_VERSION(3, 3)},
 
         {ARB_ES2_COMPATIBILITY,            MAKEDWORD_VERSION(4, 1)},
 
