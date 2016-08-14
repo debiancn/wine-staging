@@ -1,6 +1,7 @@
 wine-development (1.9.16-2) UNRELEASED; urgency=medium
 
   * Make "update-alternatives --remove" quiet.
+  * Make libc6-dev dependency portable.
 
  -- Jens Reyer <jre.winesim@gmail.com>  Sun, 14 Aug 2016 02:32:35 +0200
 
