@@ -1,3 +1,10 @@
+wine (1.8.4-2) UNRELEASED; urgency=medium
+
+  * Cherrypick changes from master:
+    - Make libc6-dev dependency portable.
+
+ -- Jens Reyer <jre.winesim@gmail.com>  Fri, 23 Sep 2016 14:09:58 +0200
+
 wine (1.8.4-1) unstable; urgency=medium
 
   * New upstream release 1.8.4, released Aug 22, 2016.
