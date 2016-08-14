@@ -1,3 +1,10 @@
+wine (1.8.3-4) UNRELEASED; urgency=medium
+
+  * Cherrypick changes from master:
+    - Make "update-alternatives --remove" quiet.
+
+ -- Jens Reyer <jre.winesim@gmail.com>  Mon, 08 Aug 2016 14:36:29 +0200
+
 wine (1.8.3-3) unstable; urgency=medium
 
   * Cherrypick changes from master:
