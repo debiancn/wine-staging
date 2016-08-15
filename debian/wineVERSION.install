@@ -1,4 +1,4 @@
-debian/tmp/wineVERSION usr/bin
+debian/tmp/wineDEBSUFFIX usr/bin
+debian/tmp/wineserver usr/lib/wineVERSION
+debian/tmp/wineapploader usr/lib/wineVERSION
 
-debian/scripts/wineserver usr/lib/wineVERSION
-debian/scripts/wineapploader usr/lib/wineVERSION

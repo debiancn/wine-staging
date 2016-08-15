@@ -1,3 +1,29 @@
+wine (1.8.3-3) unstable; urgency=medium
+
+  * Cherrypick changes from master:
+    - Fix wineserver manpages for Debian's default persistence value (see:
+      #816020).
+    - Drop alternative depends on perl:any (now handled by debhelper).
+      Bump build-dep on debhelper version to >= 9.20160702.
+    - Add removal instructions for binfmt support to README.debian.
+    - Add Recommends g++ or g++-multilib to the -tools (closes: #832041).
+  * Implement the Debian alternatives system (see: #758291).
+    Partly cherrypicked from master:
+    - Replace VERSION (value is empty or '-development') with DEBSUFFIX
+      ('-stable' or '-development') in user exposed files.
+    - Generate scripts (wine, wineserver, wineapploader, winegcc) with
+      hardcoded paths/names instead of using runtime detection.
+    - Export DEBSUFFIX from d/rules.
+    - Drop now obsolete development/winegcc.patch.
+    - Use variable instead of '-development' in winemenubuilder.patch, and
+      enable it.
+    - Let the -tools packages recommend wineVERSION.
+    - Add bug script to show the target of the /usr/bin/wine link.
+  * Make wine-binfmt M-A:foreign.
+  * Add gnutls.patch to fix FTBFS against gnutls 3.5 (closes: #832275).
+
+ -- Jens Reyer <jre.winesim@gmail.com>  Mon, 08 Aug 2016 14:36:29 +0200
+
 wine (1.8.3-2~bpo8+1) jessie-backports; urgency=medium
 
   * Rebuild for jessie-backports.

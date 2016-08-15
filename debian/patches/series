@@ -1,3 +1,4 @@
+gnutls.patch
 fontdir.patch
 makefile.patch
 kfreebsd.patch
@@ -5,6 +6,7 @@ sfnt2fon.patch
 manpages.patch
 unicode-9.patch
 version-string.patch
+manpages-wineserver-persistence.patch
 
 disable/addons-download.patch
 disable/shlib-exit-calls.patch
@@ -13,8 +15,7 @@ generate/opengl.patch
 generate/unicode.patch
 generate/request.patch
 
-# development/winegcc.patch
-# development/winemenubuilder.patch
+debsuffix/winemenubuilder.patch
 
 glu32.patch
 openal.patch
