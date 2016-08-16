@@ -1,12 +1,14 @@
-wine-development (1.9.15-2) unstable; urgency=medium
+wine-development (1.9.16-1) unstable; urgency=medium
 
   Debian has two sets of Wine packages: wine and wine-development. They now use
   the Debian alternatives system to provide /usr/bin/wine and other commands.
-  If both are installed this system defaults to use the commands provided by
-  wine, which previously provided the command names without suffix.
 
-  But if configured, or if only "wine-development" is installed, you may now
-  use wine-development's commands without the "-development" suffix.
+  If both are installed this system defaults to use the commands provided by
+  wine (no change in behavior because wine already provided these unsuffixed
+  commandnames previously).
+
+  But if configured, or if only wine-development is installed, you may now use
+  wine-development's commands without the "-development" suffix.
 
   For more information on this please have a look at README.debian.
 
