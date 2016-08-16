@@ -1,3 +1,12 @@
+wine (1.8.3-3~bpo8+1) jessie-backports; urgency=medium
+
+  * Rebuild for jessie-backports.
+  * Adjust version in NEWS entry to be shown in backports.
+  * Revert "Drop alternative depends on perl:any (now handled by debhelper)."
+    - debhelper in backports doesn't support this yet.
+
+ -- Jens Reyer <jre.winesim@gmail.com>  Tue, 16 Aug 2016 04:44:37 +0200
+
 wine (1.8.3-3) unstable; urgency=medium
 
   * Cherrypick changes from master:
