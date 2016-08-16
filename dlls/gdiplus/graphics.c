@@ -5128,6 +5128,8 @@ GpStatus WINGDIPAPI GdipResetClip(GpGraphics *graphics)
 
 GpStatus WINGDIPAPI GdipResetWorldTransform(GpGraphics *graphics)
 {
+    GpStatus stat;
+
     TRACE("(%p)\n", graphics);
 
     if(!graphics)
@@ -5135,6 +5137,13 @@ GpStatus WINGDIPAPI GdipResetWorldTransform(GpGraphics *graphics)
 
     if(graphics->busy)
         return ObjectBusy;
+
+    if (graphics->image && graphics->image->type == ImageTypeMetafile) {
+        stat = METAFILE_ResetWorldTransform((GpMetafile*)graphics->image);
+
+        if (stat != Ok)
+            return stat;
+    }
 
     return GdipSetMatrixElements(&graphics->worldtrans, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0);
 }
@@ -5242,6 +5251,8 @@ GpStatus WINGDIPAPI GdipEndContainer(GpGraphics *graphics, GraphicsContainer sta
 GpStatus WINGDIPAPI GdipScaleWorldTransform(GpGraphics *graphics, REAL sx,
     REAL sy, GpMatrixOrder order)
 {
+    GpStatus stat;
+
     TRACE("(%p, %.2f, %.2f, %d)\n", graphics, sx, sy, order);
 
     if(!graphics)
@@ -5249,6 +5260,13 @@ GpStatus WINGDIPAPI GdipScaleWorldTransform(GpGraphics *graphics, REAL sx,
 
     if(graphics->busy)
         return ObjectBusy;
+
+    if (graphics->image && graphics->image->type == ImageTypeMetafile) {
+        stat = METAFILE_ScaleWorldTransform((GpMetafile*)graphics->image, sx, sy, order);
+
+        if (stat != Ok)
+            return stat;
+    }
 
     return GdipScaleMatrix(&graphics->worldtrans, sx, sy, order);
 }

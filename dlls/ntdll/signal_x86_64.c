@@ -241,8 +241,6 @@ static inline int arch_prctl( int func, void *ptr ) { return syscall( __NR_arch_
 
 #define FPU_sig(context)   ((XMM_SAVE_AREA32 *)((context)->uc_mcontext.__fpregs))
 #elif defined (__APPLE__)
-static pthread_key_t teb_key;
-
 #define RAX_sig(context)     ((context)->uc_mcontext->__ss.__rax)
 #define RBX_sig(context)     ((context)->uc_mcontext->__ss.__rbx)
 #define RCX_sig(context)     ((context)->uc_mcontext->__ss.__rcx)
@@ -2835,9 +2833,65 @@ void signal_free_thread( TEB *teb )
 }
 
 #ifdef __APPLE__
-static void init_teb_key(void)
+/**********************************************************************
+ *		mac_thread_gsbase
+ */
+static void *mac_thread_gsbase(void)
 {
-    pthread_key_create( &teb_key, NULL );
+    static int gsbase_offset = -1;
+    void *ret;
+
+    if (gsbase_offset < 0)
+    {
+        /* Search for the array of TLS slots within the pthread data structure.
+           That's what the macOS pthread implementation uses for gsbase. */
+        const void* const sentinel1 = (const void*)0x2bffb6b4f11228ae;
+        const void* const sentinel2 = (const void*)0x0845a7ff6ab76707;
+        int rc;
+        pthread_key_t key;
+        const void** p = (const void**)pthread_self();
+        int i;
+
+        gsbase_offset = 0;
+        if ((rc = pthread_key_create(&key, NULL)))
+        {
+            ERR("failed to create sentinel key for gsbase search: %d\n", rc);
+            return NULL;
+        }
+
+        pthread_setspecific(key, sentinel1);
+
+        for (i = key + 1; i < 2000; i++) /* arbitrary limit */
+        {
+            if (p[i] == sentinel1)
+            {
+                pthread_setspecific(key, sentinel2);
+
+                if (p[i] == sentinel2)
+                {
+                    gsbase_offset = (i - key) * sizeof(*p);
+                    break;
+                }
+
+                pthread_setspecific(key, sentinel1);
+            }
+        }
+
+        pthread_key_delete(key);
+    }
+
+    if (gsbase_offset)
+    {
+        ret = (char*)pthread_self() + gsbase_offset;
+        TRACE("pthread_self() %p + offset 0x%08x -> gsbase %p\n", pthread_self(), gsbase_offset, ret);
+    }
+    else
+    {
+        ret = NULL;
+        ERR("failed to locate gsbase; won't be able to poke ThreadLocalStoragePointer into pthread TLS; expect crashes\n");
+    }
+
+    return ret;
 }
 #endif
 
@@ -2849,10 +2903,6 @@ void signal_init_thread( TEB *teb )
     const WORD fpu_cw = 0x27f;
     stack_t ss;
 
-#ifdef __APPLE__
-    static pthread_once_t init_once = PTHREAD_ONCE_INIT;
-#endif
-
 #if defined __linux__
     arch_prctl( ARCH_SET_GS, teb );
 #elif defined (__FreeBSD__) || defined (__FreeBSD_kernel__)
@@ -2860,9 +2910,17 @@ void signal_init_thread( TEB *teb )
 #elif defined(__NetBSD__)
     sysarch( X86_64_SET_GSBASE, &teb );
 #elif defined (__APPLE__)
-    /* FIXME: Actually setting %gs needs support from the OS */
-    pthread_once( &init_once, init_teb_key );
-    pthread_setspecific( teb_key, teb );
+    __asm__ volatile (".byte 0x65\n\tmovq %0,%c1"
+                      :
+                      : "r" (teb->Tib.Self), "n" (FIELD_OFFSET(TEB, Tib.Self)));
+    __asm__ volatile (".byte 0x65\n\tmovq %0,%c1"
+                      :
+                      : "r" (teb->ThreadLocalStoragePointer), "n" (FIELD_OFFSET(TEB, ThreadLocalStoragePointer)));
+
+    /* alloc_tls_slot() needs to poke a value to an address relative to each
+       thread's gsbase.  Have each thread record its gsbase pointer into its
+       TEB so alloc_tls_slot() can find it. */
+    teb->Reserved5[0] = mac_thread_gsbase();
 #else
 # error Please define setting %gs for your architecture
 #endif
@@ -3846,20 +3904,5 @@ __ASM_STDCALL_FUNC( DbgBreakPoint, 0, "int $3; ret")
  *		DbgUserBreakPoint   (NTDLL.@)
  */
 __ASM_STDCALL_FUNC( DbgUserBreakPoint, 0, "int $3; ret")
-
-/**********************************************************************
- *              NtCurrentTeb  (NTDLL.@)
- *
- * FIXME: This isn't exported from NTDLL on real NT.  This should be
- *        removed if and when we can set the GSBASE MSR on Mac OS X.
- */
-#ifdef __APPLE__
-TEB * WINAPI NtCurrentTeb(void)
-{
-    return pthread_getspecific( teb_key );
-}
-#else
-__ASM_STDCALL_FUNC( NtCurrentTeb, 0, ".byte 0x65\n\tmovq 0x30,%rax\n\tret" )
-#endif
 
 #endif  /* __x86_64__ */

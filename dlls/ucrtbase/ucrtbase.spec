@@ -143,26 +143,26 @@
 @ cdecl __std_exception_copy(ptr ptr) MSVCRT___std_exception_copy
 @ cdecl __std_exception_destroy(ptr) MSVCRT___std_exception_destroy
 @ cdecl __std_type_info_compare(ptr ptr) MSVCRT_type_info_compare
-@ stub __std_type_info_destroy_list
+@ cdecl __std_type_info_destroy_list(ptr) MSVCRT_type_info_destroy_list
 @ stub __std_type_info_hash
-@ stub __std_type_info_name
-@ cdecl __stdio_common_vfprintf(int64 ptr ptr ptr ptr) MSVCRT__stdio_common_vfprintf
+@ cdecl __std_type_info_name(ptr ptr) MSVCRT_type_info_name_list
+@ cdecl __stdio_common_vfprintf(int64 ptr str ptr ptr) MSVCRT__stdio_common_vfprintf
 @ stub __stdio_common_vfprintf_p
 @ stub __stdio_common_vfprintf_s
 @ stub __stdio_common_vfscanf
-@ cdecl __stdio_common_vfwprintf(int64 ptr ptr ptr ptr) MSVCRT__stdio_common_vfwprintf
+@ cdecl __stdio_common_vfwprintf(int64 ptr wstr ptr ptr) MSVCRT__stdio_common_vfwprintf
 @ stub __stdio_common_vfwprintf_p
 @ stub __stdio_common_vfwprintf_s
 @ stub __stdio_common_vfwscanf
-@ cdecl __stdio_common_vsnprintf_s(int64 ptr long long ptr ptr ptr) MSVCRT__stdio_common_vsnprintf_s
-@ stub __stdio_common_vsnwprintf_s
-@ cdecl __stdio_common_vsprintf(int64 ptr long ptr ptr ptr) MSVCRT__stdio_common_vsprintf
+@ cdecl __stdio_common_vsnprintf_s(int64 ptr long long str ptr ptr) MSVCRT__stdio_common_vsnprintf_s
+@ cdecl __stdio_common_vsnwprintf_s(int64 ptr long long wstr ptr ptr) MSVCRT__stdio_common_vsnwprintf_s
+@ cdecl __stdio_common_vsprintf(int64 ptr long str ptr ptr) MSVCRT__stdio_common_vsprintf
 @ stub __stdio_common_vsprintf_p
-@ cdecl __stdio_common_vsprintf_s(int64 ptr long ptr ptr ptr) MSVCRT__stdio_common_vsprintf_s
-@ cdecl __stdio_common_vsscanf(int64 ptr long ptr ptr ptr) MSVCRT__stdio_common_vsscanf
-@ cdecl __stdio_common_vswprintf(int64 ptr long ptr ptr ptr) MSVCRT__stdio_common_vswprintf
-@ stub __stdio_common_vswprintf_p
-@ stub __stdio_common_vswprintf_s
+@ cdecl __stdio_common_vsprintf_s(int64 ptr long str ptr ptr) MSVCRT__stdio_common_vsprintf_s
+@ cdecl __stdio_common_vsscanf(int64 ptr long str ptr ptr) MSVCRT__stdio_common_vsscanf
+@ cdecl __stdio_common_vswprintf(int64 ptr long wstr ptr ptr) MSVCRT__stdio_common_vswprintf
+@ cdecl __stdio_common_vswprintf_p(int64 ptr long wstr ptr ptr) MSVCRT__stdio_common_vswprintf_p
+@ cdecl __stdio_common_vswprintf_s(int64 ptr long wstr ptr ptr) MSVCRT__stdio_common_vswprintf_s
 @ stub __stdio_common_vswscanf
 @ stub __strncnt
 @ cdecl __sys_errlist()
@@ -368,7 +368,7 @@
 @ cdecl _get_initial_narrow_environment()
 @ cdecl _get_initial_wide_environment()
 @ cdecl _get_invalid_parameter_handler()
-@ stub _get_narrow_winmain_command_line
+@ cdecl _get_narrow_winmain_command_line()
 @ cdecl _get_osfhandle(long) MSVCRT__get_osfhandle
 @ cdecl _get_pgmptr(ptr)
 @ cdecl _get_printf_count_output() MSVCRT__get_printf_count_output
@@ -379,7 +379,7 @@
 @ cdecl _get_timezone(ptr)
 @ cdecl _get_tzname(ptr str long long) MSVCRT__get_tzname
 @ cdecl _get_unexpected() MSVCRT__get_unexpected
-@ stub _get_wide_winmain_command_line
+@ cdecl _get_wide_winmain_command_line()
 @ cdecl _get_wpgmptr(ptr)
 @ cdecl _getc_nolock(ptr) MSVCRT__fgetc_nolock
 @ cdecl _getch()
@@ -2281,6 +2281,7 @@
 @ stub expm1f
 @ stub expm1l
 @ cdecl fabs(double) MSVCRT_fabs
+@ cdecl -arch=arm fabsf(float) MSVCRT_fabsf
 @ cdecl fclose(ptr) MSVCRT_fclose
 @ stub fdim
 @ stub fdimf
@@ -2479,7 +2480,7 @@
 @ cdecl scalbn(double long) MSVCRT__scalb
 @ cdecl scalbnf(float long) MSVCRT__scalbf
 @ cdecl scalbnl(double long) MSVCR120_scalbnl
-@ stub set_terminate
+@ cdecl set_terminate(ptr) MSVCRT_set_terminate
 @ cdecl set_unexpected(ptr) MSVCRT_set_unexpected
 @ cdecl setbuf(ptr ptr) MSVCRT_setbuf
 @ cdecl -arch=arm,x86_64 -norelay -private setjmp(ptr) MSVCRT__setjmp

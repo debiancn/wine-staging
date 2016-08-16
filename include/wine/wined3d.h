@@ -113,6 +113,8 @@ enum wined3d_format_id
     WINED3DFMT_R5G5_SNORM_L6_UNORM,
     WINED3DFMT_R8G8_SNORM_L8X8_UNORM,
     WINED3DFMT_R10G11B11_SNORM,
+    WINED3DFMT_R10G10B10X2_UINT,
+    WINED3DFMT_R10G10B10X2_SNORM,
     WINED3DFMT_R10G10B10_SNORM_A2_UNORM,
     WINED3DFMT_D16_LOCKABLE,
     WINED3DFMT_D32_UNORM,
@@ -460,8 +462,8 @@ enum wined3d_fill_mode
 enum wined3d_cull
 {
     WINED3D_CULL_NONE                       = 1,
-    WINED3D_CULL_CW                         = 2,
-    WINED3D_CULL_CCW                        = 3,
+    WINED3D_CULL_FRONT                      = 2,
+    WINED3D_CULL_BACK                       = 3,
 };
 
 enum wined3d_stencil_op
@@ -816,12 +818,14 @@ enum wined3d_display_rotation
 #define WINED3DTA_COMPLEMENT                                    0x00000010
 #define WINED3DTA_ALPHAREPLICATE                                0x00000020
 
-#define WINED3DPRESENTFLAG_LOCKABLE_BACKBUFFER                  0x00000001
-#define WINED3DPRESENTFLAG_DISCARD_DEPTHSTENCIL                 0x00000002
-#define WINED3DPRESENTFLAG_DEVICECLIP                           0x00000004
-#define WINED3DPRESENTFLAG_VIDEO                                0x00000010
-#define WINED3DPRESENTFLAG_NOAUTOROTATE                         0x00000020
-#define WINED3DPRESENTFLAG_UNPRUNEDMODE                         0x00000040
+#define WINED3D_SWAPCHAIN_LOCKABLE_BACKBUFFER                   0x00000001u
+#define WINED3D_SWAPCHAIN_DISCARD_DEPTHSTENCIL                  0x00000002u
+#define WINED3D_SWAPCHAIN_DEVICECLIP                            0x00000004u
+#define WINED3D_SWAPCHAIN_VIDEO                                 0x00000010u
+#define WINED3D_SWAPCHAIN_NOAUTOROTATE                          0x00000020u
+#define WINED3D_SWAPCHAIN_UNPRUNEDMODE                          0x00000040u
+#define WINED3D_SWAPCHAIN_ALLOW_MODE_SWITCH                     0x00001000u
+#define WINED3D_SWAPCHAIN_RESTORE_WINDOW_RECT                   0x00002000u
 
 #define WINED3DDP_MAXTEXCOORD                                   8
 
@@ -1891,6 +1895,11 @@ struct wined3d_buffer_desc
     UINT misc_flags;
 };
 
+struct wined3d_rasterizer_state_desc
+{
+    BOOL front_ccw;
+};
+
 struct wined3d_rendertarget_view_desc
 {
     enum wined3d_format_id format_id;
@@ -2012,6 +2021,7 @@ struct wined3d_buffer;
 struct wined3d_device;
 struct wined3d_palette;
 struct wined3d_query;
+struct wined3d_rasterizer_state;
 struct wined3d_rendertarget_view;
 struct wined3d_resource;
 struct wined3d_sampler;
@@ -2195,6 +2205,7 @@ struct wined3d_shader_resource_view * __cdecl wined3d_device_get_ps_resource_vie
 struct wined3d_sampler * __cdecl wined3d_device_get_ps_sampler(const struct wined3d_device *device, UINT idx);
 HRESULT __cdecl wined3d_device_get_raster_status(const struct wined3d_device *device,
         UINT swapchain_idx, struct wined3d_raster_status *raster_status);
+struct wined3d_rasterizer_state * __cdecl wined3d_device_get_rasterizer_state(struct wined3d_device *device);
 DWORD __cdecl wined3d_device_get_render_state(const struct wined3d_device *device, enum wined3d_render_state state);
 struct wined3d_rendertarget_view * __cdecl wined3d_device_get_rendertarget_view(const struct wined3d_device *device,
         unsigned int view_idx);
@@ -2242,7 +2253,8 @@ void __cdecl wined3d_device_release_focus_window(struct wined3d_device *device);
 HRESULT __cdecl wined3d_device_reset(struct wined3d_device *device,
         const struct wined3d_swapchain_desc *swapchain_desc, const struct wined3d_display_mode *mode,
         wined3d_device_reset_cb callback, BOOL reset_state);
-void __cdecl wined3d_device_restore_fullscreen_window(struct wined3d_device *device, HWND window);
+void __cdecl wined3d_device_restore_fullscreen_window(struct wined3d_device *device, HWND window,
+        const RECT *window_rect);
 void __cdecl wined3d_device_set_base_vertex_index(struct wined3d_device *device, INT base_index);
 HRESULT __cdecl wined3d_device_set_clip_plane(struct wined3d_device *device,
         UINT plane_idx, const struct wined3d_vec4 *plane);
@@ -2285,6 +2297,8 @@ HRESULT __cdecl wined3d_device_set_ps_consts_i(struct wined3d_device *device,
 void __cdecl wined3d_device_set_ps_resource_view(struct wined3d_device *device,
         UINT idx, struct wined3d_shader_resource_view *view);
 void __cdecl wined3d_device_set_ps_sampler(struct wined3d_device *device, UINT idx, struct wined3d_sampler *sampler);
+void __cdecl wined3d_device_set_rasterizer_state(struct wined3d_device *device,
+        struct wined3d_rasterizer_state *rasterizer_state);
 void __cdecl wined3d_device_set_render_state(struct wined3d_device *device,
         enum wined3d_render_state state, DWORD value);
 HRESULT __cdecl wined3d_device_set_rendertarget_view(struct wined3d_device *device,
@@ -2422,6 +2436,11 @@ static inline HRESULT wined3d_private_store_set_private_data(struct wined3d_priv
     return WINED3D_OK;
 }
 
+HRESULT __cdecl wined3d_rasterizer_state_create(struct wined3d_device *device,
+        const struct wined3d_rasterizer_state_desc *desc, struct wined3d_rasterizer_state **state);
+ULONG __cdecl wined3d_rasterizer_state_decref(struct wined3d_rasterizer_state *state);
+ULONG __cdecl wined3d_rasterizer_state_incref(struct wined3d_rasterizer_state *state);
+
 void __cdecl wined3d_resource_get_desc(const struct wined3d_resource *resource,
         struct wined3d_resource_desc *desc);
 void * __cdecl wined3d_resource_get_parent(const struct wined3d_resource *resource);
@@ -2508,6 +2527,10 @@ HRESULT __cdecl wined3d_swapchain_present(struct wined3d_swapchain *swapchain,
 HRESULT __cdecl wined3d_swapchain_resize_buffers(struct wined3d_swapchain *swapchain, unsigned int buffer_count,
         unsigned int width, unsigned int height, enum wined3d_format_id format_id,
         enum wined3d_multisample_type multisample_type, unsigned int multisample_quality);
+HRESULT __cdecl wined3d_swapchain_resize_target(struct wined3d_swapchain *swapchain,
+        const struct wined3d_display_mode *mode);
+HRESULT __cdecl wined3d_swapchain_set_fullscreen(struct wined3d_swapchain *swapchain,
+        const struct wined3d_swapchain_desc *desc, const struct wined3d_display_mode *mode);
 HRESULT __cdecl wined3d_swapchain_set_gamma_ramp(const struct wined3d_swapchain *swapchain,
         DWORD flags, const struct wined3d_gamma_ramp *ramp);
 void __cdecl wined3d_swapchain_set_palette(struct wined3d_swapchain *swapchain, struct wined3d_palette *palette);

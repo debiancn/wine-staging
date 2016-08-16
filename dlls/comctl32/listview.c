@@ -5621,8 +5621,8 @@ static BOOL LISTVIEW_DeleteColumn(LISTVIEW_INFO *infoPtr, INT nColumn)
     
     TRACE("nColumn=%d\n", nColumn);
 
-    if (nColumn < 0 || DPA_GetPtrCount(infoPtr->hdpaColumns) == 0
-           || nColumn >= DPA_GetPtrCount(infoPtr->hdpaColumns)) return FALSE;
+    if (nColumn < 0 || nColumn >= DPA_GetPtrCount(infoPtr->hdpaColumns))
+        return FALSE;
 
     /* While the MSDN specifically says that column zero should not be deleted,
        what actually happens is that the column itself is deleted but no items or subitems
@@ -5863,13 +5863,15 @@ static BOOL LISTVIEW_EndEditLabelT(LISTVIEW_INFO *infoPtr, BOOL storeText, BOOL 
     {
         DWORD len = isW ? GetWindowTextLengthW(infoPtr->hwndEdit) : GetWindowTextLengthA(infoPtr->hwndEdit);
 
-        if (len)
+        if (len++)
         {
-            if ((pszText = Alloc((len+1) * (isW ? sizeof(WCHAR) : sizeof(CHAR)))))
-            {
-                if (isW) GetWindowTextW(infoPtr->hwndEdit, pszText, len+1);
-                else GetWindowTextA(infoPtr->hwndEdit, (CHAR*)pszText, len+1);
-            }
+            if (!(pszText = Alloc(len * (isW ? sizeof(WCHAR) : sizeof(CHAR)))))
+                return FALSE;
+
+            if (isW)
+                GetWindowTextW(infoPtr->hwndEdit, pszText, len);
+            else
+                GetWindowTextA(infoPtr->hwndEdit, (CHAR*)pszText, len);
         }
     }
 
@@ -9053,7 +9055,8 @@ static INT LISTVIEW_SetSelectionMark(LISTVIEW_INFO *infoPtr, INT nIndex)
 
   TRACE("(nIndex=%d)\n", nIndex);
 
-  infoPtr->nSelectionMark = nIndex;
+  if (nIndex >= -1 && nIndex < infoPtr->nItemCount)
+    infoPtr->nSelectionMark = nIndex;
 
   return nOldIndex;
 }

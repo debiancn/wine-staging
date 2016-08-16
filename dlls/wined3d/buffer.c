@@ -538,6 +538,14 @@ static void buffer_unload(struct wined3d_resource *resource)
         buffer->stride = 0;
         buffer->conversion_stride = 0;
         buffer->flags &= ~WINED3D_BUFFER_HASDESC;
+
+        /* The stream source state handler might have read the memory of the
+         * vertex buffer already and got the memory in the vbo which is not
+         * valid any longer. Dirtify the stream source to force a reload. This
+         * happens only once per changed vertexbuffer and should occur rather
+         * rarely. */
+        if (resource->bind_count)
+            device_invalidate_state(device, STATE_STREAMSRC);
     }
 
     resource_unload(resource);
@@ -545,18 +553,8 @@ static void buffer_unload(struct wined3d_resource *resource)
 
 static void wined3d_buffer_drop_bo(struct wined3d_buffer *buffer)
 {
-    struct wined3d_device *device = buffer->resource.device;
-
     buffer->flags &= ~WINED3D_BUFFER_USE_BO;
     buffer_unload(&buffer->resource);
-
-    /* The stream source state handler might have read the memory of
-     * the vertex buffer already and got the memory in the vbo which
-     * is not valid any longer. Dirtify the stream source to force a
-     * reload. This happens only once per changed vertexbuffer and
-     * should occur rather rarely. */
-    if (buffer->resource.bind_count)
-        device_invalidate_state(device, STATE_STREAMSRC);
 }
 
 static void wined3d_buffer_destroy_object(void *object)
@@ -744,9 +742,9 @@ void buffer_internal_preload(struct wined3d_buffer *buffer, struct wined3d_conte
         const struct wined3d_state *state)
 {
     DWORD flags = buffer->flags & (WINED3D_BUFFER_SYNC | WINED3D_BUFFER_DISCARD);
+    const struct wined3d_gl_info *gl_info = context->gl_info;
     struct wined3d_device *device = buffer->resource.device;
     UINT start, end, len, vertices;
-    const struct wined3d_gl_info *gl_info;
     BOOL decl_changed = FALSE;
     unsigned int i, j;
     BYTE *data;
@@ -783,7 +781,7 @@ void buffer_internal_preload(struct wined3d_buffer *buffer, struct wined3d_conte
 
         if (!use_vs(state))
         {
-            if (!context->gl_info->supported[ARB_VERTEX_ARRAY_BGRA])
+            if (!gl_info->supported[ARB_VERTEX_ARRAY_BGRA] && !context->d3d_info->ffp_generic_attributes)
                 fixup_flags |= WINED3D_BUFFER_FIXUP_D3DCOLOR;
             if (!context->d3d_info->xyzrhw)
                 fixup_flags |= WINED3D_BUFFER_FIXUP_XYZRHW;
@@ -873,12 +871,10 @@ void buffer_internal_preload(struct wined3d_buffer *buffer, struct wined3d_conte
             return;
         }
 
-        buffer_direct_upload(buffer, context->gl_info, flags);
+        buffer_direct_upload(buffer, gl_info, flags);
 
         return;
     }
-
-    gl_info = context->gl_info;
 
     if(!(buffer->flags & WINED3D_BUFFER_DOUBLEBUFFER))
     {

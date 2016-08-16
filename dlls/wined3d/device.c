@@ -324,15 +324,15 @@ void device_clear_render_targets(struct wined3d_device *device, UINT rt_count, c
     for (i = 0; i < rt_count; ++i)
     {
         struct wined3d_rendertarget_view *rtv = fb->render_targets[i];
-        struct wined3d_surface *rt = wined3d_rendertarget_view_get_surface(rtv);
 
-        if (rt && rtv->format->id != WINED3DFMT_NULL)
+        if (rtv && rtv->format->id != WINED3DFMT_NULL)
         {
+            struct wined3d_texture *rt = wined3d_texture_from_resource(rtv->resource);
+
             if (flags & WINED3DCLEAR_TARGET && !is_full_clear(target, draw_rect, rect_count ? clear_rect : NULL))
-                surface_load_location(rt, context, rtv->resource->draw_binding);
+                wined3d_texture_load_location(rt, rtv->sub_resource_idx, context, rtv->resource->draw_binding);
             else
-                wined3d_texture_prepare_location(rt->container, rtv->sub_resource_idx,
-                        context, rtv->resource->draw_binding);
+                wined3d_texture_prepare_location(rt, rtv->sub_resource_idx, context, rtv->resource->draw_binding);
         }
     }
 
@@ -911,12 +911,16 @@ void CDECL wined3d_device_setup_fullscreen_window(struct wined3d_device *device,
     device->filter_messages = filter_messages;
 }
 
-void CDECL wined3d_device_restore_fullscreen_window(struct wined3d_device *device, HWND window)
+void CDECL wined3d_device_restore_fullscreen_window(struct wined3d_device *device, HWND window,
+        const RECT *window_rect)
 {
+    unsigned int window_pos_flags = SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOACTIVATE;
     BOOL filter_messages;
     LONG style, exstyle;
+    RECT rect = {0};
 
-    if (!device->style && !device->exStyle) return;
+    if (!device->style && !device->exStyle)
+        return;
 
     style = GetWindowLongW(window, GWL_STYLE);
     exstyle = GetWindowLongW(window, GWL_EXSTYLE);
@@ -945,7 +949,13 @@ void CDECL wined3d_device_restore_fullscreen_window(struct wined3d_device *devic
         SetWindowLongW(window, GWL_STYLE, device->style);
         SetWindowLongW(window, GWL_EXSTYLE, device->exStyle);
     }
-    SetWindowPos(window, 0, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+
+    if (window_rect)
+        rect = *window_rect;
+    else
+        window_pos_flags |= (SWP_NOMOVE | SWP_NOSIZE);
+    SetWindowPos(window, 0, rect.left, rect.top,
+            rect.right - rect.left, rect.bottom - rect.top, window_pos_flags);
 
     device->filter_messages = filter_messages;
 
@@ -1175,7 +1185,7 @@ HRESULT CDECL wined3d_device_uninit_3d(struct wined3d_device *device)
     LIST_FOR_EACH_ENTRY_SAFE(resource, cursor, &device->resources, struct wined3d_resource, resource_list_entry)
     {
         TRACE("Unloading resource %p.\n", resource);
-        resource->resource_ops->resource_unload(resource);
+        wined3d_cs_emit_unload_resource(device->cs, resource);
     }
 
     wine_rb_clear(&device->samplers, device_free_sampler, NULL);
@@ -2057,6 +2067,32 @@ static void resolve_depth_buffer(struct wined3d_state *state)
     SetRect(&src_rect, 0, 0, src_view->width, src_view->height);
     wined3d_texture_blt(dst_texture, 0, &dst_rect, texture_from_resource(src_view->resource),
             src_view->sub_resource_idx, &src_rect, 0, NULL, WINED3D_TEXF_POINT);
+}
+
+void CDECL wined3d_device_set_rasterizer_state(struct wined3d_device *device,
+        struct wined3d_rasterizer_state *rasterizer_state)
+{
+    struct wined3d_rasterizer_state *prev;
+
+    TRACE("device %p, rasterizer_state %p.\n", device, rasterizer_state);
+
+    prev = device->update_state->rasterizer_state;
+    if (prev == rasterizer_state)
+        return;
+
+    if (rasterizer_state)
+        wined3d_rasterizer_state_incref(rasterizer_state);
+    device->update_state->rasterizer_state = rasterizer_state;
+    wined3d_cs_emit_set_rasterizer_state(device->cs, rasterizer_state);
+    if (prev)
+        wined3d_rasterizer_state_decref(prev);
+}
+
+struct wined3d_rasterizer_state * CDECL wined3d_device_get_rasterizer_state(struct wined3d_device *device)
+{
+    TRACE("device %p.\n", device);
+
+    return device->state.rasterizer_state;
 }
 
 void CDECL wined3d_device_set_render_state(struct wined3d_device *device,
@@ -3581,7 +3617,7 @@ static HRESULT wined3d_device_update_texture_3d(struct wined3d_device *device,
 
         data.buffer_object = 0;
         data.addr = src.data;
-        wined3d_volume_upload_data(dst_texture, i, context, &data);
+        wined3d_texture_upload_data(dst_texture, i, context, &data, src.row_pitch, src.slice_pitch);
         wined3d_texture_invalidate_location(dst_texture, i, ~WINED3D_LOCATION_TEXTURE_RGB);
 
         if (FAILED(hr = wined3d_resource_unmap(&src_texture->resource, src_level + i)))
@@ -4125,7 +4161,7 @@ void CDECL wined3d_device_update_sub_resource(struct wined3d_device *device, str
     if (!dst_point.x && !dst_point.y && src_rect.right == width && src_rect.bottom == height)
         wined3d_texture_prepare_texture(texture, context, FALSE);
     else
-        surface_load_location(surface, context, WINED3D_LOCATION_TEXTURE_RGB);
+        wined3d_texture_load_location(texture, sub_resource_idx, context, WINED3D_LOCATION_TEXTURE_RGB);
     wined3d_texture_bind_and_dirtify(texture, context, FALSE);
 
     wined3d_surface_upload_data(surface, gl_info, resource->format,
@@ -4245,10 +4281,7 @@ HRESULT CDECL wined3d_device_set_rendertarget_view(struct wined3d_device *device
         state->viewport.max_z = 1.0f;
         wined3d_cs_emit_set_viewport(device->cs, &state->viewport);
 
-        state->scissor_rect.top = 0;
-        state->scissor_rect.left = 0;
-        state->scissor_rect.right = view->width;
-        state->scissor_rect.bottom = view->height;
+        SetRect(&state->scissor_rect, 0, 0, view->width, view->height);
         wined3d_cs_emit_set_scissor_rect(device->cs, &state->scissor_rect);
     }
 
@@ -4511,12 +4544,9 @@ void CDECL wined3d_device_evict_managed_resources(struct wined3d_device *device)
         if (resource->pool == WINED3D_POOL_MANAGED && !resource->map_count)
         {
             TRACE("Evicting %p.\n", resource);
-            resource->resource_ops->resource_unload(resource);
+            wined3d_cs_emit_unload_resource(device->cs, resource);
         }
     }
-
-    /* Invalidate stream sources, the buffer(s) may have been evicted. */
-    device_invalidate_state(device, STATE_STREAMSRC);
 }
 
 static void delete_opengl_contexts(struct wined3d_device *device, struct wined3d_swapchain *swapchain)
@@ -4618,8 +4648,6 @@ HRESULT CDECL wined3d_device_reset(struct wined3d_device *device,
     struct wined3d_rendertarget_view_desc view_desc;
     struct wined3d_resource *resource, *cursor;
     struct wined3d_swapchain *swapchain;
-    struct wined3d_display_mode m;
-    BOOL DisplayModeChanged;
     HRESULT hr = WINED3D_OK;
     unsigned int i;
 
@@ -4631,7 +4659,6 @@ HRESULT CDECL wined3d_device_reset(struct wined3d_device *device,
         ERR("Failed to get the first implicit swapchain.\n");
         return WINED3DERR_INVALIDCALL;
     }
-    DisplayModeChanged = swapchain->reapply_mode;
 
     if (reset_state)
     {
@@ -4710,72 +4737,13 @@ HRESULT CDECL wined3d_device_reset(struct wined3d_device *device,
         wined3d_swapchain_set_window(swapchain, NULL);
     }
 
-    if (mode)
-    {
-        DisplayModeChanged = TRUE;
-        m = *mode;
-    }
-    else if (swapchain_desc->windowed)
-    {
-        m = swapchain->original_mode;
-    }
-    else
-    {
-        m.width = swapchain_desc->backbuffer_width;
-        m.height = swapchain_desc->backbuffer_height;
-        m.refresh_rate = swapchain_desc->refresh_rate;
-        m.format_id = swapchain_desc->backbuffer_format;
-        m.scanline_ordering = WINED3D_SCANLINE_ORDERING_UNKNOWN;
-
-        if ((m.width != swapchain->desc.backbuffer_width
-                || m.height != swapchain->desc.backbuffer_height))
-            DisplayModeChanged = TRUE;
-    }
-
     if (!swapchain_desc->windowed != !swapchain->desc.windowed
-            || DisplayModeChanged)
+            || swapchain->reapply_mode || mode
+            || swapchain_desc->backbuffer_width != swapchain->desc.backbuffer_width
+            || swapchain_desc->backbuffer_height != swapchain->desc.backbuffer_height)
     {
-        if (FAILED(hr = wined3d_set_adapter_display_mode(device->wined3d, device->adapter->ordinal, &m)))
-        {
-            WARN("Failed to set display mode, hr %#x.\n", hr);
-            return WINED3DERR_INVALIDCALL;
-        }
-
-        if (!swapchain_desc->windowed)
-        {
-            if (swapchain->desc.windowed)
-            {
-                HWND focus_window = device->create_parms.focus_window;
-                if (!focus_window)
-                    focus_window = swapchain_desc->device_window;
-                if (FAILED(hr = wined3d_device_acquire_focus_window(device, focus_window)))
-                {
-                    ERR("Failed to acquire focus window, hr %#x.\n", hr);
-                    return hr;
-                }
-
-                /* switch from windowed to fs */
-                wined3d_device_setup_fullscreen_window(device, swapchain->device_window,
-                        swapchain_desc->backbuffer_width,
-                        swapchain_desc->backbuffer_height);
-            }
-            else
-            {
-                /* Fullscreen -> fullscreen mode change */
-                MoveWindow(swapchain->device_window, 0, 0,
-                        swapchain_desc->backbuffer_width,
-                        swapchain_desc->backbuffer_height,
-                        TRUE);
-            }
-            swapchain->d3d_mode = m;
-        }
-        else if (!swapchain->desc.windowed)
-        {
-            /* Fullscreen -> windowed switch */
-            wined3d_device_restore_fullscreen_window(device, swapchain->device_window);
-            wined3d_device_release_focus_window(device);
-        }
-        swapchain->desc.windowed = swapchain_desc->windowed;
+        if (FAILED(hr = wined3d_swapchain_set_fullscreen(swapchain, swapchain_desc, mode)))
+            return hr;
     }
     else if (!swapchain_desc->windowed)
     {
@@ -4809,7 +4777,7 @@ HRESULT CDECL wined3d_device_reset(struct wined3d_device *device,
         struct wined3d_resource_desc texture_desc;
         struct wined3d_texture *texture;
 
-        TRACE("Creating the depth stencil buffer\n");
+        TRACE("Creating the depth stencil buffer.\n");
 
         texture_desc.resource_type = WINED3D_RTYPE_TEXTURE_2D;
         texture_desc.format = swapchain->desc.auto_depth_stencil_format;
@@ -4902,10 +4870,7 @@ HRESULT CDECL wined3d_device_reset(struct wined3d_device *device,
         state->viewport.height = view->height;
         wined3d_cs_emit_set_viewport(device->cs, &state->viewport);
 
-        state->scissor_rect.top = 0;
-        state->scissor_rect.left = 0;
-        state->scissor_rect.right = view->width;
-        state->scissor_rect.bottom = view->height;
+        SetRect(&state->scissor_rect, 0, 0, view->width, view->height);
         wined3d_cs_emit_set_scissor_rect(device->cs, &state->scissor_rect);
     }
 

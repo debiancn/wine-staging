@@ -114,6 +114,7 @@ static const struct wined3d_extension_map gl_extension_map[] =
     {"GL_ARB_debug_output",                 ARB_DEBUG_OUTPUT              },
     {"GL_ARB_depth_buffer_float",           ARB_DEPTH_BUFFER_FLOAT        },
     {"GL_ARB_depth_texture",                ARB_DEPTH_TEXTURE             },
+    {"GL_ARB_derivative_control",           ARB_DERIVATIVE_CONTROL        },
     {"GL_ARB_draw_buffers",                 ARB_DRAW_BUFFERS              },
     {"GL_ARB_draw_elements_base_vertex",    ARB_DRAW_ELEMENTS_BASE_VERTEX },
     {"GL_ARB_draw_instanced",               ARB_DRAW_INSTANCED            },
@@ -1282,6 +1283,7 @@ static const struct gpu_description gpu_description_table[] =
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTX680,     "NVIDIA GeForce GTX 680",           DRIVER_NVIDIA_GEFORCE8,  2048},
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GT730,      "NVIDIA GeForce GT 730",            DRIVER_NVIDIA_GEFORCE8,  2048},
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GT730M,     "NVIDIA GeForce GT 730M",           DRIVER_NVIDIA_GEFORCE8,  1024},
+    {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GT740M,     "NVIDIA GeForce GT 740M",           DRIVER_NVIDIA_GEFORCE8,  2048},
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GT750M,     "NVIDIA GeForce GT 750M",           DRIVER_NVIDIA_GEFORCE8,  1024},
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTX750,     "NVIDIA GeForce GTX 750",           DRIVER_NVIDIA_GEFORCE8,  1024},
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTX750TI,   "NVIDIA GeForce GTX 750 Ti",        DRIVER_NVIDIA_GEFORCE8,  2048},
@@ -1793,6 +1795,7 @@ cards_nvidia_binary[] =
     {"GTX 750 Ti",                  CARD_NVIDIA_GEFORCE_GTX750TI},  /* Geforce 700 - midend */
     {"GTX 750",                     CARD_NVIDIA_GEFORCE_GTX750},    /* Geforce 700 - midend */
     {"GT 750M",                     CARD_NVIDIA_GEFORCE_GT750M},    /* Geforce 700 - midend mobile */
+    {"GT 740M",                     CARD_NVIDIA_GEFORCE_GT740M},    /* Geforce 700 - midend mobile */
     {"GT 730M",                     CARD_NVIDIA_GEFORCE_GT730M},    /* Geforce 700 - midend mobile */
     {"GT 730",                      CARD_NVIDIA_GEFORCE_GT730},     /* Geforce 700 - lowend */
     {"GTX 680",                     CARD_NVIDIA_GEFORCE_GTX680},    /* Geforce 600 - highend */
@@ -2153,6 +2156,7 @@ cards_nvidia_mesa[] =
     {"NV118",                       CARD_NVIDIA_GEFORCE_840M},
     {"NV117",                       CARD_NVIDIA_GEFORCE_GTX750},
     /* Kepler */
+    {"NV108",                       CARD_NVIDIA_GEFORCE_GT740M},
     {"NVF1",                        CARD_NVIDIA_GEFORCE_GTX780TI},
     {"NVF0",                        CARD_NVIDIA_GEFORCE_GTX780},
     {"NVE6",                        CARD_NVIDIA_GEFORCE_GTX770M},
@@ -3100,6 +3104,7 @@ static void load_gl_funcs(struct wined3d_gl_info *gl_info)
     USE_GL_FUNC(glVertexAttrib4f)           /* OpenGL 2.0 */
     USE_GL_FUNC(glVertexAttrib4fv)          /* OpenGL 2.0 */
     USE_GL_FUNC(glVertexAttrib4Nsv)         /* OpenGL 2.0 */
+    USE_GL_FUNC(glVertexAttrib4Nub)         /* OpenGL 2.0 */
     USE_GL_FUNC(glVertexAttrib4Nubv)        /* OpenGL 2.0 */
     USE_GL_FUNC(glVertexAttrib4Nusv)        /* OpenGL 2.0 */
     USE_GL_FUNC(glVertexAttrib4sv)          /* OpenGL 2.0 */
@@ -3215,6 +3220,7 @@ static void load_gl_funcs(struct wined3d_gl_info *gl_info)
     MAP_GL_FUNCTION(glVertexAttrib4f, glVertexAttrib4fARB);
     MAP_GL_FUNCTION(glVertexAttrib4fv, glVertexAttrib4fvARB);
     MAP_GL_FUNCTION(glVertexAttrib4Nsv, glVertexAttrib4NsvARB);
+    MAP_GL_FUNCTION(glVertexAttrib4Nub, glVertexAttrib4NubARB);
     MAP_GL_FUNCTION(glVertexAttrib4Nubv, glVertexAttrib4NubvARB);
     MAP_GL_FUNCTION(glVertexAttrib4Nusv, glVertexAttrib4NusvARB);
     MAP_GL_FUNCTION(glVertexAttrib4sv, glVertexAttrib4svARB);
@@ -3557,6 +3563,8 @@ static BOOL wined3d_adapter_init_gl_caps(struct wined3d_adapter *adapter, DWORD 
         {ARB_INTERNALFORMAT_QUERY2,        MAKEDWORD_VERSION(4, 3)},
         {ARB_TEXTURE_QUERY_LEVELS,         MAKEDWORD_VERSION(4, 3)},
         {ARB_TEXTURE_VIEW,                 MAKEDWORD_VERSION(4, 3)},
+
+        {ARB_DERIVATIVE_CONTROL,           MAKEDWORD_VERSION(4, 5)},
     };
     struct wined3d_driver_info *driver_info = &adapter->driver_info;
     const char *gl_vendor_str, *gl_renderer_str, *gl_version_str;

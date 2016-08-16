@@ -677,6 +677,30 @@ typedef union
     } ioctl;
 } irp_params_t;
 
+
+typedef struct
+{
+    client_ptr_t   base;
+    client_ptr_t   entry_point;
+    mem_size_t     map_size;
+    mem_size_t     stack_size;
+    mem_size_t     stack_commit;
+    unsigned int   zerobits;
+    unsigned int   subsystem;
+    unsigned short subsystem_low;
+    unsigned short subsystem_high;
+    unsigned int   gp;
+    unsigned short image_charact;
+    unsigned short dll_charact;
+    unsigned short machine;
+    unsigned char  contains_code;
+    unsigned char  image_flags;
+    unsigned int   loader_flags;
+    unsigned int   header_size;
+    unsigned int   file_size;
+    unsigned int   checksum;
+} pe_image_info_t;
+
 struct rawinput_device
 {
     unsigned short usage_page;
@@ -2129,8 +2153,8 @@ struct create_mapping_request
 {
     struct request_header __header;
     unsigned int access;
+    unsigned int flags;
     unsigned int protect;
-    char __pad_20[4];
     mem_size_t   size;
     obj_handle_t file_handle;
     /* VARARG(objattr,object_attributes); */
@@ -2187,11 +2211,11 @@ struct get_mapping_info_reply
 {
     struct reply_header __header;
     mem_size_t   size;
+    unsigned int flags;
     int          protect;
-    int          header_size;
-    client_ptr_t base;
     obj_handle_t mapping;
     obj_handle_t shared_file;
+    /* VARARG(image,pe_image_info); */
 };
 
 
@@ -6221,6 +6245,6 @@ union generic_reply
     struct terminate_job_reply terminate_job_reply;
 };
 
-#define SERVER_PROTOCOL_VERSION 504
+#define SERVER_PROTOCOL_VERSION 507
 
 #endif /* __WINE_WINE_SERVER_PROTOCOL_H */

@@ -161,7 +161,7 @@ DWORD EMFDRV_CreateBrushIndirect( PHYSDEV dev, HBRUSH hBrush )
             emr->emr.iType = EMR_CREATEMONOBRUSH;
             usage = DIB_PAL_MONO;
             /* FIXME: There is an extra DWORD written by native before the BMI.
-             *        Not sure what its meant to contain.
+             *        Not sure what it's meant to contain.
              */
             emr->offBmi = sizeof( EMRCREATEDIBPATTERNBRUSHPT ) + sizeof(DWORD);
             emr->cbBmi = sizeof( BITMAPINFOHEADER );
@@ -463,10 +463,11 @@ found:
 COLORREF EMFDRV_SetDCBrushColor( PHYSDEV dev, COLORREF color )
 {
     EMFDRV_PDEVICE *physDev = get_emf_physdev( dev );
+    DC *dc = get_physdev_dc( dev );
     EMRSELECTOBJECT emr;
     DWORD index;
 
-    if (GetCurrentObject( dev->hdc, OBJ_BRUSH ) != GetStockObject( DC_BRUSH )) return color;
+    if (dc->hBrush != GetStockObject( DC_BRUSH )) return color;
 
     if (physDev->dc_brush) DeleteObject( physDev->dc_brush );
     if (!(physDev->dc_brush = CreateSolidBrush( color ))) return CLR_INVALID;
@@ -484,11 +485,12 @@ COLORREF EMFDRV_SetDCBrushColor( PHYSDEV dev, COLORREF color )
 COLORREF EMFDRV_SetDCPenColor( PHYSDEV dev, COLORREF color )
 {
     EMFDRV_PDEVICE *physDev = get_emf_physdev( dev );
+    DC *dc = get_physdev_dc( dev );
     EMRSELECTOBJECT emr;
     DWORD index;
     LOGPEN logpen = { PS_SOLID, { 0, 0 }, color };
 
-    if (GetCurrentObject( dev->hdc, OBJ_PEN ) != GetStockObject( DC_PEN )) return color;
+    if (dc->hPen != GetStockObject( DC_PEN )) return color;
 
     if (physDev->dc_pen) DeleteObject( physDev->dc_pen );
     if (!(physDev->dc_pen = CreatePenIndirect( &logpen ))) return CLR_INVALID;

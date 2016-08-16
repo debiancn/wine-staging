@@ -38,6 +38,53 @@
 WINE_DEFAULT_DEBUG_CHANNEL(d3d);
 WINE_DECLARE_DEBUG_CHANNEL(d3d_shader);
 
+ULONG CDECL wined3d_rasterizer_state_incref(struct wined3d_rasterizer_state *state)
+{
+    ULONG refcount = InterlockedIncrement(&state->refcount);
+
+    TRACE("%p increasing refcount to %u.\n", state, refcount);
+
+    return refcount;
+}
+
+static void wined3d_rasterizer_state_destroy_object(void *object)
+{
+    HeapFree(GetProcessHeap(), 0, object);
+}
+
+ULONG CDECL wined3d_rasterizer_state_decref(struct wined3d_rasterizer_state *state)
+{
+    ULONG refcount = InterlockedDecrement(&state->refcount);
+    struct wined3d_device *device = state->device;
+
+    TRACE("%p decreasing refcount to %u.\n", state, refcount);
+
+    if (!refcount)
+        wined3d_cs_emit_destroy_object(device->cs, wined3d_rasterizer_state_destroy_object, state);
+
+    return refcount;
+}
+
+HRESULT CDECL wined3d_rasterizer_state_create(struct wined3d_device *device,
+        const struct wined3d_rasterizer_state_desc *desc, struct wined3d_rasterizer_state **state)
+{
+    struct wined3d_rasterizer_state *object;
+
+    TRACE("device %p, desc %p, state %p.\n", device, desc, state);
+
+    if (!(object = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*object))))
+        return E_OUTOFMEMORY;
+
+    object->refcount = 1;
+    object->desc = *desc;
+    object->device = device;
+
+    TRACE("Created rasterizer state %p.\n", object);
+    *state = object;
+
+    return WINED3D_OK;
+}
+
 /* Context activation for state handler is done by the caller. */
 
 static void state_undefined(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
@@ -147,13 +194,13 @@ static void state_cullmode(struct wined3d_context *context, const struct wined3d
             gl_info->gl_ops.gl.p_glDisable(GL_CULL_FACE);
             checkGLcall("glDisable GL_CULL_FACE");
             break;
-        case WINED3D_CULL_CW:
+        case WINED3D_CULL_FRONT:
             gl_info->gl_ops.gl.p_glEnable(GL_CULL_FACE);
             checkGLcall("glEnable GL_CULL_FACE");
             gl_info->gl_ops.gl.p_glCullFace(GL_FRONT);
             checkGLcall("glCullFace(GL_FRONT)");
             break;
-        case WINED3D_CULL_CCW:
+        case WINED3D_CULL_BACK:
             gl_info->gl_ops.gl.p_glEnable(GL_CULL_FACE);
             checkGLcall("glEnable GL_CULL_FACE");
             gl_info->gl_ops.gl.p_glCullFace(GL_BACK);
@@ -204,7 +251,7 @@ static void state_ditherenable(struct wined3d_context *context, const struct win
     }
 }
 
-static void state_zwritenable(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
+static void state_zwriteenable(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
 {
     const struct wined3d_gl_info *gl_info = context->gl_info;
 
@@ -4110,11 +4157,11 @@ static void load_numbered_arrays(struct wined3d_context *context,
                     GL_EXTCALL(glVertexAttrib4Nusv(i, (const GLushort *)ptr));
                     break;
 
-                case WINED3DFMT_R10G10B10A2_UINT:
+                case WINED3DFMT_R10G10B10X2_UINT:
                     FIXME("Unsure about WINED3DDECLTYPE_UDEC3.\n");
                     /*glVertexAttrib3usvARB(i, (const GLushort *)ptr); Does not exist */
                     break;
-                case WINED3DFMT_R10G10B10A2_SNORM:
+                case WINED3DFMT_R10G10B10X2_SNORM:
                     FIXME("Unsure about WINED3DDECLTYPE_DEC3N.\n");
                     /*glVertexAttrib3NusvARB(i, (const GLushort *)ptr); Does not exist */
                     break;
@@ -4792,17 +4839,14 @@ static void indexbuffer(struct wined3d_context *context, const struct wined3d_st
 static void frontface(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
 {
     const struct wined3d_gl_info *gl_info = context->gl_info;
+    GLenum mode;
 
+    mode = state->rasterizer_state && state->rasterizer_state->desc.front_ccw ? GL_CCW : GL_CW;
     if (context->render_offscreen)
-    {
-        gl_info->gl_ops.gl.p_glFrontFace(GL_CCW);
-        checkGLcall("glFrontFace(GL_CCW)");
-    }
-    else
-    {
-        gl_info->gl_ops.gl.p_glFrontFace(GL_CW);
-        checkGLcall("glFrontFace(GL_CW)");
-    }
+        mode = (mode == GL_CW) ? GL_CCW : GL_CW;
+
+    gl_info->gl_ops.gl.p_glFrontFace(mode);
+    checkGLcall("glFrontFace");
 }
 
 static void psorigin_w(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
@@ -4962,7 +5006,7 @@ const struct StateEntryTemplate misc_state_template[] =
     { STATE_RENDER(WINED3D_RS_MONOENABLE),                { STATE_RENDER(WINED3D_RS_MONOENABLE),                state_monoenable    }, WINED3D_GL_EXT_NONE             },
     { STATE_RENDER(WINED3D_RS_ROP2),                      { STATE_RENDER(WINED3D_RS_ROP2),                      state_rop2          }, WINED3D_GL_EXT_NONE             },
     { STATE_RENDER(WINED3D_RS_PLANEMASK),                 { STATE_RENDER(WINED3D_RS_PLANEMASK),                 state_planemask     }, WINED3D_GL_EXT_NONE             },
-    { STATE_RENDER(WINED3D_RS_ZWRITEENABLE),              { STATE_RENDER(WINED3D_RS_ZWRITEENABLE),              state_zwritenable   }, WINED3D_GL_EXT_NONE             },
+    { STATE_RENDER(WINED3D_RS_ZWRITEENABLE),              { STATE_RENDER(WINED3D_RS_ZWRITEENABLE),              state_zwriteenable  }, WINED3D_GL_EXT_NONE             },
     { STATE_RENDER(WINED3D_RS_LASTPIXEL),                 { STATE_RENDER(WINED3D_RS_LASTPIXEL),                 state_lastpixel     }, WINED3D_GL_EXT_NONE             },
     { STATE_RENDER(WINED3D_RS_CULLMODE),                  { STATE_RENDER(WINED3D_RS_CULLMODE),                  state_cullmode      }, WINED3D_GL_EXT_NONE             },
     { STATE_RENDER(WINED3D_RS_ZFUNC),                     { STATE_RENDER(WINED3D_RS_ZFUNC),                     state_zfunc         }, WINED3D_GL_EXT_NONE             },

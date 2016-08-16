@@ -491,10 +491,8 @@ static HRESULT prop_put(jsdisp_t *This, dispex_prop_t *prop, jsval_t val, IServi
     TRACE("%s = %s\n", debugstr_w(prop->name), debugstr_jsval(val));
 
     hres = jsval_copy(val, &prop->u.val);
-    if(FAILED(hres)) {
-        prop->u.val = jsval_undefined();
+    if(FAILED(hres))
         return hres;
-    }
 
     if(This->builtin_info->on_put)
         This->builtin_info->on_put(This, prop->name);
@@ -579,6 +577,7 @@ static ULONG WINAPI DispatchEx_Release(IDispatchEx *iface)
 {
     jsdisp_t *This = impl_from_IDispatchEx(iface);
     ULONG ref = --This->ref;
+    TRACE("(%p) ref=%d\n", This, ref);
     if(!ref)
         jsdisp_free(This);
     return ref;

@@ -19,7 +19,7 @@
 @ stub D3DX10CreateAsyncTextureInfoProcessor(ptr ptr)
 @ stub D3DX10CreateAsyncTextureProcessor(ptr ptr ptr)
 @ stdcall D3DX10CreateDevice(ptr long long long ptr)
-@ stub D3DX10CreateDeviceAndSwapChain(ptr long long long ptr ptr ptr)
+@ stdcall D3DX10CreateDeviceAndSwapChain(ptr long long long ptr ptr ptr)
 @ stdcall D3DX10CreateEffectFromFileA(str ptr ptr str long long ptr ptr ptr ptr ptr ptr)
 @ stdcall D3DX10CreateEffectFromFileW(wstr ptr ptr str long long ptr ptr ptr ptr ptr ptr)
 @ stdcall D3DX10CreateEffectFromMemory(ptr long str ptr ptr str long long ptr ptr ptr ptr ptr ptr)
@@ -44,7 +44,7 @@
 @ stub D3DX10CreateSprite(ptr long ptr)
 @ stub D3DX10CreateTextureFromFileA(ptr str ptr ptr ptr ptr)
 @ stub D3DX10CreateTextureFromFileW(ptr wstr ptr ptr ptr ptr)
-@ stub D3DX10CreateTextureFromMemory(ptr ptr long ptr ptr ptr ptr)
+@ stdcall D3DX10CreateTextureFromMemory(ptr ptr long ptr ptr ptr ptr)
 @ stub D3DX10CreateTextureFromResourceA(ptr long str ptr ptr ptr ptr)
 @ stub D3DX10CreateTextureFromResourceW(ptr long wstr ptr ptr ptr ptr)
 @ stdcall D3DX10FilterTexture(ptr long long)
@@ -70,7 +70,7 @@
 @ stdcall D3DXColorAdjustSaturation(ptr ptr float) d3dx9_36.D3DXColorAdjustSaturation
 @ stdcall D3DXComputeBoundingBox(ptr long long ptr ptr) d3dx9_36.D3DXComputeBoundingBox
 @ stdcall D3DXComputeBoundingSphere(ptr long long ptr ptr) d3dx9_36.D3DXComputeBoundingSphere
-@ stub D3DXCpuOptimizations(long)
+@ stdcall D3DXCpuOptimizations(long)
 @ stdcall D3DXCreateMatrixStack(long ptr) d3dx9_36.D3DXCreateMatrixStack
 @ stdcall D3DXFloat16To32Array(ptr ptr long) d3dx9_36.D3DXFloat16To32Array
 @ stdcall D3DXFloat32To16Array(ptr ptr long) d3dx9_36.D3DXFloat32To16Array

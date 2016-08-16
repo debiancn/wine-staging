@@ -40,9 +40,9 @@
 @ cdecl __std_exception_destroy(ptr) ucrtbase.__std_exception_destroy
 @ stub __std_terminate
 @ cdecl __std_type_info_compare(ptr ptr) ucrtbase.__std_type_info_compare
-@ stub __std_type_info_destroy_list
+@ cdecl __std_type_info_destroy_list(ptr) ucrtbase.__std_type_info_destroy_list
 @ stub __std_type_info_hash
-@ stub __std_type_info_name
+@ cdecl __std_type_info_name(ptr ptr) ucrtbase.__std_type_info_name
 @ cdecl __telemetry_main_invoke_trigger(ptr)
 @ cdecl __telemetry_main_return_trigger(ptr)
 @ cdecl __unDName(ptr str long ptr ptr long) ucrtbase.__unDName

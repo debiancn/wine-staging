@@ -26,9 +26,8 @@ Debugging information is limited to only error messages by default.  If you
 want other types of debugging output as well, you can set the WINEDEBUG
 environment variable.
 
-Examples:
+Example:
 $ WINEDEBUG=fixme+all wine
-$ WINEDEBUG=fixme+all wine-development
 
 If you want this to be more permanent, you can include an
 "export WINEDEBUG=fixme+all" line in your ~/.bashrc file.
@@ -50,15 +49,34 @@ debsnap fetches source packages by default, which you will then need to build
 (see debuild).  debsnap also lets you fetch the binary packages with the
 "-a <architecture>" option and then specifying each of the binary packages.
 
+Alternative current versions
+============================
+You can choose between two sets of Wine packages: wine and wine-development.
+wine tracks the stable releases from winehq.org (e.g. version 1.8.3), and
+wine-development the development releases (e.g. version 1.7.15).
+
+wine and wine-development use the Debian alternatives system to provide
+/usr/bin/wine and other commands. If both packages are installed it defaults to
+use the commands provided by wine. You may change this by running:
+$ sudo update-alternatives --config wine
+
+You may force a version at any time (as long as the wineserver isn't running
+yet), by using the suffixed command names, e.g.:
+$ wine-stable foo.exe
+$ wine-development foo.exe
+$ winecfg-stable
+$ winecfg-development
+$ winegcc-stable ...
+$ winegcc-development ...
+
 Configuration
 =============
 Usually everything is automatically configured, but for fine-tuning a good tool
-is winecfg (or winecfg-development).
+is winecfg.
 
 If you need to set up Wine manually, without winecfg, you can force the
 creation of a ~/.wine directory by running:
 $ wineboot
-$ wineboot-development
 
 If something goes horribly wrong, you can always completely wipe your Wine
 setup with "rm -rf ~/.wine". This will destroy everything you've installed,
@@ -83,11 +101,9 @@ Windows applications (WoW64).
 If this causes problems for an application, you may create a 32-bit prefix by
 running e.g.:
 $ WINEARCH=win32 WINEPREFIX="$HOME/.wine32" wineboot
-$ WINEARCH=win32 WINEPREFIX="$HOME/.wine32" wineboot-development
 
 You have to specify this 32-bit prefix, whenever you want to use it, e.g.:
 $ WINEPREFIX="$HOME/.wine32" wine application.exe
-$ WINEPREFIX="$HOME/.wine32" wine-development application.exe
 
 If you don't want 64-bit at all, just uninstall wine64 (or
 wine-64-development).
@@ -107,7 +123,7 @@ Use the programs with the option "-m32" (for winemaker --wine32). If you are
 using wine64(-development)-tools specify the arch-specific path to some files
 additionally, e.g.:
 $ winegcc -m32 -L/usr/lib/i386-linux-gnu/wine ...
-$ winegcc-development -m32 -L/usr/lib/i386-linux-gnu/wine-development ...
+$ winegcc -m32 -L/usr/lib/i386-linux-gnu/wine-development ...
 
 Wine Gecko
 ==========
@@ -155,3 +171,6 @@ $ sudo update-binfmts --import wine
 This change increases the risk of inadvertently launching Windows malware, so
 please make sure that you understand the security risks before blindly setting
 this up.
+
+To remove the support again execute:
+$ sudo update-binfmts --package wine --remove wine /usr/bin/wine

@@ -1288,12 +1288,7 @@ static nsresult NSAPI nsChannel_SetReferrer(nsIHttpChannel *iface, nsIURI *aRefe
 
     TRACE("(%p)->(%p)\n", This, aReferrer);
 
-    if(aReferrer)
-        nsIURI_AddRef(aReferrer);
-    if(This->referrer)
-        nsIURI_Release(This->referrer);
-    This->referrer = aReferrer;
-    return NS_OK;
+    return nsIHttpChannel_SetReferrerWithPolicy(&This->nsIHttpChannel_iface, aReferrer, 0);
 }
 
 static nsresult NSAPI nsChannel_GetReferrerPolicy(nsIHttpChannel *iface, UINT32 *aReferrerPolicy)
@@ -1306,8 +1301,53 @@ static nsresult NSAPI nsChannel_GetReferrerPolicy(nsIHttpChannel *iface, UINT32 
 static nsresult NSAPI nsChannel_SetReferrerWithPolicy(nsIHttpChannel *iface, nsIURI *aReferrer, UINT32 aReferrerPolicy)
 {
     nsChannel *This = impl_from_nsIHttpChannel(iface);
-    FIXME("(%p)->(%p %x)\n", This, aReferrer, aReferrerPolicy);
-    return NS_ERROR_NOT_IMPLEMENTED;
+    DWORD channel_scheme, referrer_scheme;
+    nsWineURI *referrer;
+    BSTR referrer_uri;
+    nsresult nsres;
+    HRESULT hres;
+
+    static const WCHAR refererW[] = {'R','e','f','e','r','e','r'};
+
+    TRACE("(%p)->(%p %d)\n", This, aReferrer, aReferrerPolicy);
+
+    if(aReferrerPolicy)
+        FIXME("refferer policy %d not implemented\n", aReferrerPolicy);
+
+    if(This->referrer) {
+        nsIURI_Release(This->referrer);
+        This->referrer = NULL;
+    }
+    if(!aReferrer)
+        return NS_OK;
+
+    nsres = nsIURI_QueryInterface(aReferrer, &IID_nsWineURI, (void**)&referrer);
+    if(NS_FAILED(nsres))
+        return NS_OK;
+
+    if(!ensure_uri(referrer)) {
+        nsIFileURL_Release(&referrer->nsIFileURL_iface);
+        return NS_ERROR_UNEXPECTED;
+    }
+
+    if(!ensure_uri(This->uri) || FAILED(IUri_GetScheme(This->uri->uri, &channel_scheme)))
+        channel_scheme = INTERNET_SCHEME_UNKNOWN;
+
+    if(FAILED(IUri_GetScheme(referrer->uri, &referrer_scheme)))
+        referrer_scheme = INTERNET_SCHEME_UNKNOWN;
+
+    if(referrer_scheme == INTERNET_SCHEME_HTTPS && channel_scheme != INTERNET_SCHEME_HTTPS) {
+        TRACE("Ignoring https referrer on non-https channel\n");
+        nsIFileURL_Release(&referrer->nsIFileURL_iface);
+        return NS_OK;
+    }
+
+    hres = IUri_GetDisplayUri(referrer->uri, &referrer_uri);
+    if(SUCCEEDED(hres) )
+        set_http_header(&This->request_headers, refererW, sizeof(refererW)/sizeof(WCHAR), referrer_uri, SysStringLen(referrer_uri));
+
+    This->referrer = (nsIURI*)&referrer->nsIFileURL_iface;
+    return NS_OK;
 }
 
 static nsresult NSAPI nsHttpChannel_GetProtocolVersion(nsIHttpChannel *iface, nsACString *aProtocolVersion)

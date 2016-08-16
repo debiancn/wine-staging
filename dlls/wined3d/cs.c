@@ -44,6 +44,7 @@ enum wined3d_cs_op
     WINED3D_CS_OP_SET_SHADER_RESOURCE_VIEW,
     WINED3D_CS_OP_SET_SAMPLER,
     WINED3D_CS_OP_SET_SHADER,
+    WINED3D_CS_OP_SET_RASTERIZER_STATE,
     WINED3D_CS_OP_SET_RENDER_STATE,
     WINED3D_CS_OP_SET_TEXTURE_STATE,
     WINED3D_CS_OP_SET_SAMPLER_STATE,
@@ -53,6 +54,8 @@ enum wined3d_cs_op
     WINED3D_CS_OP_SET_MATERIAL,
     WINED3D_CS_OP_RESET_STATE,
     WINED3D_CS_OP_DESTROY_OBJECT,
+    WINED3D_CS_OP_QUERY_ISSUE,
+    WINED3D_CS_OP_UNLOAD_RESOURCE,
 };
 
 struct wined3d_cs_present
@@ -205,6 +208,12 @@ struct wined3d_cs_set_shader
     struct wined3d_shader *shader;
 };
 
+struct wined3d_cs_set_rasterizer_state
+{
+    enum wined3d_cs_op opcode;
+    struct wined3d_rasterizer_state *state;
+};
+
 struct wined3d_cs_set_render_state
 {
     enum wined3d_cs_op opcode;
@@ -258,6 +267,19 @@ struct wined3d_cs_destroy_object
     enum wined3d_cs_op opcode;
     void (*callback)(void *object);
     void *object;
+};
+
+struct wined3d_cs_query_issue
+{
+    enum wined3d_cs_op opcode;
+    struct wined3d_query *query;
+    DWORD flags;
+};
+
+struct wined3d_cs_unload_resource
+{
+    enum wined3d_cs_op opcode;
+    struct wined3d_resource *resource;
 };
 
 static void wined3d_cs_exec_present(struct wined3d_cs *cs, const void *data)
@@ -571,7 +593,7 @@ static void wined3d_cs_exec_set_depth_stencil_view(struct wined3d_cs *cs, const 
     {
         struct wined3d_surface *prev_surface = wined3d_rendertarget_view_get_surface(prev);
 
-        if (prev_surface && (device->swapchains[0]->desc.flags & WINED3DPRESENTFLAG_DISCARD_DEPTHSTENCIL
+        if (prev_surface && (device->swapchains[0]->desc.flags & WINED3D_SWAPCHAIN_DISCARD_DEPTHSTENCIL
                 || prev_surface->container->flags & WINED3D_TEXTURE_DISCARD))
         {
             surface_modify_ds_location(prev_surface, WINED3D_LOCATION_DISCARDED, prev->width, prev->height);
@@ -941,6 +963,26 @@ void wined3d_cs_emit_set_shader(struct wined3d_cs *cs, enum wined3d_shader_type 
     cs->ops->submit(cs);
 }
 
+static void wined3d_cs_exec_set_rasterizer_state(struct wined3d_cs *cs, const void *data)
+{
+    const struct wined3d_cs_set_rasterizer_state *op = data;
+
+    cs->state.rasterizer_state = op->state;
+    device_invalidate_state(cs->device, STATE_FRONTFACE);
+}
+
+void wined3d_cs_emit_set_rasterizer_state(struct wined3d_cs *cs,
+        struct wined3d_rasterizer_state *rasterizer_state)
+{
+    struct wined3d_cs_set_rasterizer_state *op;
+
+    op = cs->ops->require_space(cs, sizeof(*op));
+    op->opcode = WINED3D_CS_OP_SET_RASTERIZER_STATE;
+    op->state = rasterizer_state;
+
+    cs->ops->submit(cs);
+}
+
 static void wined3d_cs_exec_set_render_state(struct wined3d_cs *cs, const void *data)
 {
     const struct wined3d_cs_set_render_state *op = data;
@@ -1188,6 +1230,45 @@ void wined3d_cs_emit_destroy_object(struct wined3d_cs *cs, void (*callback)(void
     cs->ops->submit(cs);
 }
 
+static void wined3d_cs_exec_query_issue(struct wined3d_cs *cs, const void *data)
+{
+    const struct wined3d_cs_query_issue *op = data;
+    struct wined3d_query *query = op->query;
+
+    query->query_ops->query_issue(query, op->flags);
+}
+
+void wined3d_cs_emit_query_issue(struct wined3d_cs *cs, struct wined3d_query *query, DWORD flags)
+{
+    struct wined3d_cs_query_issue *op;
+
+    op = cs->ops->require_space(cs, sizeof(*op));
+    op->opcode = WINED3D_CS_OP_QUERY_ISSUE;
+    op->query = query;
+    op->flags = flags;
+
+    cs->ops->submit(cs);
+}
+
+static void wined3d_cs_exec_unload_resource(struct wined3d_cs *cs, const void *data)
+{
+    const struct wined3d_cs_unload_resource *op = data;
+    struct wined3d_resource *resource = op->resource;
+
+    resource->resource_ops->resource_unload(resource);
+}
+
+void wined3d_cs_emit_unload_resource(struct wined3d_cs *cs, struct wined3d_resource *resource)
+{
+    struct wined3d_cs_unload_resource *op;
+
+    op = cs->ops->require_space(cs, sizeof(*op));
+    op->opcode = WINED3D_CS_OP_UNLOAD_RESOURCE;
+    op->resource = resource;
+
+    cs->ops->submit(cs);
+}
+
 static void (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void *data) =
 {
     /* WINED3D_CS_OP_PRESENT                    */ wined3d_cs_exec_present,
@@ -1208,6 +1289,7 @@ static void (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void
     /* WINED3D_CS_OP_SET_SHADER_RESOURCE_VIEW   */ wined3d_cs_exec_set_shader_resource_view,
     /* WINED3D_CS_OP_SET_SAMPLER                */ wined3d_cs_exec_set_sampler,
     /* WINED3D_CS_OP_SET_SHADER                 */ wined3d_cs_exec_set_shader,
+    /* WINED3D_CS_OP_SET_RASTERIZER_STATE       */ wined3d_cs_exec_set_rasterizer_state,
     /* WINED3D_CS_OP_SET_RENDER_STATE           */ wined3d_cs_exec_set_render_state,
     /* WINED3D_CS_OP_SET_TEXTURE_STATE          */ wined3d_cs_exec_set_texture_state,
     /* WINED3D_CS_OP_SET_SAMPLER_STATE          */ wined3d_cs_exec_set_sampler_state,
@@ -1217,6 +1299,8 @@ static void (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void
     /* WINED3D_CS_OP_SET_MATERIAL               */ wined3d_cs_exec_set_material,
     /* WINED3D_CS_OP_RESET_STATE                */ wined3d_cs_exec_reset_state,
     /* WINED3D_CS_OP_DESTROY_OBJECT             */ wined3d_cs_exec_destroy_object,
+    /* WINED3D_CS_OP_QUERY_ISSUE                */ wined3d_cs_exec_query_issue,
+    /* WINED3D_CS_OP_UNLOAD_RESOURCE            */ wined3d_cs_exec_unload_resource,
 };
 
 static void *wined3d_cs_st_require_space(struct wined3d_cs *cs, size_t size)

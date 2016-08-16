@@ -233,8 +233,8 @@ INT nulldrv_OffsetClipRgn( PHYSDEV dev, INT x, INT y )
 
     if (dc->hClipRgn)
     {
-        x = MulDiv( x, dc->vportExtX, dc->wndExtX );
-        y = MulDiv( y, dc->vportExtY, dc->wndExtY );
+        x = MulDiv( x, dc->vport_ext.cx, dc->wnd_ext.cx );
+        y = MulDiv( y, dc->vport_ext.cy, dc->wnd_ext.cy );
         if (dc->layout & LAYOUT_RTL) x = -x;
         ret = OffsetRgn( dc->hClipRgn, x, y );
 	update_dc_clipping( dc );
@@ -438,7 +438,7 @@ INT WINAPI GetClipBox( HDC hdc, LPRECT rect )
         rect->left = rect->right - 1;
         rect->right = tmp - 1;
     }
-    DPtoLP( hdc, (LPPOINT)rect, 2 );
+    dp_to_lp( dc, (LPPOINT)rect, 2 );
     release_dc_ptr( dc );
     TRACE("%p => %d %s\n", hdc, ret, wine_dbgstr_rect( rect ));
     return ret;

@@ -1784,6 +1784,8 @@ static void shader_glsl_declare_generic_vertex_attribute(struct wined3d_string_b
                 index);
         return;
     }
+    if (e->sysval_semantic)
+        FIXME("Unhandled sysval semantic %#x.\n", e->sysval_semantic);
 
     if (shader_glsl_use_explicit_attrib_location(gl_info))
         shader_addline(buffer, "layout(location = %u) ", index);
@@ -3526,7 +3528,11 @@ static void shader_glsl_map2gl(const struct wined3d_shader_instruction *ins)
     {
         case WINED3DSIH_ABS: instruction = "abs"; break;
         case WINED3DSIH_DSX: instruction = "dFdx"; break;
+        case WINED3DSIH_DSX_COARSE: instruction = "dFdxCoarse"; break;
+        case WINED3DSIH_DSX_FINE: instruction = "dFdxFine"; break;
         case WINED3DSIH_DSY: instruction = "ycorrection.y * dFdy"; break;
+        case WINED3DSIH_DSY_COARSE: instruction = "ycorrection.y * dFdyCoarse"; break;
+        case WINED3DSIH_DSY_FINE: instruction = "ycorrection.y * dFdyFine"; break;
         case WINED3DSIH_FRC: instruction = "fract"; break;
         case WINED3DSIH_IMAX: instruction = "max"; break;
         case WINED3DSIH_IMIN: instruction = "min"; break;
@@ -3540,7 +3546,7 @@ static void shader_glsl_map2gl(const struct wined3d_shader_instruction *ins)
         case WINED3DSIH_UMAX: instruction = "max"; break;
         case WINED3DSIH_UMIN: instruction = "min"; break;
         default: instruction = "";
-            FIXME("Opcode %s not yet handled in GLSL.\n", debug_d3dshaderinstructionhandler(ins->handler_idx));
+            ERR("Opcode %s not yet handled in GLSL.\n", debug_d3dshaderinstructionhandler(ins->handler_idx));
             break;
     }
 
@@ -5285,14 +5291,28 @@ static void shader_glsl_input_pack(const struct wined3d_shader *shader, struct w
         if (args->vp_mode == vertexshader)
         {
             if (input->sysval_semantic == WINED3D_SV_POSITION && !semantic_idx)
+            {
                 shader_addline(buffer, "ps_in[%u]%s = vpos%s;\n",
                         shader->u.ps.input_reg_map[input->register_idx], reg_mask, reg_mask);
+            }
             else if (args->pointsprite && shader_match_semantic(semantic_name, WINED3D_DECL_USAGE_TEXCOORD))
+            {
                 shader_addline(buffer, "ps_in[%u] = vec4(gl_PointCoord.xy, 0.0, 0.0);\n", input->register_idx);
+            }
+            else if (input->sysval_semantic == WINED3D_SV_IS_FRONT_FACE)
+            {
+                shader_addline(buffer, "ps_in[%u] = vec4("
+                        "uintBitsToFloat(gl_FrontFacing ? 0xffffffffu : 0u), 0.0, 0.0, 0.0);\n",
+                        input->register_idx);
+            }
             else
+            {
+                if (input->sysval_semantic)
+                    FIXME("Unhandled sysval semantic %#x.\n", input->sysval_semantic);
                 shader_addline(buffer, "ps_in[%u]%s = ps_link[%u]%s;\n",
                         shader->u.ps.input_reg_map[input->register_idx], reg_mask,
                         shader->u.ps.input_reg_map[input->register_idx], reg_mask);
+            }
         }
         else if (shader_match_semantic(semantic_name, WINED3D_DECL_USAGE_TEXCOORD))
         {
@@ -5570,6 +5590,10 @@ static void shader_glsl_setup_sm3_rasterizer_input(struct shader_glsl_priv *priv
             shader_addline(buffer, "gl_PointSize = clamp(shader_out[%u].%c, "
                     "ffp_point.size_min, ffp_point.size_max);\n", output->register_idx, reg_mask[1]);
         }
+        else if (output->sysval_semantic)
+        {
+            FIXME("Unhandled sysval semantic %#x.\n", output->sysval_semantic);
+        }
     }
 
     /* Then, setup the pixel shader input. */
@@ -5813,6 +5837,21 @@ static void shader_glsl_generate_alpha_test(struct wined3d_string_buffer *buffer
     shader_addline(buffer, "    discard;\n");
 }
 
+static void shader_glsl_enable_extensions(struct wined3d_string_buffer *buffer,
+        const struct wined3d_gl_info *gl_info)
+{
+    if (gl_info->supported[ARB_SHADER_BIT_ENCODING])
+        shader_addline(buffer, "#extension GL_ARB_shader_bit_encoding : enable\n");
+    if (gl_info->supported[ARB_TEXTURE_QUERY_LEVELS])
+        shader_addline(buffer, "#extension GL_ARB_texture_query_levels : enable\n");
+    if (gl_info->supported[ARB_UNIFORM_BUFFER_OBJECT])
+        shader_addline(buffer, "#extension GL_ARB_uniform_buffer_object : enable\n");
+    if (gl_info->supported[EXT_GPU_SHADER4])
+        shader_addline(buffer, "#extension GL_EXT_gpu_shader4 : enable\n");
+    if (gl_info->supported[EXT_TEXTURE_ARRAY])
+        shader_addline(buffer, "#extension GL_EXT_texture_array : enable\n");
+}
+
 /* Context activation is done by the caller. */
 static GLuint shader_glsl_generate_pshader(const struct wined3d_context *context,
         struct wined3d_string_buffer *buffer, struct wined3d_string_buffer_list *string_buffers,
@@ -5835,22 +5874,15 @@ static GLuint shader_glsl_generate_pshader(const struct wined3d_context *context
 
     shader_addline(buffer, "%s\n", shader_glsl_get_version(gl_info, &reg_maps->shader_version));
 
-    if (gl_info->supported[ARB_SHADER_BIT_ENCODING])
-        shader_addline(buffer, "#extension GL_ARB_shader_bit_encoding : enable\n");
+    shader_glsl_enable_extensions(buffer, gl_info);
+    if (gl_info->supported[ARB_DERIVATIVE_CONTROL])
+        shader_addline(buffer, "#extension GL_ARB_derivative_control : enable\n");
     if (gl_info->supported[ARB_SHADER_TEXTURE_LOD])
         shader_addline(buffer, "#extension GL_ARB_shader_texture_lod : enable\n");
-    if (gl_info->supported[ARB_TEXTURE_QUERY_LEVELS])
-        shader_addline(buffer, "#extension GL_ARB_texture_query_levels : enable\n");
     /* The spec says that it doesn't have to be explicitly enabled, but the
      * nvidia drivers write a warning if we don't do so. */
     if (gl_info->supported[ARB_TEXTURE_RECTANGLE])
         shader_addline(buffer, "#extension GL_ARB_texture_rectangle : enable\n");
-    if (gl_info->supported[ARB_UNIFORM_BUFFER_OBJECT])
-        shader_addline(buffer, "#extension GL_ARB_uniform_buffer_object : enable\n");
-    if (gl_info->supported[EXT_GPU_SHADER4])
-        shader_addline(buffer, "#extension GL_EXT_gpu_shader4 : enable\n");
-    if (gl_info->supported[EXT_TEXTURE_ARRAY])
-        shader_addline(buffer, "#extension GL_EXT_texture_array : enable\n");
 
     /* Base Declarations */
     shader_generate_glsl_declarations(context, buffer, shader, reg_maps, &priv_ctx);
@@ -5961,20 +5993,11 @@ static GLuint shader_glsl_generate_vshader(const struct wined3d_context *context
 
     shader_addline(buffer, "%s\n", shader_glsl_get_version(gl_info, &reg_maps->shader_version));
 
+    shader_glsl_enable_extensions(buffer, gl_info);
     if (gl_info->supported[ARB_DRAW_INSTANCED])
         shader_addline(buffer, "#extension GL_ARB_draw_instanced : enable\n");
     if (gl_info->supported[ARB_EXPLICIT_ATTRIB_LOCATION])
         shader_addline(buffer, "#extension GL_ARB_explicit_attrib_location : enable\n");
-    if (gl_info->supported[ARB_SHADER_BIT_ENCODING])
-        shader_addline(buffer, "#extension GL_ARB_shader_bit_encoding : enable\n");
-    if (gl_info->supported[ARB_TEXTURE_QUERY_LEVELS])
-        shader_addline(buffer, "#extension GL_ARB_texture_query_levels : enable\n");
-    if (gl_info->supported[ARB_UNIFORM_BUFFER_OBJECT])
-        shader_addline(buffer, "#extension GL_ARB_uniform_buffer_object : enable\n");
-    if (gl_info->supported[EXT_GPU_SHADER4])
-        shader_addline(buffer, "#extension GL_EXT_gpu_shader4 : enable\n");
-    if (gl_info->supported[EXT_TEXTURE_ARRAY])
-        shader_addline(buffer, "#extension GL_EXT_texture_array : enable\n");
 
     memset(&priv_ctx, 0, sizeof(priv_ctx));
     priv_ctx.cur_vs_args = args;
@@ -6057,18 +6080,9 @@ static GLuint shader_glsl_generate_geometry_shader(const struct wined3d_context 
 
     shader_addline(buffer, "%s\n", shader_glsl_get_version(gl_info, &reg_maps->shader_version));
 
+    shader_glsl_enable_extensions(buffer, gl_info);
     if (gl_info->supported[ARB_GEOMETRY_SHADER4])
         shader_addline(buffer, "#extension GL_ARB_geometry_shader4 : enable\n");
-    if (gl_info->supported[ARB_SHADER_BIT_ENCODING])
-        shader_addline(buffer, "#extension GL_ARB_shader_bit_encoding : enable\n");
-    if (gl_info->supported[ARB_TEXTURE_QUERY_LEVELS])
-        shader_addline(buffer, "#extension GL_ARB_texture_query_levels : enable\n");
-    if (gl_info->supported[ARB_UNIFORM_BUFFER_OBJECT])
-        shader_addline(buffer, "#extension GL_ARB_uniform_buffer_object : enable\n");
-    if (gl_info->supported[EXT_GPU_SHADER4])
-        shader_addline(buffer, "#extension GL_EXT_gpu_shader4 : enable\n");
-    if (gl_info->supported[EXT_TEXTURE_ARRAY])
-        shader_addline(buffer, "#extension GL_EXT_texture_array : enable\n");
 
     memset(&priv_ctx, 0, sizeof(priv_ctx));
     priv_ctx.string_buffers = string_buffers;
@@ -6584,8 +6598,8 @@ static GLuint shader_glsl_generate_ffp_vertex_shader(struct shader_glsl_priv *pr
     for (i = 0; i < ARRAY_SIZE(attrib_info); ++i)
     {
         if (attrib_info[i].name[0])
-            shader_addline(buffer, "%s %s = vs_in%u;\n",
-                    attrib_info[i].type, attrib_info[i].name, i);
+            shader_addline(buffer, "%s %s = vs_in%u%s;\n", attrib_info[i].type, attrib_info[i].name,
+                    i, settings->swizzle_map & (1u << i) ? ".zyxw" : "");
     }
     for (i = 0; i < MAX_TEXTURES; ++i)
     {
@@ -8558,7 +8572,8 @@ static void shader_glsl_get_caps(const struct wined3d_gl_info *gl_info, struct s
      * (ARB_compute_shader, ARB_tessellation_shader, ARB_gpu_shader5, ...) as
      * soon as we introduce them, adjusting the GL / GLSL version checks
      * accordingly. */
-    if (gl_info->glsl_version >= MAKEDWORD_VERSION(4, 30) && gl_info->supported[WINED3D_GL_VERSION_4_3])
+    if (gl_info->glsl_version >= MAKEDWORD_VERSION(4, 30) && gl_info->supported[WINED3D_GL_VERSION_4_3]
+            && gl_info->supported[ARB_DERIVATIVE_CONTROL])
         shader_model = 5;
     else if (gl_info->glsl_version >= MAKEDWORD_VERSION(1, 50) && gl_info->supported[WINED3D_GL_VERSION_3_2]
             && gl_info->supported[ARB_SHADER_BIT_ENCODING] && gl_info->supported[ARB_SAMPLER_OBJECTS]
@@ -8689,11 +8704,11 @@ static const SHADER_HANDLER shader_glsl_instruction_handler_table[WINED3DSIH_TAB
     /* WINED3DSIH_DP4                              */ shader_glsl_dot,
     /* WINED3DSIH_DST                              */ shader_glsl_dst,
     /* WINED3DSIH_DSX                              */ shader_glsl_map2gl,
-    /* WINED3DSIH_DSX_COARSE                       */ NULL,
-    /* WINED3DSIH_DSX_FINE                         */ NULL,
+    /* WINED3DSIH_DSX_COARSE                       */ shader_glsl_map2gl,
+    /* WINED3DSIH_DSX_FINE                         */ shader_glsl_map2gl,
     /* WINED3DSIH_DSY                              */ shader_glsl_map2gl,
-    /* WINED3DSIH_DSY_COARSE                       */ NULL,
-    /* WINED3DSIH_DSY_FINE                         */ NULL,
+    /* WINED3DSIH_DSY_COARSE                       */ shader_glsl_map2gl,
+    /* WINED3DSIH_DSY_FINE                         */ shader_glsl_map2gl,
     /* WINED3DSIH_ELSE                             */ shader_glsl_else,
     /* WINED3DSIH_EMIT                             */ shader_glsl_emit,
     /* WINED3DSIH_EMIT_STREAM                      */ shader_glsl_emit,

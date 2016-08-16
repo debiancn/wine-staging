@@ -72,14 +72,10 @@ typedef struct tagDC
     BOOL         bounds_enabled:1; /* bounds tracking is enabled */
     BOOL         path_open:1;      /* path is currently open (only for saved DCs) */
 
-    INT          wndOrgX;          /* Window origin */
-    INT          wndOrgY;
-    INT          wndExtX;          /* Window extent */
-    INT          wndExtY;
-    INT          vportOrgX;        /* Viewport origin */
-    INT          vportOrgY;
-    INT          vportExtX;        /* Viewport extent */
-    INT          vportExtY;
+    POINT        wnd_org;          /* Window origin */
+    SIZE         wnd_ext;          /* Window extent */
+    POINT        vport_org;        /* Viewport origin */
+    SIZE         vport_ext;        /* Viewport extent */
     SIZE         virtual_res;      /* Initially HORZRES,VERTRES. Changed by SetVirtualResolution */
     SIZE         virtual_size;     /* Initially HORZSIZE,VERTSIZE. Changed by SetVirtualResolution */
     RECT         vis_rect;         /* visible rectangle in screen coords */
@@ -112,8 +108,7 @@ typedef struct tagDC
     COLORREF      textColor;
     COLORREF      dcBrushColor;
     COLORREF      dcPenColor;
-    short         brushOrgX;
-    short         brushOrgY;
+    POINT         brush_org;
 
     DWORD         mapperFlags;       /* Font mapper flags */
     WORD          textAlign;         /* Text alignment from SetTextAlign() */
@@ -123,8 +118,7 @@ typedef struct tagDC
     INT           MapMode;
     INT           GraphicsMode;      /* Graphics mode */
     ABORTPROC     pAbortProc;        /* AbortProc for Printing */
-    INT           CursPosX;          /* Current position */
-    INT           CursPosY;
+    POINT         cur_pos;           /* Current position */
     INT           ArcDirection;
     XFORM         xformWorld2Wnd;    /* World-to-window transformation */
     XFORM         xformWorld2Vport;  /* World-to-viewport transformation */
@@ -205,7 +199,7 @@ extern BOOL intersect_vis_rectangles( struct bitblt_coords *dst, struct bitblt_c
 extern DWORD stretch_bits( const BITMAPINFO *src_info, struct bitblt_coords *src,
                            BITMAPINFO *dst_info, struct bitblt_coords *dst,
                            struct gdi_image_bits *bits, int mode ) DECLSPEC_HIDDEN;
-extern void get_mono_dc_colors( HDC hdc, BITMAPINFO *info, int count ) DECLSPEC_HIDDEN;
+extern void get_mono_dc_colors( DC *dc, BITMAPINFO *info, int count ) DECLSPEC_HIDDEN;
 
 /* brush.c */
 extern BOOL store_brush_pattern( LOGBRUSH *brush, struct brush_pattern *pattern ) DECLSPEC_HIDDEN;
@@ -254,7 +248,7 @@ extern DWORD blend_bitmapinfo( const BITMAPINFO *src_info, void *src_bits, struc
 extern DWORD gradient_bitmapinfo( const BITMAPINFO *info, void *bits, TRIVERTEX *vert_array, ULONG nvert,
                                   void *grad_array, ULONG ngrad, ULONG mode, const POINT *dev_pts, HRGN rgn ) DECLSPEC_HIDDEN;
 extern COLORREF get_pixel_bitmapinfo( const BITMAPINFO *info, void *bits, struct bitblt_coords *src ) DECLSPEC_HIDDEN;
-extern BOOL render_aa_text_bitmapinfo( HDC hdc, BITMAPINFO *info, struct gdi_image_bits *bits,
+extern BOOL render_aa_text_bitmapinfo( DC *dc, BITMAPINFO *info, struct gdi_image_bits *bits,
                                        struct bitblt_coords *src, INT x, INT y, UINT flags,
                                        UINT aa_flags, LPCWSTR str, UINT count, const INT *dx ) DECLSPEC_HIDDEN;
 extern DWORD get_image_from_bitmap( BITMAPOBJ *bmp, BITMAPINFO *info,
@@ -310,6 +304,7 @@ extern void GDI_hdc_using_object(HGDIOBJ obj, HDC hdc) DECLSPEC_HIDDEN;
 extern void GDI_hdc_not_using_object(HGDIOBJ obj, HDC hdc) DECLSPEC_HIDDEN;
 
 /* mapping.c */
+extern BOOL dp_to_lp( DC *dc, POINT *points, INT count ) DECLSPEC_HIDDEN;
 extern void lp_to_dp( DC *dc, POINT *points, INT count ) DECLSPEC_HIDDEN;
 
 /* metafile.c */
@@ -340,7 +335,7 @@ typedef struct
 /* path.c */
 
 extern void free_gdi_path( struct gdi_path *path ) DECLSPEC_HIDDEN;
-extern struct gdi_path *get_gdi_flat_path( HDC hdc, HRGN *rgn ) DECLSPEC_HIDDEN;
+extern struct gdi_path *get_gdi_flat_path( DC *dc, HRGN *rgn ) DECLSPEC_HIDDEN;
 extern int get_gdi_path_data( struct gdi_path *path, POINT **points, BYTE **flags ) DECLSPEC_HIDDEN;
 extern BOOL PATH_SavePath( DC *dst, DC *src ) DECLSPEC_HIDDEN;
 extern BOOL PATH_RestorePath( DC *dst, DC *src ) DECLSPEC_HIDDEN;
@@ -473,6 +468,13 @@ extern BOOL nulldrv_WidenPath( PHYSDEV dev ) DECLSPEC_HIDDEN;
 static inline DC *get_nulldrv_dc( PHYSDEV dev )
 {
     return CONTAINING_RECORD( dev, DC, nulldrv );
+}
+
+static inline DC *get_physdev_dc( PHYSDEV dev )
+{
+    while (dev->funcs != &null_driver)
+        dev = dev->next;
+    return get_nulldrv_dc( dev );
 }
 
 /* Undocumented value for DIB's iUsage: Indicates a mono DIB w/o pal entries */

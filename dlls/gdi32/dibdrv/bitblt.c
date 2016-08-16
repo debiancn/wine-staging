@@ -985,6 +985,7 @@ DWORD dibdrv_PutImage( PHYSDEV dev, HRGN clip, BITMAPINFO *info,
                        const struct gdi_image_bits *bits, struct bitblt_coords *src,
                        struct bitblt_coords *dst, DWORD rop )
 {
+    DC *dc = get_physdev_dc( dev );
     struct clipped_rects clipped_rects;
     DWORD ret = ERROR_SUCCESS;
     dib_info src_dib;
@@ -1000,7 +1001,7 @@ DWORD dibdrv_PutImage( PHYSDEV dev, HRGN clip, BITMAPINFO *info,
 
     /* For mask_rect, 1-bpp source without a color table uses the destination DC colors */
     if (info->bmiHeader.biBitCount == 1 && pdev->dib.bit_count != 1 && !info->bmiHeader.biClrUsed)
-        get_mono_dc_colors( dev->hdc, info, 2 );
+        get_mono_dc_colors( dc, info, 2 );
 
     init_dib_info_from_bitmapinfo( &src_dib, info, bits->ptr );
     src_dib.bits.is_copy = bits->is_copy;
@@ -1390,18 +1391,12 @@ COLORREF get_pixel_bitmapinfo( const BITMAPINFO *info, void *bits, struct bitblt
 BOOL dibdrv_StretchBlt( PHYSDEV dst_dev, struct bitblt_coords *dst,
                         PHYSDEV src_dev, struct bitblt_coords *src, DWORD rop )
 {
-    BOOL ret;
-    DC *dc_dst = get_dc_ptr( dst_dev->hdc );
-
-    if (!dc_dst) return FALSE;
+    DC *dc_dst = get_physdev_dc( dst_dev );
 
     if (dst->width == 1 && src->width > 1) src->width--;
     if (dst->height == 1 && src->height > 1) src->height--;
 
-    ret = dc_dst->nulldrv.funcs->pStretchBlt( &dc_dst->nulldrv, dst,
-                                              src_dev, src, rop );
-    release_dc_ptr( dc_dst );
-    return ret;
+    return dc_dst->nulldrv.funcs->pStretchBlt( &dc_dst->nulldrv, dst, src_dev, src, rop );
 }
 
 /***********************************************************************
@@ -1410,14 +1405,9 @@ BOOL dibdrv_StretchBlt( PHYSDEV dst_dev, struct bitblt_coords *dst,
 BOOL dibdrv_AlphaBlend( PHYSDEV dst_dev, struct bitblt_coords *dst,
                         PHYSDEV src_dev, struct bitblt_coords *src, BLENDFUNCTION blend )
 {
-    BOOL ret;
-    DC *dc_dst = get_dc_ptr( dst_dev->hdc );
+    DC *dc_dst = get_physdev_dc( dst_dev );
 
-    if (!dc_dst) return FALSE;
-
-    ret = dc_dst->nulldrv.funcs->pAlphaBlend( &dc_dst->nulldrv, dst, src_dev, src, blend );
-    release_dc_ptr( dc_dst );
-    return ret;
+    return dc_dst->nulldrv.funcs->pAlphaBlend( &dc_dst->nulldrv, dst, src_dev, src, blend );
 }
 
 /***********************************************************************
@@ -1427,6 +1417,7 @@ BOOL dibdrv_GradientFill( PHYSDEV dev, TRIVERTEX *vert_array, ULONG nvert,
                           void *grad_array, ULONG ngrad, ULONG mode )
 {
     dibdrv_physdev *pdev = get_dibdrv_pdev( dev );
+    DC *dc = get_physdev_dc( dev );
     const GRADIENT_TRIANGLE *tri = grad_array;
     const GRADIENT_RECT *rect = grad_array;
     unsigned int i;
@@ -1441,7 +1432,7 @@ BOOL dibdrv_GradientFill( PHYSDEV dev, TRIVERTEX *vert_array, ULONG nvert,
         pts[i].x = vert_array[i].x;
         pts[i].y = vert_array[i].y;
     }
-    LPtoDP( dev->hdc, pts, nvert );
+    lp_to_dp( dc, pts, nvert );
 
     switch (mode)
     {

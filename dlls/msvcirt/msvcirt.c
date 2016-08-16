@@ -19,8 +19,11 @@
 
 #include "config.h"
 
+#include <errno.h>
 #include <fcntl.h>
+#include <float.h>
 #include <io.h>
+#include <limits.h>
 #include <share.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -2458,10 +2461,14 @@ void __thiscall ostream_osfx(ostream *this)
     ios_unlock(base);
 }
 
+/* ?put@ostream@@QAEAAV1@C@Z */
+/* ?put@ostream@@QEAAAEAV1@C@Z */
 /* ?put@ostream@@QAEAAV1@D@Z */
 /* ?put@ostream@@QEAAAEAV1@D@Z */
-DEFINE_THISCALL_WRAPPER(ostream_put_char, 8)
-ostream* __thiscall ostream_put_char(ostream *this, char c)
+/* ?put@ostream@@QAEAAV1@E@Z */
+/* ?put@ostream@@QEAAAEAV1@E@Z */
+DEFINE_THISCALL_WRAPPER(ostream_put, 8)
+ostream* __thiscall ostream_put(ostream *this, char c)
 {
     ios *base = ostream_get_ios(this);
 
@@ -2473,22 +2480,6 @@ ostream* __thiscall ostream_put_char(ostream *this, char c)
         ostream_osfx(this);
     }
     return this;
-}
-
-/* ?put@ostream@@QAEAAV1@C@Z */
-/* ?put@ostream@@QEAAAEAV1@C@Z */
-DEFINE_THISCALL_WRAPPER(ostream_put_signed_char, 8)
-ostream* __thiscall ostream_put_signed_char(ostream *this, signed char c)
-{
-    return ostream_put_char(this, (char) c);
-}
-
-/* ?put@ostream@@QAEAAV1@E@Z */
-/* ?put@ostream@@QEAAAEAV1@E@Z */
-DEFINE_THISCALL_WRAPPER(ostream_put_unsigned_char, 8)
-ostream* __thiscall ostream_put_unsigned_char(ostream *this, unsigned char c)
-{
-    return ostream_put_char(this, (char) c);
 }
 
 /* ?seekp@ostream@@QAEAAV1@J@Z */
@@ -2540,10 +2531,14 @@ streampos __thiscall ostream_tellp(ostream *this)
     return pos;
 }
 
+/* ?write@ostream@@QAEAAV1@PBCH@Z */
+/* ?write@ostream@@QEAAAEAV1@PEBCH@Z */
 /* ?write@ostream@@QAEAAV1@PBDH@Z */
 /* ?write@ostream@@QEAAAEAV1@PEBDH@Z */
-DEFINE_THISCALL_WRAPPER(ostream_write_char, 12)
-ostream* __thiscall ostream_write_char(ostream *this, const char *str, int count)
+/* ?write@ostream@@QAEAAV1@PBEH@Z */
+/* ?write@ostream@@QEAAAEAV1@PEBEH@Z */
+DEFINE_THISCALL_WRAPPER(ostream_write, 12)
+ostream* __thiscall ostream_write(ostream *this, const char *str, int count)
 {
     ios *base = ostream_get_ios(this);
 
@@ -2555,22 +2550,6 @@ ostream* __thiscall ostream_write_char(ostream *this, const char *str, int count
         ostream_osfx(this);
     }
     return this;
-}
-
-/* ?write@ostream@@QAEAAV1@PBCH@Z */
-/* ?write@ostream@@QEAAAEAV1@PEBCH@Z */
-DEFINE_THISCALL_WRAPPER(ostream_write_signed_char, 12)
-ostream* __thiscall ostream_write_signed_char(ostream *this, const signed char *str, int count)
-{
-    return ostream_write_char(this, (const char*) str, count);
-}
-
-/* ?write@ostream@@QAEAAV1@PBEH@Z */
-/* ?write@ostream@@QEAAAEAV1@PEBEH@Z */
-DEFINE_THISCALL_WRAPPER(ostream_write_unsigned_char, 12)
-ostream* __thiscall ostream_write_unsigned_char(ostream *this, const unsigned char *str, int count)
-{
-    return ostream_write_char(this, (const char*) str, count);
 }
 
 /* ?writepad@ostream@@AAEAAV1@PBD0@Z */
@@ -2690,6 +2669,8 @@ static ostream* ostream_internal_print_float(ostream *ostr, double d, BOOL dbl)
 /* ??6ostream@@QEAAAEAV0@C@Z */
 /* ??6ostream@@QAEAAV0@D@Z */
 /* ??6ostream@@QEAAAEAV0@D@Z */
+/* ??6ostream@@QAEAAV0@E@Z */
+/* ??6ostream@@QEAAAEAV0@E@Z */
 DEFINE_THISCALL_WRAPPER(ostream_print_char, 8)
 ostream* __thiscall ostream_print_char(ostream *this, char c)
 {
@@ -2704,18 +2685,12 @@ ostream* __thiscall ostream_print_char(ostream *this, char c)
     return this;
 }
 
-/* ??6ostream@@QAEAAV0@E@Z */
-/* ??6ostream@@QEAAAEAV0@E@Z */
-DEFINE_THISCALL_WRAPPER(ostream_print_unsigned_char, 8)
-ostream* __thiscall ostream_print_unsigned_char(ostream *this, unsigned char c)
-{
-    return ostream_print_char(this, c);
-}
-
 /* ??6ostream@@QAEAAV0@PBC@Z */
 /* ??6ostream@@QEAAAEAV0@PEBC@Z */
 /* ??6ostream@@QAEAAV0@PBD@Z */
 /* ??6ostream@@QEAAAEAV0@PEBD@Z */
+/* ??6ostream@@QAEAAV0@PBE@Z */
+/* ??6ostream@@QEAAAEAV0@PEBE@Z */
 DEFINE_THISCALL_WRAPPER(ostream_print_str, 8)
 ostream* __thiscall ostream_print_str(ostream *this, const char *str)
 {
@@ -2725,14 +2700,6 @@ ostream* __thiscall ostream_print_str(ostream *this, const char *str)
         ostream_osfx(this);
     }
     return this;
-}
-
-/* ??6ostream@@QAEAAV0@PBE@Z */
-/* ??6ostream@@QEAAAEAV0@PEBE@Z */
-DEFINE_THISCALL_WRAPPER(ostream_print_unsigned_str, 8)
-ostream* __thiscall ostream_print_unsigned_str(ostream *this, const unsigned char *str)
-{
-    return ostream_print_str(this, (const char*) str);
 }
 
 /* ??6ostream@@QAEAAV0@F@Z */
@@ -2858,7 +2825,7 @@ ostream* __thiscall ostream_print_ios_manip(ostream *this, ios* (__cdecl *func)(
 ostream* __cdecl ostream_endl(ostream *this)
 {
    TRACE("(%p)\n", this);
-   ostream_put_char(this, '\n');
+   ostream_put(this, '\n');
    return ostream_flush(this);
 }
 
@@ -2867,7 +2834,7 @@ ostream* __cdecl ostream_endl(ostream *this)
 ostream* __cdecl ostream_ends(ostream *this)
 {
    TRACE("(%p)\n", this);
-   return ostream_put_char(this, 0);
+   return ostream_put(this, 0);
 }
 
 /* ?flush@@YAAAVostream@@AAV1@@Z */
@@ -3148,18 +3115,12 @@ istream* __thiscall istream_get_str_delim(istream *this, char *str, int count, i
 /* ?get@istream@@QEAAAEAV1@PEACHD@Z */
 /* ?get@istream@@QAEAAV1@PADHD@Z */
 /* ?get@istream@@QEAAAEAV1@PEADHD@Z */
+/* ?get@istream@@QAEAAV1@PAEHD@Z */
+/* ?get@istream@@QEAAAEAV1@PEAEHD@Z */
 DEFINE_THISCALL_WRAPPER(istream_get_str, 16)
 istream* __thiscall istream_get_str(istream *this, char *str, int count, char delim)
 {
     return istream_get_str_delim(this, str, count, (unsigned char) delim);
-}
-
-/* ?get@istream@@QAEAAV1@PAEHD@Z */
-/* ?get@istream@@QEAAAEAV1@PEAEHD@Z */
-DEFINE_THISCALL_WRAPPER(istream_get_unsigned_str, 16)
-istream* __thiscall istream_get_unsigned_str(istream *this, unsigned char *str, int count, char delim)
-{
-    return istream_get_str(this, (char*) str, count, delim);
 }
 
 static int istream_internal_get_char(istream *this, char *ch)
@@ -3188,19 +3149,12 @@ static int istream_internal_get_char(istream *this, char *ch)
 /* ?get@istream@@QEAAAEAV1@AEAC@Z */
 /* ?get@istream@@QAEAAV1@AAD@Z */
 /* ?get@istream@@QEAAAEAV1@AEAD@Z */
+/* ?get@istream@@QAEAAV1@AAE@Z */
+/* ?get@istream@@QEAAAEAV1@AEAE@Z */
 DEFINE_THISCALL_WRAPPER(istream_get_char, 8)
 istream* __thiscall istream_get_char(istream *this, char *ch)
 {
     istream_internal_get_char(this, ch);
-    return this;
-}
-
-/* ?get@istream@@QAEAAV1@AAE@Z */
-/* ?get@istream@@QEAAAEAV1@AEAE@Z */
-DEFINE_THISCALL_WRAPPER(istream_get_unsigned_char, 8)
-istream* __thiscall istream_get_unsigned_char(istream *this, unsigned char *ch)
-{
-    istream_internal_get_char(this, (char*) ch);
     return this;
 }
 
@@ -3241,6 +3195,8 @@ istream* __thiscall istream_get_sb(istream *this, streambuf *sb, char delim)
 /* ?getline@istream@@QEAAAEAV1@PEACHD@Z */
 /* ?getline@istream@@QAEAAV1@PADHD@Z */
 /* ?getline@istream@@QEAAAEAV1@PEADHD@Z */
+/* ?getline@istream@@QAEAAV1@PAEHD@Z */
+/* ?getline@istream@@QEAAAEAV1@PEAEHD@Z */
 DEFINE_THISCALL_WRAPPER(istream_getline, 16)
 istream* __thiscall istream_getline(istream *this, char *str, int count, char delim)
 {
@@ -3253,14 +3209,6 @@ istream* __thiscall istream_getline(istream *this, char *str, int count, char de
     istream_get_str_delim(this, str, count, (unsigned char) delim);
     ios_unlock(base);
     return this;
-}
-
-/* ?getline@istream@@QAEAAV1@PAEHD@Z */
-/* ?getline@istream@@QEAAAEAV1@PEAEHD@Z */
-DEFINE_THISCALL_WRAPPER(istream_getline_unsigned, 16)
-istream* __thiscall istream_getline_unsigned(istream *this, unsigned char *str, int count, char delim)
-{
-    return istream_getline(this, (char*) str, count, delim);
 }
 
 /* ?ignore@istream@@QAEAAV1@HH@Z */
@@ -3318,6 +3266,8 @@ istream* __thiscall istream_putback(istream *this, char ch)
 /* ?read@istream@@QEAAAEAV1@PEACH@Z */
 /* ?read@istream@@QAEAAV1@PADH@Z */
 /* ?read@istream@@QEAAAEAV1@PEADH@Z */
+/* ?read@istream@@QAEAAV1@PAEH@Z */
+/* ?read@istream@@QEAAAEAV1@PEAEH@Z */
 DEFINE_THISCALL_WRAPPER(istream_read, 12)
 istream* __thiscall istream_read(istream *this, char *str, int count)
 {
@@ -3331,14 +3281,6 @@ istream* __thiscall istream_read(istream *this, char *str, int count)
         istream_isfx(this);
     }
     return this;
-}
-
-/* ?read@istream@@QAEAAV1@PAEH@Z */
-/* ?read@istream@@QEAAAEAV1@PEAEH@Z */
-DEFINE_THISCALL_WRAPPER(istream_read_unsigned, 12)
-istream* __thiscall istream_read_unsigned(istream *this, unsigned char *str, int count)
-{
-    return istream_read(this, (char*) str, count);
 }
 
 /* ?seekg@istream@@QAEAAV1@J@Z */
@@ -3540,6 +3482,279 @@ int __thiscall istream_getdouble(istream *this, char *str, int count)
         istream_isfx(this);
     }
     return i;
+}
+
+/* ??5istream@@QAEAAV0@AAC@Z */
+/* ??5istream@@QEAAAEAV0@AEAC@Z */
+/* ??5istream@@QAEAAV0@AAD@Z */
+/* ??5istream@@QEAAAEAV0@AEAD@Z */
+/* ??5istream@@QAEAAV0@AAE@Z */
+/* ??5istream@@QEAAAEAV0@AEAE@Z */
+DEFINE_THISCALL_WRAPPER(istream_read_char, 8)
+istream* __thiscall istream_read_char(istream *this, char *ch)
+{
+    ios *base = istream_get_ios(this);
+    int ret;
+
+    TRACE("(%p %p)\n", this, ch);
+
+    if (istream_ipfx(this, 0)) {
+        if ((ret = streambuf_sbumpc(base->sb)) == EOF)
+            base->state |= IOSTATE_eofbit | IOSTATE_failbit;
+        else
+            *ch = ret;
+        istream_isfx(this);
+    }
+    return this;
+}
+
+/* ??5istream@@QAEAAV0@PAC@Z */
+/* ??5istream@@QEAAAEAV0@PEAC@Z */
+/* ??5istream@@QAEAAV0@PAD@Z */
+/* ??5istream@@QEAAAEAV0@PEAD@Z */
+/* ??5istream@@QAEAAV0@PAE@Z */
+/* ??5istream@@QEAAAEAV0@PEAE@Z */
+DEFINE_THISCALL_WRAPPER(istream_read_str, 8)
+istream* __thiscall istream_read_str(istream *this, char *str)
+{
+    ios *base = istream_get_ios(this);
+    int ch, count = 0;
+
+    TRACE("(%p %p)\n", this, str);
+
+    if (istream_ipfx(this, 0)) {
+        if (str) {
+            for (ch = streambuf_sgetc(base->sb);
+                count < (unsigned int) base->width - 1 && !isspace(ch);
+                ch = streambuf_snextc(base->sb)) {
+                if (ch == EOF) {
+                    base->state |= IOSTATE_eofbit;
+                    break;
+                }
+                str[count++] = ch;
+            }
+        }
+        if (!count) /* nothing to output */
+            base->state |= IOSTATE_failbit;
+        else /* append a null terminator */
+            str[count] = 0;
+        base->width = 0;
+        istream_isfx(this);
+    }
+    return this;
+}
+
+static LONG istream_internal_read_integer(istream *this, LONG min_value, LONG max_value, BOOL set_flag)
+{
+    ios *base = istream_get_ios(this);
+    char buffer[16];
+    int num_base;
+    LONG ret;
+
+    TRACE("(%p %d %d %d)\n", this, min_value, max_value, set_flag);
+
+    num_base = istream_getint(this, buffer);
+    errno = 0;
+    ret = strtol(buffer, NULL, num_base);
+    /* check for overflow and whether the value fits in the output var */
+    if (set_flag && errno == ERANGE) {
+        base->state |= IOSTATE_failbit;
+    } else if (ret > max_value) {
+        base->state |= IOSTATE_failbit;
+        ret = max_value;
+    } else if (ret < min_value) {
+        base->state |= IOSTATE_failbit;
+        ret = min_value;
+    }
+    return ret;
+}
+
+static ULONG istream_internal_read_unsigned_integer(istream *this, LONG min_value, ULONG max_value)
+{
+    ios *base = istream_get_ios(this);
+    char buffer[16];
+    int num_base;
+    ULONG ret;
+
+    TRACE("(%p %d %u)\n", this, min_value, max_value);
+
+    num_base = istream_getint(this, buffer);
+    errno = 0;
+    ret = strtoul(buffer, NULL, num_base);
+    /* check for overflow and whether the value fits in the output var */
+    if ((ret == ULONG_MAX && errno == ERANGE) ||
+        (ret > max_value && ret < (ULONG) min_value)) {
+        base->state |= IOSTATE_failbit;
+        ret = max_value;
+    }
+    return ret;
+}
+
+/* ??5istream@@QAEAAV0@AAF@Z */
+/* ??5istream@@QEAAAEAV0@AEAF@Z */
+DEFINE_THISCALL_WRAPPER(istream_read_short, 8)
+istream* __thiscall istream_read_short(istream *this, short *p)
+{
+    if (istream_ipfx(this, 0)) {
+        *p = istream_internal_read_integer(this, SHRT_MIN, SHRT_MAX, FALSE);
+        istream_isfx(this);
+    }
+    return this;
+}
+
+/* ??5istream@@QAEAAV0@AAG@Z */
+/* ??5istream@@QEAAAEAV0@AEAG@Z */
+DEFINE_THISCALL_WRAPPER(istream_read_unsigned_short, 8)
+istream* __thiscall istream_read_unsigned_short(istream *this, unsigned short *p)
+{
+    if (istream_ipfx(this, 0)) {
+        *p = istream_internal_read_unsigned_integer(this, SHRT_MIN, USHRT_MAX);
+        istream_isfx(this);
+    }
+    return this;
+}
+
+/* ??5istream@@QAEAAV0@AAH@Z */
+/* ??5istream@@QEAAAEAV0@AEAH@Z */
+DEFINE_THISCALL_WRAPPER(istream_read_int, 8)
+istream* __thiscall istream_read_int(istream *this, int *p)
+{
+    if (istream_ipfx(this, 0)) {
+        *p = istream_internal_read_integer(this, INT_MIN, INT_MAX, FALSE);
+        istream_isfx(this);
+    }
+    return this;
+}
+
+/* ??5istream@@QAEAAV0@AAI@Z */
+/* ??5istream@@QEAAAEAV0@AEAI@Z */
+DEFINE_THISCALL_WRAPPER(istream_read_unsigned_int, 8)
+istream* __thiscall istream_read_unsigned_int(istream *this, unsigned int *p)
+{
+    if (istream_ipfx(this, 0)) {
+        *p = istream_internal_read_unsigned_integer(this, INT_MIN, UINT_MAX);
+        istream_isfx(this);
+    }
+    return this;
+}
+
+/* ??5istream@@QAEAAV0@AAJ@Z */
+/* ??5istream@@QEAAAEAV0@AEAJ@Z */
+DEFINE_THISCALL_WRAPPER(istream_read_long, 8)
+istream* __thiscall istream_read_long(istream *this, LONG *p)
+{
+    if (istream_ipfx(this, 0)) {
+        *p = istream_internal_read_integer(this, LONG_MIN, LONG_MAX, TRUE);
+        istream_isfx(this);
+    }
+    return this;
+}
+
+/* ??5istream@@QAEAAV0@AAK@Z */
+/* ??5istream@@QEAAAEAV0@AEAK@Z */
+DEFINE_THISCALL_WRAPPER(istream_read_unsigned_long, 8)
+istream* __thiscall istream_read_unsigned_long(istream *this, ULONG *p)
+{
+    if (istream_ipfx(this, 0)) {
+        *p = istream_internal_read_unsigned_integer(this, LONG_MIN, ULONG_MAX);
+        istream_isfx(this);
+    }
+    return this;
+}
+
+static BOOL istream_internal_read_float(istream *this, int max_chars, double *out)
+{
+    char buffer[32];
+    BOOL read = FALSE;
+
+    TRACE("(%p %d %p)\n", this, max_chars, out);
+
+    if (istream_ipfx(this, 0)) {
+        /* character count is limited on Windows */
+        if (istream_getdouble(this, buffer, max_chars) > 0) {
+            *out = strtod(buffer, NULL);
+            read = TRUE;
+        }
+        istream_isfx(this);
+    }
+    return read;
+}
+
+/* ??5istream@@QAEAAV0@AAM@Z */
+/* ??5istream@@QEAAAEAV0@AEAM@Z */
+DEFINE_THISCALL_WRAPPER(istream_read_float, 8)
+istream* __thiscall istream_read_float(istream *this, float *f)
+{
+    double tmp;
+    if (istream_internal_read_float(this, 20, &tmp)) {
+        /* check whether the value fits in the output var */
+        if (tmp > FLT_MAX)
+            tmp = FLT_MAX;
+        else if (tmp < -FLT_MAX)
+            tmp = -FLT_MAX;
+        else if (tmp > 0 && tmp < FLT_MIN)
+            tmp = FLT_MIN;
+        else if (tmp < 0 && tmp > -FLT_MIN)
+            tmp = -FLT_MIN;
+        *f = tmp;
+    }
+    return this;
+}
+
+/* ??5istream@@QAEAAV0@AAN@Z */
+/* ??5istream@@QEAAAEAV0@AEAN@Z */
+DEFINE_THISCALL_WRAPPER(istream_read_double, 8)
+istream* __thiscall istream_read_double(istream *this, double *d)
+{
+    istream_internal_read_float(this, 28, d);
+    return this;
+}
+
+/* ??5istream@@QAEAAV0@AAO@Z */
+/* ??5istream@@QEAAAEAV0@AEAO@Z */
+DEFINE_THISCALL_WRAPPER(istream_read_long_double, 8)
+istream* __thiscall istream_read_long_double(istream *this, double *ld)
+{
+    istream_internal_read_float(this, 32, ld);
+    return this;
+}
+
+/* ??5istream@@QAEAAV0@PAVstreambuf@@@Z */
+/* ??5istream@@QEAAAEAV0@PEAVstreambuf@@@Z */
+DEFINE_THISCALL_WRAPPER(istream_read_streambuf, 8)
+istream* __thiscall istream_read_streambuf(istream *this, streambuf *sb)
+{
+    ios *base = istream_get_ios(this);
+    int ch;
+
+    TRACE("(%p %p)\n", this, sb);
+
+    if (istream_ipfx(this, 0)) {
+        while ((ch = streambuf_sbumpc(base->sb)) != EOF)
+            if (streambuf_sputc(sb, ch) == EOF)
+                base->state |= IOSTATE_failbit;
+        istream_isfx(this);
+    }
+    return this;
+}
+
+/* ??5istream@@QAEAAV0@P6AAAV0@AAV0@@Z@Z */
+/* ??5istream@@QEAAAEAV0@P6AAEAV0@AEAV0@@Z@Z */
+DEFINE_THISCALL_WRAPPER(istream_read_manip, 8)
+istream* __thiscall istream_read_manip(istream *this, istream* (__cdecl *func)(istream*))
+{
+    TRACE("(%p %p)\n", this, func);
+    return func(this);
+}
+
+/* ??5istream@@QAEAAV0@P6AAAVios@@AAV1@@Z@Z */
+/* ??5istream@@QEAAAEAV0@P6AAEAVios@@AEAV1@@Z@Z */
+DEFINE_THISCALL_WRAPPER(istream_read_ios_manip, 8)
+istream* __thiscall istream_read_ios_manip(istream *this, ios* (__cdecl *func)(ios*))
+{
+    TRACE("(%p %p)\n", this, func);
+    func(istream_get_ios(this));
+    return this;
 }
 
 /* ?ws@@YAAAVistream@@AAV1@@Z */
