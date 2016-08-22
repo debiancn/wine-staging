@@ -1953,6 +1953,9 @@ enum wined3d_pci_device
     CARD_NVIDIA_GEFORCE_GTX970      = 0x13c2,
     CARD_NVIDIA_GEFORCE_GTX970M     = 0x13d8,
     CARD_NVIDIA_GEFORCE_GTX980      = 0x13c0,
+    CARD_NVIDIA_GEFORCE_GTX1060     = 0x1c03,
+    CARD_NVIDIA_GEFORCE_GTX1070     = 0x1b81,
+    CARD_NVIDIA_GEFORCE_GTX1080     = 0x1b80,
 
     CARD_VMWARE_SVGA3D              = 0x0405,
 
@@ -2526,6 +2529,7 @@ struct wined3d_resource_ops
 {
     ULONG (*resource_incref)(struct wined3d_resource *resource);
     ULONG (*resource_decref)(struct wined3d_resource *resource);
+    void (*resource_preload)(struct wined3d_resource *resource);
     void (*resource_unload)(struct wined3d_resource *resource);
     HRESULT (*resource_sub_resource_map)(struct wined3d_resource *resource, unsigned int sub_resource_idx,
             struct wined3d_map_desc *map_desc, const struct wined3d_box *box, DWORD flags);

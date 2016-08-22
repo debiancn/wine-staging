@@ -48,6 +48,14 @@ static const struct prop_desc msg_props[] =
     { sizeof(BOOL), TRUE },                     /* WS_MESSAGE_PROPERTY_IS_ADDRESSED */
 };
 
+struct header
+{
+    WS_HEADER_TYPE   type;
+    WS_XML_STRING    name;
+    BOOL             mapped;
+    WS_XML_UTF8_TEXT text;
+};
+
 struct msg
 {
     WS_MESSAGE_INITIALIZATION init;
@@ -61,10 +69,14 @@ struct msg
     WS_XML_BUFFER            *buf;
     WS_XML_WRITER            *writer;
     WS_XML_WRITER            *writer_body;
+    ULONG                     header_count;
+    ULONG                     header_size;
+    struct header           **header;
     ULONG                     prop_count;
     struct prop               prop[sizeof(msg_props)/sizeof(msg_props[0])];
 };
 
+#define HEADER_ARRAY_SIZE 2
 static struct msg *alloc_msg(void)
 {
     static const ULONG count = sizeof(msg_props)/sizeof(msg_props[0]);
@@ -72,23 +84,37 @@ static struct msg *alloc_msg(void)
     ULONG size = sizeof(*ret) + prop_size( msg_props, count );
 
     if (!(ret = heap_alloc_zero( size ))) return NULL;
-    ret->state = WS_MESSAGE_STATE_EMPTY;
+    if (!(ret->header = heap_alloc( HEADER_ARRAY_SIZE * sizeof(struct header *) )))
+    {
+        heap_free( ret );
+        return NULL;
+    }
+    ret->state       = WS_MESSAGE_STATE_EMPTY;
+    ret->header_size = HEADER_ARRAY_SIZE;
     prop_init( msg_props, count, ret->prop, &ret[1] );
-    ret->prop_count = count;
+    ret->prop_count  = count;
     return ret;
+}
+
+static void free_header( struct header *header )
+{
+    heap_free( header->name.bytes );
+    heap_free( header );
 }
 
 static void free_msg( struct msg *msg )
 {
+    ULONG i;
     if (!msg) return;
     WsFreeWriter( msg->writer );
     WsFreeHeap( msg->heap );
     heap_free( msg->addr.chars );
+    for (i = 0; i < msg->header_count; i++) free_header( msg->header[i] );
+    heap_free( msg->header );
     heap_free( msg );
 }
 
 #define HEAP_MAX_SIZE (1 << 16)
-
 static HRESULT create_msg( WS_ENVELOPE_VERSION env_version, WS_ADDRESSING_VERSION addr_version,
                            const WS_MESSAGE_PROPERTY *properties, ULONG count, WS_MESSAGE **handle )
 {
@@ -172,30 +198,6 @@ HRESULT WINAPI WsCreateMessageForChannel( WS_CHANNEL *channel_handle, const WS_M
         version_addr = WS_ADDRESSING_VERSION_1_0;
 
     return create_msg( version_env, version_addr, properties, count, handle );
-}
-
-/**************************************************************************
- *          WsInitializeMessage		[webservices.@]
- */
-HRESULT WINAPI WsInitializeMessage( WS_MESSAGE *handle, WS_MESSAGE_INITIALIZATION init,
-                                    WS_MESSAGE *src_handle, WS_ERROR *error )
-{
-    struct msg *msg = (struct msg *)handle;
-
-    TRACE( "%p %u %p %p\n", handle, init, src_handle, error );
-    if (error) FIXME( "ignoring error parameter\n" );
-    if (src_handle)
-    {
-        FIXME( "src message not supported\n" );
-        return E_NOTIMPL;
-    }
-
-    if (!handle || init > WS_FAULT_MESSAGE) return E_INVALIDARG;
-    if (msg->state >= WS_MESSAGE_STATE_INITIALIZED) return WS_E_INVALID_OPERATION;
-
-    msg->init  = init;
-    msg->state = WS_MESSAGE_STATE_INITIALIZED;
-    return S_OK;
 }
 
 /**************************************************************************
@@ -350,35 +352,89 @@ static HRESULT get_addr_namespace( WS_ADDRESSING_VERSION ver, WS_XML_STRING *str
         str->length = sizeof(ns_addr_1_0)/sizeof(ns_addr_1_0[0]) - 1;
         return S_OK;
 
+    case WS_ADDRESSING_VERSION_TRANSPORT:
+        str->bytes  = NULL;
+        str->length = 0;
+        return S_OK;
+
     default:
-        ERR( "unhandled adressing version %u\n", ver );
+        ERR( "unhandled addressing version %u\n", ver );
         return E_NOTIMPL;
     }
+}
+
+static const WS_XML_STRING *get_header_name( WS_HEADER_TYPE type )
+{
+    static const WS_XML_STRING action = {6, (BYTE *)"Action"}, to = {2, (BYTE *)"To"};
+    static const WS_XML_STRING msgid = {9, (BYTE *)"MessageID"}, relto = {9, (BYTE *)"RelatesTo"};
+    static const WS_XML_STRING from = {4, (BYTE *)"From"}, replyto = {7, (BYTE *)"ReplyTo"};
+    static const WS_XML_STRING faultto = {7, (BYTE *)"FaultTo"};
+
+    switch (type)
+    {
+    case WS_ACTION_HEADER:      return &action;
+    case WS_TO_HEADER:          return &to;
+    case WS_MESSAGE_ID_HEADER:  return &msgid;
+    case WS_RELATES_TO_HEADER:  return &relto;
+    case WS_FROM_HEADER:        return &from;
+    case WS_REPLY_TO_HEADER:    return &replyto;
+    case WS_FAULT_TO_HEADER:    return &faultto;
+    default:
+        ERR( "unknown type %u\n", type );
+        return NULL;
+    }
+}
+
+static HRESULT write_header( WS_XML_WRITER *writer, const struct header *header )
+{
+    static const WS_XML_STRING prefix_s = {1, (BYTE *)"s"}, prefix_a = {1, (BYTE *)"a"};
+    static const WS_XML_STRING understand = {14, (BYTE *)"mustUnderstand"}, ns = {0, NULL};
+    const WS_XML_STRING *localname = get_header_name( header->type );
+    WS_XML_INT32_TEXT one = {{WS_XML_TEXT_TYPE_INT32}, 1};
+    HRESULT hr;
+
+    if ((hr = WsWriteStartElement( writer, &prefix_a, localname, &ns, NULL )) != S_OK) return hr;
+    if ((hr = WsWriteStartAttribute( writer, &prefix_s, &understand, &ns, FALSE, NULL )) != S_OK) return hr;
+    if ((hr = WsWriteText( writer, &one.text, NULL )) != S_OK) return hr;
+    if ((hr = WsWriteEndAttribute( writer, NULL )) != S_OK) return hr;
+    if ((hr = WsWriteText( writer, &header->text.text, NULL )) != S_OK) return hr;
+    return WsWriteEndElement( writer, NULL );
 }
 
 static HRESULT write_envelope_start( struct msg *msg, WS_XML_WRITER *writer )
 {
     static const char anonymous[] = "http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous";
-    WS_XML_STRING prefix_s = {1, (BYTE *)"s"}, prefix_a = {1, (BYTE *)"a"}, body = {4, (BYTE *)"Body"};
-    WS_XML_STRING envelope = {8, (BYTE *)"Envelope"}, header = {6, (BYTE *)"Header"};
-    WS_XML_STRING msgid = {9, (BYTE *)"MessageID"}, replyto = {7, (BYTE *)"ReplyTo"};
-    WS_XML_STRING address = {7, (BYTE *)"Address"}, ns_env, ns_addr;
+    static const WS_XML_STRING prefix_s = {1, (BYTE *)"s"}, prefix_a = {1, (BYTE *)"a"};
+    static const WS_XML_STRING envelope = {8, (BYTE *)"Envelope"}, header = {6, (BYTE *)"Header"};
+    static const WS_XML_STRING msgid = {9, (BYTE *)"MessageID"}, replyto = {7, (BYTE *)"ReplyTo"};
+    static const WS_XML_STRING address = {7, (BYTE *)"Address"}, body = {4, (BYTE *)"Body"};
+    WS_XML_STRING ns_env, ns_addr;
     WS_XML_UTF8_TEXT urn, addr;
     HRESULT hr;
+    ULONG i;
 
     if ((hr = get_env_namespace( msg->version_env, &ns_env )) != S_OK) return hr;
     if ((hr = get_addr_namespace( msg->version_addr, &ns_addr )) != S_OK) return hr;
 
     if ((hr = WsWriteStartElement( writer, &prefix_s, &envelope, &ns_env, NULL )) != S_OK) return hr;
-    if ((hr = WsWriteXmlnsAttribute( writer, &prefix_a, &ns_addr, FALSE, NULL )) != S_OK) return hr;
+    if (msg->version_addr < WS_ADDRESSING_VERSION_TRANSPORT &&
+        (hr = WsWriteXmlnsAttribute( writer, &prefix_a, &ns_addr, FALSE, NULL )) != S_OK) return hr;
     if ((hr = WsWriteStartElement( writer, &prefix_s, &header, &ns_env, NULL )) != S_OK) return hr;
-    if ((hr = WsWriteStartElement( writer, &prefix_a, &msgid, &ns_addr, NULL )) != S_OK) return hr;
 
-    urn.text.textType = WS_XML_TEXT_TYPE_UNIQUE_ID;
-    memcpy( &urn.value, &msg->id, sizeof(msg->id) );
-    if ((hr = WsWriteText( writer, &urn.text, NULL )) != S_OK) return hr;
+    if (msg->version_addr < WS_ADDRESSING_VERSION_TRANSPORT)
+    {
+        if ((hr = WsWriteStartElement( writer, &prefix_a, &msgid, &ns_addr, NULL )) != S_OK) return hr;
+        urn.text.textType = WS_XML_TEXT_TYPE_UNIQUE_ID;
+        memcpy( &urn.value, &msg->id, sizeof(msg->id) );
+        if ((hr = WsWriteText( writer, &urn.text, NULL )) != S_OK) return hr;
+        if ((hr = WsWriteEndElement( writer, NULL )) != S_OK) return hr; /* </a:MessageID> */
+    }
 
-    if ((hr = WsWriteEndElement( writer, NULL )) != S_OK) return hr; /* </a:MessageID> */
+    for (i = 0; i < msg->header_count; i++)
+    {
+        if (!msg->header[i]->mapped && (hr = write_header( writer, msg->header[i] )) != S_OK) return hr;
+    }
+
     if (msg->version_addr == WS_ADDRESSING_VERSION_0_9)
     {
         if ((hr = WsWriteStartElement( writer, &prefix_a, &replyto, &ns_addr, NULL )) != S_OK) return hr;
@@ -403,6 +459,16 @@ static HRESULT write_envelope_end( struct msg *msg, WS_XML_WRITER *writer )
     return WsWriteEndElement( writer, NULL ); /* </s:Envelope> */
 }
 
+static HRESULT write_envelope( struct msg *msg )
+{
+    HRESULT hr;
+    if (!msg->writer && (hr = WsCreateWriter( NULL, 0, &msg->writer, NULL )) != S_OK) return hr;
+    if (!msg->buf && (hr = WsCreateXmlBuffer( msg->heap, NULL, 0, &msg->buf, NULL )) != S_OK) return hr;
+    if ((hr = WsSetOutputToBuffer( msg->writer, msg->buf, NULL, 0, NULL )) != S_OK) return hr;
+    if ((hr = write_envelope_start( msg, msg->writer )) != S_OK) return hr;
+    return write_envelope_end( msg, msg->writer );
+}
+
 /**************************************************************************
  *          WsWriteEnvelopeStart		[webservices.@]
  */
@@ -420,14 +486,11 @@ HRESULT WINAPI WsWriteEnvelopeStart( WS_MESSAGE *handle, WS_XML_WRITER *writer,
         return E_NOTIMPL;
     }
 
-    if (!handle) return E_INVALIDARG;
+    if (!handle || !writer) return E_INVALIDARG;
     if (msg->state != WS_MESSAGE_STATE_INITIALIZED) return WS_E_INVALID_OPERATION;
 
-    if ((hr = WsCreateWriter( NULL, 0, &msg->writer, NULL )) != S_OK) return hr;
-    if ((hr = WsSetOutputToBuffer( msg->writer, msg->buf, NULL, 0, NULL )) != S_OK) return hr;
-    if ((hr = write_envelope_start( msg, msg->writer )) != S_OK) return hr;
+    if ((hr = write_envelope( msg )) != S_OK) return hr;
     if ((hr = write_envelope_start( msg, writer )) != S_OK) return hr;
-    if ((hr = write_envelope_end( msg, msg->writer )) != S_OK) return hr;
 
     msg->writer_body = writer;
     msg->state       = WS_MESSAGE_STATE_WRITING;
@@ -478,4 +541,269 @@ HRESULT WINAPI WsWriteBody( WS_MESSAGE *handle, const WS_ELEMENT_DESCRIPTION *de
 
     if (desc->elementLocalName) hr = WsWriteEndElement( msg->writer_body, NULL );
     return hr;
+}
+
+/**************************************************************************
+ *          WsInitializeMessage		[webservices.@]
+ */
+HRESULT WINAPI WsInitializeMessage( WS_MESSAGE *handle, WS_MESSAGE_INITIALIZATION init,
+                                    WS_MESSAGE *src_handle, WS_ERROR *error )
+{
+    struct msg *msg = (struct msg *)handle;
+
+    TRACE( "%p %u %p %p\n", handle, init, src_handle, error );
+    if (error) FIXME( "ignoring error parameter\n" );
+    if (src_handle)
+    {
+        FIXME( "src message not supported\n" );
+        return E_NOTIMPL;
+    }
+
+    if (!handle || init > WS_FAULT_MESSAGE) return E_INVALIDARG;
+    if (msg->state >= WS_MESSAGE_STATE_INITIALIZED) return WS_E_INVALID_OPERATION;
+
+    msg->init  = init;
+    msg->state = WS_MESSAGE_STATE_INITIALIZED;
+    return write_envelope( msg );
+}
+
+static inline void set_utf8_text( WS_XML_UTF8_TEXT *text, BYTE *bytes, ULONG len )
+{
+    text->text.textType = WS_XML_TEXT_TYPE_UTF8;
+    text->value.bytes   = bytes;
+    text->value.length  = len;
+}
+
+static HRESULT alloc_header( WS_HEADER_TYPE type, const WS_XML_STRING *name, BOOL mapped, WS_TYPE value_type,
+                             WS_WRITE_OPTION option, const void *value, ULONG size, struct header **ret )
+{
+    struct header *header;
+
+    switch (value_type)
+    {
+    case WS_WSZ_TYPE:
+    {
+        int len;
+        const WCHAR *src;
+
+        if (option != WS_WRITE_REQUIRED_POINTER || size != sizeof(WCHAR *)) return E_INVALIDARG;
+
+        src = *(const WCHAR **)value;
+        len = WideCharToMultiByte( CP_UTF8, 0, src, -1, NULL, 0, NULL, NULL ) - 1;
+        if (!(header = heap_alloc_zero( sizeof(*header) + len ))) return E_OUTOFMEMORY;
+        set_utf8_text( &header->text, (BYTE *)(header + 1), len );
+        WideCharToMultiByte( CP_UTF8, 0, src, -1, (char *)header->text.value.bytes, len, NULL, NULL );
+        break;
+    }
+    case WS_XML_STRING_TYPE:
+    {
+        const WS_XML_STRING *str = value;
+
+        if (option != WS_WRITE_REQUIRED_VALUE)
+        {
+            FIXME( "unhandled write option %u\n", option );
+            return E_NOTIMPL;
+        }
+        if (size != sizeof(*str)) return E_INVALIDARG;
+        if (!(header = heap_alloc_zero( sizeof(*header) + str->length ))) return E_OUTOFMEMORY;
+        set_utf8_text( &header->text, (BYTE *)(header + 1), str->length );
+        memcpy( header->text.value.bytes, str->bytes, str->length );
+        break;
+    }
+    case WS_STRING_TYPE:
+    {
+        int len;
+        const WS_STRING *str = value;
+
+        if (option != WS_WRITE_REQUIRED_VALUE)
+        {
+            FIXME( "unhandled write option %u\n", option );
+            return E_NOTIMPL;
+        }
+        if (size != sizeof(*str)) return E_INVALIDARG;
+        len = WideCharToMultiByte( CP_UTF8, 0, str->chars, str->length, NULL, 0, NULL, NULL );
+        if (!(header = heap_alloc_zero( sizeof(*header) + len ))) return E_OUTOFMEMORY;
+        set_utf8_text( &header->text, (BYTE *)(header + 1), len );
+        WideCharToMultiByte( CP_UTF8, 0, str->chars, str->length, (char *)header->text.value.bytes,
+                             len, NULL, NULL );
+        break;
+    }
+    default:
+        FIXME( "unhandled type %u\n", value_type );
+        return E_NOTIMPL;
+    }
+
+    if (name && name->length)
+    {
+        if (!(header->name.bytes = heap_alloc( name->length )))
+        {
+            heap_free( header );
+            return E_OUTOFMEMORY;
+        }
+        memcpy( header->name.bytes, name->bytes, name->length );
+        header->name.length = name->length;
+    }
+    header->type   = type;
+    header->mapped = mapped;
+
+    *ret = header;
+    return S_OK;
+}
+
+/**************************************************************************
+ *          WsSetHeader		[webservices.@]
+ */
+HRESULT WINAPI WsSetHeader( WS_MESSAGE *handle, WS_HEADER_TYPE type, WS_TYPE value_type,
+                            WS_WRITE_OPTION option, const void *value, ULONG size, WS_ERROR *error )
+{
+    struct msg *msg = (struct msg *)handle;
+    struct header *header;
+    BOOL found = FALSE;
+    HRESULT hr;
+    ULONG i;
+
+    TRACE( "%p %u %u %08x %p %u %p\n", handle, type, value_type, option, value, size, error );
+    if (error) FIXME( "ignoring error parameter\n" );
+
+    if (!handle || type < WS_ACTION_HEADER || type > WS_FAULT_TO_HEADER) return E_INVALIDARG;
+    if (msg->state < WS_MESSAGE_STATE_INITIALIZED) return WS_E_INVALID_OPERATION;
+
+    for (i = 0; i < msg->header_count; i++)
+    {
+        if (msg->header[i]->type == type)
+        {
+            found = TRUE;
+            break;
+        }
+    }
+
+    if (!found)
+    {
+        if (msg->header_count == msg->header_size)
+        {
+            struct header **tmp;
+            if (!(tmp = heap_realloc( msg->header, 2 * msg->header_size * sizeof(struct header *) )))
+                return E_OUTOFMEMORY;
+            msg->header = tmp;
+            msg->header_size *= 2;
+        }
+        i = msg->header_count++;
+    }
+
+    if ((hr = alloc_header( type, NULL, FALSE, value_type, option, value, size, &header )) != S_OK)
+        return hr;
+
+    if (found) free_header( msg->header[i] );
+    msg->header[i] = header;
+    return write_envelope( msg );
+}
+
+/**************************************************************************
+ *          WsRemoveHeader		[webservices.@]
+ */
+HRESULT WINAPI WsRemoveHeader( WS_MESSAGE *handle, WS_HEADER_TYPE type, WS_ERROR *error )
+{
+    struct msg *msg = (struct msg *)handle;
+    BOOL removed = FALSE;
+    ULONG i;
+
+    TRACE( "%p %u %p\n", handle, type, error );
+    if (error) FIXME( "ignoring error parameter\n" );
+
+    if (!handle) return E_INVALIDARG;
+    if (msg->state < WS_MESSAGE_STATE_INITIALIZED) return WS_E_INVALID_OPERATION;
+    if (type < WS_ACTION_HEADER || type > WS_FAULT_TO_HEADER) return E_INVALIDARG;
+
+    for (i = 0; i < msg->header_count; i++)
+    {
+        if (msg->header[i]->type == type)
+        {
+            free_header( msg->header[i] );
+            memmove( &msg->header[i], &msg->header[i + 1], (msg->header_count - i) * sizeof(struct header *) );
+            msg->header_count--;
+            removed = TRUE;
+            break;
+        }
+    }
+
+    if (removed) return write_envelope( msg );
+    return S_OK;
+}
+
+/**************************************************************************
+ *          WsAddMappedHeader		[webservices.@]
+ */
+HRESULT WINAPI WsAddMappedHeader( WS_MESSAGE *handle, const WS_XML_STRING *name, WS_TYPE type,
+                                  WS_WRITE_OPTION option, const void *value, ULONG size , WS_ERROR *error )
+{
+    struct msg *msg = (struct msg *)handle;
+    struct header *header;
+    BOOL found = FALSE;
+    HRESULT hr;
+    ULONG i;
+
+    TRACE( "%p %s %u %08x %p %u %p\n", handle, debugstr_xmlstr(name), type, option, value, size, error );
+    if (error) FIXME( "ignoring error parameter\n" );
+
+    if (!handle || !name) return E_INVALIDARG;
+    if (msg->state < WS_MESSAGE_STATE_INITIALIZED) return WS_E_INVALID_OPERATION;
+
+    for (i = 0; i < msg->header_count; i++)
+    {
+        if (msg->header[i]->type || !msg->header[i]->mapped) continue;
+        if (WsXmlStringEquals( name, &msg->header[i]->name, NULL ) == S_OK)
+        {
+            found = TRUE;
+            break;
+        }
+    }
+
+    if (!found)
+    {
+        if (msg->header_count == msg->header_size)
+        {
+            struct header **tmp;
+            if (!(tmp = heap_realloc( msg->header, 2 * msg->header_size * sizeof(struct header *) )))
+                return E_OUTOFMEMORY;
+            msg->header = tmp;
+            msg->header_size *= 2;
+        }
+        i = msg->header_count++;
+    }
+
+    if ((hr = alloc_header( 0, name, TRUE, WS_XML_STRING_TYPE, option, value, size, &header )) != S_OK)
+        return hr;
+
+    if (found) free_header( msg->header[i] );
+    msg->header[i] = header;
+    return S_OK;
+}
+
+/**************************************************************************
+ *          WsRemoveMappedHeader		[webservices.@]
+ */
+HRESULT WINAPI WsRemoveMappedHeader( WS_MESSAGE *handle, const WS_XML_STRING *name, WS_ERROR *error )
+{
+    struct msg *msg = (struct msg *)handle;
+    ULONG i;
+
+    TRACE( "%p %s %p\n", handle, debugstr_xmlstr(name), error );
+    if (error) FIXME( "ignoring error parameter\n" );
+
+    if (!handle || !name) return E_INVALIDARG;
+    if (msg->state < WS_MESSAGE_STATE_INITIALIZED) return WS_E_INVALID_OPERATION;
+
+    for (i = 0; i < msg->header_count; i++)
+    {
+        if (msg->header[i]->type || !msg->header[i]->mapped) continue;
+        if (WsXmlStringEquals( name, &msg->header[i]->name, NULL ) == S_OK)
+        {
+            free_header( msg->header[i] );
+            memmove( &msg->header[i], &msg->header[i + 1], (msg->header_count - i) * sizeof(struct header *) );
+            msg->header_count--;
+            break;
+        }
+    }
+
+    return S_OK;
 }

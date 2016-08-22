@@ -27,6 +27,8 @@
 static BOOL is_ddraw64 = sizeof(DWORD) != sizeof(DWORD *);
 static DEVMODEW registry_mode;
 
+static HRESULT (WINAPI *pDwmIsCompositionEnabled)(BOOL *);
+
 struct create_window_thread_param
 {
     HWND window;
@@ -9567,6 +9569,19 @@ done:
     DestroyWindow(window);
 }
 
+static BOOL dwm_enabled(void)
+{
+    BOOL ret = FALSE;
+
+    if (!strcmp(winetest_platform, "wine"))
+        return FALSE;
+    if (!pDwmIsCompositionEnabled)
+        return FALSE;
+    if (FAILED(pDwmIsCompositionEnabled(&ret)))
+        return FALSE;
+    return ret;
+}
+
 static void test_offscreen_overlay(void)
 {
     IDirectDrawSurface *overlay, *offscreen, *primary;
@@ -9628,7 +9643,8 @@ static void test_offscreen_overlay(void)
     ok(SUCCEEDED(hr), "Failed to create surface, hr %#x.\n",hr);
 
     hr = IDirectDrawSurface_UpdateOverlay(overlay, NULL, offscreen, NULL, DDOVER_SHOW, NULL);
-    ok(SUCCEEDED(hr), "Failed to update overlay, hr %#x.\n", hr);
+    ok(SUCCEEDED(hr) || broken(hr == DDERR_OUTOFCAPS && dwm_enabled()),
+            "Failed to update overlay, hr %#x.\n", hr);
 
     /* Try to overlay the primary with a non-overlay surface. */
     hr = IDirectDrawSurface_UpdateOverlay(offscreen, NULL, primary, NULL, DDOVER_SHOW, NULL);
@@ -9646,7 +9662,7 @@ done:
 
 static void test_overlay_rect(void)
 {
-    IDirectDrawSurface *overlay, *primary;
+    IDirectDrawSurface *overlay, *primary = NULL;
     DDSURFACEDESC surface_desc;
     RECT rect = {0, 0, 64, 64};
     IDirectDraw2 *ddraw;
@@ -9682,6 +9698,13 @@ static void test_overlay_rect(void)
     ok(SUCCEEDED(hr), "Failed to get DC, hr %#x.\n", hr);
     hr = IDirectDrawSurface_ReleaseDC(primary, dc);
     ok(SUCCEEDED(hr), "Failed to release DC, hr %#x.\n", hr);
+
+    /* On Windows 8 and newer DWM can't be turned off, making overlays unusable. */
+    if (dwm_enabled())
+    {
+        win_skip("Cannot disable DWM, skipping overlay test.\n");
+        goto done;
+    }
 
     /* The dx sdk sort of implies that rect must be set when DDOVER_SHOW is
      * used. This is not true in Windows Vista and earlier, but changed in
@@ -9730,9 +9753,10 @@ static void test_overlay_rect(void)
     ok(!pos_x, "Got unexpected pos_x %d.\n", pos_x);
     ok(!pos_y, "Got unexpected pos_y %d.\n", pos_y);
 
-    IDirectDrawSurface_Release(primary);
     IDirectDrawSurface_Release(overlay);
 done:
+    if (primary)
+        IDirectDrawSurface_Release(primary);
     IDirectDraw2_Release(ddraw);
     DestroyWindow(window);
 }
@@ -10220,10 +10244,220 @@ static void test_draw_primitive(void)
     DestroyWindow(window);
 }
 
+static void test_edge_antialiasing_blending(void)
+{
+    D3DRECT clear_rect = {{0}, {0}, {640}, {480}};
+    IDirect3DMaterial2 *green_background;
+    IDirect3DMaterial2 *red_background;
+    IDirectDrawSurface *offscreen, *ds;
+    D3DDEVICEDESC hal_desc, hel_desc;
+    IDirect3DViewport2 *viewport;
+    DDSURFACEDESC surface_desc;
+    IDirect3DDevice2 *device;
+    IDirectDraw2 *ddraw;
+    ULONG refcount;
+    D3DCOLOR color;
+    HWND window;
+    HRESULT hr;
+
+    static D3DMATRIX mat =
+    {
+        1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f,
+    };
+    static D3DLVERTEX green_quad[] =
+    {
+        {{-1.0f}, {-1.0f}, {0.1f}, 0, {0x7f00ff00}},
+        {{-1.0f}, { 1.0f}, {0.1f}, 0, {0x7f00ff00}},
+        {{ 1.0f}, {-1.0f}, {0.1f}, 0, {0x7f00ff00}},
+        {{ 1.0f}, { 1.0f}, {0.1f}, 0, {0x7f00ff00}},
+    };
+    static D3DLVERTEX red_quad[] =
+    {
+        {{-1.0f}, {-1.0f}, {0.1f}, 0, {0xccff0000}},
+        {{-1.0f}, { 1.0f}, {0.1f}, 0, {0xccff0000}},
+        {{ 1.0f}, {-1.0f}, {0.1f}, 0, {0xccff0000}},
+        {{ 1.0f}, { 1.0f}, {0.1f}, 0, {0xccff0000}},
+    };
+
+    window = CreateWindowA("static", "ddraw_test", WS_OVERLAPPEDWINDOW,
+            0, 0, 640, 480, NULL, NULL, NULL, NULL);
+    ddraw = create_ddraw();
+    ok(!!ddraw, "Failed to create a ddraw object.\n");
+    if (!(device = create_device(ddraw, window, DDSCL_NORMAL)))
+    {
+        skip("Failed to create a 3D device.\n");
+        DestroyWindow(window);
+        return;
+    }
+
+    memset(&hal_desc, 0, sizeof(hal_desc));
+    hal_desc.dwSize = sizeof(hal_desc);
+    memset(&hel_desc, 0, sizeof(hel_desc));
+    hel_desc.dwSize = sizeof(hel_desc);
+    hr = IDirect3DDevice2_GetCaps(device, &hal_desc, &hel_desc);
+    ok(SUCCEEDED(hr), "Failed to get device caps, hr %#x.\n", hr);
+    trace("HAL line edge antialiasing support: %#x.\n",
+            hal_desc.dpcLineCaps.dwRasterCaps & D3DPRASTERCAPS_ANTIALIASEDGES);
+    trace("HAL triangle edge antialiasing support: %#x.\n",
+            hal_desc.dpcTriCaps.dwRasterCaps & D3DPRASTERCAPS_ANTIALIASEDGES);
+    trace("HEL line edge antialiasing support: %#x.\n",
+            hel_desc.dpcLineCaps.dwRasterCaps & D3DPRASTERCAPS_ANTIALIASEDGES);
+    trace("HEL triangle edge antialiasing support: %#x.\n",
+            hel_desc.dpcTriCaps.dwRasterCaps & D3DPRASTERCAPS_ANTIALIASEDGES);
+
+    memset(&surface_desc, 0, sizeof(surface_desc));
+    surface_desc.dwSize = sizeof(surface_desc);
+    surface_desc.dwFlags = DDSD_WIDTH | DDSD_HEIGHT | DDSD_CAPS | DDSD_PIXELFORMAT;
+    surface_desc.dwWidth = 640;
+    surface_desc.dwHeight = 480;
+    surface_desc.ddsCaps.dwCaps = DDSCAPS_OFFSCREENPLAIN | DDSCAPS_3DDEVICE;
+    surface_desc.ddpfPixelFormat.dwSize = sizeof(surface_desc.ddpfPixelFormat);
+    U4(surface_desc).ddpfPixelFormat.dwFlags = DDPF_RGB | DDPF_ALPHAPIXELS;
+    U1(U4(surface_desc).ddpfPixelFormat).dwRGBBitCount = 32;
+    U2(U4(surface_desc).ddpfPixelFormat).dwRBitMask = 0x00ff0000;
+    U3(U4(surface_desc).ddpfPixelFormat).dwGBitMask = 0x0000ff00;
+    U4(U4(surface_desc).ddpfPixelFormat).dwBBitMask = 0x000000ff;
+    U5(U4(surface_desc).ddpfPixelFormat).dwRGBAlphaBitMask = 0xff000000;
+    hr = IDirectDraw2_CreateSurface(ddraw, &surface_desc, &offscreen, NULL);
+    ok(hr == D3D_OK, "Creating the offscreen render target failed, hr %#x.\n", hr);
+
+    ds = get_depth_stencil(device);
+    hr = IDirectDrawSurface_AddAttachedSurface(offscreen, ds);
+    todo_wine ok(SUCCEEDED(hr), "Failed to attach depth buffer, hr %#x.\n", hr);
+    IDirectDrawSurface_Release(ds);
+
+    hr = IDirect3DDevice2_SetRenderTarget(device, offscreen, 0);
+    ok(SUCCEEDED(hr), "Failed to set render target, hr %#x.\n", hr);
+
+    red_background = create_diffuse_material(device, 1.0f, 0.0f, 0.0f, 0.8f);
+    green_background = create_diffuse_material(device, 0.0f, 1.0f, 0.0f, 0.5f);
+
+    viewport = create_viewport(device, 0, 0, 640, 480);
+    hr = IDirect3DDevice2_SetCurrentViewport(device, viewport);
+    ok(SUCCEEDED(hr), "Failed to activate the viewport, hr %#x.\n", hr);
+
+    hr = IDirect3DDevice2_SetTransform(device, D3DTRANSFORMSTATE_WORLD, &mat);
+    ok(SUCCEEDED(hr), "Failed to set world transform, hr %#x.\n", hr);
+    hr = IDirect3DDevice2_SetTransform(device, D3DTRANSFORMSTATE_VIEW, &mat);
+    ok(SUCCEEDED(hr), "Failed to set view transform, hr %#x.\n", hr);
+    hr = IDirect3DDevice2_SetTransform(device, D3DTRANSFORMSTATE_PROJECTION, &mat);
+    ok(SUCCEEDED(hr), "Failed to set projection transform, hr %#x.\n", hr);
+    hr = IDirect3DDevice2_SetRenderState(device, D3DRENDERSTATE_CLIPPING, FALSE);
+    ok(SUCCEEDED(hr), "Failed to disable clipping, hr %#x.\n", hr);
+    hr = IDirect3DDevice2_SetRenderState(device, D3DRENDERSTATE_ZENABLE, FALSE);
+    ok(SUCCEEDED(hr), "Failed to disable Z test, hr %#x.\n", hr);
+    hr = IDirect3DDevice2_SetRenderState(device, D3DRENDERSTATE_FOGENABLE, FALSE);
+    ok(SUCCEEDED(hr), "Failed to disable fog, hr %#x.\n", hr);
+    hr = IDirect3DDevice2_SetRenderState(device, D3DRENDERSTATE_STENCILENABLE, FALSE);
+    ok(SUCCEEDED(hr), "Failed to disable stencil test, hr %#x.\n", hr);
+    hr = IDirect3DDevice2_SetRenderState(device, D3DRENDERSTATE_CULLMODE, D3DCULL_NONE);
+    ok(SUCCEEDED(hr), "Failed to disable culling, hr %#x.\n", hr);
+    hr = IDirect3DDevice2_SetRenderState(device, D3DRENDERSTATE_LIGHTING, FALSE);
+    ok(SUCCEEDED(hr), "Failed to disable lighting, hr %#x.\n", hr);
+
+    hr = IDirect3DDevice2_SetRenderState(device, D3DRENDERSTATE_ALPHABLENDENABLE, TRUE);
+    ok(SUCCEEDED(hr), "Failed to enable blending, hr %#x.\n", hr);
+    hr = IDirect3DDevice2_SetRenderState(device, D3DRENDERSTATE_SRCBLEND, D3DBLEND_SRCALPHA);
+    ok(SUCCEEDED(hr), "Failed to set src blend, hr %#x.\n", hr);
+    hr = IDirect3DDevice2_SetRenderState(device, D3DRENDERSTATE_DESTBLEND, D3DBLEND_DESTALPHA);
+    ok(SUCCEEDED(hr), "Failed to set dest blend, hr %#x.\n", hr);
+
+    viewport_set_background(device, viewport, red_background);
+    hr = IDirect3DViewport2_Clear(viewport, 1, &clear_rect, D3DCLEAR_TARGET);
+    ok(SUCCEEDED(hr), "Failed to clear render target, hr %#x.\n", hr);
+    hr = IDirect3DDevice2_BeginScene(device);
+    ok(SUCCEEDED(hr), "Failed to begin scene, hr %#x.\n", hr);
+    hr = IDirect3DDevice2_DrawPrimitive(device, D3DPT_TRIANGLESTRIP, D3DVT_LVERTEX, green_quad, 4, 0);
+    ok(SUCCEEDED(hr), "Failed to draw, hr %#x.\n", hr);
+    hr = IDirect3DDevice2_EndScene(device);
+    ok(SUCCEEDED(hr), "Failed to end scene, hr %#x.\n", hr);
+    color = get_surface_color(offscreen, 320, 240);
+    ok(compare_color(color, 0x00cc7f00, 1), "Got unexpected color 0x%08x.\n", color);
+
+    viewport_set_background(device, viewport, green_background);
+    hr = IDirect3DViewport2_Clear(viewport, 1, &clear_rect, D3DCLEAR_TARGET);
+    ok(SUCCEEDED(hr), "Failed to clear render target, hr %#x.\n", hr);
+    hr = IDirect3DDevice2_BeginScene(device);
+    ok(SUCCEEDED(hr), "Failed to begin scene, hr %#x.\n", hr);
+    hr = IDirect3DDevice2_DrawPrimitive(device, D3DPT_TRIANGLESTRIP, D3DVT_LVERTEX, red_quad, 4, 0);
+    ok(SUCCEEDED(hr), "Failed to draw, hr %#x.\n", hr);
+    hr = IDirect3DDevice2_EndScene(device);
+    ok(SUCCEEDED(hr), "Failed to end scene, hr %#x.\n", hr);
+    color = get_surface_color(offscreen, 320, 240);
+    ok(compare_color(color, 0x00cc7f00, 1), "Got unexpected color 0x%08x.\n", color);
+
+    hr = IDirect3DDevice2_SetRenderState(device, D3DRENDERSTATE_ALPHABLENDENABLE, FALSE);
+    ok(SUCCEEDED(hr), "Failed to disable blending, hr %#x.\n", hr);
+
+    viewport_set_background(device, viewport, red_background);
+    hr = IDirect3DViewport2_Clear(viewport, 1, &clear_rect, D3DCLEAR_TARGET);
+    ok(SUCCEEDED(hr), "Failed to clear render target, hr %#x.\n", hr);
+    hr = IDirect3DDevice2_BeginScene(device);
+    ok(SUCCEEDED(hr), "Failed to begin scene, hr %#x.\n", hr);
+    hr = IDirect3DDevice2_DrawPrimitive(device, D3DPT_TRIANGLESTRIP, D3DVT_LVERTEX, green_quad, 4, 0);
+    ok(SUCCEEDED(hr), "Failed to draw, hr %#x.\n", hr);
+    hr = IDirect3DDevice2_EndScene(device);
+    ok(SUCCEEDED(hr), "Failed to end scene, hr %#x.\n", hr);
+    color = get_surface_color(offscreen, 320, 240);
+    ok(compare_color(color, 0x0000ff00, 1), "Got unexpected color 0x%08x.\n", color);
+
+    viewport_set_background(device, viewport, green_background);
+    hr = IDirect3DViewport2_Clear(viewport, 1, &clear_rect, D3DCLEAR_TARGET);
+    ok(SUCCEEDED(hr), "Failed to clear render target, hr %#x.\n", hr);
+    hr = IDirect3DDevice2_BeginScene(device);
+    ok(SUCCEEDED(hr), "Failed to begin scene, hr %#x.\n", hr);
+    hr = IDirect3DDevice2_DrawPrimitive(device, D3DPT_TRIANGLESTRIP, D3DVT_LVERTEX, red_quad, 4, 0);
+    ok(SUCCEEDED(hr), "Failed to draw, hr %#x.\n", hr);
+    hr = IDirect3DDevice2_EndScene(device);
+    ok(SUCCEEDED(hr), "Failed to end scene, hr %#x.\n", hr);
+    color = get_surface_color(offscreen, 320, 240);
+    ok(compare_color(color, 0x00ff0000, 1), "Got unexpected color 0x%08x.\n", color);
+
+    hr = IDirect3DDevice2_SetRenderState(device, D3DRENDERSTATE_EDGEANTIALIAS, TRUE);
+    ok(SUCCEEDED(hr), "Failed to enable edge antialiasing, hr %#x.\n", hr);
+
+    viewport_set_background(device, viewport, red_background);
+    hr = IDirect3DViewport2_Clear(viewport, 1, &clear_rect, D3DCLEAR_TARGET);
+    ok(SUCCEEDED(hr), "Failed to clear render target, hr %#x.\n", hr);
+    hr = IDirect3DDevice2_BeginScene(device);
+    ok(SUCCEEDED(hr), "Failed to begin scene, hr %#x.\n", hr);
+    hr = IDirect3DDevice2_DrawPrimitive(device, D3DPT_TRIANGLESTRIP, D3DVT_LVERTEX, green_quad, 4, 0);
+    ok(SUCCEEDED(hr), "Failed to draw, hr %#x.\n", hr);
+    hr = IDirect3DDevice2_EndScene(device);
+    ok(SUCCEEDED(hr), "Failed to end scene, hr %#x.\n", hr);
+    color = get_surface_color(offscreen, 320, 240);
+    ok(compare_color(color, 0x0000ff00, 1), "Got unexpected color 0x%08x.\n", color);
+
+    viewport_set_background(device, viewport, green_background);
+    hr = IDirect3DViewport2_Clear(viewport, 1, &clear_rect, D3DCLEAR_TARGET);
+    ok(SUCCEEDED(hr), "Failed to clear render target, hr %#x.\n", hr);
+    hr = IDirect3DDevice2_BeginScene(device);
+    ok(SUCCEEDED(hr), "Failed to begin scene, hr %#x.\n", hr);
+    hr = IDirect3DDevice2_DrawPrimitive(device, D3DPT_TRIANGLESTRIP, D3DVT_LVERTEX, red_quad, 4, 0);
+    ok(SUCCEEDED(hr), "Failed to draw, hr %#x.\n", hr);
+    hr = IDirect3DDevice2_EndScene(device);
+    ok(SUCCEEDED(hr), "Failed to end scene, hr %#x.\n", hr);
+    color = get_surface_color(offscreen, 320, 240);
+    ok(compare_color(color, 0x00ff0000, 1), "Got unexpected color 0x%08x.\n", color);
+
+    IDirectDrawSurface_Release(offscreen);
+    destroy_viewport(device, viewport);
+    destroy_material(red_background);
+    destroy_material(green_background);
+    refcount = IDirect3DDevice2_Release(device);
+    ok(!refcount, "Device has %u references left.\n", refcount);
+    IDirectDraw2_Release(ddraw);
+    DestroyWindow(window);
+}
+
 START_TEST(ddraw2)
 {
     IDirectDraw2 *ddraw;
     DEVMODEW current_mode;
+    HMODULE dwmapi;
 
     if (!(ddraw = create_ddraw()))
     {
@@ -10243,6 +10477,9 @@ START_TEST(ddraw2)
         skip("Current mode does not match registry mode, skipping test.\n");
         return;
     }
+
+    if ((dwmapi = LoadLibraryA("dwmapi.dll")))
+        pDwmIsCompositionEnabled = (void *)GetProcAddress(dwmapi, "DwmIsCompositionEnabled");
 
     test_coop_level_create_device_window();
     test_clipper_blt();
@@ -10306,4 +10543,5 @@ START_TEST(ddraw2)
     test_blt();
     test_getdc();
     test_draw_primitive();
+    test_edge_antialiasing_blending();
 }

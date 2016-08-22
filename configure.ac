@@ -2039,6 +2039,7 @@ AC_CHECK_FUNCS(\
 	strtoll \
 	strtoull \
 	symlink \
+	sysinfo \
 	tcdrain \
 	thr_kill2 \
 	timegm \
@@ -2526,6 +2527,8 @@ AC_CHECK_FUNCS(\
 	erff \
 	exp2 \
 	exp2f \
+	lgamma \
+	lgammaf \
 	llrint \
 	llrintf \
 	llround \
@@ -2636,6 +2639,7 @@ WINE_CONFIG_TEST(dlls/amstream/tests)
 WINE_CONFIG_DLL(api-ms-win-core-com-l1-1-0)
 WINE_CONFIG_DLL(api-ms-win-core-com-l1-1-1)
 WINE_CONFIG_DLL(api-ms-win-core-console-l1-1-0)
+WINE_CONFIG_DLL(api-ms-win-core-console-l2-1-0)
 WINE_CONFIG_DLL(api-ms-win-core-datetime-l1-1-0)
 WINE_CONFIG_DLL(api-ms-win-core-datetime-l1-1-1)
 WINE_CONFIG_DLL(api-ms-win-core-debug-l1-1-0)
@@ -2783,6 +2787,7 @@ WINE_CONFIG_DLL(commdlg.dll16,enable_win16)
 WINE_CONFIG_DLL(compobj.dll16,enable_win16)
 WINE_CONFIG_DLL(compstui,,[implib])
 WINE_CONFIG_DLL(comsvcs,,[implib])
+WINE_CONFIG_DLL(concrt140)
 WINE_CONFIG_DLL(connect)
 WINE_CONFIG_DLL(credui,,[clean,implib])
 WINE_CONFIG_TEST(dlls/credui/tests)
@@ -3317,6 +3322,7 @@ WINE_CONFIG_TEST(dlls/vcomp/tests)
 WINE_CONFIG_DLL(vcomp100)
 WINE_CONFIG_DLL(vcomp110)
 WINE_CONFIG_DLL(vcomp120)
+WINE_CONFIG_DLL(vcomp140)
 WINE_CONFIG_DLL(vcomp90)
 WINE_CONFIG_DLL(vcruntime140)
 WINE_CONFIG_DLL(vdhcp.vxd,enable_win16)

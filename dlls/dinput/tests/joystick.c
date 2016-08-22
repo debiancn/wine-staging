@@ -142,6 +142,10 @@ static BOOL CALLBACK EnumAxes(const DIDEVICEOBJECTINSTANCEA *pdidoi, void *pCont
         hr = IDirectInputDevice_SetProperty(info->pJoystick, DIPROP_DEADZONE, &dipdw.diph);
         ok(hr==DI_OK,"IDirectInputDevice_SetProperty() failed: %08x\n", hr);
 
+        /* ensure DIDOI_ASPECTPOSITION is set for axes objects  */
+        ok(pdidoi->dwFlags & DIDOI_ASPECTPOSITION, "Missing DIDOI_ASPECTPOSITION, flags are 0x%x\n",
+           pdidoi->dwFlags);
+
         info->axis++;
     } else if (IsEqualIID(&pdidoi->guidType, &GUID_POV))
         info->pov++;
@@ -203,7 +207,27 @@ static BOOL CALLBACK EnumJoysticks(const DIDEVICEINSTANCEA *lpddi, void *pvRef)
     if (hr!=DI_OK)
         goto DONE;
 
-    trace("---- %s ----\n", lpddi->tszProductName);
+    trace("---- Controller Information ----\n"
+          "Product Name  : %s\n"
+          "Instance Name : %s\n"
+          "devType       : 0x%08x\n"
+          "GUID Product  : %s\n"
+          "GUID Instance : %s\n"
+          "HID Page      : 0x%04x\n"
+          "HID Usage     : 0x%04x\n",
+          lpddi->tszProductName,
+          lpddi->tszInstanceName,
+          lpddi->dwDevType,
+          wine_dbgstr_guid(&lpddi->guidProduct),
+          wine_dbgstr_guid(&lpddi->guidInstance),
+          lpddi->wUsagePage,
+          lpddi->wUsage);
+
+    /* Check if this is a HID device */
+    if (lpddi->dwDevType & DIDEVTYPE_HID)
+        ok(lpddi->wUsagePage == 0x01 && (lpddi->wUsage == 0x04 || lpddi->wUsage == 0x05),
+           "Expected a game controller HID UsagePage and Usage, got page 0x%x usage 0x%x\n",
+           lpddi->wUsagePage, lpddi->wUsage);
 
     /* Test for joystick ID property */
     ZeroMemory(&dipw, sizeof(dipw));
@@ -227,6 +251,14 @@ static BOOL CALLBACK EnumJoysticks(const DIDEVICEINSTANCEA *lpddi, void *pvRef)
     /* Test if instance name is the same as present in DIDEVICEINSTANCE */
     MultiByteToWideChar(CP_ACP, 0, lpddi->tszInstanceName, -1, nameBuffer, MAX_PATH);
     ok(!lstrcmpW(nameBuffer, dps.wsz), "DIPROP_INSTANCENAME returned is wrong. Expected: %s Got: %s\n",
+                 wine_dbgstr_w(nameBuffer), wine_dbgstr_w(dps.wsz));
+
+    hr = IDirectInputDevice_GetProperty(pJoystick, DIPROP_PRODUCTNAME, &dps.diph);
+    ok(SUCCEEDED(hr), "IDirectInput_GetProperty() for DIPROP_PRODUCTNAME failed: %08x\n", hr);
+
+    /* Test if product name is the same as present in DIDEVICEINSTANCE */
+    MultiByteToWideChar(CP_ACP, 0, lpddi->tszProductName, -1, nameBuffer, MAX_PATH);
+    ok(!lstrcmpW(nameBuffer, dps.wsz), "DIPROP_PRODUCTNAME returned is wrong. Expected: %s Got: %s\n",
                  wine_dbgstr_w(nameBuffer), wine_dbgstr_w(dps.wsz));
 
     /* Test for GUIDPATH properties */
@@ -441,6 +473,9 @@ static BOOL CALLBACK EnumJoysticks(const DIDEVICEINSTANCEA *lpddi, void *pvRef)
              * - effects are preserved (Download + Start doesn't complain
              *   about incomplete effect)
              */
+            hr = IDirectInputEffect_GetEffectStatus(effect, NULL);
+            ok(hr==E_POINTER,"IDirectInputEffect_GetEffectStatus() must fail with E_POINTER, got: %08x\n", hr);
+            effect_status = 0xdeadbeef;
             hr = IDirectInputEffect_GetEffectStatus(effect, &effect_status);
             ok(hr==DI_OK,"IDirectInputEffect_GetEffectStatus() failed: %08x\n", hr);
             ok(effect_status==0,"IDirectInputEffect_GetEffectStatus() reported effect as started\n");

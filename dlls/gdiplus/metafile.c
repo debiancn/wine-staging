@@ -70,6 +70,12 @@ typedef struct EmfPlusFillRects
     DWORD Count;
 } EmfPlusFillRects;
 
+typedef struct EmfPlusSetClipRect
+{
+    EmfPlusRecordHeader Header;
+    GpRectF ClipRect;
+} EmfPlusSetClipRect;
+
 typedef struct EmfPlusSetPageTransform
 {
     EmfPlusRecordHeader Header;
@@ -84,12 +90,61 @@ typedef struct EmfPlusRect
     SHORT Height;
 } EmfPlusRect;
 
+typedef struct EmfPlusSetWorldTransform
+{
+    EmfPlusRecordHeader Header;
+    REAL MatrixData[6];
+} EmfPlusSetWorldTransform;
+
 typedef struct EmfPlusScaleWorldTransform
 {
     EmfPlusRecordHeader Header;
     REAL Sx;
     REAL Sy;
 } EmfPlusScaleWorldTransform;
+
+typedef struct EmfPlusMultiplyWorldTransform
+{
+    EmfPlusRecordHeader Header;
+    REAL MatrixData[6];
+} EmfPlusMultiplyWorldTransform;
+
+typedef struct EmfPlusRotateWorldTransform
+{
+    EmfPlusRecordHeader Header;
+    REAL Angle;
+} EmfPlusRotateWorldTransform;
+
+typedef struct EmfPlusTranslateWorldTransform
+{
+    EmfPlusRecordHeader Header;
+    REAL dx;
+    REAL dy;
+} EmfPlusTranslateWorldTransform;
+
+typedef struct EmfPlusContainerRecord
+{
+    EmfPlusRecordHeader Header;
+    DWORD StackIndex;
+} EmfPlusContainerRecord;
+
+enum container_type
+{
+    BEGIN_CONTAINER,
+    SAVE_GRAPHICS
+};
+
+typedef struct container
+{
+    struct list entry;
+    DWORD id;
+    enum container_type type;
+    GraphicsContainer state;
+    GpMatrix world_transform;
+    GpUnit page_unit;
+    REAL page_scale;
+    GpRegion *clip;
+} container;
 
 static GpStatus METAFILE_AllocateRecord(GpMetafile *metafile, DWORD size, void **result)
 {
@@ -283,6 +338,7 @@ GpStatus WINGDIPAPI GdipRecordMetafile(HDC hdc, EmfType type, GDIPCONST GpRectF 
     (*metafile)->comment_data_size = 0;
     (*metafile)->comment_data_length = 0;
     (*metafile)->hemf = NULL;
+    list_init(&(*metafile)->containers);
 
     if (!frameRect)
     {
@@ -539,6 +595,32 @@ GpStatus METAFILE_FillRectangles(GpMetafile* metafile, GpBrush* brush,
     return Ok;
 }
 
+GpStatus METAFILE_SetClipRect(GpMetafile* metafile, REAL x, REAL y, REAL width, REAL height, CombineMode mode)
+{
+    if (metafile->metafile_type == MetafileTypeEmfPlusOnly || metafile->metafile_type == MetafileTypeEmfPlusDual)
+    {
+        EmfPlusSetClipRect *record;
+        GpStatus stat;
+
+        stat = METAFILE_AllocateRecord(metafile,
+            sizeof(EmfPlusSetClipRect),
+            (void**)&record);
+        if (stat != Ok)
+            return stat;
+
+        record->Header.Type = EmfPlusRecordTypeSetClipRect;
+        record->Header.Flags = (mode & 0xf) << 8;
+        record->ClipRect.X = x;
+        record->ClipRect.Y = y;
+        record->ClipRect.Width = width;
+        record->ClipRect.Height = height;
+
+        METAFILE_WriteRecords(metafile);
+    }
+
+    return Ok;
+}
+
 GpStatus METAFILE_SetPageTransform(GpMetafile* metafile, GpUnit unit, REAL scale)
 {
     if (metafile->metafile_type == MetafileTypeEmfPlusOnly || metafile->metafile_type == MetafileTypeEmfPlusDual)
@@ -562,6 +644,29 @@ GpStatus METAFILE_SetPageTransform(GpMetafile* metafile, GpUnit unit, REAL scale
     return Ok;
 }
 
+GpStatus METAFILE_SetWorldTransform(GpMetafile* metafile, GDIPCONST GpMatrix* transform)
+{
+    if (metafile->metafile_type == MetafileTypeEmfPlusOnly || metafile->metafile_type == MetafileTypeEmfPlusDual)
+    {
+        EmfPlusSetWorldTransform *record;
+        GpStatus stat;
+
+        stat = METAFILE_AllocateRecord(metafile,
+            sizeof(EmfPlusSetWorldTransform),
+            (void**)&record);
+        if (stat != Ok)
+            return stat;
+
+        record->Header.Type = EmfPlusRecordTypeSetWorldTransform;
+        record->Header.Flags = 0;
+        memcpy(record->MatrixData, transform->matrix, sizeof(record->MatrixData));
+
+        METAFILE_WriteRecords(metafile);
+    }
+
+    return Ok;
+}
+
 GpStatus METAFILE_ScaleWorldTransform(GpMetafile* metafile, REAL sx, REAL sy, MatrixOrder order)
 {
     if (metafile->metafile_type == MetafileTypeEmfPlusOnly || metafile->metafile_type == MetafileTypeEmfPlusDual)
@@ -576,9 +681,79 @@ GpStatus METAFILE_ScaleWorldTransform(GpMetafile* metafile, REAL sx, REAL sy, Ma
             return stat;
 
         record->Header.Type = EmfPlusRecordTypeScaleWorldTransform;
-        record->Header.Flags = (order == MatrixOrderAppend ? 4 : 0);
+        record->Header.Flags = (order == MatrixOrderAppend ? 0x2000 : 0);
         record->Sx = sx;
         record->Sy = sy;
+
+        METAFILE_WriteRecords(metafile);
+    }
+
+    return Ok;
+}
+
+GpStatus METAFILE_MultiplyWorldTransform(GpMetafile* metafile, GDIPCONST GpMatrix* matrix, MatrixOrder order)
+{
+    if (metafile->metafile_type == MetafileTypeEmfPlusOnly || metafile->metafile_type == MetafileTypeEmfPlusDual)
+    {
+        EmfPlusMultiplyWorldTransform *record;
+        GpStatus stat;
+
+        stat = METAFILE_AllocateRecord(metafile,
+            sizeof(EmfPlusMultiplyWorldTransform),
+            (void**)&record);
+        if (stat != Ok)
+            return stat;
+
+        record->Header.Type = EmfPlusRecordTypeMultiplyWorldTransform;
+        record->Header.Flags = (order == MatrixOrderAppend ? 0x2000 : 0);
+        memcpy(record->MatrixData, matrix->matrix, sizeof(record->MatrixData));
+
+        METAFILE_WriteRecords(metafile);
+    }
+
+    return Ok;
+}
+
+GpStatus METAFILE_RotateWorldTransform(GpMetafile* metafile, REAL angle, MatrixOrder order)
+{
+    if (metafile->metafile_type == MetafileTypeEmfPlusOnly || metafile->metafile_type == MetafileTypeEmfPlusDual)
+    {
+        EmfPlusRotateWorldTransform *record;
+        GpStatus stat;
+
+        stat = METAFILE_AllocateRecord(metafile,
+            sizeof(EmfPlusRotateWorldTransform),
+            (void**)&record);
+        if (stat != Ok)
+            return stat;
+
+        record->Header.Type = EmfPlusRecordTypeRotateWorldTransform;
+        record->Header.Flags = (order == MatrixOrderAppend ? 0x2000 : 0);
+        record->Angle = angle;
+
+        METAFILE_WriteRecords(metafile);
+    }
+
+    return Ok;
+}
+
+GpStatus METAFILE_TranslateWorldTransform(GpMetafile* metafile, REAL dx, REAL dy, MatrixOrder order)
+{
+    if (metafile->metafile_type == MetafileTypeEmfPlusOnly || metafile->metafile_type == MetafileTypeEmfPlusDual)
+    {
+        EmfPlusTranslateWorldTransform *record;
+        GpStatus stat;
+
+        stat = METAFILE_AllocateRecord(metafile,
+            sizeof(EmfPlusTranslateWorldTransform),
+            (void**)&record);
+        if (stat != Ok)
+            return stat;
+
+        record->Header.Type = EmfPlusRecordTypeTranslateWorldTransform;
+        record->Header.Flags = (order == MatrixOrderAppend ? 0x2000 : 0);
+        record->dx = dx;
+        record->dy = dy;
 
         METAFILE_WriteRecords(metafile);
     }
@@ -601,6 +776,98 @@ GpStatus METAFILE_ResetWorldTransform(GpMetafile* metafile)
 
         record->Type = EmfPlusRecordTypeResetWorldTransform;
         record->Flags = 0;
+
+        METAFILE_WriteRecords(metafile);
+    }
+
+    return Ok;
+}
+
+GpStatus METAFILE_BeginContainerNoParams(GpMetafile* metafile, DWORD StackIndex)
+{
+    if (metafile->metafile_type == MetafileTypeEmfPlusOnly || metafile->metafile_type == MetafileTypeEmfPlusDual)
+    {
+        EmfPlusContainerRecord *record;
+        GpStatus stat;
+
+        stat = METAFILE_AllocateRecord(metafile,
+            sizeof(EmfPlusContainerRecord),
+            (void**)&record);
+        if (stat != Ok)
+            return stat;
+
+        record->Header.Type = EmfPlusRecordTypeBeginContainerNoParams;
+        record->Header.Flags = 0;
+        record->StackIndex = StackIndex;
+
+        METAFILE_WriteRecords(metafile);
+    }
+
+    return Ok;
+}
+
+GpStatus METAFILE_EndContainer(GpMetafile* metafile, DWORD StackIndex)
+{
+    if (metafile->metafile_type == MetafileTypeEmfPlusOnly || metafile->metafile_type == MetafileTypeEmfPlusDual)
+    {
+        EmfPlusContainerRecord *record;
+        GpStatus stat;
+
+        stat = METAFILE_AllocateRecord(metafile,
+            sizeof(EmfPlusContainerRecord),
+            (void**)&record);
+        if (stat != Ok)
+            return stat;
+
+        record->Header.Type = EmfPlusRecordTypeEndContainer;
+        record->Header.Flags = 0;
+        record->StackIndex = StackIndex;
+
+        METAFILE_WriteRecords(metafile);
+    }
+
+    return Ok;
+}
+
+GpStatus METAFILE_SaveGraphics(GpMetafile* metafile, DWORD StackIndex)
+{
+    if (metafile->metafile_type == MetafileTypeEmfPlusOnly || metafile->metafile_type == MetafileTypeEmfPlusDual)
+    {
+        EmfPlusContainerRecord *record;
+        GpStatus stat;
+
+        stat = METAFILE_AllocateRecord(metafile,
+            sizeof(EmfPlusContainerRecord),
+            (void**)&record);
+        if (stat != Ok)
+            return stat;
+
+        record->Header.Type = EmfPlusRecordTypeSave;
+        record->Header.Flags = 0;
+        record->StackIndex = StackIndex;
+
+        METAFILE_WriteRecords(metafile);
+    }
+
+    return Ok;
+}
+
+GpStatus METAFILE_RestoreGraphics(GpMetafile* metafile, DWORD StackIndex)
+{
+    if (metafile->metafile_type == MetafileTypeEmfPlusOnly || metafile->metafile_type == MetafileTypeEmfPlusDual)
+    {
+        EmfPlusContainerRecord *record;
+        GpStatus stat;
+
+        stat = METAFILE_AllocateRecord(metafile,
+            sizeof(EmfPlusContainerRecord),
+            (void**)&record);
+        if (stat != Ok)
+            return stat;
+
+        record->Header.Type = EmfPlusRecordTypeRestore;
+        record->Header.Flags = 0;
+        record->StackIndex = StackIndex;
 
         METAFILE_WriteRecords(metafile);
     }
@@ -780,7 +1047,11 @@ static void METAFILE_PlaybackReleaseDC(GpMetafile *metafile)
 
 static GpStatus METAFILE_PlaybackUpdateClip(GpMetafile *metafile)
 {
-    return GdipCombineRegionRegion(metafile->playback_graphics->clip, metafile->base_clip, CombineModeReplace);
+    GpStatus stat;
+    stat = GdipCombineRegionRegion(metafile->playback_graphics->clip, metafile->base_clip, CombineModeReplace);
+    if (stat == Ok)
+        stat = GdipCombineRegionRegion(metafile->playback_graphics->clip, metafile->clip, CombineModeIntersect);
+    return stat;
 }
 
 static GpStatus METAFILE_PlaybackUpdateWorldTransform(GpMetafile *metafile)
@@ -932,6 +1203,32 @@ GpStatus WINGDIPAPI GdipPlayMetafileRecord(GDIPCONST GpMetafile *metafile,
 
             return stat;
         }
+        case EmfPlusRecordTypeSetClipRect:
+        {
+            EmfPlusSetClipRect *record = (EmfPlusSetClipRect*)header;
+            CombineMode mode = (CombineMode)((flags >> 8) & 0xf);
+            GpRegion *region;
+            GpMatrix world_to_device;
+
+            if (dataSize + sizeof(EmfPlusRecordHeader) < sizeof(*record))
+                return InvalidParameter;
+
+            stat = GdipCreateRegionRect(&record->ClipRect, &region);
+
+            if (stat == Ok)
+            {
+                get_graphics_transform(real_metafile->playback_graphics,
+                    CoordinateSpaceDevice, CoordinateSpaceWorld, &world_to_device);
+
+                GdipTransformRegion(region, &world_to_device);
+
+                GdipCombineRegionRegion(real_metafile->clip, region, mode);
+
+                GdipDeleteRegion(region);
+            }
+
+            return METAFILE_PlaybackUpdateClip(real_metafile);
+        }
         case EmfPlusRecordTypeSetPageTransform:
         {
             EmfPlusSetPageTransform *record = (EmfPlusSetPageTransform*)header;
@@ -945,10 +1242,21 @@ GpStatus WINGDIPAPI GdipPlayMetafileRecord(GDIPCONST GpMetafile *metafile,
 
             return METAFILE_PlaybackUpdateWorldTransform(real_metafile);
         }
+        case EmfPlusRecordTypeSetWorldTransform:
+        {
+            EmfPlusSetWorldTransform *record = (EmfPlusSetWorldTransform*)header;
+
+            if (dataSize + sizeof(EmfPlusRecordHeader) < sizeof(EmfPlusSetWorldTransform))
+                return InvalidParameter;
+
+            memcpy(real_metafile->world_transform->matrix, record->MatrixData, sizeof(record->MatrixData));
+
+            return METAFILE_PlaybackUpdateWorldTransform(real_metafile);
+        }
         case EmfPlusRecordTypeScaleWorldTransform:
         {
             EmfPlusScaleWorldTransform *record = (EmfPlusScaleWorldTransform*)header;
-            MatrixOrder order = (flags & 0x4) ? MatrixOrderAppend : MatrixOrderPrepend;
+            MatrixOrder order = (flags & 0x2000) ? MatrixOrderAppend : MatrixOrderPrepend;
 
             if (dataSize + sizeof(EmfPlusRecordHeader) < sizeof(EmfPlusScaleWorldTransform))
                 return InvalidParameter;
@@ -957,11 +1265,142 @@ GpStatus WINGDIPAPI GdipPlayMetafileRecord(GDIPCONST GpMetafile *metafile,
 
             return METAFILE_PlaybackUpdateWorldTransform(real_metafile);
         }
+        case EmfPlusRecordTypeMultiplyWorldTransform:
+        {
+            EmfPlusMultiplyWorldTransform *record = (EmfPlusMultiplyWorldTransform*)header;
+            MatrixOrder order = (flags & 0x2000) ? MatrixOrderAppend : MatrixOrderPrepend;
+            GpMatrix matrix;
+
+            if (dataSize + sizeof(EmfPlusRecordHeader) < sizeof(EmfPlusMultiplyWorldTransform))
+                return InvalidParameter;
+
+            memcpy(matrix.matrix, record->MatrixData, sizeof(matrix.matrix));
+
+            GdipMultiplyMatrix(real_metafile->world_transform, &matrix, order);
+
+            return METAFILE_PlaybackUpdateWorldTransform(real_metafile);
+        }
+        case EmfPlusRecordTypeRotateWorldTransform:
+        {
+            EmfPlusRotateWorldTransform *record = (EmfPlusRotateWorldTransform*)header;
+            MatrixOrder order = (flags & 0x2000) ? MatrixOrderAppend : MatrixOrderPrepend;
+
+            if (dataSize + sizeof(EmfPlusRecordHeader) < sizeof(EmfPlusRotateWorldTransform))
+                return InvalidParameter;
+
+            GdipRotateMatrix(real_metafile->world_transform, record->Angle, order);
+
+            return METAFILE_PlaybackUpdateWorldTransform(real_metafile);
+        }
+        case EmfPlusRecordTypeTranslateWorldTransform:
+        {
+            EmfPlusTranslateWorldTransform *record = (EmfPlusTranslateWorldTransform*)header;
+            MatrixOrder order = (flags & 0x2000) ? MatrixOrderAppend : MatrixOrderPrepend;
+
+            if (dataSize + sizeof(EmfPlusRecordHeader) < sizeof(EmfPlusTranslateWorldTransform))
+                return InvalidParameter;
+
+            GdipTranslateMatrix(real_metafile->world_transform, record->dx, record->dy, order);
+
+            return METAFILE_PlaybackUpdateWorldTransform(real_metafile);
+        }
         case EmfPlusRecordTypeResetWorldTransform:
         {
             GdipSetMatrixElements(real_metafile->world_transform, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0);
 
             return METAFILE_PlaybackUpdateWorldTransform(real_metafile);
+        }
+        case EmfPlusRecordTypeBeginContainerNoParams:
+        case EmfPlusRecordTypeSave:
+        {
+            EmfPlusContainerRecord *record = (EmfPlusContainerRecord*)header;
+            container* cont;
+
+            cont = heap_alloc_zero(sizeof(*cont));
+            if (!cont)
+                return OutOfMemory;
+
+            stat = GdipCloneRegion(metafile->clip, &cont->clip);
+            if (stat != Ok)
+            {
+                heap_free(cont);
+                return stat;
+            }
+
+            if (recordType == EmfPlusRecordTypeBeginContainerNoParams)
+                stat = GdipBeginContainer2(metafile->playback_graphics, &cont->state);
+            else
+                stat = GdipSaveGraphics(metafile->playback_graphics, &cont->state);
+
+            if (stat != Ok)
+            {
+                GdipDeleteRegion(cont->clip);
+                heap_free(cont);
+                return stat;
+            }
+
+            cont->id = record->StackIndex;
+            if (recordType == EmfPlusRecordTypeBeginContainerNoParams)
+                cont->type = BEGIN_CONTAINER;
+            else
+                cont->type = SAVE_GRAPHICS;
+            cont->world_transform = *metafile->world_transform;
+            cont->page_unit = metafile->page_unit;
+            cont->page_scale = metafile->page_scale;
+            list_add_head(&real_metafile->containers, &cont->entry);
+
+            break;
+        }
+        case EmfPlusRecordTypeEndContainer:
+        case EmfPlusRecordTypeRestore:
+        {
+            EmfPlusContainerRecord *record = (EmfPlusContainerRecord*)header;
+            container* cont;
+            enum container_type type;
+            BOOL found=FALSE;
+
+            if (recordType == EmfPlusRecordTypeEndContainer)
+                type = BEGIN_CONTAINER;
+            else
+                type = SAVE_GRAPHICS;
+
+            LIST_FOR_EACH_ENTRY(cont, &real_metafile->containers, container, entry)
+            {
+                if (cont->id == record->StackIndex && cont->type == type)
+                {
+                    found = TRUE;
+                    break;
+                }
+            }
+
+            if (found)
+            {
+                container* cont2;
+
+                /* pop any newer items on the stack */
+                while ((cont2 = LIST_ENTRY(list_head(&real_metafile->containers), container, entry)) != cont)
+                {
+                    list_remove(&cont2->entry);
+                    GdipDeleteRegion(cont2->clip);
+                    heap_free(cont2);
+                }
+
+                if (type == BEGIN_CONTAINER)
+                    GdipEndContainer(real_metafile->playback_graphics, cont->state);
+                else
+                    GdipRestoreGraphics(real_metafile->playback_graphics, cont->state);
+
+                *real_metafile->world_transform = cont->world_transform;
+                real_metafile->page_unit = cont->page_unit;
+                real_metafile->page_scale = cont->page_scale;
+                GdipCombineRegionRegion(real_metafile->clip, cont->clip, CombineModeReplace);
+
+                list_remove(&cont->entry);
+                GdipDeleteRegion(cont->clip);
+                heap_free(cont);
+            }
+
+            break;
         }
         default:
             FIXME("Not implemented for record type %x\n", recordType);
@@ -1088,6 +1527,9 @@ GpStatus WINGDIPAPI GdipEnumerateMetafileSrcRectDestPoints(GpGraphics *graphics,
             stat = GdipGetClip(graphics, real_metafile->base_clip);
 
         if (stat == Ok)
+            stat = GdipCreateRegion(&real_metafile->clip);
+
+        if (stat == Ok)
             stat = GdipCreatePath(FillModeAlternate, &dst_path);
 
         if (stat == Ok)
@@ -1140,6 +1582,17 @@ GpStatus WINGDIPAPI GdipEnumerateMetafileSrcRectDestPoints(GpGraphics *graphics,
 
         GdipDeleteRegion(real_metafile->base_clip);
         real_metafile->base_clip = NULL;
+
+        GdipDeleteRegion(real_metafile->clip);
+        real_metafile->clip = NULL;
+
+        while (list_head(&real_metafile->containers))
+        {
+            container* cont = LIST_ENTRY(list_head(&real_metafile->containers), container, entry);
+            list_remove(&cont->entry);
+            GdipDeleteRegion(cont->clip);
+            heap_free(cont);
+        }
 
         GdipEndContainer(graphics, state);
     }
@@ -1385,6 +1838,7 @@ GpStatus WINGDIPAPI GdipCreateMetafileFromEmf(HENHMETAFILE hemf, BOOL delete,
     (*metafile)->metafile_type = header.Type;
     (*metafile)->hemf = hemf;
     (*metafile)->preserve_hemf = !delete;
+    list_init(&(*metafile)->containers);
 
     TRACE("<-- %p\n", *metafile);
 

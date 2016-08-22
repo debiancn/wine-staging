@@ -1,6 +1,6 @@
 @ stdcall D3DX11CheckVersion(long long)
-@ stub D3DX11CompileFromFileA
-@ stub D3DX11CompileFromFileW
+@ stdcall D3DX11CompileFromFileA(str ptr ptr str str long long ptr ptr ptr ptr)
+@ stdcall D3DX11CompileFromFileW(wstr ptr ptr str str long long ptr ptr ptr ptr)
 @ stdcall D3DX11CompileFromMemory(str long str ptr ptr str str long long ptr ptr ptr ptr)
 @ stub D3DX11CompileFromResourceA
 @ stub D3DX11CompileFromResourceW
@@ -22,7 +22,7 @@
 @ stub D3DX11CreateShaderResourceViewFromResourceW
 @ stub D3DX11CreateTextureFromFileA
 @ stub D3DX11CreateTextureFromFileW
-@ stub D3DX11CreateTextureFromMemory
+@ stdcall D3DX11CreateTextureFromMemory(ptr ptr long ptr ptr ptr ptr)
 @ stub D3DX11CreateTextureFromResourceA
 @ stub D3DX11CreateTextureFromResourceW
 @ stub D3DX11CreateThreadPump

@@ -4556,19 +4556,19 @@ static void delete_opengl_contexts(struct wined3d_device *device, struct wined3d
     struct wined3d_context *context;
     struct wined3d_shader *shader;
 
-    context = context_acquire(device, NULL);
-    gl_info = context->gl_info;
-
     LIST_FOR_EACH_ENTRY_SAFE(resource, cursor, &device->resources, struct wined3d_resource, resource_list_entry)
     {
         TRACE("Unloading resource %p.\n", resource);
-        resource->resource_ops->resource_unload(resource);
+        wined3d_cs_emit_unload_resource(device->cs, resource);
     }
 
     LIST_FOR_EACH_ENTRY(shader, &device->shaders, struct wined3d_shader, shader_list_entry)
     {
         device->shader_backend->shader_destroy(shader);
     }
+
+    context = context_acquire(device, NULL);
+    gl_info = context->gl_info;
 
     if (device->depth_blt_texture)
     {
@@ -4648,6 +4648,7 @@ HRESULT CDECL wined3d_device_reset(struct wined3d_device *device,
     struct wined3d_rendertarget_view_desc view_desc;
     struct wined3d_resource *resource, *cursor;
     struct wined3d_swapchain *swapchain;
+    BOOL backbuffer_resized;
     HRESULT hr = WINED3D_OK;
     unsigned int i;
 
@@ -4737,10 +4738,12 @@ HRESULT CDECL wined3d_device_reset(struct wined3d_device *device,
         wined3d_swapchain_set_window(swapchain, NULL);
     }
 
+    backbuffer_resized = swapchain_desc->backbuffer_width != swapchain->desc.backbuffer_width
+            || swapchain_desc->backbuffer_height != swapchain->desc.backbuffer_height;
+
     if (!swapchain_desc->windowed != !swapchain->desc.windowed
             || swapchain->reapply_mode || mode
-            || swapchain_desc->backbuffer_width != swapchain->desc.backbuffer_width
-            || swapchain_desc->backbuffer_height != swapchain->desc.backbuffer_height)
+            || (!swapchain_desc->windowed && backbuffer_resized))
     {
         if (FAILED(hr = wined3d_swapchain_set_fullscreen(swapchain, swapchain_desc, mode)))
             return hr;
