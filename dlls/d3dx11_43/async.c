@@ -41,3 +41,37 @@ HRESULT WINAPI D3DX11CompileFromMemory(const char *data, SIZE_T data_size, const
     return D3DCompile(data, data_size, filename, defines, include, entry_point, target,
             sflags, eflags, shader, error_messages);
 }
+
+HRESULT WINAPI D3DX11CompileFromFileA(const char *filename, const D3D10_SHADER_MACRO *defines,
+        ID3D10Include *include, const char *entry_point, const char *target, UINT sflags, UINT eflags,
+        ID3DX11ThreadPump *pump, ID3D10Blob **shader, ID3D10Blob **error_messages, HRESULT *hresult)
+{
+    FIXME("filename %s, defines %p, include %p, entry_point %s, target %s, sflags %#x, "
+            "eflags %#x, pump %p, shader %p, error_messages %p, hresult %p stub.\n",
+            debugstr_a(filename), defines, include, debugstr_a(entry_point), debugstr_a(target),
+            sflags, eflags, pump, shader, error_messages, hresult);
+
+    return E_NOTIMPL;
+}
+
+HRESULT WINAPI D3DX11CompileFromFileW(const WCHAR *filename, const D3D10_SHADER_MACRO *defines,
+        ID3D10Include *include, const char *entry_point, const char *target, UINT sflags, UINT eflags,
+        ID3DX11ThreadPump *pump, ID3D10Blob **shader, ID3D10Blob **error_messages, HRESULT *hresult)
+{
+    FIXME("filename %s, defines %p, include %p, entry_point %s, target %s, sflags %#x, "
+            "eflags %#x, pump %p, shader %p, error_messages %p, hresult %p stub.\n",
+            debugstr_w(filename), defines, include, debugstr_a(entry_point), debugstr_a(target),
+            sflags, eflags, pump, shader, error_messages, hresult);
+
+    return E_NOTIMPL;
+}
+
+HRESULT WINAPI D3DX11CreateTextureFromMemory(ID3D11Device *device, const void *data,
+        SIZE_T data_size, D3DX11_IMAGE_LOAD_INFO *load_info, ID3DX11ThreadPump *pump,
+        ID3D11Resource **texture, HRESULT *hresult)
+{
+    FIXME("device %p, data %p, data_size %lu, load_info %p, pump %p, texture %p, hresult %p stub.\n",
+            device, data, data_size, load_info, pump, texture, hresult);
+
+    return E_NOTIMPL;
+}

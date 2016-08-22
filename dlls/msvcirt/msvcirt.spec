@@ -1,7 +1,7 @@
-@ stub -arch=win32 ??0Iostream_init@@QAE@AAVios@@H@Z  # __thiscall Iostream_init::Iostream_init(class ios &,int)
-@ stub -arch=win64 ??0Iostream_init@@QEAA@AEAVios@@H@Z
-@ stub -arch=win32 ??0Iostream_init@@QAE@XZ  # __thiscall Iostream_init::Iostream_init(void)
-@ stub -arch=win64 ??0Iostream_init@@QEAA@XZ
+@ thiscall -arch=win32 ??0Iostream_init@@QAE@AAVios@@H@Z(ptr ptr long) Iostream_init_ios_ctor
+@ cdecl -arch=win64 ??0Iostream_init@@QEAA@AEAVios@@H@Z(ptr ptr long) Iostream_init_ios_ctor
+@ thiscall -arch=win32 ??0Iostream_init@@QAE@XZ(ptr) Iostream_init_ctor
+@ cdecl -arch=win64 ??0Iostream_init@@QEAA@XZ(ptr) Iostream_init_ctor
 @ thiscall -arch=i386 ??0exception@@QAE@ABQBD@Z(ptr ptr) MSVCP_exception_ctor
 @ cdecl -arch=win64 ??0exception@@QEAA@AEBQEBD@Z(ptr ptr) MSVCP_exception_ctor
 @ thiscall -arch=i386 ??0exception@@QAE@ABV0@@Z(ptr ptr) MSVCP_exception_copy_ctor
@@ -42,24 +42,24 @@
 @ cdecl -arch=win64 ??0ios@@IEAA@XZ(ptr) ios_ctor
 @ thiscall -arch=win32 ??0ios@@QAE@PAVstreambuf@@@Z(ptr ptr) ios_sb_ctor
 @ cdecl -arch=win64 ??0ios@@QEAA@PEAVstreambuf@@@Z(ptr ptr) ios_sb_ctor
-@ stub -arch=win32 ??0iostream@@IAE@ABV0@@Z  # __thiscall iostream::iostream(class iostream const &)
-@ stub -arch=win64 ??0iostream@@IEAA@AEBV0@@Z
-@ stub -arch=win32 ??0iostream@@IAE@XZ  # __thiscall iostream::iostream(void)
-@ stub -arch=win64 ??0iostream@@IEAA@XZ
-@ stub -arch=win32 ??0iostream@@QAE@PAVstreambuf@@@Z  # __thiscall iostream::iostream(class streambuf *)
-@ stub -arch=win64 ??0iostream@@QEAA@PEAVstreambuf@@@Z
+@ thiscall -arch=win32 ??0iostream@@IAE@ABV0@@Z(ptr ptr long) iostream_copy_ctor
+@ cdecl -arch=win64 ??0iostream@@IEAA@AEBV0@@Z(ptr ptr long) iostream_copy_ctor
+@ thiscall -arch=win32 ??0iostream@@IAE@XZ(ptr long) iostream_ctor
+@ cdecl -arch=win64 ??0iostream@@IEAA@XZ(ptr long) iostream_ctor
+@ thiscall -arch=win32 ??0iostream@@QAE@PAVstreambuf@@@Z(ptr ptr long) iostream_sb_ctor
+@ cdecl -arch=win64 ??0iostream@@QEAA@PEAVstreambuf@@@Z(ptr ptr long) iostream_sb_ctor
 @ thiscall -arch=win32 ??0istream@@IAE@ABV0@@Z(ptr ptr long) istream_copy_ctor
 @ cdecl -arch=win64 ??0istream@@IEAA@AEBV0@@Z(ptr ptr long) istream_copy_ctor
 @ thiscall -arch=win32 ??0istream@@IAE@XZ(ptr long) istream_ctor
 @ cdecl -arch=win64 ??0istream@@IEAA@XZ(ptr long) istream_ctor
 @ thiscall -arch=win32 ??0istream@@QAE@PAVstreambuf@@@Z(ptr ptr long) istream_sb_ctor
 @ cdecl -arch=win64 ??0istream@@QEAA@PEAVstreambuf@@@Z(ptr ptr long) istream_sb_ctor
-@ stub -arch=win32 ??0istream_withassign@@QAE@ABV0@@Z  # __thiscall istream_withassign::istream_withassign(class istream_withassign const &)
-@ stub -arch=win64 ??0istream_withassign@@QEAA@AEBV0@@Z
-@ stub -arch=win32 ??0istream_withassign@@QAE@PAVstreambuf@@@Z  # __thiscall istream_withassign::istream_withassign(class streambuf *)
-@ stub -arch=win64 ??0istream_withassign@@QEAA@PEAVstreambuf@@@Z
-@ stub -arch=win32 ??0istream_withassign@@QAE@XZ  # __thiscall istream_withassign::istream_withassign(void)
-@ stub -arch=win64 ??0istream_withassign@@QEAA@XZ
+@ thiscall -arch=win32 ??0istream_withassign@@QAE@ABV0@@Z(ptr ptr long) istream_withassign_copy_ctor
+@ cdecl -arch=win64 ??0istream_withassign@@QEAA@AEBV0@@Z(ptr ptr long) istream_withassign_copy_ctor
+@ thiscall -arch=win32 ??0istream_withassign@@QAE@PAVstreambuf@@@Z(ptr ptr long) istream_withassign_sb_ctor
+@ cdecl -arch=win64 ??0istream_withassign@@QEAA@PEAVstreambuf@@@Z(ptr ptr long) istream_withassign_sb_ctor
+@ thiscall -arch=win32 ??0istream_withassign@@QAE@XZ(ptr long) istream_withassign_ctor
+@ cdecl -arch=win64 ??0istream_withassign@@QEAA@XZ(ptr long) istream_withassign_ctor
 @ stub -arch=win32 ??0istrstream@@QAE@ABV0@@Z  # __thiscall istrstream::istrstream(class istrstream const &)
 @ stub -arch=win64 ??0istrstream@@QEAA@AEBV0@@Z
 @ stub -arch=win32 ??0istrstream@@QAE@PAD@Z  # __thiscall istrstream::istrstream(char *)
@@ -86,12 +86,12 @@
 @ cdecl -arch=win64 ??0ostream@@IEAA@XZ(ptr long) ostream_ctor
 @ thiscall -arch=win32 ??0ostream@@QAE@PAVstreambuf@@@Z(ptr ptr long) ostream_sb_ctor
 @ cdecl -arch=win64 ??0ostream@@QEAA@PEAVstreambuf@@@Z(ptr ptr long) ostream_sb_ctor
-@ stub -arch=win32 ??0ostream_withassign@@QAE@ABV0@@Z  # __thiscall ostream_withassign::ostream_withassign(class ostream_withassign const &)
-@ stub -arch=win64 ??0ostream_withassign@@QEAA@AEBV0@@Z
-@ stub -arch=win32 ??0ostream_withassign@@QAE@PAVstreambuf@@@Z  # __thiscall ostream_withassign::ostream_withassign(class streambuf *)
-@ stub -arch=win64 ??0ostream_withassign@@QEAA@PEAVstreambuf@@@Z
-@ stub -arch=win32 ??0ostream_withassign@@QAE@XZ  # __thiscall ostream_withassign::ostream_withassign(void)
-@ stub -arch=win64 ??0ostream_withassign@@QEAA@XZ
+@ thiscall -arch=win32 ??0ostream_withassign@@QAE@ABV0@@Z(ptr ptr long) ostream_withassign_copy_ctor
+@ cdecl -arch=win64 ??0ostream_withassign@@QEAA@AEBV0@@Z(ptr ptr long) ostream_withassign_copy_ctor
+@ thiscall -arch=win32 ??0ostream_withassign@@QAE@PAVstreambuf@@@Z(ptr ptr long) ostream_withassign_sb_ctor
+@ cdecl -arch=win64 ??0ostream_withassign@@QEAA@PEAVstreambuf@@@Z(ptr ptr long) ostream_withassign_sb_ctor
+@ thiscall -arch=win32 ??0ostream_withassign@@QAE@XZ(ptr long) ostream_withassign_ctor
+@ cdecl -arch=win64 ??0ostream_withassign@@QEAA@XZ(ptr long) ostream_withassign_ctor
 @ stub -arch=win32 ??0ostrstream@@QAE@ABV0@@Z  # __thiscall ostrstream::ostrstream(class ostrstream const &)
 @ stub -arch=win64 ??0ostrstream@@QEAA@AEBV0@@Z
 @ stub -arch=win32 ??0ostrstream@@QAE@PADHH@Z  # __thiscall ostrstream::ostrstream(char *,int,int)
@@ -130,8 +130,8 @@
 @ cdecl -arch=win64 ??0strstreambuf@@QEAA@PEAEH0@Z(ptr ptr long ptr) strstreambuf_ubuffer_ctor
 @ thiscall -arch=win32 ??0strstreambuf@@QAE@XZ(ptr) strstreambuf_ctor
 @ cdecl -arch=win64 ??0strstreambuf@@QEAA@XZ(ptr) strstreambuf_ctor
-@ stub -arch=win32 ??1Iostream_init@@QAE@XZ  # __thiscall Iostream_init::~Iostream_init(void)
-@ stub -arch=win64 ??1Iostream_init@@QEAA@XZ
+@ thiscall -arch=win32 ??1Iostream_init@@QAE@XZ(ptr) Iostream_init_dtor
+@ cdecl -arch=win64 ??1Iostream_init@@QEAA@XZ(ptr) Iostream_init_dtor
 @ thiscall -arch=i386 ??1exception@@UAE@XZ(ptr) MSVCP_exception_dtor
 @ cdecl -arch=win64 ??1exception@@UEAA@XZ(ptr) MSVCP_exception_dtor
 @ thiscall -arch=win32 ??1filebuf@@UAE@XZ(ptr) filebuf_dtor
@@ -142,12 +142,12 @@
 @ stub -arch=win64 ??1ifstream@@UEAA@XZ
 @ thiscall -arch=win32 ??1ios@@UAE@XZ(ptr) ios_dtor
 @ cdecl -arch=win64 ??1ios@@UEAA@XZ(ptr) ios_dtor
-@ stub -arch=win32 ??1iostream@@UAE@XZ  # virtual __thiscall iostream::~iostream(void)
-@ stub -arch=win64 ??1iostream@@UEAA@XZ
+@ thiscall -arch=win32 ??1iostream@@UAE@XZ(ptr) iostream_dtor
+@ cdecl -arch=win64 ??1iostream@@UEAA@XZ(ptr) iostream_dtor
 @ thiscall -arch=win32 ??1istream@@UAE@XZ(ptr) istream_dtor
 @ cdecl -arch=win64 ??1istream@@UEAA@XZ(ptr) istream_dtor
-@ stub -arch=win32 ??1istream_withassign@@UAE@XZ  # virtual __thiscall istream_withassign::~istream_withassign(void)
-@ stub -arch=win64 ??1istream_withassign@@UEAA@XZ
+@ thiscall -arch=win32 ??1istream_withassign@@UAE@XZ(ptr) istream_dtor
+@ cdecl -arch=win64 ??1istream_withassign@@UEAA@XZ(ptr) istream_dtor
 @ stub -arch=win32 ??1istrstream@@UAE@XZ  # virtual __thiscall istrstream::~istrstream(void)
 @ stub -arch=win64 ??1istrstream@@UEAA@XZ
 @ thiscall -arch=win32 ??1logic_error@@UAE@XZ(ptr) MSVCP_logic_error_dtor
@@ -156,8 +156,8 @@
 @ stub -arch=win64 ??1ofstream@@UEAA@XZ
 @ thiscall -arch=win32 ??1ostream@@UAE@XZ(ptr) ostream_dtor
 @ cdecl -arch=win64 ??1ostream@@UEAA@XZ(ptr) ostream_dtor
-@ stub -arch=win32 ??1ostream_withassign@@UAE@XZ  # virtual __thiscall ostream_withassign::~ostream_withassign(void)
-@ stub -arch=win64 ??1ostream_withassign@@UEAA@XZ
+@ thiscall -arch=win32 ??1ostream_withassign@@UAE@XZ(ptr) ostream_dtor
+@ cdecl -arch=win64 ??1ostream_withassign@@UEAA@XZ(ptr) ostream_dtor
 @ thiscall -arch=win32 ??1ostrstream@@UAE@XZ(ptr) MSVCIRT_ostrstream_dtor
 @ cdecl -arch=win64 ??1ostrstream@@UEAA@XZ(ptr) MSVCIRT_ostrstream_dtor
 @ thiscall -arch=win32 ??1stdiobuf@@UAE@XZ(ptr) stdiobuf_dtor
@@ -170,8 +170,8 @@
 @ stub -arch=win64 ??1strstream@@UEAA@XZ
 @ thiscall -arch=win32 ??1strstreambuf@@UAE@XZ(ptr) strstreambuf_dtor
 @ cdecl -arch=win64 ??1strstreambuf@@UEAA@XZ(ptr) strstreambuf_dtor
-@ stub -arch=win32 ??4Iostream_init@@QAEAAV0@ABV0@@Z  # class Iostream_init & __thiscall Iostream_init::operator=(class Iostream_init const &)
-@ stub -arch=win64 ??4Iostream_init@@QEAAAEAV0@AEBV0@@Z
+@ thiscall -arch=win32 ??4Iostream_init@@QAEAAV0@ABV0@@Z(ptr ptr) Iostream_init_assign
+@ cdecl -arch=win64 ??4Iostream_init@@QEAAAEAV0@AEBV0@@Z(ptr ptr) Iostream_init_assign
 @ thiscall -arch=i386 ??4exception@@QAEAAV0@ABV0@@Z(ptr ptr) MSVCP_exception_assign
 @ cdecl -arch=win64 ??4exception@@QEAAAEAV0@AEBV0@@Z(ptr ptr) MSVCP_exception_assign
 @ thiscall -arch=win32 ??4filebuf@@QAEAAV0@ABV0@@Z(ptr ptr) filebuf_assign
@@ -182,20 +182,20 @@
 @ stub -arch=win64 ??4ifstream@@QEAAAEAV0@AEBV0@@Z
 @ thiscall -arch=win32 ??4ios@@IAEAAV0@ABV0@@Z(ptr ptr) ios_assign
 @ cdecl -arch=win64 ??4ios@@IEAAAEAV0@AEBV0@@Z(ptr ptr) ios_assign
-@ stub -arch=win32 ??4iostream@@IAEAAV0@AAV0@@Z  # class iostream & __thiscall iostream::operator=(class iostream &)
-@ stub -arch=win64 ??4iostream@@IEAAAEAV0@AEAV0@@Z
-@ stub -arch=win32 ??4iostream@@IAEAAV0@PAVstreambuf@@@Z  # class iostream & __thiscall iostream::operator=(class streambuf *)
-@ stub -arch=win64 ??4iostream@@IEAAAEAV0@PEAVstreambuf@@@Z
+@ thiscall -arch=win32 ??4iostream@@IAEAAV0@AAV0@@Z(ptr ptr) iostream_assign
+@ cdecl -arch=win64 ??4iostream@@IEAAAEAV0@AEAV0@@Z(ptr ptr) iostream_assign
+@ thiscall -arch=win32 ??4iostream@@IAEAAV0@PAVstreambuf@@@Z(ptr ptr) iostream_assign_sb
+@ cdecl -arch=win64 ??4iostream@@IEAAAEAV0@PEAVstreambuf@@@Z(ptr ptr) iostream_assign_sb
 @ thiscall -arch=win32 ??4istream@@IAEAAV0@ABV0@@Z(ptr ptr) istream_assign
 @ cdecl -arch=win64 ??4istream@@IEAAAEAV0@AEBV0@@Z(ptr ptr) istream_assign
 @ thiscall -arch=win32 ??4istream@@IAEAAV0@PAVstreambuf@@@Z(ptr ptr) istream_assign_sb
 @ cdecl -arch=win64 ??4istream@@IEAAAEAV0@PEAVstreambuf@@@Z(ptr ptr) istream_assign_sb
-@ stub -arch=win32 ??4istream_withassign@@QAEAAV0@ABV0@@Z  # class istream_withassign & __thiscall istream_withassign::operator=(class istream_withassign const &)
-@ stub -arch=win64 ??4istream_withassign@@QEAAAEAV0@AEBV0@@Z
-@ stub -arch=win32 ??4istream_withassign@@QAEAAVistream@@ABV1@@Z  # class istream & __thiscall istream_withassign::operator=(class istream const &)
-@ stub -arch=win64 ??4istream_withassign@@QEAAAEAVistream@@AEBV1@@Z
-@ stub -arch=win32 ??4istream_withassign@@QAEAAVistream@@PAVstreambuf@@@Z  # class istream & __thiscall istream_withassign::operator=(class streambuf *)
-@ stub -arch=win64 ??4istream_withassign@@QEAAAEAVistream@@PEAVstreambuf@@@Z
+@ thiscall -arch=win32 ??4istream_withassign@@QAEAAV0@ABV0@@Z(ptr ptr) istream_assign
+@ cdecl -arch=win64 ??4istream_withassign@@QEAAAEAV0@AEBV0@@Z(ptr ptr) istream_assign
+@ thiscall -arch=win32 ??4istream_withassign@@QAEAAVistream@@ABV1@@Z(ptr ptr) istream_assign
+@ cdecl -arch=win64 ??4istream_withassign@@QEAAAEAVistream@@AEBV1@@Z(ptr ptr) istream_assign
+@ thiscall -arch=win32 ??4istream_withassign@@QAEAAVistream@@PAVstreambuf@@@Z(ptr ptr) istream_assign_sb
+@ cdecl -arch=win64 ??4istream_withassign@@QEAAAEAVistream@@PEAVstreambuf@@@Z(ptr ptr) istream_assign_sb
 @ stub -arch=win32 ??4istrstream@@QAEAAV0@ABV0@@Z  # class istrstream & __thiscall istrstream::operator=(class istrstream const &)
 @ stub -arch=win64 ??4istrstream@@QEAAAEAV0@AEBV0@@Z
 @ thiscall -arch=win32 ??4logic_error@@QAEAAV0@ABV0@@Z(ptr ptr) MSVCP_logic_error_assign
@@ -206,12 +206,12 @@
 @ cdecl -arch=win64 ??4ostream@@IEAAAEAV0@AEBV0@@Z(ptr ptr) ostream_assign
 @ thiscall -arch=win32 ??4ostream@@IAEAAV0@PAVstreambuf@@@Z(ptr ptr) ostream_assign_sb
 @ cdecl -arch=win64 ??4ostream@@IEAAAEAV0@PEAVstreambuf@@@Z(ptr ptr) ostream_assign_sb
-@ stub -arch=win32 ??4ostream_withassign@@QAEAAV0@ABV0@@Z  # class ostream_withassign & __thiscall ostream_withassign::operator=(class ostream_withassign const &)
-@ stub -arch=win64 ??4ostream_withassign@@QEAAAEAV0@AEBV0@@Z
-@ stub -arch=win32 ??4ostream_withassign@@QAEAAVostream@@ABV1@@Z  # class ostream & __thiscall ostream_withassign::operator=(class ostream const &)
-@ stub -arch=win64 ??4ostream_withassign@@QEAAAEAVostream@@AEBV1@@Z
-@ stub -arch=win32 ??4ostream_withassign@@QAEAAVostream@@PAVstreambuf@@@Z  # class ostream & __thiscall ostream_withassign::operator=(class streambuf *)
-@ stub -arch=win64 ??4ostream_withassign@@QEAAAEAVostream@@PEAVstreambuf@@@Z
+@ thiscall -arch=win32 ??4ostream_withassign@@QAEAAV0@ABV0@@Z(ptr ptr) ostream_assign
+@ cdecl -arch=win64 ??4ostream_withassign@@QEAAAEAV0@AEBV0@@Z(ptr ptr) ostream_assign
+@ thiscall -arch=win32 ??4ostream_withassign@@QAEAAVostream@@ABV1@@Z(ptr ptr) ostream_assign
+@ cdecl -arch=win64 ??4ostream_withassign@@QEAAAEAVostream@@AEBV1@@Z(ptr ptr) ostream_assign
+@ thiscall -arch=win32 ??4ostream_withassign@@QAEAAVostream@@PAVstreambuf@@@Z(ptr ptr) ostream_assign_sb
+@ cdecl -arch=win64 ??4ostream_withassign@@QEAAAEAVostream@@PEAVstreambuf@@@Z(ptr ptr) ostream_assign_sb
 @ stub -arch=win32 ??4ostrstream@@QAEAAV0@ABV0@@Z  # class ostrstream & __thiscall ostrstream::operator=(class ostrstream const &)
 @ stub -arch=win64 ??4ostrstream@@QEAAAEAV0@AEBV0@@Z
 @ thiscall -arch=win32 ??4stdiobuf@@QAEAAV0@ABV0@@Z(ptr ptr) stdiobuf_assign
@@ -307,14 +307,14 @@
 # @ extern ??_7fstream@@6B@  # const fstream::`vftable'
 # @ extern ??_7ifstream@@6B@  # const ifstream::`vftable'
 @ extern ??_7ios@@6B@ MSVCP_ios_vtable
-# @ extern ??_7iostream@@6B@  # const iostream::`vftable'
+@ extern ??_7iostream@@6B@ MSVCP_iostream_vtable
 @ extern ??_7istream@@6B@ MSVCP_istream_vtable
-# @ extern ??_7istream_withassign@@6B@  # const istream_withassign::`vftable'
+@ extern ??_7istream_withassign@@6B@ MSVCP_istream_vtable
 # @ extern ??_7istrstream@@6B@  # const istrstream::`vftable'
 @ extern ??_7logic_error@@6B@ MSVCP_logic_error_vtable
 # @ extern ??_7ofstream@@6B@  # const ofstream::`vftable'
 @ extern ??_7ostream@@6B@ MSVCP_ostream_vtable
-# @ extern ??_7ostream_withassign@@6B@  # const ostream_withassign::`vftable'
+@ extern ??_7ostream_withassign@@6B@ MSVCP_ostream_withassign_vtable
 # @ extern ??_7ostrstream@@6B@  # const ostrstream::`vftable'
 @ extern ??_7stdiobuf@@6B@ MSVCP_stdiobuf_vtable
 # @ extern ??_7stdiostream@@6B@  # const stdiostream::`vftable'
@@ -324,14 +324,14 @@
 # @ extern ??_8fstream@@7Bistream@@@  # const fstream::`vbtable'{for `istream'}
 # @ extern ??_8fstream@@7Bostream@@@  # const fstream::`vbtable'{for `ostream'}
 # @ extern ??_8ifstream@@7B@  # const ifstream::`vbtable'
-# @ extern ??_8iostream@@7Bistream@@@  # const iostream::`vbtable'{for `istream'}
-# @ extern ??_8iostream@@7Bostream@@@  # const iostream::`vbtable'{for `ostream'}
+@ extern ??_8iostream@@7Bistream@@@ iostream_vbtable_istream
+@ extern ??_8iostream@@7Bostream@@@ iostream_vbtable_ostream
 @ extern ??_8istream@@7B@ istream_vbtable
-# @ extern ??_8istream_withassign@@7B@  # const istream_withassign::`vbtable'
+@ extern ??_8istream_withassign@@7B@ istream_vbtable
 # @ extern ??_8istrstream@@7B@  # const istrstream::`vbtable'
 # @ extern ??_8ofstream@@7B@  # const ofstream::`vbtable'
 @ extern ??_8ostream@@7B@ ostream_vbtable
-# @ extern ??_8ostream_withassign@@7B@  # const ostream_withassign::`vbtable'
+@ extern ??_8ostream_withassign@@7B@ ostream_vbtable
 # @ extern ??_8ostrstream@@7B@  # const ostrstream::`vbtable'
 # @ extern ??_8stdiostream@@7Bistream@@@  # const stdiostream::`vbtable'{for `istream'}
 # @ extern ??_8stdiostream@@7Bostream@@@  # const stdiostream::`vbtable'{for `ostream'}
@@ -341,20 +341,20 @@
 @ stub -arch=win64 ??_Dfstream@@QEAAXXZ
 @ stub -arch=win32 ??_Difstream@@QAEXXZ  # void __thiscall ifstream::`vbase destructor'(void)
 @ stub -arch=win64 ??_Difstream@@QEAAXXZ
-@ stub -arch=win32 ??_Diostream@@QAEXXZ  # void __thiscall iostream::`vbase destructor'(void)
-@ stub -arch=win64 ??_Diostream@@QEAAXXZ
+@ thiscall -arch=win32 ??_Diostream@@QAEXXZ(ptr) iostream_vbase_dtor
+@ cdecl -arch=win64 ??_Diostream@@QEAAXXZ(ptr) iostream_vbase_dtor
 @ thiscall -arch=win32 ??_Distream@@QAEXXZ(ptr) istream_vbase_dtor
 @ cdecl -arch=win64 ??_Distream@@QEAAXXZ(ptr) istream_vbase_dtor
-@ stub -arch=win32 ??_Distream_withassign@@QAEXXZ  # void __thiscall istream_withassign::`vbase destructor'(void)
-@ stub -arch=win64 ??_Distream_withassign@@QEAAXXZ
+@ thiscall -arch=win32 ??_Distream_withassign@@QAEXXZ(ptr) istream_vbase_dtor
+@ cdecl -arch=win64 ??_Distream_withassign@@QEAAXXZ(ptr) istream_vbase_dtor
 @ stub -arch=win32 ??_Distrstream@@QAEXXZ  # void __thiscall istrstream::`vbase destructor'(void)
 @ stub -arch=win64 ??_Distrstream@@QEAAXXZ
 @ stub -arch=win32 ??_Dofstream@@QAEXXZ  # void __thiscall ofstream::`vbase destructor'(void)
 @ stub -arch=win64 ??_Dofstream@@QEAAXXZ
 @ thiscall -arch=win32 ??_Dostream@@QAEXXZ(ptr) ostream_vbase_dtor
 @ cdecl -arch=win64 ??_Dostream@@QEAAXXZ(ptr) ostream_vbase_dtor
-@ stub -arch=win32 ??_Dostream_withassign@@QAEXXZ  # void __thiscall ostream_withassign::`vbase destructor'(void)
-@ stub -arch=win64 ??_Dostream_withassign@@QEAAXXZ
+@ thiscall -arch=win32 ??_Dostream_withassign@@QAEXXZ(ptr) ostream_vbase_dtor
+@ cdecl -arch=win64 ??_Dostream_withassign@@QEAAXXZ(ptr) ostream_vbase_dtor
 @ stub -arch=win32 ??_Dostrstream@@QAEXXZ  # void __thiscall ostrstream::`vbase destructor'(void)
 @ stub -arch=win64 ??_Dostrstream@@QEAAXXZ
 @ stub -arch=win32 ??_Dstdiostream@@QAEXXZ  # void __thiscall stdiostream::`vbase destructor'(void)
@@ -366,14 +366,14 @@
 @ stub -arch=win32 ??_Efstream@@UAEPAXI@Z  # virtual void * __thiscall fstream::`vector deleting destructor'(unsigned int)
 @ stub -arch=win32 ??_Eifstream@@UAEPAXI@Z  # virtual void * __thiscall ifstream::`vector deleting destructor'(unsigned int)
 @ thiscall -arch=win32 ??_Eios@@UAEPAXI@Z(ptr long) ios_vector_dtor
-@ stub -arch=win32 ??_Eiostream@@UAEPAXI@Z  # virtual void * __thiscall iostream::`vector deleting destructor'(unsigned int)
+@ thiscall -arch=win32 ??_Eiostream@@UAEPAXI@Z(ptr long) iostream_vector_dtor
 @ thiscall -arch=win32 ??_Eistream@@UAEPAXI@Z(ptr long) istream_vector_dtor
-@ stub -arch=win32 ??_Eistream_withassign@@UAEPAXI@Z  # virtual void * __thiscall istream_withassign::`vector deleting destructor'(unsigned int)
+@ thiscall -arch=win32 ??_Eistream_withassign@@UAEPAXI@Z(ptr long) istream_vector_dtor
 @ stub -arch=win32 ??_Eistrstream@@UAEPAXI@Z  # virtual void * __thiscall istrstream::`vector deleting destructor'(unsigned int)
 @ thiscall -arch=win32 ??_Elogic_error@@UAEPAXI@Z(ptr long) MSVCP_logic_error_vector_dtor
 @ stub -arch=win32 ??_Eofstream@@UAEPAXI@Z  # virtual void * __thiscall ofstream::`vector deleting destructor'(unsigned int)
 @ thiscall -arch=win32 ??_Eostream@@UAEPAXI@Z(ptr long) ostream_vector_dtor
-@ stub -arch=win32 ??_Eostream_withassign@@UAEPAXI@Z  # virtual void * __thiscall ostream_withassign::`vector deleting destructor'(unsigned int)
+@ thiscall -arch=win32 ??_Eostream_withassign@@UAEPAXI@Z(ptr long) ostream_vector_dtor
 @ stub -arch=win32 ??_Eostrstream@@UAEPAXI@Z  # virtual void * __thiscall ostrstream::`vector deleting destructor'(unsigned int)
 @ thiscall -arch=win32 ??_Estdiobuf@@UAEPAXI@Z(ptr long) stdiobuf_vector_dtor
 @ stub -arch=win32 ??_Estdiostream@@UAEPAXI@Z  # virtual void * __thiscall stdiostream::`vector deleting destructor'(unsigned int)
@@ -385,14 +385,14 @@
 @ stub -arch=win32 ??_Gfstream@@UAEPAXI@Z  # virtual void * __thiscall fstream::`scalar deleting destructor'(unsigned int)
 @ stub -arch=win32 ??_Gifstream@@UAEPAXI@Z  # virtual void * __thiscall ifstream::`scalar deleting destructor'(unsigned int)
 @ thiscall -arch=win32 ??_Gios@@UAEPAXI@Z(ptr long) ios_scalar_dtor
-@ stub -arch=win32 ??_Giostream@@UAEPAXI@Z  # virtual void * __thiscall iostream::`scalar deleting destructor'(unsigned int)
+@ thiscall -arch=win32 ??_Giostream@@UAEPAXI@Z(ptr long) iostream_scalar_dtor
 @ thiscall -arch=win32 ??_Gistream@@UAEPAXI@Z(ptr long) istream_scalar_dtor
-@ stub -arch=win32 ??_Gistream_withassign@@UAEPAXI@Z  # virtual void * __thiscall istream_withassign::`scalar deleting destructor'(unsigned int)
+@ thiscall -arch=win32 ??_Gistream_withassign@@UAEPAXI@Z(ptr long) istream_scalar_dtor
 @ stub -arch=win32 ??_Gistrstream@@UAEPAXI@Z  # virtual void * __thiscall istrstream::`scalar deleting destructor'(unsigned int)
 @ thiscall -arch=win32 ??_Glogic_error@@UAEPAXI@Z(ptr long) MSVCP_logic_error_scalar_dtor
 @ stub -arch=win32 ??_Gofstream@@UAEPAXI@Z  # virtual void * __thiscall ofstream::`scalar deleting destructor'(unsigned int)
 @ thiscall -arch=win32 ??_Gostream@@UAEPAXI@Z(ptr long) ostream_scalar_dtor
-@ stub -arch=win32 ??_Gostream_withassign@@UAEPAXI@Z  # virtual void * __thiscall ostream_withassign::`scalar deleting destructor'(unsigned int)
+@ thiscall -arch=win32 ??_Gostream_withassign@@UAEPAXI@Z(ptr long) ostream_scalar_dtor
 @ stub -arch=win32 ??_Gostrstream@@UAEPAXI@Z  # virtual void * __thiscall ostrstream::`scalar deleting destructor'(unsigned int)
 @ thiscall -arch=win32 ??_Gstdiobuf@@UAEPAXI@Z(ptr long) stdiobuf_scalar_dtor
 @ stub -arch=win32 ??_Gstdiostream@@UAEPAXI@Z  # virtual void * __thiscall stdiostream::`scalar deleting destructor'(unsigned int)
@@ -419,11 +419,11 @@
 @ cdecl ?bitalloc@ios@@SAJXZ() ios_bitalloc
 @ thiscall -arch=win32 ?blen@streambuf@@IBEHXZ(ptr) streambuf_blen
 @ cdecl -arch=win64 ?blen@streambuf@@IEBAHXZ(ptr) streambuf_blen
-@ stub ?cerr@@3Vostream_withassign@@A  # class ostream_withassign cerr
-@ stub ?cin@@3Vistream_withassign@@A  # class istream_withassign cin
+@ extern ?cerr@@3Vostream_withassign@@A cerr
+@ extern ?cin@@3Vistream_withassign@@A cin
 @ thiscall -arch=win32 ?clear@ios@@QAEXH@Z(ptr long) ios_clear
 @ cdecl -arch=win64 ?clear@ios@@QEAAXH@Z(ptr long) ios_clear
-@ stub ?clog@@3Vostream_withassign@@A  # class ostream_withassign clog
+@ extern ?clog@@3Vostream_withassign@@A clog
 @ thiscall -arch=win32 ?close@filebuf@@QAEPAV1@XZ(ptr) filebuf_close
 @ cdecl -arch=win64 ?close@filebuf@@QEAAPEAV1@XZ(ptr) filebuf_close
 @ stub -arch=win32 ?close@fstream@@QAEXXZ  # void __thiscall fstream::close(void)
@@ -436,7 +436,7 @@
 @ cdecl -arch=win64 ?clrlock@ios@@QEAAXXZ(ptr) ios_clrlock
 @ thiscall -arch=win32 ?clrlock@streambuf@@QAEXXZ(ptr) streambuf_clrlock
 @ cdecl -arch=win64 ?clrlock@streambuf@@QEAAXXZ(ptr) streambuf_clrlock
-@ stub ?cout@@3Vostream_withassign@@A  # class ostream_withassign cout
+@ extern ?cout@@3Vostream_withassign@@A cout
 @ thiscall -arch=win32 ?dbp@streambuf@@QAEXXZ(ptr) streambuf_dbp
 @ cdecl -arch=win64 ?dbp@streambuf@@QEAAXXZ(ptr) streambuf_dbp
 @ cdecl -arch=win32 ?dec@@YAAAVios@@AAV1@@Z(ptr) ios_dec
@@ -720,7 +720,7 @@
 @ stub -arch=win64 ?str@strstream@@QEAAPEADXZ
 @ thiscall -arch=win32 ?str@strstreambuf@@QAEPADXZ(ptr) strstreambuf_str
 @ cdecl -arch=win64 ?str@strstreambuf@@QEAAPEADXZ(ptr) strstreambuf_str
-# @ extern ?sunk_with_stdio@ios@@0HA  # static int ios::sunk_with_stdio
+@ extern ?sunk_with_stdio@ios@@0HA ios_sunk_with_stdio
 @ thiscall -arch=win32 ?sync@filebuf@@UAEHXZ(ptr) filebuf_sync
 @ cdecl -arch=win64 ?sync@filebuf@@UEAAHXZ(ptr) filebuf_sync
 @ thiscall -arch=win32 ?sync@istream@@QAEHXZ(ptr) istream_sync
