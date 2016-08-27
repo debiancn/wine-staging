@@ -1,7 +1,5 @@
 fontdir.patch
 kfreebsd.patch
-sfnt2fon.patch
-manpages.patch
 unicode-9.patch
 version-string.patch
 manpages-wineserver-persistence.patch
@@ -18,6 +16,9 @@ debpaths/addons.patch
 debpaths/makefile.patch
 
 debsuffix/winemenubuilder.patch
+
+binary-indep/manpages.patch
+binary-indep/sfnt2fon.patch
 
 glu32.patch
 openal.patch
