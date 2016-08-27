@@ -1,5 +1,4 @@
 makefile.patch
-kfreebsd.patch
 sfnt2fon.patch
 manpages.patch
 version-string.patch
