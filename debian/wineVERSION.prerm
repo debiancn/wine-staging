@@ -4,7 +4,7 @@ set -e
 
 case "$1" in
     remove|deconfigure)
-        update-alternatives --remove wine /usr/bin/wineDEBSUFFIX
+        update-alternatives --quiet --remove wine /usr/bin/wineDEBSUFFIX
         ;;
 esac
 

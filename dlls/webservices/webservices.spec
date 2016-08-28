@@ -7,7 +7,7 @@
 @ stub WsAcceptChannel
 @ stub WsAddCustomHeader
 @ stub WsAddErrorString
-@ stub WsAddMappedHeader
+@ stdcall WsAddMappedHeader(ptr ptr long long ptr long ptr)
 @ stdcall WsAddressMessage(ptr ptr ptr)
 @ stdcall WsAlloc(ptr long ptr ptr)
 @ stub WsAsyncExecute
@@ -128,8 +128,8 @@
 @ stub WsReceiveMessage
 @ stub WsRegisterOperationForCancel
 @ stub WsRemoveCustomHeader
-@ stub WsRemoveHeader
-@ stub WsRemoveMappedHeader
+@ stdcall WsRemoveHeader(ptr long ptr)
+@ stdcall WsRemoveMappedHeader(ptr ptr ptr)
 @ stub WsRemoveNode
 @ stub WsRequestReply
 @ stub WsRequestSecurityToken
@@ -149,7 +149,7 @@
 @ stdcall WsSetErrorProperty(ptr long ptr long)
 @ stub WsSetFaultErrorDetail
 @ stub WsSetFaultErrorProperty
-@ stub WsSetHeader
+@ stdcall WsSetHeader(ptr long long long ptr long ptr)
 @ stdcall WsSetInput(ptr ptr ptr ptr long ptr)
 @ stdcall WsSetInputToBuffer(ptr ptr ptr long ptr)
 @ stub WsSetListenerProperty

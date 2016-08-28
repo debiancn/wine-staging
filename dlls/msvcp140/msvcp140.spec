@@ -1693,22 +1693,22 @@
 @ stub -arch=win64 ?__ExceptionPtrAssign@@YAXPEAXPEBX@Z
 @ stub -arch=win32 ?__ExceptionPtrCompare@@YA_NPBX0@Z
 @ stub -arch=win64 ?__ExceptionPtrCompare@@YA_NPEBX0@Z
-@ stub -arch=win32 ?__ExceptionPtrCopy@@YAXPAXPBX@Z
-@ stub -arch=win64 ?__ExceptionPtrCopy@@YAXPEAXPEBX@Z
+@ cdecl -arch=win32 ?__ExceptionPtrCopy@@YAXPAXPBX@Z(ptr ptr) msvcr120.?__ExceptionPtrCopy@@YAXPAXPBX@Z
+@ cdecl -arch=win64 ?__ExceptionPtrCopy@@YAXPEAXPEBX@Z(ptr ptr) msvcr120.?__ExceptionPtrCopy@@YAXPEAXPEBX@Z
 @ stub -arch=win32 ?__ExceptionPtrCopyException@@YAXPAXPBX1@Z
 @ stub -arch=win64 ?__ExceptionPtrCopyException@@YAXPEAXPEBX1@Z
-@ stub -arch=win32 ?__ExceptionPtrCreate@@YAXPAX@Z
-@ stub -arch=win64 ?__ExceptionPtrCreate@@YAXPEAX@Z
-@ stub -arch=win32 ?__ExceptionPtrCurrentException@@YAXPAX@Z
-@ stub -arch=win64 ?__ExceptionPtrCurrentException@@YAXPEAX@Z
-@ stub -arch=win32 ?__ExceptionPtrDestroy@@YAXPAX@Z
-@ stub -arch=win64 ?__ExceptionPtrDestroy@@YAXPEAX@Z
-@ stub -arch=win32 ?__ExceptionPtrRethrow@@YAXPBX@Z
-@ stub -arch=win64 ?__ExceptionPtrRethrow@@YAXPEBX@Z
+@ cdecl -arch=win32 ?__ExceptionPtrCreate@@YAXPAX@Z(ptr) msvcr120.?__ExceptionPtrCreate@@YAXPAX@Z
+@ cdecl -arch=win64 ?__ExceptionPtrCreate@@YAXPEAX@Z(ptr) msvcr120.?__ExceptionPtrCreate@@YAXPEAX@Z
+@ cdecl -arch=win32 ?__ExceptionPtrCurrentException@@YAXPAX@Z(ptr) msvcr120.?__ExceptionPtrCurrentException@@YAXPAX@Z
+@ cdecl -arch=win64 ?__ExceptionPtrCurrentException@@YAXPEAX@Z(ptr) msvcr120.?__ExceptionPtrCurrentException@@YAXPEAX@Z
+@ cdecl -arch=win32 ?__ExceptionPtrDestroy@@YAXPAX@Z(ptr) msvcr120.?__ExceptionPtrDestroy@@YAXPAX@Z
+@ cdecl -arch=win64 ?__ExceptionPtrDestroy@@YAXPEAX@Z(ptr) msvcr120.?__ExceptionPtrDestroy@@YAXPEAX@Z
+@ cdecl -arch=win32 ?__ExceptionPtrRethrow@@YAXPBX@Z(ptr) msvcr120.?__ExceptionPtrRethrow@@YAXPBX@Z
+@ cdecl -arch=win64 ?__ExceptionPtrRethrow@@YAXPEBX@Z(ptr) msvcr120.?__ExceptionPtrRethrow@@YAXPEBX@Z
 @ stub -arch=win32 ?__ExceptionPtrSwap@@YAXPAX0@Z
 @ stub -arch=win64 ?__ExceptionPtrSwap@@YAXPEAX0@Z
-@ stub -arch=win32 ?__ExceptionPtrToBool@@YA_NPBX@Z
-@ stub -arch=win64 ?__ExceptionPtrToBool@@YA_NPEBX@Z
+@ cdecl -arch=win32 ?__ExceptionPtrToBool@@YA_NPBX@Z(ptr) msvcr120.?__ExceptionPtrToBool@@YA_NPBX@Z
+@ cdecl -arch=win64 ?__ExceptionPtrToBool@@YA_NPEBX@Z(ptr) msvcr120.?__ExceptionPtrToBool@@YA_NPEBX@Z
 @ cdecl -arch=arm ?always_noconv@codecvt_base@std@@QBA_NXZ(ptr) codecvt_base_always_noconv
 @ thiscall -arch=i386 ?always_noconv@codecvt_base@std@@QBE_NXZ(ptr) codecvt_base_always_noconv
 @ cdecl -arch=win64 ?always_noconv@codecvt_base@std@@QEBA_NXZ(ptr) codecvt_base_always_noconv
@@ -3621,17 +3621,17 @@
 @ cdecl -arch=win64 ?xsputn@?$basic_streambuf@_WU?$char_traits@_W@std@@@std@@MEAA_JPEB_W_J@Z(ptr ptr long) basic_streambuf_wchar_xsputn
 @ stub _Chmod
 @ stub _Close_dir
-@ cdecl _Cnd_broadcast(ptr) msvcp110._Cnd_broadcast
-@ cdecl _Cnd_destroy(ptr) msvcp110._Cnd_destroy
+@ cdecl _Cnd_broadcast(ptr) _Cnd_broadcast
+@ cdecl _Cnd_destroy(ptr) _Cnd_destroy
 @ stub _Cnd_destroy_in_situ
 @ stub _Cnd_do_broadcast_at_thread_exit
-@ cdecl _Cnd_init(ptr) msvcp110._Cnd_init
+@ cdecl _Cnd_init(ptr) _Cnd_init
 @ stub _Cnd_init_in_situ
 @ stub _Cnd_register_at_thread_exit
-@ cdecl _Cnd_signal(ptr) msvcp110._Cnd_signal
-@ cdecl _Cnd_timedwait(ptr ptr ptr) msvcp110._Cnd_timedwait
+@ cdecl _Cnd_signal(ptr) _Cnd_signal
+@ cdecl _Cnd_timedwait(ptr ptr ptr) _Cnd_timedwait
 @ stub _Cnd_unregister_at_thread_exit
-@ cdecl _Cnd_wait(ptr ptr) msvcp110._Cnd_wait
+@ cdecl _Cnd_wait(ptr ptr) _Cnd_wait
 @ stub _Copy_file
 @ stub _Cosh
 @ stub _Current_get
@@ -3673,12 +3673,12 @@
 @ stub _Make_dir
 @ cdecl _Mbrtowc(ptr ptr long ptr ptr) _Mbrtowc
 @ stub _Mtx_clear_owner
-@ cdecl _Mtx_current_owns(ptr) msvcp110._Mtx_current_owns
+@ cdecl _Mtx_current_owns(ptr) _Mtx_current_owns
 @ cdecl _Mtx_destroy(ptr) _Mtx_destroy
-@ stub _Mtx_destroy_in_situ
+@ cdecl _Mtx_destroy_in_situ(ptr) _Mtx_destroy_in_situ
 @ cdecl _Mtx_getconcrtcs(ptr) _Mtx_getconcrtcs
 @ cdecl _Mtx_init(ptr long) _Mtx_init
-@ stub _Mtx_init_in_situ
+@ cdecl _Mtx_init_in_situ(ptr long) _Mtx_init_in_situ
 @ cdecl _Mtx_lock(ptr) _Mtx_lock
 @ stub _Mtx_reset_owner
 @ stub _Mtx_timedlock
@@ -3690,8 +3690,8 @@
 @ stub _Mtxunlock
 @ extern _Nan _Nan
 @ stub _Open_dir
-@ stub _Query_perf_counter
-@ stub _Query_perf_frequency
+@ cdecl -ret64 _Query_perf_counter()
+@ cdecl -ret64 _Query_perf_frequency()
 @ stub _Read_dir
 @ stub _Remove_dir
 @ stub _Rename
@@ -3725,7 +3725,7 @@
 @ cdecl _Thrd_detach(ptr) msvcp110._Thrd_detach
 @ cdecl _Thrd_equal(ptr ptr) _Thrd_equal
 @ stub _Thrd_exit
-@ stub _Thrd_hardware_concurrency
+@ cdecl _Thrd_hardware_concurrency() _Thrd_hardware_concurrency
 @ stub _Thrd_id
 @ cdecl _Thrd_join(ptr long) _Thrd_join
 @ cdecl _Thrd_sleep(ptr) _Thrd_sleep
@@ -3757,8 +3757,8 @@
 @ cdecl __crtCompareStringA(long long str long str long) msvcrt.__crtCompareStringA
 @ stub __crtCompareStringEx
 @ cdecl __crtCompareStringW(long long wstr long wstr long) msvcrt.__crtCompareStringW
-@ stub __crtCreateEventExW
-@ stub __crtCreateSemaphoreExW
+@ cdecl __crtCreateEventExW(ptr wstr long long) MSVCP__crtCreateEventExW
+@ cdecl __crtCreateSemaphoreExW(ptr long long wstr long long) MSVCP__crtCreateSemaphoreExW
 @ stub __crtCreateSymbolicLinkW
 @ stub __crtCreateThreadpoolTimer
 @ stub __crtCreateThreadpoolWait
@@ -3768,7 +3768,7 @@
 @ stub __crtGetFileInformationByHandleEx
 @ stub __crtGetLocaleInfoEx
 @ stub __crtGetSystemTimePreciseAsFileTime
-@ stub __crtGetTickCount64
+@ cdecl -ret64 __crtGetTickCount64() MSVCP__crtGetTickCount64
 @ stub __crtInitOnceExecuteOnce
 @ cdecl __crtInitializeCriticalSectionEx(ptr long long) MSVCP__crtInitializeCriticalSectionEx
 @ stub __crtIsPackagedApp

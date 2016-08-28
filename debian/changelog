@@ -1,3 +1,22 @@
+wine-development (1.9.17-1) unstable; urgency=medium
+
+  * New upstream release 1.9.17, released Aug 19, 2016.
+    - Better exception handling on 64-bit.
+    - Various improvements in joystick support.
+    - Some more stream support in the C++ runtime.
+    - Font embedding improvements.
+    - More metafile support in GDI+.
+    - Various bug fixes.
+    - Check for sysinfo function to fix FTBFS on hurd and kfreebsd
+      (closes: #833956). Thanks Pino Toscano and Sebastian Lackner.
+    - Correct wrong symlink in wine.inf to fix regedit exporting the
+      registry (closes: #832129). Thanks Joerg Schiermeier.
+  * Refresh patches.
+  * Make "update-alternatives --remove" quiet.
+  * Make libc6-dev dependency portable.
+
+ -- Jens Reyer <jre.winesim@gmail.com>  Mon, 22 Aug 2016 15:08:33 +0200
+
 wine-development (1.9.16-1~bpo8+1) jessie-backports; urgency=medium
 
   * Rebuild for jessie-backports.

@@ -577,38 +577,30 @@ static void X11DRV_CLIPBOARD_FreeData(LPWINE_CLIPDATA lpData)
 {
     TRACE("%04x\n", lpData->wFormatID);
 
-    if ((lpData->wFormatID >= CF_GDIOBJFIRST &&
-        lpData->wFormatID <= CF_GDIOBJLAST) || 
-        lpData->wFormatID == CF_BITMAP || 
-        lpData->wFormatID == CF_DIB || 
-        lpData->wFormatID == CF_PALETTE)
-    {
-      if (lpData->hData)
-	DeleteObject(lpData->hData);
+    if (!lpData->hData) return;
 
-      if ((lpData->wFormatID == CF_DIB) && lpData->drvData)
-          XFreePixmap(gdi_display, lpData->drvData);
-    }
-    else if (lpData->wFormatID == CF_METAFILEPICT)
+    switch (lpData->wFormatID)
     {
-      if (lpData->hData)
-      {
+    case CF_BITMAP:
+    case CF_PALETTE:
+        DeleteObject(lpData->hData);
+        break;
+    case CF_DIB:
+        if (lpData->drvData) XFreePixmap(gdi_display, lpData->drvData);
+        GlobalFree(lpData->hData);
+        break;
+    case CF_METAFILEPICT:
         DeleteMetaFile(((METAFILEPICT *)GlobalLock( lpData->hData ))->hMF );
         GlobalFree(lpData->hData);
-      }
-    }
-    else if (lpData->wFormatID == CF_ENHMETAFILE)
-    {
-        if (lpData->hData)
-            DeleteEnhMetaFile(lpData->hData);
-    }
-    else if (lpData->wFormatID < CF_PRIVATEFIRST ||
-             lpData->wFormatID > CF_PRIVATELAST)
-    {
-      if (lpData->hData)
+        break;
+    case CF_ENHMETAFILE:
+        DeleteEnhMetaFile(lpData->hData);
+        break;
+    default:
+        if (lpData->wFormatID >= CF_PRIVATEFIRST && lpData->wFormatID <= CF_PRIVATELAST) break;
         GlobalFree(lpData->hData);
+        break;
     }
-
     lpData->hData = 0;
     lpData->drvData = 0;
 }
@@ -871,8 +863,7 @@ static BOOL X11DRV_CLIPBOARD_RenderSynthesizedText(Display *display, UINT wForma
     else
         alloc_size = dst_chars;
 
-    hData = GlobalAlloc(GMEM_ZEROINIT | GMEM_MOVEABLE |
-        GMEM_DDESHARE, alloc_size);
+    hData = GlobalAlloc(GMEM_ZEROINIT | GMEM_FIXED, alloc_size);
 
     lpstrT = GlobalLock(hData);
 
@@ -949,8 +940,7 @@ static HGLOBAL create_dib_from_bitmap(HBITMAP hBmp)
 
     /* Allocate the packed DIB */
     TRACE("\tAllocating packed DIB of size %d\n", cPackedSize);
-    hPackedDIB = GlobalAlloc(GMEM_MOVEABLE | GMEM_DDESHARE /*| GMEM_ZEROINIT*/,
-                             cPackedSize );
+    hPackedDIB = GlobalAlloc( GMEM_FIXED, cPackedSize );
     if ( !hPackedDIB )
     {
         WARN("Could not allocate packed DIB!\n");
@@ -1241,7 +1231,7 @@ static HANDLE X11DRV_CLIPBOARD_ImportXAString(Display *display, Window w, Atom p
             inlcount++;
     }
 
-    if ((hText = GlobalAlloc(GMEM_MOVEABLE | GMEM_DDESHARE, cbytes + inlcount + 1)))
+    if ((hText = GlobalAlloc(GMEM_FIXED, cbytes + inlcount + 1)))
     {
         lpstr = GlobalLock(hText);
 
@@ -1298,7 +1288,7 @@ static HANDLE X11DRV_CLIPBOARD_ImportUTF8(Display *display, Window w, Atom prop)
         }
 
         count = MultiByteToWideChar(CP_UTF8, 0, lpstr, -1, NULL, 0);
-        hUnicodeText = GlobalAlloc(GMEM_MOVEABLE | GMEM_DDESHARE, count * sizeof(WCHAR));
+        hUnicodeText = GlobalAlloc(GMEM_FIXED, count * sizeof(WCHAR));
 
         if (hUnicodeText)
         {
@@ -1356,7 +1346,7 @@ static HANDLE X11DRV_CLIPBOARD_ImportCompoundText(Display *display, Window w, At
 
     TRACE("lcount = %d, destlen=%d, srcstr %s\n", lcount, destlen, srcstr[0]);
 
-    if ((hUnicodeText = GlobalAlloc(GMEM_MOVEABLE | GMEM_DDESHARE, (destlen + lcount + 1) * sizeof(WCHAR))))
+    if ((hUnicodeText = GlobalAlloc(GMEM_FIXED, (destlen + lcount + 1) * sizeof(WCHAR))))
     {
         WCHAR *deststr = GlobalLock(hUnicodeText);
         MultiByteToWideChar(CP_UNIXCP, 0, srcstr[0], -1, deststr, destlen);
@@ -1440,8 +1430,7 @@ static HANDLE X11DRV_CLIPBOARD_ImportXAPIXMAP(Display *display, Window w, Atom p
             DWORD info_size = bitmap_info_size( info, DIB_RGB_COLORS );
             BYTE *ptr;
 
-            hClipData = GlobalAlloc( GMEM_MOVEABLE | GMEM_DDESHARE,
-                                     info_size + info->bmiHeader.biSizeImage );
+            hClipData = GlobalAlloc( GMEM_FIXED, info_size + info->bmiHeader.biSizeImage );
             if (hClipData)
             {
                 ptr = GlobalLock( hClipData );
@@ -1622,7 +1611,7 @@ static HANDLE X11DRV_CLIPBOARD_ImportTextUriList(Display *display, Window w, Ato
     if (out && end >= len)
     {
         DROPFILES *dropFiles;
-        handle = GlobalAlloc(GMEM_MOVEABLE | GMEM_DDESHARE, sizeof(DROPFILES) + (size + 1)*sizeof(WCHAR));
+        handle = GlobalAlloc(GMEM_FIXED, sizeof(DROPFILES) + (size + 1)*sizeof(WCHAR));
         if (handle)
         {
             dropFiles = (DROPFILES*) GlobalLock(handle);
@@ -1658,8 +1647,7 @@ static HANDLE X11DRV_CLIPBOARD_ImportClipboardData(Display *display, Window w, A
     {
         if (cbytes)
         {
-            /* Turn on the DDESHARE flag to enable shared 32 bit memory */
-            hClipData = GlobalAlloc(GMEM_MOVEABLE | GMEM_DDESHARE, cbytes);
+            hClipData = GlobalAlloc(GMEM_FIXED, cbytes);
             if (hClipData == 0)
             {
                 HeapFree(GetProcessHeap(), 0, lpdata);
@@ -1724,7 +1712,7 @@ static HANDLE X11DRV_CLIPBOARD_ExportClipboardData(Display *display, Window requ
     {
         datasize = GlobalSize(lpData->hData);
 
-        hClipData = GlobalAlloc(GMEM_MOVEABLE | GMEM_DDESHARE, datasize);
+        hClipData = GlobalAlloc(GMEM_FIXED, datasize);
         if (hClipData == 0) return NULL;
 
         if ((lpClipData = GlobalLock(hClipData)))
@@ -2190,7 +2178,7 @@ static HANDLE X11DRV_CLIPBOARD_ExportHDROP(Display *display, Window requestor, A
         ERR("Failed to export %04x format\n", lpdata->wFormatID);
         return 0;
     }
-    hClipData = GlobalAlloc(GMEM_MOVEABLE | GMEM_DDESHARE, textUriListSize);
+    hClipData = GlobalAlloc(GMEM_FIXED, textUriListSize);
     if (hClipData == NULL)
         return 0;
     hDrop = (HDROP) lpdata->hData;
@@ -2296,6 +2284,11 @@ static BOOL X11DRV_CLIPBOARD_QueryTargets(Display *display, Window w, Atom selec
 static int is_atom_error( Display *display, XErrorEvent *event, void *arg )
 {
     return (event->error_code == BadAtom);
+}
+
+static int is_window_error( Display *display, XErrorEvent *event, void *arg )
+{
+    return (event->error_code == BadWindow);
 }
 
 /**************************************************************************
@@ -3439,6 +3432,8 @@ static void X11DRV_HandleSelectionRequest( HWND hWnd, XSelectionRequestEvent *ev
 
     TRACE("\n");
 
+    X11DRV_expect_error( display, is_window_error, NULL );
+
     /*
      * We can only handle the selection request if :
      * The selection is PRIMARY or CLIPBOARD, AND we can successfully open the clipboard.
@@ -3527,6 +3522,8 @@ END:
         TRACE("Sending SelectionNotify event...\n");
         XSendEvent(display,event->requestor,False,NoEventMask,(XEvent*)&result);
     }
+    XSync( display, False );
+    if (X11DRV_check_error()) WARN( "requestor %lx is no longer valid\n", event->requestor );
 }
 
 

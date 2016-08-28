@@ -60,6 +60,7 @@ typedef struct _WS_DOUBLE_DESCRIPTION WS_DOUBLE_DESCRIPTION;
 typedef struct _WS_DATETIME WS_DATETIME;
 typedef struct _WS_DATETIME_DESCRIPTION WS_DATETIME_DESCRIPTION;
 typedef struct _WS_GUID_DESCRIPTION WS_GUID_DESCRIPTION;
+typedef struct _WS_UNIQUE_ID_DESCRIPTION WS_UNIQUE_ID_DESCRIPTION;
 typedef struct _WS_URL WS_URL;
 typedef struct _WS_HTTP_URL WS_HTTP_URL;
 typedef struct _WS_HTTPS_URL WS_HTTPS_URL;
@@ -404,6 +405,15 @@ struct _WS_DOUBLE_DESCRIPTION {
     double maxValue;
 };
 
+struct _WS_GUID_DESCRIPTION {
+    GUID value;
+};
+
+struct _WS_UNIQUE_ID_DESCRIPTION {
+    ULONG minCharCount;
+    ULONG maxCharCount;
+};
+
 typedef enum {
     WS_TYPE_ATTRIBUTE_FIELD_MAPPING,
     WS_ATTRIBUTE_FIELD_MAPPING,
@@ -492,6 +502,11 @@ typedef struct _WS_STRING {
     ULONG length;
     WCHAR *chars;
 } WS_STRING;
+
+typedef struct _WS_UNIQUE_ID {
+    WS_STRING uri;
+    GUID guid;
+} WS_UNIQUE_ID;
 
 typedef enum {
     WS_XML_NODE_TYPE_ELEMENT     = 1,
@@ -906,6 +921,11 @@ struct _WS_HTTP_SSL_BINDING_TEMPLATE {
     WS_SSL_TRANSPORT_SECURITY_BINDING_TEMPLATE sslTransportSecurityBinding;
 };
 
+enum {
+    WS_MUST_UNDERSTAND_HEADER_ATTRIBUTE = 0x1,
+    WS_RELAY_HEADER_ATTRIBUTE           = 0x2
+};
+
 typedef enum {
     WS_ADDRESSING_VERSION_0_9       = 1,
     WS_ADDRESSING_VERSION_1_0       = 2,
@@ -969,6 +989,16 @@ typedef enum {
     WS_REPLY_MESSAGE,
     WS_FAULT_MESSAGE
 } WS_MESSAGE_INITIALIZATION;
+
+typedef enum {
+    WS_ACTION_HEADER        = 1,
+    WS_TO_HEADER            = 2,
+    WS_MESSAGE_ID_HEADER    = 3,
+    WS_RELATES_TO_HEADER    = 4,
+    WS_FROM_HEADER          = 5,
+    WS_REPLY_TO_HEADER      = 6,
+    WS_FAULT_TO_HEADER      = 7
+} WS_HEADER_TYPE;
 
 typedef enum {
     WS_DNS_ENDPOINT_IDENTITY_TYPE       = 1,
@@ -1316,6 +1346,8 @@ typedef enum
 typedef void (CALLBACK *WS_MESSAGE_DONE_CALLBACK)
     (void*);
 
+HRESULT WINAPI WsAddMappedHeader(WS_MESSAGE*, const WS_XML_STRING*, WS_TYPE, WS_WRITE_OPTION,
+                                 const void*, ULONG, WS_ERROR*);
 HRESULT WINAPI WsAddressMessage(WS_MESSAGE*, const WS_ENDPOINT_ADDRESS*, WS_ERROR*);
 HRESULT WINAPI WsAlloc(WS_HEAP*, SIZE_T, void**, WS_ERROR*);
 HRESULT WINAPI WsCall(WS_SERVICE_PROXY*, const WS_OPERATION_DESCRIPTION*, const void**,
@@ -1400,9 +1432,13 @@ HRESULT WINAPI WsReadValue(WS_XML_READER*, WS_VALUE_TYPE, void*, ULONG, WS_ERROR
 HRESULT WINAPI WsReceiveMessage(WS_CHANNEL*, WS_MESSAGE*, const WS_MESSAGE_DESCRIPTION**, ULONG,
                                 WS_RECEIVE_OPTION, WS_READ_OPTION, WS_HEAP*, void*, ULONG, ULONG*,
                                 const WS_ASYNC_CONTEXT*, WS_ERROR*);
+HRESULT WINAPI WsRemoveHeader(WS_MESSAGE*, WS_HEADER_TYPE, WS_ERROR*);
+HRESULT WINAPI WsRemoveMappedHeader(WS_MESSAGE*, const WS_XML_STRING*, WS_ERROR*);
 HRESULT WINAPI WsRemoveNode(const WS_XML_NODE_POSITION*, WS_ERROR*);
+HRESULT WINAPI WsResetChannel(WS_CHANNEL*, WS_ERROR*);
 HRESULT WINAPI WsResetError(WS_ERROR*);
 HRESULT WINAPI WsResetHeap(WS_HEAP*, WS_ERROR*);
+HRESULT WINAPI WsResetMessage(WS_MESSAGE*, WS_ERROR*);
 HRESULT WINAPI WsRequestReply(WS_CHANNEL*, WS_MESSAGE*, const WS_MESSAGE_DESCRIPTION*, WS_WRITE_OPTION,
                               const void*, ULONG, WS_MESSAGE*, const WS_MESSAGE_DESCRIPTION*,
                               WS_READ_OPTION, WS_HEAP*, void*, ULONG, const WS_ASYNC_CONTEXT*, WS_ERROR*);
@@ -1413,6 +1449,8 @@ HRESULT WINAPI WsSendReplyMessage(WS_CHANNEL*, WS_MESSAGE*, const WS_MESSAGE_DES
                                   const WS_ASYNC_CONTEXT*, WS_ERROR*);
 HRESULT WINAPI WsSetChannelProperty(WS_CHANNEL*, WS_CHANNEL_PROPERTY_ID, const void*, ULONG, WS_ERROR*);
 HRESULT WINAPI WsSetErrorProperty(WS_ERROR*, WS_ERROR_PROPERTY_ID, const void*, ULONG);
+HRESULT WINAPI WsSetHeader(WS_MESSAGE*, WS_HEADER_TYPE, WS_TYPE, WS_WRITE_OPTION, const void*, ULONG,
+                           WS_ERROR*);
 HRESULT WINAPI WsSetInput(WS_XML_READER*, const WS_XML_READER_ENCODING*, const WS_XML_READER_INPUT*,
                           const WS_XML_READER_PROPERTY*, ULONG, WS_ERROR*);
 HRESULT WINAPI WsSetInputToBuffer(WS_XML_READER*, WS_XML_BUFFER*, const WS_XML_READER_PROPERTY*,
