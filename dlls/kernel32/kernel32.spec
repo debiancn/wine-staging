@@ -154,7 +154,7 @@
 @ stdcall AllocConsole()
 @ stub -i386 AllocLSCallback
 @ stdcall -i386 -private AllocSLCallback(ptr ptr) krnl386.exe16.AllocSLCallback
-@ stdcall AllocateUserPhysicalPages(ptr ptr ptr)
+@ stdcall AllocateUserPhysicalPages(long ptr ptr)
 @ stdcall ApplicationRecoveryFinished(long)
 @ stdcall ApplicationRecoveryInProgress(ptr)
 @ stdcall AreFileApisANSI()
@@ -535,7 +535,7 @@
 @ stdcall FreeLibraryWhenCallbackReturns(ptr ptr) ntdll.TpCallbackUnloadDllOnCompletion
 @ stdcall FreeResource(long)
 @ stdcall -i386 -private FreeSLCallback(long) krnl386.exe16.FreeSLCallback
-@ stub FreeUserPhysicalPages
+@ stdcall FreeUserPhysicalPages(long ptr ptr)
 @ stub FreeVirtualBuffer
 @ stdcall GenerateConsoleCtrlEvent(long long)
 @ stdcall -i386 -private Get16DLLAddress(long str) krnl386.exe16.Get16DLLAddress
@@ -582,8 +582,8 @@
 @ stdcall GetComputerNameW(ptr ptr)
 @ stub GetConsoleAliasA
 @ stub GetConsoleAliasExesA
-@ stub GetConsoleAliasExesLengthA
-@ stub GetConsoleAliasExesLengthW
+@ stdcall GetConsoleAliasExesLengthA()
+@ stdcall GetConsoleAliasExesLengthW()
 @ stub GetConsoleAliasExesW
 @ stdcall GetConsoleAliasW(wstr ptr long wstr)
 @ stub GetConsoleAliasesA
@@ -696,7 +696,7 @@
 @ stdcall GetHandleInformation(long ptr)
 @ stub -i386 GetLSCallbackTarget
 @ stub -i386 GetLSCallbackTemplate
-# @ stub GetLargePageMinimum
+@ stdcall GetLargePageMinimum()
 @ stdcall GetLargestConsoleWindowSize(long)
 @ stdcall GetLastError()
 @ stub GetLinguistLangSize
@@ -824,7 +824,7 @@
 @ stdcall GetSystemFirmwareTable(long long ptr long)
 @ stdcall GetSystemInfo(ptr)
 @ stdcall GetSystemPowerStatus(ptr)
-# @ stub GetSystemPreferredUILanguages
+@ stdcall GetSystemPreferredUILanguages(long ptr ptr ptr)
 @ stdcall GetSystemRegistryQuota(ptr ptr)
 @ stdcall GetSystemTime(ptr)
 @ stdcall GetSystemTimeAdjustment(ptr ptr ptr)

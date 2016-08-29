@@ -26,6 +26,7 @@
 #include "winbase.h"
 #include "winternl.h"
 #include "ddk/wdm.h"
+#include "ddk/ndis.h"
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(ndis);
@@ -35,4 +36,25 @@ NTSTATUS WINAPI DriverEntry(DRIVER_OBJECT *driver, UNICODE_STRING *path)
     TRACE("(%p, %s)\n", driver, debugstr_w(path->Buffer));
 
     return STATUS_SUCCESS;
+}
+
+NDIS_STATUS WINAPI NdisAllocateMemoryWithTag(void **address, UINT length, ULONG tag)
+{
+    FIXME("(%p, %u, %u): stub\n", address, length, tag);
+    return NDIS_STATUS_FAILURE;
+}
+
+void WINAPI NdisAllocateSpinLock(NDIS_SPIN_LOCK *lock)
+{
+    FIXME("(%p): stub\n", lock);
+}
+
+CCHAR WINAPI NdisSystemProcessorCount(void)
+{
+    SYSTEM_INFO si;
+
+    TRACE("()\n");
+    GetSystemInfo(&si);
+
+    return si.dwNumberOfProcessors;
 }

@@ -211,7 +211,7 @@
 @ cdecl _c_exit() MSVCRT__c_exit
 @ cdecl _cabs(long) MSVCRT__cabs
 @ cdecl _callnewh(long)
-@ stub _calloc_base
+@ cdecl _calloc_base(long long)
 @ cdecl _cexit() MSVCRT__cexit
 @ cdecl _cgets(ptr)
 @ stub _cgets_s
@@ -333,7 +333,7 @@
 @ cdecl _fputwchar(long) MSVCRT__fputwchar
 @ cdecl _fread_nolock(ptr long long ptr) MSVCRT__fread_nolock
 @ cdecl _fread_nolock_s(ptr long long long ptr) MSVCRT__fread_nolock_s
-@ stub _free_base
+@ cdecl _free_base(ptr)
 @ cdecl _free_locale(ptr) MSVCRT__free_locale
 @ cdecl _fseek_nolock(ptr long long) MSVCRT__fseek_nolock
 @ cdecl _fseeki64(ptr int64 long) MSVCRT__fseeki64
@@ -375,7 +375,7 @@
 @ stub _get_purecall_handler
 @ cdecl _get_stream_buffer_pointers(ptr ptr ptr ptr) MSVCRT__get_stream_buffer_pointers
 @ cdecl _get_terminate() MSVCRT__get_terminate
-@ stub _get_thread_local_invalid_parameter_handler
+@ cdecl _get_thread_local_invalid_parameter_handler()
 @ cdecl _get_timezone(ptr)
 @ cdecl _get_tzname(ptr str long long) MSVCRT__get_tzname
 @ cdecl _get_unexpected() MSVCRT__get_unexpected
@@ -563,7 +563,7 @@
 @ cdecl _localtime64(ptr) MSVCRT__localtime64
 @ cdecl _localtime64_s(ptr ptr)
 @ cdecl _lock_file(ptr) MSVCRT__lock_file
-@ stub _lock_locales
+@ cdecl _lock_locales()
 @ cdecl _locking(long long long) MSVCRT__locking
 @ cdecl _logb(double) MSVCRT__logb
 @ cdecl -arch=arm,x86_64 _logbf(float) MSVCRT__logbf
@@ -580,7 +580,7 @@
 @ cdecl _ltow_s(long ptr long long) MSVCRT__ltow_s
 @ cdecl _makepath(ptr str str str str) MSVCRT__makepath
 @ cdecl _makepath_s(ptr long str str str str) MSVCRT__makepath_s
-@ stub _malloc_base
+@ cdecl _malloc_base(long)
 @ cdecl _mbbtombc(long)
 @ stub _mbbtombc_l
 @ cdecl _mbbtype(long long)
@@ -1893,7 +1893,7 @@
 @ cdecl _set_printf_count_output(long) MSVCRT__set_printf_count_output
 @ cdecl _set_purecall_handler(ptr)
 @ stub _set_se_translator
-@ stub _set_thread_local_invalid_parameter_handler
+@ cdecl _set_thread_local_invalid_parameter_handler(ptr)
 @ cdecl _seterrormode(long)
 @ cdecl -arch=i386 -norelay _setjmp3(ptr long) MSVCRT__setjmp3
 @ cdecl _setmaxstdio(long) MSVCRT__setmaxstdio
@@ -2000,7 +2000,7 @@
 @ cdecl _unlink(str) MSVCRT__unlink
 @ cdecl _unloaddll(long)
 @ cdecl _unlock_file(ptr) MSVCRT__unlock_file
-@ stub _unlock_locales
+@ cdecl _unlock_locales()
 @ cdecl _utime32(str ptr)
 @ cdecl _utime64(str ptr)
 @ cdecl _waccess(wstr long) MSVCRT__waccess
@@ -2415,7 +2415,7 @@
 @ stub mbrtoc32
 @ cdecl mbrtowc(ptr str long ptr) MSVCRT_mbrtowc
 @ cdecl mbsrtowcs(ptr ptr long ptr) MSVCRT_mbsrtowcs
-@ stub mbsrtowcs_s
+@ cdecl mbsrtowcs_s(ptr ptr long ptr long ptr) MSVCRT_mbsrtowcs_s
 @ cdecl mbstowcs(ptr str long) MSVCRT_mbstowcs
 @ cdecl mbstowcs_s(ptr ptr long str long) MSVCRT__mbstowcs_s
 @ cdecl mbtowc(ptr str long) MSVCRT_mbtowc
