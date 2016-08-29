@@ -4174,11 +4174,11 @@ static inline void _check_ws_ignored(int line, const char *ver, IXMLDOMDocument2
     helper_ole_check_ver(IXMLDOMNode_get_text(node1, &bstr));
     if (str)
     {
-        todo_wine helper_expect_bstr_and_release(bstr, str);
+        helper_expect_bstr_and_release(bstr, str);
     }
     else
     {
-        todo_wine helper_expect_bstr_and_release(bstr, " This is a description.");
+        helper_expect_bstr_and_release(bstr, " This is a description.");
     }
     IXMLDOMNode_Release(node1);
 
@@ -4213,11 +4213,11 @@ static inline void _check_ws_preserved(int line, const char *ver, IXMLDOMDocumen
     helper_ole_check_ver(IXMLDOMNode_get_text(node1, &bstr));
     if (str)
     {
-        todo_wine helper_expect_bstr_and_release(bstr, str);
+        helper_expect_bstr_and_release(bstr, str);
     }
     else
     {
-        todo_wine helper_expect_bstr_and_release(bstr, "\n                 This is a  description. \n            ");
+        helper_expect_bstr_and_release(bstr, "\n                 This is a  description. \n            ");
     }
     IXMLDOMNode_Release(node1);
 

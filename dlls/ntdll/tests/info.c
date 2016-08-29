@@ -23,6 +23,7 @@
 #include <stdio.h>
 
 static NTSTATUS (WINAPI * pNtQuerySystemInformation)(SYSTEM_INFORMATION_CLASS, PVOID, ULONG, PULONG);
+static NTSTATUS (WINAPI * pNtQuerySystemInformationEx)(SYSTEM_INFORMATION_CLASS, void*, ULONG, void*, ULONG, ULONG*);
 static NTSTATUS (WINAPI * pNtPowerInformation)(POWER_INFORMATION_LEVEL, PVOID, ULONG, PVOID, ULONG);
 static NTSTATUS (WINAPI * pNtQueryInformationProcess)(HANDLE, PROCESSINFOCLASS, PVOID, ULONG, PULONG);
 static NTSTATUS (WINAPI * pNtQueryInformationThread)(HANDLE, THREADINFOCLASS, PVOID, ULONG, PULONG);
@@ -36,6 +37,7 @@ static NTSTATUS (WINAPI * pNtUnmapViewOfSection)(HANDLE,PVOID);
 static NTSTATUS (WINAPI * pNtClose)(HANDLE);
 static ULONG    (WINAPI * pNtGetCurrentProcessorNumber)(void);
 static BOOL     (WINAPI * pIsWow64Process)(HANDLE, PBOOL);
+static BOOL     (WINAPI * pGetLogicalProcessorInformationEx)(LOGICAL_PROCESSOR_RELATIONSHIP,SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*,DWORD*);
 
 static BOOL is_wow64;
 
@@ -56,6 +58,8 @@ static BOOL InitFunctionPtrs(void)
 {
     /* All needed functions are NT based, so using GetModuleHandle is a good check */
     HMODULE hntdll = GetModuleHandleA("ntdll");
+    HMODULE hkernel32 = GetModuleHandleA("kernel32");
+
     if (!hntdll)
     {
         win_skip("Not running on NT\n");
@@ -78,8 +82,16 @@ static BOOL InitFunctionPtrs(void)
     /* not present before XP */
     pNtGetCurrentProcessorNumber = (void *) GetProcAddress(hntdll, "NtGetCurrentProcessorNumber");
 
-    pIsWow64Process = (void *)GetProcAddress(GetModuleHandleA("kernel32.dll"), "IsWow64Process");
+    pIsWow64Process = (void *)GetProcAddress(hkernel32, "IsWow64Process");
     if (!pIsWow64Process || !pIsWow64Process( GetCurrentProcess(), &is_wow64 )) is_wow64 = FALSE;
+
+    /* starting with Win7 */
+    pNtQuerySystemInformationEx = (void *) GetProcAddress(hntdll, "NtQuerySystemInformationEx");
+    if (!pNtQuerySystemInformationEx)
+        win_skip("NtQuerySystemInformationEx() is not supported, some tests will be skipped.\n");
+
+    pGetLogicalProcessorInformationEx = (void *) GetProcAddress(hkernel32, "GetLogicalProcessorInformationEx");
+
     return TRUE;
 }
 
@@ -662,6 +674,104 @@ static void test_query_logicalproc(void)
                 proc_no, si.dwNumberOfProcessors);
 
     HeapFree(GetProcessHeap(), 0, slpi);
+}
+
+static void test_query_logicalprocex(void)
+{
+    SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *infoex, *infoex2;
+    DWORD relationship, len2, len;
+    NTSTATUS status;
+    BOOL ret;
+
+    if (!pNtQuerySystemInformationEx)
+        return;
+
+    len = 0;
+    relationship = RelationProcessorCore;
+    status = pNtQuerySystemInformationEx(SystemLogicalProcessorInformationEx, &relationship, sizeof(relationship), NULL, 0, &len);
+    ok(status == STATUS_INFO_LENGTH_MISMATCH, "got 0x%08x\n", status);
+    ok(len > 0, "got %u\n", len);
+
+    len = 0;
+    relationship = RelationAll;
+    status = pNtQuerySystemInformationEx(SystemLogicalProcessorInformationEx, &relationship, sizeof(relationship), NULL, 0, &len);
+    ok(status == STATUS_INFO_LENGTH_MISMATCH, "got 0x%08x\n", status);
+    ok(len > 0, "got %u\n", len);
+
+    len2 = 0;
+    ret = pGetLogicalProcessorInformationEx(RelationAll, NULL, &len2);
+    ok(!ret && GetLastError() == ERROR_INSUFFICIENT_BUFFER, "got %d, error %d\n", ret, GetLastError());
+    ok(len == len2, "got %u, expected %u\n", len2, len);
+
+    if (len && len == len2) {
+        int j, i;
+
+        infoex = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, len);
+        infoex2 = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, len);
+
+        status = pNtQuerySystemInformationEx(SystemLogicalProcessorInformationEx, &relationship, sizeof(relationship), infoex, len, &len);
+        ok(status == STATUS_SUCCESS, "got 0x%08x\n", status);
+        ok(infoex->Size > 0, "got %u\n", infoex->Size);
+
+        ret = pGetLogicalProcessorInformationEx(RelationAll, infoex2, &len2);
+        ok(ret, "got %d, error %d\n", ret, GetLastError());
+        ok(!memcmp(infoex, infoex2, len), "returned info data mismatch\n");
+
+        for(i = 0; i < len; ){
+            SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *ex = (void*)(((char *)infoex) + i);
+
+            ok(ex->Relationship >= RelationProcessorCore && ex->Relationship <= RelationGroup,
+                    "Got invalid relationship value: 0x%x\n", ex->Relationship);
+
+            trace("infoex[%u].Size: %u\n", i, ex->Size);
+            switch(ex->Relationship){
+            case RelationProcessorCore:
+            case RelationProcessorPackage:
+                trace("infoex[%u].Relationship: 0x%x (Core == 0x0 or Package == 0x3)\n", i, ex->Relationship);
+                trace("infoex[%u].Processor.Flags: 0x%x\n", i, ex->Processor.Flags);
+                trace("infoex[%u].Processor.EfficiencyClass: 0x%x\n", i, ex->Processor.EfficiencyClass);
+                trace("infoex[%u].Processor.GroupCount: 0x%x\n", i, ex->Processor.GroupCount);
+                for(j = 0; j < ex->Processor.GroupCount; ++j){
+                    trace("infoex[%u].Processor.GroupMask[%u].Mask: 0x%lx\n", i, j, ex->Processor.GroupMask[j].Mask);
+                    trace("infoex[%u].Processor.GroupMask[%u].Group: 0x%x\n", i, j, ex->Processor.GroupMask[j].Group);
+                }
+                break;
+            case RelationNumaNode:
+                trace("infoex[%u].Relationship: 0x%x (NumaNode)\n", i, ex->Relationship);
+                trace("infoex[%u].NumaNode.NodeNumber: 0x%x\n", i, ex->NumaNode.NodeNumber);
+                trace("infoex[%u].NumaNode.GroupMask.Mask: 0x%lx\n", i, ex->NumaNode.GroupMask.Mask);
+                trace("infoex[%u].NumaNode.GroupMask.Group: 0x%x\n", i, ex->NumaNode.GroupMask.Group);
+                break;
+            case RelationCache:
+                trace("infoex[%u].Relationship: 0x%x (Cache)\n", i, ex->Relationship);
+                trace("infoex[%u].Cache.Level: 0x%x\n", i, ex->Cache.Level);
+                trace("infoex[%u].Cache.Associativity: 0x%x\n", i, ex->Cache.Associativity);
+                trace("infoex[%u].Cache.LineSize: 0x%x\n", i, ex->Cache.LineSize);
+                trace("infoex[%u].Cache.CacheSize: 0x%x\n", i, ex->Cache.CacheSize);
+                trace("infoex[%u].Cache.Type: 0x%x\n", i, ex->Cache.Type);
+                trace("infoex[%u].Cache.GroupMask.Mask: 0x%lx\n", i, ex->Cache.GroupMask.Mask);
+                trace("infoex[%u].Cache.GroupMask.Group: 0x%x\n", i, ex->Cache.GroupMask.Group);
+                break;
+            case RelationGroup:
+                trace("infoex[%u].Relationship: 0x%x (Group)\n", i, ex->Relationship);
+                trace("infoex[%u].Group.MaximumGroupCount: 0x%x\n", i, ex->Group.MaximumGroupCount);
+                trace("infoex[%u].Group.ActiveGroupCount: 0x%x\n", i, ex->Group.ActiveGroupCount);
+                for(j = 0; j < ex->Group.ActiveGroupCount; ++j){
+                    trace("infoex[%u].Group.GroupInfo[%u].MaximumProcessorCount: 0x%x\n", i, j, ex->Group.GroupInfo[j].MaximumProcessorCount);
+                    trace("infoex[%u].Group.GroupInfo[%u].ActiveProcessorCount: 0x%x\n", i, j, ex->Group.GroupInfo[j].ActiveProcessorCount);
+                    trace("infoex[%u].Group.GroupInfo[%u].ActiveProcessorMask: 0x%lx\n", i, j, ex->Group.GroupInfo[j].ActiveProcessorMask);
+                }
+                break;
+            default:
+                break;
+            }
+
+            i += ex->Size;
+        }
+
+        HeapFree(GetProcessHeap(), 0, infoex);
+        HeapFree(GetProcessHeap(), 0, infoex2);
+    }
 }
 
 static void test_query_processor_power_info(void)
@@ -1910,6 +2020,7 @@ START_TEST(info)
     /* 0x49 SystemLogicalProcessorInformation */
     trace("Starting test_query_logicalproc()\n");
     test_query_logicalproc();
+    test_query_logicalprocex();
 
     /* NtPowerInformation */
 

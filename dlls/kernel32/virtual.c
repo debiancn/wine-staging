@@ -235,7 +235,13 @@ BOOL WINAPI VirtualProtect( LPVOID addr, SIZE_T size, DWORD new_prot, LPDWORD ol
 BOOL WINAPI VirtualProtectEx( HANDLE process, LPVOID addr, SIZE_T size,
     DWORD new_prot, LPDWORD old_prot )
 {
-    NTSTATUS status = NtProtectVirtualMemory( process, &addr, &size, new_prot, old_prot );
+    NTSTATUS status;
+    DWORD prot;
+
+    /* Win9x allows to pass NULL as old_prot while it fails on NT */
+    if (!old_prot && (GetVersion() & 0x80000000)) old_prot = &prot;
+
+    status = NtProtectVirtualMemory( process, &addr, &size, new_prot, old_prot );
     if (status) SetLastError( RtlNtStatusToDosError(status) );
     return !status;
 }
@@ -466,7 +472,6 @@ HANDLE WINAPI OpenFileMappingW( DWORD access, BOOL inherit, LPCWSTR name)
     RtlInitUnicodeString( &nameW, name );
 
     if (access == FILE_MAP_COPY) access = SECTION_MAP_READ;
-    access |= SECTION_QUERY;
 
     if (GetVersion() & 0x80000000)
     {
@@ -641,7 +646,7 @@ UINT WINAPI ResetWriteWatch( LPVOID base, SIZE_T size )
  *  Success: TRUE.
  *	Failure: FALSE. Process has read access to entire block.
  */
-BOOL WINAPI IsBadReadPtr( LPCVOID ptr, UINT size )
+BOOL WINAPI IsBadReadPtr( LPCVOID ptr, UINT_PTR size )
 {
     if (!size) return FALSE;  /* handle 0 size case w/o reference */
     if (!ptr) return TRUE;
@@ -649,7 +654,7 @@ BOOL WINAPI IsBadReadPtr( LPCVOID ptr, UINT size )
     {
         volatile const char *p = ptr;
         char dummy __attribute__((unused));
-        UINT count = size;
+        UINT_PTR count = size;
 
         while (count > system_info.PageSize)
         {
@@ -683,14 +688,14 @@ BOOL WINAPI IsBadReadPtr( LPCVOID ptr, UINT size )
  *  Success: TRUE.
  *	Failure: FALSE. Process has write access to entire block.
  */
-BOOL WINAPI IsBadWritePtr( LPVOID ptr, UINT size )
+BOOL WINAPI IsBadWritePtr( LPVOID ptr, UINT_PTR size )
 {
     if (!size) return FALSE;  /* handle 0 size case w/o reference */
     if (!ptr) return TRUE;
     __TRY
     {
         volatile char *p = ptr;
-        UINT count = size;
+        UINT_PTR count = size;
 
         while (count > system_info.PageSize)
         {
@@ -724,7 +729,7 @@ BOOL WINAPI IsBadWritePtr( LPVOID ptr, UINT size )
  *  Success: TRUE.
  *	Failure: FALSE. Process has read access to entire block.
  */
-BOOL WINAPI IsBadHugeReadPtr( LPCVOID ptr, UINT size )
+BOOL WINAPI IsBadHugeReadPtr( LPCVOID ptr, UINT_PTR size )
 {
     return IsBadReadPtr( ptr, size );
 }
@@ -743,7 +748,7 @@ BOOL WINAPI IsBadHugeReadPtr( LPCVOID ptr, UINT size )
  *  Success: TRUE.
  *	Failure: FALSE. Process has write access to entire block.
  */
-BOOL WINAPI IsBadHugeWritePtr( LPVOID ptr, UINT size )
+BOOL WINAPI IsBadHugeWritePtr( LPVOID ptr, UINT_PTR size )
 {
     return IsBadWritePtr( ptr, size );
 }
@@ -780,7 +785,7 @@ BOOL WINAPI IsBadCodePtr( FARPROC ptr )
  *	Success: TRUE.
  *	Failure: FALSE. Read access to all bytes in string.
  */
-BOOL WINAPI IsBadStringPtrA( LPCSTR str, UINT max )
+BOOL WINAPI IsBadStringPtrA( LPCSTR str, UINT_PTR max )
 {
     if (!str) return TRUE;
     
@@ -804,7 +809,7 @@ BOOL WINAPI IsBadStringPtrA( LPCSTR str, UINT max )
  *
  * See IsBadStringPtrA.
  */
-BOOL WINAPI IsBadStringPtrW( LPCWSTR str, UINT max )
+BOOL WINAPI IsBadStringPtrW( LPCWSTR str, UINT_PTR max )
 {
     if (!str) return TRUE;
     

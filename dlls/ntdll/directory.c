@@ -47,6 +47,11 @@
 #ifdef HAVE_SYS_ATTR_H
 #include <sys/attr.h>
 #endif
+#ifdef MAJOR_IN_MKDEV
+# include <sys/mkdev.h>
+#elif defined(MAJOR_IN_SYSMACROS)
+# include <sys/sysmacros.h>
+#endif
 #ifdef HAVE_SYS_VNODE_H
 /* Work around a conflict with Solaris' system list defined in sys/list.h. */
 #define list SYSLIST
@@ -3357,7 +3362,7 @@ NTSTATUS DIR_get_unix_cwd( char **cwd )
         attr.SecurityDescriptor = NULL;
         attr.SecurityQualityOfService = NULL;
 
-        status = NtOpenFile( &handle, 0, &attr, &io, 0,
+        status = NtOpenFile( &handle, SYNCHRONIZE, &attr, &io, 0,
                              FILE_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT );
         RtlFreeUnicodeString( &dirW );
         if (status != STATUS_SUCCESS) goto done;

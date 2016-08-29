@@ -28,6 +28,9 @@
 
 #include "wine/test.h"
 
+#undef __fastcall
+#define __fastcall __stdcall
+
 static BOOL   (WINAPI *pChangeTimerQueueTimer)(HANDLE, HANDLE, ULONG, ULONG);
 static HANDLE (WINAPI *pCreateTimerQueue)(void);
 static BOOL   (WINAPI *pCreateTimerQueueTimer)(PHANDLE, HANDLE, WAITORTIMERCALLBACK,
@@ -61,6 +64,48 @@ static NTSTATUS (WINAPI *pNtAllocateVirtualMemory)(HANDLE, PVOID *, ULONG, SIZE_
 static NTSTATUS (WINAPI *pNtFreeVirtualMemory)(HANDLE, PVOID *, SIZE_T *, ULONG);
 static NTSTATUS (WINAPI *pNtWaitForSingleObject)(HANDLE, BOOLEAN, const LARGE_INTEGER *);
 static NTSTATUS (WINAPI *pNtWaitForMultipleObjects)(ULONG,const HANDLE*,BOOLEAN,BOOLEAN,const LARGE_INTEGER*);
+static PSLIST_ENTRY (__fastcall *pRtlInterlockedPushListSList)(PSLIST_HEADER list, PSLIST_ENTRY first,
+                                                               PSLIST_ENTRY last, ULONG count);
+static PSLIST_ENTRY (WINAPI *pRtlInterlockedPushListSListEx)(PSLIST_HEADER list, PSLIST_ENTRY first,
+                                                             PSLIST_ENTRY last, ULONG count);
+
+#ifdef __i386__
+
+#include "pshpack1.h"
+struct fastcall_thunk
+{
+    BYTE pop_edx;   /* popl %edx            (ret addr) */
+    BYTE pop_eax;   /* popl %eax            (func) */
+    BYTE pop_ecx;   /* popl %ecx            (param 1) */
+    BYTE xchg[3];   /* xchgl (%esp),%edx    (param 2) */
+    WORD jmp_eax;   /* jmp  *%eax */
+};
+#include "poppack.h"
+
+static void * (WINAPI *call_fastcall_func4)(void *func, const void *a, const void *b, const void *c, const void *d);
+
+static void init_fastcall_thunk(void)
+{
+    struct fastcall_thunk *thunk = VirtualAlloc(NULL, sizeof(*thunk), MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+    thunk->pop_edx = 0x5a;      /* popl  %edx */
+    thunk->pop_eax = 0x58;      /* popl  %eax */
+    thunk->pop_ecx = 0x59;      /* popl  %ecx */
+    thunk->xchg[0] = 0x87;      /* xchgl (%esp),%edx */
+    thunk->xchg[1] = 0x14;
+    thunk->xchg[2] = 0x24;
+    thunk->jmp_eax = 0xe0ff;    /* jmp *%eax */
+    call_fastcall_func4 = (void *)thunk;
+}
+
+#define call_func4(func, a, b, c, d) call_fastcall_func4(func, (const void *)(a), \
+        (const void *)(b), (const void *)(c), (const void *)(d))
+
+#else  /* __i386__ */
+
+#define init_fastcall_thunk() do { } while(0)
+#define call_func4(func, a, b, c, d) func(a, b, c, d)
+
+#endif /* __i386__ */
 
 static void test_signalandwait(void)
 {
@@ -261,104 +306,169 @@ static void test_slist(void)
     {
         SLIST_ENTRY entry;
         int value;
-    } item1, item2, item3, *pitem;
-
+    } item1, item2, item3, *item;
     SLIST_HEADER slist_header;
-    PSLIST_ENTRY entry, next;
+    SLIST_ENTRY *entry;
     USHORT size;
     int i;
 
-    VOID (WINAPI *pInitializeSListHead)(PSLIST_HEADER);
-    USHORT (WINAPI *pQueryDepthSList)(PSLIST_HEADER);
-    PSLIST_ENTRY (WINAPI *pInterlockedFlushSList)(PSLIST_HEADER);
-    PSLIST_ENTRY (WINAPI *pInterlockedPopEntrySList)(PSLIST_HEADER);
-    PSLIST_ENTRY (WINAPI *pInterlockedPushEntrySList)(PSLIST_HEADER,PSLIST_ENTRY);
-    HMODULE kernel32;
-
-    kernel32 = GetModuleHandleA("KERNEL32.DLL");
-    pInitializeSListHead = (void*) GetProcAddress(kernel32, "InitializeSListHead");
-    pQueryDepthSList = (void*) GetProcAddress(kernel32, "QueryDepthSList");
-    pInterlockedFlushSList = (void*) GetProcAddress(kernel32, "InterlockedFlushSList");
-    pInterlockedPopEntrySList = (void*) GetProcAddress(kernel32, "InterlockedPopEntrySList");
-    pInterlockedPushEntrySList = (void*) GetProcAddress(kernel32, "InterlockedPushEntrySList");
-    if (pInitializeSListHead == NULL ||
-        pQueryDepthSList == NULL ||
-        pInterlockedFlushSList == NULL ||
-        pInterlockedPopEntrySList == NULL ||
-        pInterlockedPushEntrySList == NULL)
-    {
-        win_skip("some required slist entrypoints were not found, skipping tests\n");
-        return;
-    }
-
-    memset(&slist_header, 0xFF, sizeof(slist_header));
-    pInitializeSListHead(&slist_header);
-    size = pQueryDepthSList(&slist_header);
-    ok(size == 0, "initially created slist has size %d, expected 0\n", size);
-
     item1.value = 1;
-    ok(pInterlockedPushEntrySList(&slist_header, &item1.entry) == NULL,
-        "previous entry in empty slist wasn't NULL\n");
-    size = pQueryDepthSList(&slist_header);
-    ok(size == 1, "slist with 1 item has size %d\n", size);
-
     item2.value = 2;
-    entry = pInterlockedPushEntrySList(&slist_header, &item2.entry);
-    ok(entry != NULL, "previous entry in non-empty slist was NULL\n");
-    if (entry != NULL)
-    {
-        pitem = (struct item*) entry;
-        ok(pitem->value == 1, "previous entry in slist wasn't the one added\n");
-    }
-    size = pQueryDepthSList(&slist_header);
-    ok(size == 2, "slist with 2 items has size %d\n", size);
-
     item3.value = 3;
-    entry = pInterlockedPushEntrySList(&slist_header, &item3.entry);
-    ok(entry != NULL, "previous entry in non-empty slist was NULL\n");
-    if (entry != NULL)
-    {
-        pitem = (struct item*) entry;
-        ok(pitem->value == 2, "previous entry in slist wasn't the one added\n");
-    }
-    size = pQueryDepthSList(&slist_header);
-    ok(size == 3, "slist with 3 items has size %d\n", size);
 
-    entry = pInterlockedPopEntrySList(&slist_header);
-    ok(entry != NULL, "entry shouldn't be NULL\n");
-    if (entry != NULL)
-    {
-        pitem = (struct item*) entry;
-        ok(pitem->value == 3, "unexpected entry removed\n");
-    }
-    size = pQueryDepthSList(&slist_header);
-    ok(size == 2, "slist with 2 items has size %d\n", size);
+    memset(&slist_header, 0xff, sizeof(slist_header));
+    InitializeSListHead(&slist_header);
+    size = QueryDepthSList(&slist_header);
+    ok(size == 0, "Expected size == 0, got %u\n", size);
 
-    entry = pInterlockedFlushSList(&slist_header);
-    size = pQueryDepthSList(&slist_header);
-    ok(size == 0, "flushed slist should be empty, size is %d\n", size);
-    if (size == 0)
-    {
-        ok(pInterlockedPopEntrySList(&slist_header) == NULL,
-            "popping empty slist didn't return NULL\n");
-    }
-    ok(((struct item*)entry)->value == 2, "item 2 not in front of list\n");
-    ok(((struct item*)entry->Next)->value == 1, "item 1 not at the back of list\n");
+    /* test PushEntry, PopEntry and Flush */
+    entry = InterlockedPushEntrySList(&slist_header, &item1.entry);
+    ok(entry == NULL, "Expected entry == NULL, got %p\n", entry);
+    size = QueryDepthSList(&slist_header);
+    ok(size == 1, "Expected size == 1, got %u\n", size);
 
+    entry = InterlockedPushEntrySList(&slist_header, &item2.entry);
+    ok(entry != NULL, "Expected entry != NULL, got %p\n", entry);
+    item = CONTAINING_RECORD(entry, struct item, entry);
+    ok(item->value == 1, "Expected item->value == 1, got %u\n", item->value);
+    size = QueryDepthSList(&slist_header);
+    ok(size == 2, "Expected size == 2, got %u\n", size);
+
+    entry = InterlockedPushEntrySList(&slist_header, &item3.entry);
+    ok(entry != NULL, "Expected entry != NULL, got %p\n", entry);
+    item = CONTAINING_RECORD(entry, struct item, entry);
+    ok(item->value == 2, "Expected item->value == 2, got %u\n", item->value);
+    size = QueryDepthSList(&slist_header);
+    ok(size == 3, "Expected size == 3, got %u\n", size);
+
+    entry = InterlockedPopEntrySList(&slist_header);
+    ok(entry != NULL, "Expected entry != NULL, got %p\n", entry);
+    item = CONTAINING_RECORD(entry, struct item, entry);
+    ok(item->value == 3, "Expected item->value == 3, got %u\n", item->value);
+    size = QueryDepthSList(&slist_header);
+    ok(size == 2, "Expected size == 2, got %u\n", size);
+
+    entry = InterlockedFlushSList(&slist_header);
+    ok(entry != NULL, "Expected entry != NULL, got %p\n", entry);
+    item = CONTAINING_RECORD(entry, struct item, entry);
+    ok(item->value == 2, "Expected item->value == 2, got %u\n", item->value);
+    item = CONTAINING_RECORD(item->entry.Next, struct item, entry);
+    ok(item->value == 1, "Expected item->value == 1, got %u\n", item->value);
+    size = QueryDepthSList(&slist_header);
+    ok(size == 0, "Expected size == 0, got %u\n", size);
+    entry = InterlockedPopEntrySList(&slist_header);
+    ok(entry == NULL, "Expected entry == NULL, got %p\n", entry);
+
+    /* test RtlInterlockedPushListSList */
+    entry = InterlockedPushEntrySList(&slist_header, &item3.entry);
+    ok(entry == NULL, "Expected entry == NULL, got %p\n", entry);
+    entry = call_func4(pRtlInterlockedPushListSList, &slist_header, &item2.entry, &item1.entry, 42);
+    ok(entry != NULL, "Expected entry != NULL, got %p\n", entry);
+    item = CONTAINING_RECORD(entry, struct item, entry);
+    ok(item->value == 3, "Expected item->value == 3, got %u\n", item->value);
+    size = QueryDepthSList(&slist_header);
+    ok(size == 43, "Expected size == 43, got %u\n", size);
+
+    entry = InterlockedPopEntrySList(&slist_header);
+    ok(entry != NULL, "Expected entry != NULL, got %p\n", entry);
+    item = CONTAINING_RECORD(entry, struct item, entry);
+    ok(item->value == 2, "Expected item->value == 2, got %u\n", item->value);
+    size = QueryDepthSList(&slist_header);
+    ok(size == 42, "Expected size == 42, got %u\n", size);
+
+    entry = InterlockedPopEntrySList(&slist_header);
+    ok(entry != NULL, "Expected entry != NULL, got %p\n", entry);
+    item = CONTAINING_RECORD(entry, struct item, entry);
+    ok(item->value == 1, "Expected item->value == 1, got %u\n", item->value);
+    size = QueryDepthSList(&slist_header);
+    ok(size == 41, "Expected size == 41, got %u\n", size);
+
+    entry = InterlockedPopEntrySList(&slist_header);
+    ok(entry != NULL, "Expected entry != NULL, got %p\n", entry);
+    item = CONTAINING_RECORD(entry, struct item, entry);
+    ok(item->value == 3, "Expected item->value == 3, got %u\n", item->value);
+    size = QueryDepthSList(&slist_header);
+    ok(size == 40, "Expected size == 40, got %u\n", size);
+
+    entry = InterlockedPopEntrySList(&slist_header);
+    ok(entry == NULL, "Expected entry == NULL, got %p\n", entry);
+    size = QueryDepthSList(&slist_header);
+    ok(size == 40, "Expected size == 40, got %u\n", size);
+
+    entry = InterlockedFlushSList(&slist_header);
+    ok(entry == NULL, "Expected entry == NULL, got %p\n", entry);
+    size = QueryDepthSList(&slist_header);
+    ok(size == 40 || broken(size == 0) /* >= Win 8 */, "Expected size == 40, got %u\n", size);
+
+    entry = InterlockedPushEntrySList(&slist_header, &item1.entry);
+    ok(entry == NULL, "Expected entry == NULL, got %p\n", entry);
+    entry = InterlockedFlushSList(&slist_header);
+    ok(entry != NULL, "Expected entry != NULL, got %p\n", entry);
+    item = CONTAINING_RECORD(entry, struct item, entry);
+    ok(item->value == 1, "Expected item->value == 1, got %u\n", item->value);
+    size = QueryDepthSList(&slist_header);
+    ok(size == 0, "Expected size == 0, got %u\n", size);
+
+    /* test RtlInterlockedPushListSListEx */
+    if (pRtlInterlockedPushListSListEx)
+    {
+        entry = InterlockedPushEntrySList(&slist_header, &item3.entry);
+        ok(entry == NULL, "Expected entry == NULL, got %p\n", entry);
+        entry = pRtlInterlockedPushListSListEx(&slist_header, &item2.entry, &item1.entry, 42);
+        ok(entry != NULL, "Expected entry != NULL, got %p\n", entry);
+        item = CONTAINING_RECORD(entry, struct item, entry);
+        ok(item->value == 3, "Expected item->value == 3, got %u\n", item->value);
+        size = QueryDepthSList(&slist_header);
+        ok(size == 43, "Expected size == 43, got %u\n", size);
+
+        entry = InterlockedFlushSList(&slist_header);
+        ok(entry != NULL, "Expected entry != NULL, got %p\n", entry);
+        item = CONTAINING_RECORD(entry, struct item, entry);
+        ok(item->value == 2, "Expected item->value == 2, got %u\n", item->value);
+        item = CONTAINING_RECORD(item->entry.Next, struct item, entry);
+        ok(item->value == 1, "Expected item->value == 1, got %u\n", item->value);
+        item = CONTAINING_RECORD(item->entry.Next, struct item, entry);
+        ok(item->value == 3, "Expected item->value == 3, got %u\n", item->value);
+        size = QueryDepthSList(&slist_header);
+        ok(size == 0, "Expected size == 0, got %u\n", size);
+    }
+    else
+        win_skip("RtlInterlockedPushListSListEx not available, skipping tests\n");
+
+    /* test with a lot of items */
     for (i = 0; i < 65536; i++)
     {
-        entry = HeapAlloc(GetProcessHeap(), 0, sizeof(*entry));
-        pInterlockedPushEntrySList(&slist_header, entry);
+        item = HeapAlloc(GetProcessHeap(), 0, sizeof(*item));
+        item->value = i + 1;
+        entry = InterlockedPushEntrySList(&slist_header, &item->entry);
+        if (i)
+        {
+            ok(entry != NULL, "Expected entry != NULL, got %p\n", entry);
+            item = CONTAINING_RECORD(entry, struct item, entry);
+            ok(item->value == i, "Expected item->value == %u, got %u\n", i, item->value);
+        }
+        else
+        {
+            ok(entry == NULL, "Expected entry == NULL, got %p\n", entry);
+        }
+        size = QueryDepthSList(&slist_header);
+        ok(size == ((i + 1) & 0xffff), "Expected size == %u, got %u\n", (i + 1) & 0xffff, size);
     }
 
-    entry = pInterlockedFlushSList(&slist_header);
-    ok(entry != NULL, "not flushed\n");
-    while (entry)
+    entry = InterlockedFlushSList(&slist_header);
+    for (i = 65536; i > 0; i--)
     {
-        next = entry->Next;
-        HeapFree(GetProcessHeap(), 0, entry);
-        entry = next;
+        ok(entry != NULL, "Expected entry != NULL, got %p\n", entry);
+        item = CONTAINING_RECORD(entry, struct item, entry);
+        ok(item->value == i, "Expected item->value == %u, got %u\n", i, item->value);
+        entry = item->entry.Next;
+        HeapFree(GetProcessHeap(), 0, item);
     }
+    ok(entry == NULL, "Expected entry == NULL, got %p\n", entry);
+    size = QueryDepthSList(&slist_header);
+    ok(size == 0, "Expected size == 0, got %u\n", size);
+    entry = InterlockedPopEntrySList(&slist_header);
+    ok(entry == NULL, "Expected entry == NULL, got %p\n", entry);
 }
 
 static void test_event(void)
@@ -2574,6 +2684,8 @@ START_TEST(sync)
     pNtFreeVirtualMemory = (void *)GetProcAddress(hntdll, "NtFreeVirtualMemory");
     pNtWaitForSingleObject = (void *)GetProcAddress(hntdll, "NtWaitForSingleObject");
     pNtWaitForMultipleObjects = (void *)GetProcAddress(hntdll, "NtWaitForMultipleObjects");
+    pRtlInterlockedPushListSList = (void *)GetProcAddress(hntdll, "RtlInterlockedPushListSList");
+    pRtlInterlockedPushListSListEx = (void *)GetProcAddress(hntdll, "RtlInterlockedPushListSListEx");
 
     argc = winetest_get_mainargs( &argv );
     if (argc >= 3)
@@ -2585,6 +2697,7 @@ START_TEST(sync)
         return;
     }
 
+    init_fastcall_thunk();
     test_signalandwait();
     test_mutex();
     test_slist();

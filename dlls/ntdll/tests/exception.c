@@ -219,6 +219,11 @@ static const struct exception
 
     { { 0xf1, 0x90, 0xc3 },  /* icebp; nop; ret */
       1, 1, FALSE, STATUS_SINGLE_STEP, 0 },
+    { { 0xb8, 0xb8, 0xb8, 0xb8, 0xb8,          /* mov $0xb8b8b8b8, %eax */
+        0xb9, 0xb9, 0xb9, 0xb9, 0xb9,          /* mov $0xb9b9b9b9, %ecx */
+        0xba, 0xba, 0xba, 0xba, 0xba,          /* mov $0xbabababa, %edx */
+        0xcd, 0x2d, 0xc3 },                    /* int $0x2d; ret */
+      17, 0, FALSE, STATUS_BREAKPOINT, 3, { 0xb8b8b8b8, 0xb9b9b9b9, 0xbabababa } },
 };
 
 static int got_exception;
@@ -473,7 +478,7 @@ static DWORD handler( EXCEPTION_RECORD *rec, EXCEPTION_REGISTRATION_RECORD *fram
                       CONTEXT *context, EXCEPTION_REGISTRATION_RECORD **dispatcher )
 {
     const struct exception *except = *(const struct exception **)(frame + 1);
-    unsigned int i, entry = except - exceptions;
+    unsigned int i, parameter_count, entry = except - exceptions;
 
     got_exception++;
     trace( "exception %u: %x flags:%x addr:%p\n",
@@ -482,20 +487,23 @@ static DWORD handler( EXCEPTION_RECORD *rec, EXCEPTION_REGISTRATION_RECORD *fram
     ok( rec->ExceptionCode == except->status ||
         (except->alt_status != 0 && rec->ExceptionCode == except->alt_status),
         "%u: Wrong exception code %x/%x\n", entry, rec->ExceptionCode, except->status );
-    ok( rec->ExceptionAddress == (char*)code_mem + except->offset,
-        "%u: Wrong exception address %p/%p\n", entry,
-        rec->ExceptionAddress, (char*)code_mem + except->offset );
+    ok( context->Eip == (DWORD_PTR)code_mem + except->offset,
+        "%u: Unexpected eip %#x/%#lx\n", entry,
+        context->Eip, (DWORD_PTR)code_mem + except->offset );
+    ok( rec->ExceptionAddress == (char*)context->Eip ||
+        (rec->ExceptionCode == STATUS_BREAKPOINT && rec->ExceptionAddress == (char*)context->Eip + 1),
+        "%u: Unexpected exception address %p/%p\n", entry,
+        rec->ExceptionAddress, (char*)context->Eip );
 
-    if (except->alt_status == 0 || rec->ExceptionCode != except->alt_status)
-    {
-        ok( rec->NumberParameters == except->nb_params,
-            "%u: Wrong number of parameters %u/%u\n", entry, rec->NumberParameters, except->nb_params );
-    }
+    if (except->status == STATUS_BREAKPOINT && is_wow64)
+        parameter_count = 1;
+    else if (except->alt_status == 0 || rec->ExceptionCode != except->alt_status)
+        parameter_count = except->nb_params;
     else
-    {
-        ok( rec->NumberParameters == except->alt_nb_params,
-            "%u: Wrong number of parameters %u/%u\n", entry, rec->NumberParameters, except->nb_params );
-    }
+        parameter_count = except->alt_nb_params;
+
+    ok( rec->NumberParameters == parameter_count,
+        "%u: Unexpected parameter count %u/%u\n", entry, rec->NumberParameters, parameter_count );
 
     /* Most CPUs (except Intel Core apparently) report a segment limit violation */
     /* instead of page faults for accesses beyond 0xffffffff */
@@ -530,7 +538,7 @@ static DWORD handler( EXCEPTION_RECORD *rec, EXCEPTION_REGISTRATION_RECORD *fram
 
 skip_params:
     /* don't handle exception if it's not the address we expected */
-    if (rec->ExceptionAddress != (char*)code_mem + except->offset) return ExceptionContinueSearch;
+    if (context->Eip != (DWORD_PTR)code_mem + except->offset) return ExceptionContinueSearch;
 
     context->Eip += except->length;
     return ExceptionContinueExecution;
@@ -937,6 +945,24 @@ static void test_debugger(void)
                         /* here we handle exception */
                     }
                 }
+                else if (stage == 7 || stage == 8)
+                {
+                    ok(de.u.Exception.ExceptionRecord.ExceptionCode == EXCEPTION_BREAKPOINT,
+                       "expected EXCEPTION_BREAKPOINT, got %08x\n", de.u.Exception.ExceptionRecord.ExceptionCode);
+                    ok((char *)ctx.Eip == (char *)code_mem_address + 0x1d,
+                       "expected Eip = %p, got 0x%x\n", (char *)code_mem_address + 0x1d, ctx.Eip);
+
+                    if (stage == 8) continuestatus = DBG_EXCEPTION_NOT_HANDLED;
+                }
+                else if (stage == 9 || stage == 10)
+                {
+                    ok(de.u.Exception.ExceptionRecord.ExceptionCode == EXCEPTION_BREAKPOINT,
+                       "expected EXCEPTION_BREAKPOINT, got %08x\n", de.u.Exception.ExceptionRecord.ExceptionCode);
+                    ok((char *)ctx.Eip == (char *)code_mem_address + 2,
+                       "expected Eip = %p, got 0x%x\n", (char *)code_mem_address + 2, ctx.Eip);
+
+                    if (stage == 10) continuestatus = DBG_EXCEPTION_NOT_HANDLED;
+                }
                 else
                     ok(FALSE, "unexpected stage %x\n", stage);
 
@@ -1330,6 +1356,8 @@ static void test_dpe_exceptions(void)
 }
 
 #elif defined(__x86_64__)
+
+#define is_wow64 0
 
 #define UNW_FLAG_NHANDLER  0
 #define UNW_FLAG_EHANDLER  1
@@ -1816,6 +1844,240 @@ static void test_ripevent(DWORD numexc)
     pRtlRemoveVectoredExceptionHandler(vectored_handler);
 }
 
+static DWORD debug_service_exceptions;
+
+static LONG CALLBACK debug_service_handler(EXCEPTION_POINTERS *ExceptionInfo)
+{
+    EXCEPTION_RECORD *rec = ExceptionInfo->ExceptionRecord;
+    trace("vect. handler %08x addr:%p\n", rec->ExceptionCode, rec->ExceptionAddress);
+
+    ok(rec->ExceptionCode == EXCEPTION_BREAKPOINT, "ExceptionCode is %08x instead of %08x\n",
+       rec->ExceptionCode, EXCEPTION_BREAKPOINT);
+
+#ifdef __i386__
+    ok(ExceptionInfo->ContextRecord->Eip == (DWORD)code_mem + 0x1c,
+       "expected Eip = %x, got %x\n", (DWORD)code_mem + 0x1c, ExceptionInfo->ContextRecord->Eip);
+    ok(rec->NumberParameters == (is_wow64 ? 1 : 3),
+       "ExceptionParameters is %d instead of %d\n", rec->NumberParameters, is_wow64 ? 1 : 3);
+    ok(rec->ExceptionInformation[0] == ExceptionInfo->ContextRecord->Eax,
+       "expected ExceptionInformation[0] = %x, got %lx\n",
+       ExceptionInfo->ContextRecord->Eax, rec->ExceptionInformation[0]);
+    if (!is_wow64)
+    {
+        ok(rec->ExceptionInformation[1] == 0x11111111,
+           "got ExceptionInformation[1] = %lx\n", rec->ExceptionInformation[1]);
+        ok(rec->ExceptionInformation[2] == 0x22222222,
+           "got ExceptionInformation[2] = %lx\n", rec->ExceptionInformation[2]);
+    }
+#else
+    ok(ExceptionInfo->ContextRecord->Rip == (DWORD_PTR)code_mem + 0x2f,
+       "expected Rip = %lx, got %lx\n", (DWORD_PTR)code_mem + 0x2f, ExceptionInfo->ContextRecord->Rip);
+    ok(rec->NumberParameters == 1,
+       "ExceptionParameters is %d instead of 1\n", rec->NumberParameters);
+    ok(rec->ExceptionInformation[0] == ExceptionInfo->ContextRecord->Rax,
+       "expected ExceptionInformation[0] = %lx, got %lx\n",
+       ExceptionInfo->ContextRecord->Rax, rec->ExceptionInformation[0]);
+#endif
+
+    debug_service_exceptions++;
+    return (rec->ExceptionCode == EXCEPTION_BREAKPOINT) ? EXCEPTION_CONTINUE_EXECUTION : EXCEPTION_CONTINUE_SEARCH;
+}
+
+#ifdef __i386__
+
+static const BYTE call_debug_service_code[] = {
+    0x53,                         /* pushl %ebx */
+    0x57,                         /* pushl %edi */
+    0x8b, 0x44, 0x24, 0x0c,       /* movl 12(%esp),%eax */
+    0xb9, 0x11, 0x11, 0x11, 0x11, /* movl $0x11111111,%ecx */
+    0xba, 0x22, 0x22, 0x22, 0x22, /* movl $0x22222222,%edx */
+    0xbb, 0x33, 0x33, 0x33, 0x33, /* movl $0x33333333,%ebx */
+    0xbf, 0x44, 0x44, 0x44, 0x44, /* movl $0x44444444,%edi */
+    0xcd, 0x2d,                   /* int $0x2d */
+    0xeb,                         /* jmp $+17 */
+    0x0f, 0x1f, 0x00,             /* nop */
+    0x31, 0xc0,                   /* xorl %eax,%eax */
+    0xeb, 0x0c,                   /* jmp $+14 */
+    0x90, 0x90, 0x90, 0x90,       /* nop */
+    0x90, 0x90, 0x90, 0x90,
+    0x90,
+    0x31, 0xc0,                   /* xorl %eax,%eax */
+    0x40,                         /* incl %eax */
+    0x5f,                         /* popl %edi */
+    0x5b,                         /* popl %ebx */
+    0xc3,                         /* ret */
+};
+
+#else
+
+static const BYTE call_debug_service_code[] = {
+    0x53,                         /* push %rbx */
+    0x57,                         /* push %rdi */
+    0x48, 0x89, 0xc8,             /* movl %rcx,%rax */
+    0x48, 0xb9, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, /* movabs $0x1111111111111111,%rcx */
+    0x48, 0xba, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, /* movabs $0x2222222222222222,%rdx */
+    0x48, 0xbb, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, /* movabs $0x3333333333333333,%rbx */
+    0x48, 0xbf, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, /* movabs $0x4444444444444444,%rdi */
+    0xcd, 0x2d,                   /* int $0x2d */
+    0xeb,                         /* jmp $+17 */
+    0x0f, 0x1f, 0x00,             /* nop */
+    0x48, 0x31, 0xc0,             /* xor %rax,%rax */
+    0xeb, 0x0e,                   /* jmp $+16 */
+    0x90, 0x90, 0x90, 0x90,       /* nop */
+    0x90, 0x90, 0x90, 0x90,
+    0x48, 0x31, 0xc0,             /* xor %rax,%rax */
+    0x48, 0xff, 0xc0,             /* inc %rax */
+    0x5f,                         /* pop %rdi */
+    0x5b,                         /* pop %rbx */
+    0xc3,                         /* ret */
+};
+
+#endif
+
+static void test_debug_service(DWORD numexc)
+{
+    DWORD (CDECL *func)(DWORD_PTR) = code_mem;
+    DWORD expected_exc, expected_ret;
+    void *vectored_handler;
+    DWORD ret;
+
+    /* code will return 0 if execution resumes immediately after "int $0x2d", otherwise 1 */
+    memcpy(code_mem, call_debug_service_code, sizeof(call_debug_service_code));
+
+    vectored_handler = pRtlAddVectoredExceptionHandler(TRUE, &debug_service_handler);
+    ok(vectored_handler != 0, "RtlAddVectoredExceptionHandler failed\n");
+
+    expected_exc = numexc;
+    expected_ret = (numexc != 0);
+
+    /* BREAKPOINT_BREAK */
+    debug_service_exceptions = 0;
+    ret = func(0);
+    ok(debug_service_exceptions == expected_exc,
+       "BREAKPOINT_BREAK generated %u exceptions, expected %u\n",
+       debug_service_exceptions, expected_exc);
+    ok(ret == expected_ret,
+       "BREAKPOINT_BREAK returned %u, expected %u\n", ret, expected_ret);
+
+    /* BREAKPOINT_PROMPT */
+    debug_service_exceptions = 0;
+    ret = func(2);
+    ok(debug_service_exceptions == expected_exc,
+       "BREAKPOINT_PROMPT generated %u exceptions, expected %u\n",
+       debug_service_exceptions, expected_exc);
+    ok(ret == expected_ret,
+       "BREAKPOINT_PROMPT returned %u, expected %u\n", ret, expected_ret);
+
+    /* invalid debug service */
+    debug_service_exceptions = 0;
+    ret = func(6);
+    ok(debug_service_exceptions == expected_exc,
+       "invalid debug service generated %u exceptions, expected %u\n",
+       debug_service_exceptions, expected_exc);
+    ok(ret == expected_ret,
+      "invalid debug service returned %u, expected %u\n", ret, expected_ret);
+
+    expected_exc = (is_wow64 ? numexc : 0);
+    expected_ret = (is_wow64 && numexc);
+
+    /* BREAKPOINT_PRINT */
+    debug_service_exceptions = 0;
+    ret = func(1);
+    ok(debug_service_exceptions == expected_exc,
+       "BREAKPOINT_PRINT generated %u exceptions, expected %u\n",
+       debug_service_exceptions, expected_exc);
+    ok(ret == expected_ret,
+       "BREAKPOINT_PRINT returned %u, expected %u\n", ret, expected_ret);
+
+    /* BREAKPOINT_LOAD_SYMBOLS */
+    debug_service_exceptions = 0;
+    ret = func(3);
+    ok(debug_service_exceptions == expected_exc,
+       "BREAKPOINT_LOAD_SYMBOLS generated %u exceptions, expected %u\n",
+       debug_service_exceptions, expected_exc);
+    ok(ret == expected_ret,
+       "BREAKPOINT_LOAD_SYMBOLS returned %u, expected %u\n", ret, expected_ret);
+
+    /* BREAKPOINT_UNLOAD_SYMBOLS */
+    debug_service_exceptions = 0;
+    ret = func(4);
+    ok(debug_service_exceptions == expected_exc,
+       "BREAKPOINT_UNLOAD_SYMBOLS generated %u exceptions, expected %u\n",
+       debug_service_exceptions, expected_exc);
+    ok(ret == expected_ret,
+       "BREAKPOINT_UNLOAD_SYMBOLS returned %u, expected %u\n", ret, expected_ret);
+
+    /* BREAKPOINT_COMMAND_STRING */
+    debug_service_exceptions = 0;
+    ret = func(5);
+    ok(debug_service_exceptions == expected_exc || broken(debug_service_exceptions == numexc),
+       "BREAKPOINT_COMMAND_STRING generated %u exceptions, expected %u\n",
+       debug_service_exceptions, expected_exc);
+    ok(ret == expected_ret || broken(ret == (numexc != 0)),
+       "BREAKPOINT_COMMAND_STRING returned %u, expected %u\n", ret, expected_ret);
+
+    pRtlRemoveVectoredExceptionHandler(vectored_handler);
+}
+
+static DWORD breakpoint_exceptions;
+
+static LONG CALLBACK breakpoint_handler(EXCEPTION_POINTERS *ExceptionInfo)
+{
+    EXCEPTION_RECORD *rec = ExceptionInfo->ExceptionRecord;
+    trace("vect. handler %08x addr:%p\n", rec->ExceptionCode, rec->ExceptionAddress);
+
+    ok(rec->ExceptionCode == EXCEPTION_BREAKPOINT, "ExceptionCode is %08x instead of %08x\n",
+       rec->ExceptionCode, EXCEPTION_BREAKPOINT);
+
+#ifdef __i386__
+    ok(ExceptionInfo->ContextRecord->Eip == (DWORD)code_mem + 1,
+       "expected Eip = %x, got %x\n", (DWORD)code_mem + 1, ExceptionInfo->ContextRecord->Eip);
+    todo_wine
+    ok(rec->NumberParameters == (is_wow64 ? 1 : 3),
+       "ExceptionParameters is %d instead of %d\n", rec->NumberParameters, is_wow64 ? 1 : 3);
+    todo_wine
+    ok(rec->ExceptionInformation[0] == 0,
+       "got ExceptionInformation[0] = %lx\n", rec->ExceptionInformation[0]);
+    ExceptionInfo->ContextRecord->Eip = (DWORD)code_mem + 2;
+#else
+    ok(ExceptionInfo->ContextRecord->Rip == (DWORD_PTR)code_mem + 1,
+       "expected Rip = %lx, got %lx\n", (DWORD_PTR)code_mem + 1, ExceptionInfo->ContextRecord->Rip);
+    todo_wine
+    ok(rec->NumberParameters == 1,
+       "ExceptionParameters is %d instead of 1\n", rec->NumberParameters);
+    todo_wine
+    ok(rec->ExceptionInformation[0] == 0,
+       "got ExceptionInformation[0] = %lx\n", rec->ExceptionInformation[0]);
+    ExceptionInfo->ContextRecord->Rip = (DWORD_PTR)code_mem + 2;
+#endif
+
+    breakpoint_exceptions++;
+    return (rec->ExceptionCode == EXCEPTION_BREAKPOINT) ? EXCEPTION_CONTINUE_EXECUTION : EXCEPTION_CONTINUE_SEARCH;
+}
+
+static const BYTE breakpoint_code[] = {
+    0xcd, 0x03,                   /* int $0x3 */
+    0xc3,                         /* ret */
+};
+
+static void test_breakpoint(DWORD numexc)
+{
+    DWORD (CDECL *func)(void) = code_mem;
+    void *vectored_handler;
+
+    memcpy(code_mem, breakpoint_code, sizeof(breakpoint_code));
+
+    vectored_handler = pRtlAddVectoredExceptionHandler(TRUE, &breakpoint_handler);
+    ok(vectored_handler != 0, "RtlAddVectoredExceptionHandler failed\n");
+
+    breakpoint_exceptions = 0;
+    func();
+    ok(breakpoint_exceptions == numexc, "int $0x3 generated %u exceptions, expected %u\n",
+       breakpoint_exceptions, numexc);
+
+    pRtlRemoveVectoredExceptionHandler(vectored_handler);
+}
+
 static void test_vectored_continue_handler(void)
 {
     PVOID handler1, handler2;
@@ -1935,6 +2197,14 @@ START_TEST(exception)
             test_ripevent(0);
             test_stage = 6;
             test_ripevent(1);
+            test_stage = 7;
+            test_debug_service(0);
+            test_stage = 8;
+            test_debug_service(1);
+            test_stage = 9;
+            test_breakpoint(0);
+            test_stage = 10;
+            test_breakpoint(1);
         }
         else
             skip( "RtlRaiseException not found\n" );
@@ -1948,6 +2218,8 @@ START_TEST(exception)
     test_rtlraiseexception();
     test_outputdebugstring(1, FALSE);
     test_ripevent(1);
+    test_debug_service(1);
+    test_breakpoint(1);
     test_vectored_continue_handler();
     test_debugger();
     test_simd_exceptions();
@@ -1967,6 +2239,8 @@ START_TEST(exception)
 
     test_outputdebugstring(1, FALSE);
     test_ripevent(1);
+    test_debug_service(1);
+    test_breakpoint(1);
     test_vectored_continue_handler();
     test_virtual_unwind();
 

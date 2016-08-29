@@ -276,6 +276,7 @@ HEADER_SRCS = \
 	ddk/hidtypes.h \
 	ddk/imm.h \
 	ddk/mountmgr.h \
+	ddk/ndis.h \
 	ddk/ntddcdvd.h \
 	ddk/ntddk.h \
 	ddk/ntddser.h \
@@ -348,6 +349,7 @@ HEADER_SRCS = \
 	fdi.h \
 	fileapi.h \
 	fltdefs.h \
+	fontsub.h \
 	gdiplus.h \
 	gdipluscolor.h \
 	gdipluscolormatrix.h \

@@ -14,14 +14,14 @@
 14 stub DOSDATETIMETOVARIANTTIME
 15 stub SAFEARRAYCREATE
 16 stub SAFEARRAYDESTROY
-17 stub SAFEARRAYGETDIM
-18 stub SAFEARRAYGETELEMSIZE
+17 pascal -ret16 SafeArrayGetDim(ptr) SafeArrayGetDim16
+18 pascal -ret16 SafeArrayGetElemsize(ptr) SafeArrayGetElemsize16
 19 stub SAFEARRAYGETUBOUND
 20 stub SAFEARRAYGETLBOUND
-21 stub SAFEARRAYLOCK
-22 stub SAFEARRAYUNLOCK
-23 stub SAFEARRAYACCESSDATA
-24 stub SAFEARRAYUNACCESSDATA
+21 pascal SafeArrayLock(ptr) SafeArrayLock16
+22 pascal SafeArrayUnlock(ptr) SafeArrayUnlock16
+23 pascal SafeArrayAccessData(ptr ptr) SafeArrayAccessData16
+24 pascal SafeArrayUnaccessData(ptr) SafeArrayUnaccessData16
 25 stub SAFEARRAYGETELEMENT
 26 stub SAFEARRAYPUTELEMENT
 27 stub SAFEARRAYCOPY

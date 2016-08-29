@@ -436,6 +436,8 @@ GpStatus WINGDIPAPI GdipSetPropertyItem(GpImage*,GDIPCONST PropertyItem*);
 /* ImageAttributes */
 GpStatus WINGDIPAPI GdipCreateImageAttributes(GpImageAttributes**);
 GpStatus WINGDIPAPI GdipDisposeImageAttributes(GpImageAttributes*);
+GpStatus WINGDIPAPI GdipGetImageAttributesAdjustedPalette(GpImageAttributes*,
+    ColorPalette*,ColorAdjustType);
 GpStatus WINGDIPAPI GdipSetImageAttributesCachedBackground(GpImageAttributes*,
     BOOL);
 GpStatus WINGDIPAPI GdipSetImageAttributesColorKeys(GpImageAttributes*,
@@ -619,6 +621,7 @@ GpStatus WINGDIPAPI GdipGetPenDashCount(GpPen*,INT*);
 GpStatus WINGDIPAPI GdipGetPenDashOffset(GpPen*,REAL*);
 GpStatus WINGDIPAPI GdipGetPenDashStyle(GpPen*,GpDashStyle*);
 GpStatus WINGDIPAPI GdipGetPenMode(GpPen*,GpPenAlignment*);
+GpStatus WINGDIPAPI GdipGetPenTransform(GpPen *, GpMatrix *);
 GpStatus WINGDIPAPI GdipResetPenTransform(GpPen*);
 GpStatus WINGDIPAPI GdipScalePenTransform(GpPen*,REAL,REAL,GpMatrixOrder);
 GpStatus WINGDIPAPI GdipSetPenBrushFill(GpPen*,GpBrush*);
@@ -637,6 +640,7 @@ GpStatus WINGDIPAPI GdipSetPenLineJoin(GpPen*,GpLineJoin);
 GpStatus WINGDIPAPI GdipSetPenMode(GpPen*,GpPenAlignment);
 GpStatus WINGDIPAPI GdipSetPenMiterLimit(GpPen*,REAL);
 GpStatus WINGDIPAPI GdipSetPenStartCap(GpPen*,GpLineCap);
+GpStatus WINGDIPAPI GdipSetPenTransform(GpPen *, GpMatrix *);
 GpStatus WINGDIPAPI GdipSetPenWidth(GpPen*,REAL);
 GpStatus WINGDIPAPI GdipGetPenDashCap197819(GpPen*,GpDashCap*);
 GpStatus WINGDIPAPI GdipGetPenEndCap(GpPen*,GpLineCap*);

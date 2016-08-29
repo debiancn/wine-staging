@@ -470,7 +470,7 @@ enum TT_NAME_MAC_LANGUAGE_ID
     TT_NAME_MAC_LANGID_LAO,
     TT_NAME_MAC_LANGID_VIETNAMESE,
     TT_NAME_MAC_LANGID_INDONESIAN,
-    TT_NAME_MAC_LANGID_TAGALONG,
+    TT_NAME_MAC_LANGID_TAGALOG,
     TT_NAME_MAC_LANGID_MALAY_ROMAN,
     TT_NAME_MAC_LANGID_MALAY_ARABIC,
     TT_NAME_MAC_LANGID_AMHARIC,
@@ -483,11 +483,11 @@ enum TT_NAME_MAC_LANGUAGE_ID
     TT_NAME_MAC_LANGID_NYANJA,
     TT_NAME_MAC_LANGID_MALAGASY,
     TT_NAME_MAC_LANGID_ESPERANTO,
-    TT_NAME_MAC_LANGID_WELSH,
+    TT_NAME_MAC_LANGID_WELSH = 128,
     TT_NAME_MAC_LANGID_BASQUE,
     TT_NAME_MAC_LANGID_CATALAN,
     TT_NAME_MAC_LANGID_LATIN,
-    TT_NAME_MAC_LANGID_QUENCHUA,
+    TT_NAME_MAC_LANGID_QUECHUA,
     TT_NAME_MAC_LANGID_GUARANI,
     TT_NAME_MAC_LANGID_AYMARA,
     TT_NAME_MAC_LANGID_TATAR,
@@ -601,6 +601,39 @@ static const char name_mac_langid_to_locale[][10] = {
     "",
     "sw-KE",
     "rw-RW",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
     "",
     "",
     "",
@@ -775,6 +808,9 @@ HRESULT opentype_get_font_table(IDWriteFontFileStream *stream, DWRITE_FONT_FACE_
 
     if (found) *found = FALSE;
     if (table_size) *table_size = 0;
+
+    *table_data = NULL;
+    *table_context = NULL;
 
     if (type == DWRITE_FONT_FACE_TYPE_TRUETYPE_COLLECTION) {
         const TTC_Header_V1 *ttc_header;
@@ -1047,9 +1083,10 @@ void opentype_get_font_properties(IDWriteFontFileStream *stream, DWRITE_FONT_FAC
         USHORT version = GET_BE_WORD(tt_os2->version);
         USHORT fsSelection = GET_BE_WORD(tt_os2->fsSelection);
         USHORT usWeightClass = GET_BE_WORD(tt_os2->usWeightClass);
+        USHORT usWidthClass = GET_BE_WORD(tt_os2->usWidthClass);
 
-        if (GET_BE_WORD(tt_os2->usWidthClass) <= DWRITE_FONT_STRETCH_ULTRA_EXPANDED)
-            props->stretch = GET_BE_WORD(tt_os2->usWidthClass);
+        if (usWidthClass > DWRITE_FONT_STRETCH_UNDEFINED && usWidthClass <= DWRITE_FONT_STRETCH_ULTRA_EXPANDED)
+            props->stretch = usWidthClass;
 
         if (usWeightClass >= 1 && usWeightClass <= 9)
             usWeightClass *= 100;

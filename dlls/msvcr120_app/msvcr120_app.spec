@@ -682,8 +682,8 @@
 @ cdecl -arch=win64 ?__ExceptionPtrRethrow@@YAXPEBX@Z(ptr) msvcr120.?__ExceptionPtrRethrow@@YAXPEBX@Z
 @ stub -arch=win32 ?__ExceptionPtrSwap@@YAXPAX0@Z
 @ stub -arch=win64 ?__ExceptionPtrSwap@@YAXPEAX0@Z
-@ stub -arch=win32 ?__ExceptionPtrToBool@@YA_NPBX@Z
-@ stub -arch=win64 ?__ExceptionPtrToBool@@YA_NPEBX@Z
+@ cdecl -arch=win32 ?__ExceptionPtrToBool@@YA_NPBX@Z(ptr) msvcr120.?__ExceptionPtrToBool@@YA_NPBX@Z
+@ cdecl -arch=win64 ?__ExceptionPtrToBool@@YA_NPEBX@Z(ptr) msvcr120.?__ExceptionPtrToBool@@YA_NPEBX@Z
 @ cdecl __uncaught_exception() msvcr120.__uncaught_exception
 @ stub ?_inconsistency@@YAXXZ
 @ cdecl -arch=win32 ?_invalid_parameter@@YAXPBG00II@Z(wstr wstr wstr long long) msvcr120.?_invalid_parameter@@YAXPBG00II@Z
@@ -844,7 +844,7 @@
 @ cdecl _Strftime(str long str ptr ptr) msvcr120._Strftime
 @ cdecl _W_Getdays() msvcr120._W_Getdays
 @ cdecl _W_Getmonths() msvcr120._W_Getmonths
-@ stub _W_Gettnames
+@ cdecl _W_Gettnames() msvcr120._W_Gettnames
 @ stub _Wcsftime
 @ cdecl _XcptFilter(long ptr) msvcr120._XcptFilter
 @ cdecl __AdjustPointer(ptr ptr) msvcr120.__AdjustPointer
@@ -1442,7 +1442,7 @@
 @ cdecl _strtime(ptr) msvcr120._strtime
 @ cdecl _strtime_s(ptr long) msvcr120._strtime_s
 @ cdecl _strtod_l(str ptr ptr) msvcr120._strtod_l
-@ stub _strtof_l
+@ cdecl _strtof_l(str ptr ptr) msvcr120._strtof_l
 @ cdecl -ret64 _strtoi64(str ptr long) msvcr120._strtoi64
 @ cdecl -ret64 _strtoi64_l(str ptr long ptr) msvcr120._strtoi64_l
 @ stub _strtoimax_l
@@ -1943,7 +1943,7 @@
 @ cdecl mbrlen(ptr long ptr) msvcr120.mbrlen
 @ cdecl mbrtowc(ptr str long ptr) msvcr120.mbrtowc
 @ cdecl mbsrtowcs(ptr ptr long ptr) msvcr120.mbsrtowcs
-@ stub mbsrtowcs_s
+@ cdecl mbsrtowcs_s(ptr ptr long ptr long ptr) msvcr120.mbsrtowcs_s
 @ cdecl mbstowcs(ptr str long) msvcr120.mbstowcs
 @ cdecl mbstowcs_s(ptr ptr long str long) msvcr120.mbstowcs_s
 @ cdecl mbtowc(ptr str long) msvcr120.mbtowc
@@ -2049,7 +2049,7 @@
 @ cdecl strspn(str str) msvcr120.strspn
 @ cdecl strstr(str str) msvcr120.strstr
 @ cdecl strtod(str ptr) msvcr120.strtod
-@ stub strtof
+@ cdecl strtof(str ptr) msvcr120.strtof
 @ stub strtoimax
 @ cdecl strtok(str str) msvcr120.strtok
 @ cdecl strtok_s(ptr str ptr) msvcr120.strtok_s

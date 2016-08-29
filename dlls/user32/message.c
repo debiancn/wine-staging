@@ -310,8 +310,7 @@ static const unsigned int message_pointer_flags[] =
     SET(WM_GETMINMAXINFO) | SET(WM_DRAWITEM) | SET(WM_MEASUREITEM) | SET(WM_DELETEITEM) |
     SET(WM_COMPAREITEM),
     /* 0x40 - 0x5f */
-    SET(WM_WINDOWPOSCHANGING) | SET(WM_WINDOWPOSCHANGED) | SET(WM_COPYDATA) |
-    SET(WM_NOTIFY) | SET(WM_HELP),
+    SET(WM_WINDOWPOSCHANGING) | SET(WM_WINDOWPOSCHANGED) | SET(WM_COPYDATA) | SET(WM_HELP),
     /* 0x60 - 0x7f */
     SET(WM_STYLECHANGING) | SET(WM_STYLECHANGED),
     /* 0x80 - 0x9f */
@@ -2488,7 +2487,7 @@ static BOOL process_mouse_message( MSG *msg, UINT hw_id, ULONG_PTR extra_info, H
     INT hittest;
     EVENTMSG event;
     GUITHREADINFO info;
-    MOUSEHOOKSTRUCT hook;
+    MOUSEHOOKSTRUCTEX hook;
     BOOL eatMsg;
 
     /* find the window to dispatch this mouse message to */
@@ -2584,17 +2583,19 @@ static BOOL process_mouse_message( MSG *msg, UINT hw_id, ULONG_PTR extra_info, H
 
     /* message is accepted now (but may still get dropped) */
 
-    hook.pt           = msg->pt;
-    hook.hwnd         = msg->hwnd;
-    hook.wHitTestCode = hittest;
-    hook.dwExtraInfo  = extra_info;
+    hook.s.pt           = msg->pt;
+    hook.s.hwnd         = msg->hwnd;
+    hook.s.wHitTestCode = hittest;
+    hook.s.dwExtraInfo  = extra_info;
+    hook.mouseData      = msg->wParam;
     if (HOOK_CallHooks( WH_MOUSE, remove ? HC_ACTION : HC_NOREMOVE,
                         message, (LPARAM)&hook, TRUE ))
     {
-        hook.pt           = msg->pt;
-        hook.hwnd         = msg->hwnd;
-        hook.wHitTestCode = hittest;
-        hook.dwExtraInfo  = extra_info;
+        hook.s.pt           = msg->pt;
+        hook.s.hwnd         = msg->hwnd;
+        hook.s.wHitTestCode = hittest;
+        hook.s.dwExtraInfo  = extra_info;
+        hook.mouseData      = msg->wParam;
         HOOK_CallHooks( WH_CBT, HCBT_CLICKSKIPPED, message, (LPARAM)&hook, TRUE );
         accept_hardware_message( hw_id, TRUE );
         return FALSE;

@@ -686,8 +686,8 @@
 @ cdecl -arch=win64 ?__ExceptionPtrRethrow@@YAXPEBX@Z(ptr) __ExceptionPtrRethrow
 @ stub -arch=win32 ?__ExceptionPtrSwap@@YAXPAX0@Z
 @ stub -arch=win64 ?__ExceptionPtrSwap@@YAXPEAX0@Z
-@ stub -arch=win32 ?__ExceptionPtrToBool@@YA_NPBX@Z
-@ stub -arch=win64 ?__ExceptionPtrToBool@@YA_NPEBX@Z
+@ cdecl -arch=win32 ?__ExceptionPtrToBool@@YA_NPBX@Z(ptr) __ExceptionPtrToBool
+@ cdecl -arch=win64 ?__ExceptionPtrToBool@@YA_NPEBX@Z(ptr) __ExceptionPtrToBool
 @ cdecl __uncaught_exception() MSVCRT___uncaught_exception
 @ stub ?_inconsistency@@YAXXZ
 @ cdecl -arch=win32 ?_invalid_parameter@@YAXPBG00II@Z(wstr wstr wstr long long) MSVCRT__invalid_parameter
@@ -850,7 +850,7 @@
 @ cdecl _Strftime(str long str ptr ptr)
 @ cdecl _W_Getdays()
 @ cdecl _W_Getmonths()
-@ stub _W_Gettnames
+@ cdecl _W_Gettnames()
 @ stub _Wcsftime
 @ cdecl _XcptFilter(long ptr)
 @ cdecl __AdjustPointer(ptr ptr)
@@ -1731,7 +1731,7 @@
 @ cdecl _strtime(ptr) MSVCRT__strtime
 @ cdecl _strtime_s(ptr long)
 @ cdecl _strtod_l(str ptr ptr) MSVCRT_strtod_l
-@ stub _strtof_l
+@ cdecl _strtof_l(str ptr ptr) MSVCRT__strtof_l
 @ cdecl -ret64 _strtoi64(str ptr long) MSVCRT_strtoi64
 @ cdecl -ret64 _strtoi64_l(str ptr long ptr) MSVCRT_strtoi64_l
 @ stub _strtoimax_l
@@ -2280,7 +2280,7 @@
 @ cdecl mbrlen(ptr long ptr) MSVCRT_mbrlen
 @ cdecl mbrtowc(ptr str long ptr) MSVCRT_mbrtowc
 @ cdecl mbsrtowcs(ptr ptr long ptr) MSVCRT_mbsrtowcs
-@ stub mbsrtowcs_s
+@ cdecl mbsrtowcs_s(ptr ptr long ptr long ptr) MSVCRT_mbsrtowcs_s
 @ cdecl mbstowcs(ptr str long) MSVCRT_mbstowcs
 @ cdecl mbstowcs_s(ptr ptr long str long) MSVCRT__mbstowcs_s
 @ cdecl mbtowc(ptr str long) MSVCRT_mbtowc
@@ -2386,7 +2386,7 @@
 @ cdecl strspn(str str) ntdll.strspn
 @ cdecl strstr(str str) MSVCRT_strstr
 @ cdecl strtod(str ptr) MSVCRT_strtod
-@ stub strtof
+@ cdecl strtof(str ptr) MSVCRT_strtof
 @ stub strtoimax
 @ cdecl strtok(str str) MSVCRT_strtok
 @ cdecl strtok_s(ptr str ptr) MSVCRT_strtok_s

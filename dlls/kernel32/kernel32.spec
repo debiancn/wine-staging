@@ -154,7 +154,7 @@
 @ stdcall AllocConsole()
 @ stub -i386 AllocLSCallback
 @ stdcall -i386 -private AllocSLCallback(ptr ptr) krnl386.exe16.AllocSLCallback
-@ stdcall AllocateUserPhysicalPages(ptr ptr ptr)
+@ stdcall AllocateUserPhysicalPages(long ptr ptr)
 @ stdcall ApplicationRecoveryFinished(long)
 @ stdcall ApplicationRecoveryInProgress(ptr)
 @ stdcall AreFileApisANSI()
@@ -535,7 +535,7 @@
 @ stdcall FreeLibraryWhenCallbackReturns(ptr ptr) ntdll.TpCallbackUnloadDllOnCompletion
 @ stdcall FreeResource(long)
 @ stdcall -i386 -private FreeSLCallback(long) krnl386.exe16.FreeSLCallback
-@ stub FreeUserPhysicalPages
+@ stdcall FreeUserPhysicalPages(long ptr ptr)
 @ stub FreeVirtualBuffer
 @ stdcall GenerateConsoleCtrlEvent(long long)
 @ stdcall -i386 -private Get16DLLAddress(long str) krnl386.exe16.Get16DLLAddress
@@ -582,8 +582,8 @@
 @ stdcall GetComputerNameW(ptr ptr)
 @ stub GetConsoleAliasA
 @ stub GetConsoleAliasExesA
-@ stub GetConsoleAliasExesLengthA
-@ stub GetConsoleAliasExesLengthW
+@ stdcall GetConsoleAliasExesLengthA()
+@ stdcall GetConsoleAliasExesLengthW()
 @ stub GetConsoleAliasExesW
 @ stdcall GetConsoleAliasW(wstr ptr long wstr)
 @ stub GetConsoleAliasesA
@@ -599,7 +599,7 @@
 @ stdcall GetConsoleCursorInfo(long ptr)
 @ stub GetConsoleCursorMode
 @ stdcall GetConsoleDisplayMode(ptr)
-@ stub GetConsoleFontInfo
+@ stdcall GetConsoleFontInfo(ptr long long ptr)
 @ stdcall GetConsoleFontSize(long long)
 @ stub GetConsoleHardwareState
 # @ stub GetConsoleHistoryInfo
@@ -615,7 +615,7 @@
 @ stdcall GetConsoleOutputCP()
 @ stdcall GetConsoleProcessList(ptr long)
 @ stdcall GetConsoleScreenBufferInfo(long ptr)
-# @ stub GetConsoleScreenBufferInfoEx
+@ stdcall GetConsoleScreenBufferInfoEx(long ptr)
 # @ stub GetConsoleSelectionInfo
 @ stdcall GetConsoleTitleA(ptr long)
 @ stdcall GetConsoleTitleW(ptr long)
@@ -682,8 +682,8 @@
 @ stdcall GetFileSizeEx(long ptr)
 @ stdcall GetFileTime(long ptr ptr ptr)
 @ stdcall GetFileType(long)
-# @ stub GetFinalPathNameByHandleA
-# @ stub GetFinalPathNameByHandleW
+@ stdcall GetFinalPathNameByHandleA(long ptr long long)
+@ stdcall GetFinalPathNameByHandleW(long ptr long long)
 @ stdcall GetFirmwareEnvironmentVariableA(str str ptr long)
 @ stdcall GetFirmwareEnvironmentVariableW(wstr wstr ptr long)
 @ stdcall GetFullPathNameA(str long ptr ptr)
@@ -696,7 +696,7 @@
 @ stdcall GetHandleInformation(long ptr)
 @ stub -i386 GetLSCallbackTarget
 @ stub -i386 GetLSCallbackTemplate
-# @ stub GetLargePageMinimum
+@ stdcall GetLargePageMinimum()
 @ stdcall GetLargestConsoleWindowSize(long)
 @ stdcall GetLastError()
 @ stub GetLinguistLangSize
@@ -824,7 +824,7 @@
 @ stdcall GetSystemFirmwareTable(long long ptr long)
 @ stdcall GetSystemInfo(ptr)
 @ stdcall GetSystemPowerStatus(ptr)
-# @ stub GetSystemPreferredUILanguages
+@ stdcall GetSystemPreferredUILanguages(long ptr ptr ptr)
 @ stdcall GetSystemRegistryQuota(ptr ptr)
 @ stdcall GetSystemTime(ptr)
 @ stdcall GetSystemTimeAdjustment(ptr ptr ptr)
@@ -957,7 +957,8 @@
 @ stdcall -arch=i386 InterlockedIncrement(ptr)
 @ stdcall InterlockedPopEntrySList(ptr) ntdll.RtlInterlockedPopEntrySList
 @ stdcall InterlockedPushEntrySList(ptr ptr) ntdll.RtlInterlockedPushEntrySList
-# @ stub InterlockedPushListSList
+@ stdcall -norelay InterlockedPushListSList(ptr ptr ptr long) ntdll.RtlInterlockedPushListSList
+@ stdcall InterlockedPushListSListEx(ptr ptr ptr long) ntdll.RtlInterlockedPushListSListEx
 @ stub InvalidateConsoleDIBits
 @ stdcall InvalidateNLSCache()
 @ stdcall IsBadCodePtr(ptr)
@@ -1361,7 +1362,7 @@
 @ stub SetConsoleOS2OemFormat
 @ stdcall SetConsoleOutputCP(long)
 @ stub SetConsolePalette
-# @ stub SetConsoleScreenBufferInfoEx
+@ stdcall SetConsoleScreenBufferInfoEx(long ptr)
 @ stdcall SetConsoleScreenBufferSize(long long)
 @ stdcall SetConsoleTextAttribute(long long)
 @ stdcall SetConsoleTitleA(str)
