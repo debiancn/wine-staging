@@ -1,9 +1,13 @@
-wine (1.8.3-4) UNRELEASED; urgency=medium
+wine (1.8.4-1) unstable; urgency=medium
 
+  * New upstream release 1.8.4, released Aug 22, 2016.
+    - Various bug fixes.
+    - A few more cards added to the GPU description table.
+  * Refresh patches, drop gnutls.patch (applied upstream).
   * Cherrypick changes from master:
     - Make "update-alternatives --remove" quiet.
 
- -- Jens Reyer <jre.winesim@gmail.com>  Mon, 08 Aug 2016 14:36:29 +0200
+ -- Jens Reyer <jre.winesim@gmail.com>  Mon, 29 Aug 2016 17:49:04 +0200
 
 wine (1.8.3-3) unstable; urgency=medium
 
