@@ -8,6 +8,7 @@ version-string.patch
 manpages-wineserver-persistence.patch
 
 disable/addons-download.patch
+disable/rerun-configure.patch
 disable/shlib-exit-calls.patch
 
 generate/opengl.patch
