@@ -1,5 +1,4 @@
 fontdir.patch
-makefile.patch
 kfreebsd.patch
 sfnt2fon.patch
 manpages.patch
@@ -15,11 +14,12 @@ generate/opengl.patch
 generate/unicode.patch
 generate/request.patch
 
+debpaths/addons.patch
+debpaths/makefile.patch
+
 debsuffix/winemenubuilder.patch
 
 glu32.patch
 openal.patch
-addons.patch
-
 font-divbyzero.patch
 printer-resolution.patch
