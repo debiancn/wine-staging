@@ -1,4 +1,5 @@
 description: disable gecko/mono installer download
+author: Michael Gilbert <mgilbert@debian.org>
 author: Jens Reyer <jre.winesim@gmail.com>
 
 --- a/dlls/appwiz.cpl/addons.c
