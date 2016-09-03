@@ -222,7 +222,7 @@ Description: Windows API implementation - 64-bit developer tools
  This package provides Wine's 64-bit developer tools. They are capable of
  generating both 32- and 64-bit results.
 
-Package: fonts-wineVERSION
+Package: fonts-wine
 Section: fonts
 Architecture: all
 Multi-Arch: foreign

@@ -94,9 +94,6 @@ debian/wine64$(VERSION)%: debian/wine64VERSION%
 debian/libwine$(VERSION)%: debian/libwineVERSION%
 	sed s/VERSION/$(VERSION)/g < $< > $@
 
-debian/fonts-wine$(VERSION)%: debian/fonts-wineVERSION%
-	sed s/VERSION/$(VERSION)/g < $< > $@
-
 debian/bug-control: debian/bug-control.in
 	sed s/VERSION/$(VERSION)/g < $< > $@
 
