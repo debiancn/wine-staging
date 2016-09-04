@@ -1,4 +1,4 @@
-wine (1.8.3-3~bpo8+1) jessie-backports; urgency=medium
+wine (1.8.3-3) unstable; urgency=medium
 
   Debian has two sets of Wine packages: wine and wine-development. They now use
   the Debian alternatives system to provide /usr/bin/wine and other commands.
