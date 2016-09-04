@@ -147,6 +147,7 @@ static const struct wined3d_extension_map gl_extension_map[] =
     {"GL_ARB_sync",                         ARB_SYNC                      },
     {"GL_ARB_texture_border_clamp",         ARB_TEXTURE_BORDER_CLAMP      },
     {"GL_ARB_texture_compression",          ARB_TEXTURE_COMPRESSION       },
+    {"GL_ARB_texture_compression_bptc",     ARB_TEXTURE_COMPRESSION_BPTC  },
     {"GL_ARB_texture_compression_rgtc",     ARB_TEXTURE_COMPRESSION_RGTC  },
     {"GL_ARB_texture_cube_map",             ARB_TEXTURE_CUBE_MAP          },
     {"GL_ARB_texture_env_combine",          ARB_TEXTURE_ENV_COMBINE       },
@@ -3563,6 +3564,7 @@ static BOOL wined3d_adapter_init_gl_caps(struct wined3d_adapter *adapter, DWORD 
 
         {ARB_INTERNALFORMAT_QUERY,         MAKEDWORD_VERSION(4, 2)},
         {ARB_MAP_BUFFER_ALIGNMENT,         MAKEDWORD_VERSION(4, 2)},
+        {ARB_TEXTURE_COMPRESSION_BPTC,     MAKEDWORD_VERSION(4, 2)},
         {ARB_TEXTURE_STORAGE,              MAKEDWORD_VERSION(4, 2)},
 
         {ARB_DEBUG_OUTPUT,                 MAKEDWORD_VERSION(4, 3)},
@@ -4193,6 +4195,106 @@ HRESULT CDECL wined3d_enum_adapter_modes(const struct wined3d *wined3d, UINT ada
 
     TRACE("%ux%u@%u %u bpp, %s %#x.\n", mode->width, mode->height, mode->refresh_rate,
             m.dmBitsPerPel, debug_d3dformat(mode->format_id), mode->scanline_ordering);
+
+    return WINED3D_OK;
+}
+
+HRESULT CDECL wined3d_find_closest_matching_adapter_mode(const struct wined3d *wined3d,
+        unsigned int adapter_idx, struct wined3d_display_mode *mode)
+{
+    unsigned int i, j, mode_count, matching_mode_count, closest;
+    struct wined3d_display_mode **matching_modes;
+    struct wined3d_display_mode *modes;
+    HRESULT hr;
+
+    TRACE("wined3d %p, adapter_idx %u, mode %p.\n", wined3d, adapter_idx, mode);
+
+    if (!(mode_count = wined3d_get_adapter_mode_count(wined3d, adapter_idx,
+            mode->format_id, WINED3D_SCANLINE_ORDERING_UNKNOWN)))
+    {
+        WARN("Adapter has 0 matching modes.\n");
+        return E_FAIL;
+    }
+
+    if (!(modes = wined3d_calloc(mode_count, sizeof(*modes))))
+        return E_OUTOFMEMORY;
+    if (!(matching_modes = wined3d_calloc(mode_count, sizeof(*matching_modes))))
+    {
+        HeapFree(GetProcessHeap(), 0, modes);
+        return E_OUTOFMEMORY;
+    }
+
+    for (i = 0; i < mode_count; ++i)
+    {
+        if (FAILED(hr = wined3d_enum_adapter_modes(wined3d, adapter_idx,
+                mode->format_id, WINED3D_SCANLINE_ORDERING_UNKNOWN, i, &modes[i])))
+        {
+            HeapFree(GetProcessHeap(), 0, matching_modes);
+            HeapFree(GetProcessHeap(), 0, modes);
+            return hr;
+        }
+        matching_modes[i] = &modes[i];
+    }
+
+    matching_mode_count = mode_count;
+
+    if (mode->scanline_ordering != WINED3D_SCANLINE_ORDERING_UNKNOWN)
+    {
+        for (i = 0, j = 0; i < matching_mode_count; ++i)
+        {
+            if (matching_modes[i]->scanline_ordering == mode->scanline_ordering)
+                matching_modes[j++] = matching_modes[i];
+        }
+        if (j > 0)
+            matching_mode_count = j;
+    }
+
+    if (mode->refresh_rate)
+    {
+        for (i = 0, j = 0; i < matching_mode_count; ++i)
+        {
+            if (matching_modes[i]->refresh_rate == mode->refresh_rate)
+                matching_modes[j++] = matching_modes[i];
+        }
+        if (j > 0)
+            matching_mode_count = j;
+    }
+
+    if (!mode->width || !mode->height)
+    {
+        struct wined3d_display_mode current_mode;
+        if (FAILED(hr = wined3d_get_adapter_display_mode(wined3d, adapter_idx,
+                &current_mode, NULL)))
+        {
+            HeapFree(GetProcessHeap(), 0, matching_modes);
+            HeapFree(GetProcessHeap(), 0, modes);
+            return hr;
+        }
+        mode->width = current_mode.width;
+        mode->height = current_mode.height;
+    }
+
+    closest = ~0u;
+    for (i = 0, j = 0; i < matching_mode_count; ++i)
+    {
+        unsigned int d = abs(mode->width - matching_modes[i]->width)
+                + abs(mode->height - matching_modes[i]->height);
+
+        if (closest > d)
+        {
+            closest = d;
+            j = i;
+        }
+    }
+
+    *mode = *matching_modes[j];
+
+    HeapFree(GetProcessHeap(), 0, matching_modes);
+    HeapFree(GetProcessHeap(), 0, modes);
+
+    TRACE("Returning %ux%u@%u %s %#x.\n", mode->width, mode->height,
+            mode->refresh_rate, debug_d3dformat(mode->format_id),
+            mode->scanline_ordering);
 
     return WINED3D_OK;
 }
@@ -6041,6 +6143,7 @@ static BOOL wined3d_adapter_init(struct wined3d_adapter *adapter, UINT ordinal, 
         ALL_WGL_FUNCS
 #undef USE_GL_FUNC
         gl_info->gl_ops.wgl.p_wglSwapBuffers = (void *)GetProcAddress(mod_gl, "wglSwapBuffers");
+        gl_info->gl_ops.wgl.p_wglGetPixelFormat = (void *)GetProcAddress(mod_gl, "wglGetPixelFormat");
     }
 #else
     /* To bypass the opengl32 thunks retrieve functions from the WGL driver instead of opengl32 */

@@ -172,10 +172,6 @@ static inline enum complex_fixup get_complex_fixup(struct color_fixup_desc fixup
     return complex_fixup;
 }
 
-void *wined3d_rb_alloc(size_t size) DECLSPEC_HIDDEN;
-void *wined3d_rb_realloc(void *ptr, size_t size) DECLSPEC_HIDDEN;
-void wined3d_rb_free(void *ptr) DECLSPEC_HIDDEN;
-
 /* Device caps */
 #define MAX_STREAM_OUT              4
 #define MAX_STREAMS                 16
@@ -2248,8 +2244,9 @@ struct ffp_frag_desc
     struct ffp_frag_settings    settings;
 };
 
-extern const struct wine_rb_functions wined3d_ffp_frag_program_rb_functions DECLSPEC_HIDDEN;
-extern const struct wine_rb_functions wined3d_ffp_vertex_program_rb_functions DECLSPEC_HIDDEN;
+int wined3d_ffp_frag_program_key_compare(const void *key, const struct wine_rb_entry *entry) DECLSPEC_HIDDEN;
+int wined3d_ffp_vertex_program_key_compare(const void *key, const struct wine_rb_entry *entry) DECLSPEC_HIDDEN;
+
 extern const struct wined3d_parent_ops wined3d_null_parent_ops DECLSPEC_HIDDEN;
 
 unsigned int wined3d_max_compat_varyings(const struct wined3d_gl_info *gl_info) DECLSPEC_HIDDEN;
@@ -2605,7 +2602,6 @@ void wined3d_resource_free_sysmem(struct wined3d_resource *resource) DECLSPEC_HI
 GLbitfield wined3d_resource_gl_map_flags(DWORD d3d_flags) DECLSPEC_HIDDEN;
 GLenum wined3d_resource_gl_legacy_map_flags(DWORD d3d_flags) DECLSPEC_HIDDEN;
 BOOL wined3d_resource_is_offscreen(struct wined3d_resource *resource) DECLSPEC_HIDDEN;
-DWORD wined3d_resource_sanitize_map_flags(const struct wined3d_resource *resource, DWORD flags) DECLSPEC_HIDDEN;
 void wined3d_resource_update_draw_binding(struct wined3d_resource *resource) DECLSPEC_HIDDEN;
 
 /* Tests show that the start address of resources is 32 byte aligned */
@@ -2644,6 +2640,7 @@ struct wined3d_texture_ops
 #define WINED3D_TEXTURE_GET_DC_LENIENT      0x00000800
 #define WINED3D_TEXTURE_DC_IN_USE           0x00001000
 #define WINED3D_TEXTURE_DISCARD             0x00002000
+#define WINED3D_TEXTURE_GET_DC              0x00004000
 
 #define WINED3D_TEXTURE_ASYNC_COLOR_KEY     0x00000001
 
@@ -3048,6 +3045,7 @@ void wined3d_cs_emit_destroy_object(struct wined3d_cs *cs,
         void (*callback)(void *object), void *object) DECLSPEC_HIDDEN;
 void wined3d_cs_emit_draw(struct wined3d_cs *cs, int base_vertex_idx, unsigned int start_idx, unsigned int index_count,
         unsigned int start_instance, unsigned int instance_count, BOOL indexed) DECLSPEC_HIDDEN;
+void wined3d_cs_emit_preload_resource(struct wined3d_cs *cs, struct wined3d_resource *resource) DECLSPEC_HIDDEN;
 void wined3d_cs_emit_present(struct wined3d_cs *cs, struct wined3d_swapchain *swapchain,
         const RECT *src_rect, const RECT *dst_rect, HWND dst_window_override, DWORD flags) DECLSPEC_HIDDEN;
 void wined3d_cs_emit_query_issue(struct wined3d_cs *cs, struct wined3d_query *query, DWORD flags) DECLSPEC_HIDDEN;
@@ -3095,6 +3093,10 @@ void wined3d_cs_emit_set_vertex_declaration(struct wined3d_cs *cs,
         struct wined3d_vertex_declaration *declaration) DECLSPEC_HIDDEN;
 void wined3d_cs_emit_set_viewport(struct wined3d_cs *cs, const struct wined3d_viewport *viewport) DECLSPEC_HIDDEN;
 void wined3d_cs_emit_unload_resource(struct wined3d_cs *cs, struct wined3d_resource *resource) DECLSPEC_HIDDEN;
+HRESULT wined3d_cs_map(struct wined3d_cs *cs, struct wined3d_resource *resource, unsigned int sub_resource_idx,
+        struct wined3d_map_desc *map_desc, const struct wined3d_box *box, unsigned int flags) DECLSPEC_HIDDEN;
+HRESULT wined3d_cs_unmap(struct wined3d_cs *cs, struct wined3d_resource *resource,
+        unsigned int sub_resource_idx) DECLSPEC_HIDDEN;
 
 static inline void wined3d_cs_push_constants(struct wined3d_cs *cs, enum wined3d_push_constants p,
         unsigned int start_idx, unsigned int count, const void *constants)
