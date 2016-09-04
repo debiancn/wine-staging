@@ -1,8 +1,5 @@
 /*
- *
- * vcomp90 implementation
- *
- * Copyright 2012 André Hentschel
+ * Copyright 2016 Jacek Caban for CodeWeavers
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -19,28 +16,34 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "config.h"
+#define WIN32_LEAN_AND_MEAN
+#define COBJMACROS
+#include "initguid.h"
+#include "wpcapi.h"
 
-#include <stdarg.h>
+#include "wine/test.h"
 
-#include "windef.h"
-#include "winbase.h"
-#include "wine/debug.h"
-
-WINE_DEFAULT_DEBUG_CHANNEL(vcomp90);
-
-BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
+static void test_wpc(void)
 {
-    TRACE("(0x%p, %d, %p)\n", hinstDLL, fdwReason, lpvReserved);
+    IWindowsParentalControls *wpc;
+    HRESULT hres;
 
-    switch (fdwReason)
-    {
-        case DLL_WINE_PREATTACH:
-            return FALSE;    /* prefer native version */
-        case DLL_PROCESS_ATTACH:
-            DisableThreadLibraryCalls(hinstDLL);
-            break;
-    }
+    hres = CoCreateInstance(&CLSID_WindowsParentalControls, NULL, CLSCTX_INPROC_SERVER, &IID_IWindowsParentalControls, (void**)&wpc);
+    if(hres == REGDB_E_CLASSNOTREG)
+        win_skip("CLSID_WindowsParentalControls not registered\n");
+    else
+        ok(hres == S_OK, "Could not create CLSID_WindowsParentalControls instance: %08x\n", hres);
+    if(FAILED(hres))
+        return;
 
-    return TRUE;
+    IWindowsParentalControls_Release(wpc);
+}
+
+START_TEST(wpc)
+{
+    CoInitialize(NULL);
+
+    test_wpc();
+
+    CoUninitialize();
 }

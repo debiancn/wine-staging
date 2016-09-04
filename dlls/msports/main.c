@@ -1,8 +1,7 @@
 /*
+ * msports.dll
  *
- * vcomp100 implementation
- *
- * Copyright 2012 André Hentschel
+ * Copyright 2016 Austin English
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -27,18 +26,18 @@
 #include "winbase.h"
 #include "wine/debug.h"
 
-WINE_DEFAULT_DEBUG_CHANNEL(vcomp100);
+WINE_DEFAULT_DEBUG_CHANNEL(msports);
 
-BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
+BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, void *reserved)
 {
-    TRACE("(0x%p, %d, %p)\n", hinstDLL, fdwReason, lpvReserved);
+    TRACE("(%p, %u, %p)\n", instance, reason, reserved);
 
-    switch (fdwReason)
+    switch (reason)
     {
         case DLL_WINE_PREATTACH:
             return FALSE;    /* prefer native version */
         case DLL_PROCESS_ATTACH:
-            DisableThreadLibraryCalls(hinstDLL);
+            DisableThreadLibraryCalls(instance);
             break;
     }
 

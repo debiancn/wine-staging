@@ -613,7 +613,6 @@ unsigned int CDECL __CxxQueryExceptionSize(void)
  *		_setjmp (MSVCRT.@)
  */
 __ASM_GLOBAL_FUNC( MSVCRT__setjmp,
-                   "xorq %rdx,%rdx\n\t"  /* frame */
                    "jmp " __ASM_NAME("MSVCRT__setjmpex") );
 
 /*******************************************************************
@@ -699,6 +698,17 @@ void __cdecl MSVCRT_longjmp( struct MSVCRT___JUMP_BUFFER *jmp, int retval )
 void __cdecl _local_unwind( void *frame, void *target )
 {
     RtlUnwind( frame, target, NULL, 0 );
+}
+
+/*********************************************************************
+ *              _fpieee_flt (MSVCRT.@)
+ */
+int __cdecl _fpieee_flt(ULONG exception_code, EXCEPTION_POINTERS *ep,
+        int (__cdecl *handler)(_FPIEEE_RECORD*))
+{
+    FIXME("(%x %p %p) opcode: %s\n", exception_code, ep, handler,
+            wine_dbgstr_longlong(*(ULONG64*)ep->ContextRecord->Rip));
+    return EXCEPTION_CONTINUE_SEARCH;
 }
 
 #endif  /* __x86_64__ */

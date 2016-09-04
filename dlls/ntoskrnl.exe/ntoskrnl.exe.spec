@@ -400,7 +400,7 @@
 @ stdcall IoInitializeIrp(ptr long long)
 @ stdcall IoInitializeRemoveLockEx(ptr long long long long)
 @ stdcall IoInitializeTimer(ptr ptr ptr)
-@ stub IoInvalidateDeviceRelations
+@ stdcall IoInvalidateDeviceRelations(ptr long)
 @ stub IoInvalidateDeviceState
 @ stub IoIsFileOriginRemote
 @ stub IoIsOperationSynchronous
@@ -798,7 +798,7 @@
 @ stub ObCloseHandle
 @ stub ObCreateObject
 @ stub ObCreateObjectType
-@ stub ObDereferenceObject
+@ stdcall ObDereferenceObject(ptr)
 @ stub ObDereferenceSecurityDescriptor
 @ stub ObFindHandleForObject
 @ stub ObGetObjectSecurity
@@ -1314,7 +1314,7 @@
 @ stdcall ZwFsControlFile(long long long long long long long long long long) ntdll.ZwFsControlFile
 @ stdcall ZwInitiatePowerAction(long long long long) ntdll.ZwInitiatePowerAction
 @ stdcall ZwIsProcessInJob(long long) ntdll.ZwIsProcessInJob
-@ stdcall ZwLoadDriver(ptr) ntdll.ZwLoadDriver
+@ stdcall ZwLoadDriver(ptr)
 @ stdcall ZwLoadKey(ptr ptr) ntdll.ZwLoadKey
 @ stdcall ZwMakeTemporaryObject(long) ntdll.ZwMakeTemporaryObject
 @ stdcall ZwMapViewOfSection(long long ptr long long ptr ptr long long long) ntdll.ZwMapViewOfSection
@@ -1384,7 +1384,7 @@
 @ stdcall ZwTerminateJobObject(long long) ntdll.ZwTerminateJobObject
 @ stdcall ZwTerminateProcess(long long) ntdll.ZwTerminateProcess
 @ stub ZwTranslateFilePath
-@ stdcall ZwUnloadDriver(ptr) ntdll.ZwUnloadDriver
+@ stdcall ZwUnloadDriver(ptr)
 @ stdcall ZwUnloadKey(long) ntdll.ZwUnloadKey
 @ stdcall ZwUnmapViewOfSection(long ptr) ntdll.ZwUnmapViewOfSection
 @ stdcall ZwWaitForMultipleObjects(long ptr long long ptr) ntdll.ZwWaitForMultipleObjects
@@ -1400,12 +1400,12 @@
 @ stdcall -private -arch=i386 -ret64 _allmul(int64 int64) ntdll._allmul
 @ stdcall -private -arch=i386 -norelay _alloca_probe() ntdll._alloca_probe
 @ stdcall -private -arch=i386 -ret64 _allrem(int64 int64) ntdll._allrem
-@ stub _allshl
-@ stub _allshr
+@ stdcall -private -arch=i386 -ret64 _allshl(int64 long) ntdll._allshl
+@ stdcall -private -arch=i386 -ret64 _allshr(int64 long) ntdll._allshr
 @ stdcall -private -arch=i386 -ret64 _aulldiv(int64 int64) ntdll._aulldiv
 @ stub _aulldvrm
 @ stdcall -private -arch=i386 -ret64 _aullrem(int64 int64) ntdll._aullrem
-@ stub _aullshr
+@ stdcall -private -arch=i386 -ret64 _aullshr(int64 long) ntdll._aullshr
 @ cdecl -private -arch=i386 _except_handler2(ptr ptr ptr ptr) msvcrt._except_handler2
 @ cdecl -private -arch=i386 _except_handler3(ptr ptr ptr ptr) msvcrt._except_handler3
 @ cdecl -private -arch=i386 _global_unwind2(ptr) msvcrt._global_unwind2

@@ -311,7 +311,7 @@
 @ stdcall NtResetEvent(long ptr)
 @ stdcall NtResetWriteWatch(long ptr long)
 @ stdcall NtRestoreKey(long long long)
-# @ stub NtResumeProcess
+@ stdcall NtResumeProcess(long)
 @ stdcall NtResumeThread(long long)
 @ stdcall NtSaveKey(long long)
 # @ stub NtSaveKeyEx
@@ -361,7 +361,7 @@
 @ stdcall NtSignalAndWaitForSingleObject(long long long ptr)
 @ stub NtStartProfile
 @ stub NtStopProfile
-# @ stub NtSuspendProcess
+@ stdcall NtSuspendProcess(long)
 @ stdcall NtSuspendThread(long ptr)
 @ stdcall NtSystemDebugControl(long ptr long ptr long ptr)
 @ stdcall NtTerminateJobObject(long long)
@@ -519,7 +519,7 @@
 @ stub RtlDeactivateActivationContextUnsafeFast
 @ stub RtlDebugPrintTimes
 @ stdcall RtlDecodePointer(ptr)
-# @ stub RtlDecodeSystemPointer
+@ stdcall RtlDecodeSystemPointer(ptr) RtlDecodePointer
 @ stdcall RtlDecompressBuffer(long ptr long ptr long ptr)
 @ stdcall RtlDecompressFragment(long ptr long ptr long long ptr ptr)
 @ stub RtlDefaultNpAcl
@@ -562,7 +562,7 @@
 @ stdcall RtlEmptyAtomTable(ptr long)
 # @ stub RtlEnableEarlyCriticalSectionEventCreation
 @ stdcall RtlEncodePointer(ptr)
-# @ stub RtlEncodeSystemPointer
+@ stdcall RtlEncodeSystemPointer(ptr) RtlEncodePointer
 @ stdcall -arch=win32 -ret64 RtlEnlargedIntegerMultiply(long long)
 @ stdcall -arch=win32 RtlEnlargedUnsignedDivide(int64 long ptr)
 @ stdcall -arch=win32 -ret64 RtlEnlargedUnsignedMultiply(long long)
@@ -1236,7 +1236,7 @@
 @ stdcall ZwResetEvent(long ptr) NtResetEvent
 @ stdcall ZwResetWriteWatch(long ptr long) NtResetWriteWatch
 @ stdcall ZwRestoreKey(long long long) NtRestoreKey
-# @ stub ZwResumeProcess
+@ stdcall ZwResumeProcess(long) NtResumeProcess
 @ stdcall ZwResumeThread(long long) NtResumeThread
 @ stdcall ZwSaveKey(long long) NtSaveKey
 # @ stub ZwSaveKeyEx
@@ -1286,7 +1286,7 @@
 @ stdcall ZwSignalAndWaitForSingleObject(long long long ptr) NtSignalAndWaitForSingleObject
 @ stub ZwStartProfile
 @ stub ZwStopProfile
-# @ stub ZwSuspendProcess
+@ stdcall ZwSuspendProcess(long) NtSuspendProcess
 @ stdcall ZwSuspendThread(long ptr) NtSuspendThread
 @ stdcall ZwSystemDebugControl(long ptr long ptr long ptr) NtSystemDebugControl
 @ stdcall ZwTerminateJobObject(long long) NtTerminateJobObject
@@ -1331,13 +1331,13 @@
 @ stdcall -private -arch=i386 -ret64 _allmul(int64 int64)
 @ stdcall -private -arch=i386 -norelay _alloca_probe()
 @ stdcall -private -arch=i386 -ret64 _allrem(int64 int64)
-# @ stub _allshl
-# @ stub _allshr
+@ stdcall -private -arch=i386 -ret64 _allshl(int64 long)
+@ stdcall -private -arch=i386 -ret64 _allshr(int64 long)
 @ cdecl -private -ret64 _atoi64(str)
 @ stdcall -private -arch=i386 -ret64 _aulldiv(int64 int64)
 # @ stub _aulldvrm
 @ stdcall -private -arch=i386 -ret64 _aullrem(int64 int64)
-# @ stub _aullshr
+@ stdcall -private -arch=i386 -ret64 _aullshr(int64 long)
 @ stdcall -private -arch=i386 -norelay _chkstk()
 @ stub _fltused
 @ cdecl -private -arch=i386 -ret64 _ftol() NTDLL__ftol

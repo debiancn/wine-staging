@@ -2885,6 +2885,8 @@ static HRESULT process_vertices_strided(const struct wined3d_device *device, DWO
         DWORD DestFVF)
 {
     struct wined3d_matrix mat, proj_mat, view_mat, world_mat;
+    struct wined3d_map_desc map_desc;
+    struct wined3d_box box = {0};
     struct wined3d_viewport vp;
     UINT vertex_size;
     unsigned int i;
@@ -2925,11 +2927,14 @@ static HRESULT process_vertices_strided(const struct wined3d_device *device, DWO
         doClip = FALSE;
 
     vertex_size = get_flexible_vertex_size(DestFVF);
-    if (FAILED(hr = wined3d_buffer_map(dest, dwDestIndex * vertex_size, dwCount * vertex_size, &dest_ptr, 0)))
+    box.left = dwDestIndex * vertex_size;
+    box.right = box.left + dwCount * vertex_size;
+    if (FAILED(hr = wined3d_resource_map(&dest->resource, 0, &map_desc, &box, 0)))
     {
         WARN("Failed to map buffer, hr %#x.\n", hr);
         return hr;
     }
+    dest_ptr = map_desc.data;
 
     wined3d_device_get_transform(device, WINED3D_TS_VIEW, &view_mat);
     wined3d_device_get_transform(device, WINED3D_TS_PROJECTION, &proj_mat);
@@ -3139,7 +3144,7 @@ static HRESULT process_vertices_strided(const struct wined3d_device *device, DWO
         }
     }
 
-    wined3d_buffer_unmap(dest);
+    wined3d_resource_unmap(&dest->resource, 0);
 
     return WINED3D_OK;
 }
@@ -4556,19 +4561,19 @@ static void delete_opengl_contexts(struct wined3d_device *device, struct wined3d
     struct wined3d_context *context;
     struct wined3d_shader *shader;
 
-    context = context_acquire(device, NULL);
-    gl_info = context->gl_info;
-
     LIST_FOR_EACH_ENTRY_SAFE(resource, cursor, &device->resources, struct wined3d_resource, resource_list_entry)
     {
         TRACE("Unloading resource %p.\n", resource);
-        resource->resource_ops->resource_unload(resource);
+        wined3d_cs_emit_unload_resource(device->cs, resource);
     }
 
     LIST_FOR_EACH_ENTRY(shader, &device->shaders, struct wined3d_shader, shader_list_entry)
     {
         device->shader_backend->shader_destroy(shader);
     }
+
+    context = context_acquire(device, NULL);
+    gl_info = context->gl_info;
 
     if (device->depth_blt_texture)
     {
@@ -4648,6 +4653,7 @@ HRESULT CDECL wined3d_device_reset(struct wined3d_device *device,
     struct wined3d_rendertarget_view_desc view_desc;
     struct wined3d_resource *resource, *cursor;
     struct wined3d_swapchain *swapchain;
+    BOOL backbuffer_resized;
     HRESULT hr = WINED3D_OK;
     unsigned int i;
 
@@ -4737,10 +4743,12 @@ HRESULT CDECL wined3d_device_reset(struct wined3d_device *device,
         wined3d_swapchain_set_window(swapchain, NULL);
     }
 
+    backbuffer_resized = swapchain_desc->backbuffer_width != swapchain->desc.backbuffer_width
+            || swapchain_desc->backbuffer_height != swapchain->desc.backbuffer_height;
+
     if (!swapchain_desc->windowed != !swapchain->desc.windowed
             || swapchain->reapply_mode || mode
-            || swapchain_desc->backbuffer_width != swapchain->desc.backbuffer_width
-            || swapchain_desc->backbuffer_height != swapchain->desc.backbuffer_height)
+            || (!swapchain_desc->windowed && backbuffer_resized))
     {
         if (FAILED(hr = wined3d_swapchain_set_fullscreen(swapchain, swapchain_desc, mode)))
             return hr;
@@ -5042,14 +5050,6 @@ static int wined3d_sampler_compare(const void *key, const struct wine_rb_entry *
     return memcmp(&sampler->desc, key, sizeof(sampler->desc));
 }
 
-static const struct wine_rb_functions wined3d_sampler_rb_functions =
-{
-    wined3d_rb_alloc,
-    wined3d_rb_realloc,
-    wined3d_rb_free,
-    wined3d_sampler_compare,
-};
-
 HRESULT device_init(struct wined3d_device *device, struct wined3d *wined3d,
         UINT adapter_idx, enum wined3d_device_type device_type, HWND focus_window, DWORD flags,
         BYTE surface_alignment, struct wined3d_device_parent *device_parent)
@@ -5081,11 +5081,7 @@ HRESULT device_init(struct wined3d_device *device, struct wined3d *wined3d,
 
     fragment_pipeline = adapter->fragment_pipe;
 
-    if (wine_rb_init(&device->samplers, &wined3d_sampler_rb_functions) == -1)
-    {
-        ERR("Failed to initialize sampler rbtree.\n");
-        return E_OUTOFMEMORY;
-    }
+    wine_rb_init(&device->samplers, wined3d_sampler_compare);
 
     if (vertex_pipeline->vp_states && fragment_pipeline->states
             && FAILED(hr = compile_state_table(device->StateTable, device->multistate_funcs,

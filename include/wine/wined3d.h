@@ -151,6 +151,7 @@ enum wined3d_format_id
     WINED3DFMT_R10G10B10A2_UNORM,
     WINED3DFMT_R10G10B10A2_UINT,
     WINED3DFMT_R10G10B10A2_SNORM,
+    WINED3DFMT_R10G10B10_XR_BIAS_A2_UNORM,
     WINED3DFMT_R11G11B10_FLOAT,
     WINED3DFMT_R8G8B8A8_TYPELESS,
     WINED3DFMT_R8G8B8A8_UNORM,
@@ -218,6 +219,9 @@ enum wined3d_format_id
     WINED3DFMT_B8G8R8A8_UNORM_SRGB,
     WINED3DFMT_B8G8R8X8_TYPELESS,
     WINED3DFMT_B8G8R8X8_UNORM_SRGB,
+    WINED3DFMT_BC6H_TYPELESS,
+    WINED3DFMT_BC6H_UF16,
+    WINED3DFMT_BC6H_SF16,
     WINED3DFMT_BC7_TYPELESS,
     WINED3DFMT_BC7_UNORM,
     WINED3DFMT_BC7_UNORM_SRGB,
@@ -825,7 +829,8 @@ enum wined3d_display_rotation
 #define WINED3D_SWAPCHAIN_NOAUTOROTATE                          0x00000020u
 #define WINED3D_SWAPCHAIN_UNPRUNEDMODE                          0x00000040u
 #define WINED3D_SWAPCHAIN_ALLOW_MODE_SWITCH                     0x00001000u
-#define WINED3D_SWAPCHAIN_RESTORE_WINDOW_RECT                   0x00002000u
+#define WINED3D_SWAPCHAIN_USE_CLOSEST_MATCHING_MODE             0x00002000u
+#define WINED3D_SWAPCHAIN_RESTORE_WINDOW_RECT                   0x00004000u
 
 #define WINED3DDP_MAXTEXCOORD                                   8
 
@@ -1485,6 +1490,7 @@ enum wined3d_display_rotation
 #define WINED3D_TEXTURE_CREATE_MAPPABLE                         0x00000001
 #define WINED3D_TEXTURE_CREATE_DISCARD                          0x00000002
 #define WINED3D_TEXTURE_CREATE_GET_DC_LENIENT                   0x00000004
+#define WINED3D_TEXTURE_CREATE_GET_DC                           0x00000008
 
 #define WINED3D_APPEND_ALIGNED_ELEMENT                          0xffffffff
 
@@ -2101,6 +2107,8 @@ ULONG __cdecl wined3d_decref(struct wined3d *wined3d);
 HRESULT __cdecl wined3d_enum_adapter_modes(const struct wined3d *wined3d, UINT adapter_idx,
         enum wined3d_format_id format_id, enum wined3d_scanline_ordering scanline_ordering,
         UINT mode_idx, struct wined3d_display_mode *mode);
+HRESULT __cdecl wined3d_find_closest_matching_adapter_mode(const struct wined3d *wined3d,
+        unsigned int adapter_idx, struct wined3d_display_mode *mode);
 UINT __cdecl wined3d_get_adapter_count(const struct wined3d *wined3d);
 HRESULT __cdecl wined3d_get_adapter_display_mode(const struct wined3d *wined3d, UINT adapter_idx,
         struct wined3d_display_mode *mode, enum wined3d_display_rotation *rotation);
@@ -2132,9 +2140,6 @@ ULONG __cdecl wined3d_buffer_decref(struct wined3d_buffer *buffer);
 void * __cdecl wined3d_buffer_get_parent(const struct wined3d_buffer *buffer);
 struct wined3d_resource * __cdecl wined3d_buffer_get_resource(struct wined3d_buffer *buffer);
 ULONG __cdecl wined3d_buffer_incref(struct wined3d_buffer *buffer);
-HRESULT __cdecl wined3d_buffer_map(struct wined3d_buffer *buffer, UINT offset, UINT size, BYTE **data, DWORD flags);
-void  __cdecl wined3d_buffer_preload(struct wined3d_buffer *buffer);
-void __cdecl wined3d_buffer_unmap(struct wined3d_buffer *buffer);
 
 HRESULT __cdecl wined3d_device_acquire_focus_window(struct wined3d_device *device, HWND window);
 HRESULT __cdecl wined3d_device_begin_scene(struct wined3d_device *device);
@@ -2447,6 +2452,7 @@ void * __cdecl wined3d_resource_get_parent(const struct wined3d_resource *resour
 DWORD __cdecl wined3d_resource_get_priority(const struct wined3d_resource *resource);
 HRESULT __cdecl wined3d_resource_map(struct wined3d_resource *resource, unsigned int sub_resource_idx,
         struct wined3d_map_desc *map_desc, const struct wined3d_box *box, DWORD flags);
+void __cdecl wined3d_resource_preload(struct wined3d_resource *resource);
 void __cdecl wined3d_resource_set_parent(struct wined3d_resource *resource, void *parent);
 DWORD __cdecl wined3d_resource_set_priority(struct wined3d_resource *resource, DWORD priority);
 HRESULT __cdecl wined3d_resource_unmap(struct wined3d_resource *resource, unsigned int sub_resource_idx);
@@ -2561,7 +2567,6 @@ HRESULT __cdecl wined3d_texture_get_sub_resource_desc(const struct wined3d_textu
         unsigned int sub_resource_idx, struct wined3d_sub_resource_desc *desc);
 void * __cdecl wined3d_texture_get_sub_resource_parent(struct wined3d_texture *texture, unsigned int sub_resource_idx);
 ULONG __cdecl wined3d_texture_incref(struct wined3d_texture *texture);
-void __cdecl wined3d_texture_preload(struct wined3d_texture *texture);
 HRESULT __cdecl wined3d_texture_release_dc(struct wined3d_texture *texture, unsigned int sub_resource_idx, HDC dc);
 HRESULT __cdecl wined3d_texture_set_autogen_filter_type(struct wined3d_texture *texture,
         enum wined3d_texture_filter_type filter_type);

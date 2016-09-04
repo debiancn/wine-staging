@@ -45,6 +45,7 @@
 #define TAG_OSGN MAKE_TAG('O', 'S', 'G', 'N')
 #define TAG_SHDR MAKE_TAG('S', 'H', 'D', 'R')
 #define TAG_SHEX MAKE_TAG('S', 'H', 'E', 'X')
+#define TAG_AON9 MAKE_TAG('A', 'o', 'n', '9')
 
 struct d3d_device;
 
@@ -517,7 +518,7 @@ static inline struct d3d_device *impl_from_ID3D10Device(ID3D10Device1 *iface)
     return CONTAINING_RECORD(iface, struct d3d_device, ID3D10Device1_iface);
 }
 
-HRESULT d3d_device_init(struct d3d_device *device, void *outer_unknown) DECLSPEC_HIDDEN;
+void d3d_device_init(struct d3d_device *device, void *outer_unknown) DECLSPEC_HIDDEN;
 
 /* Layered device */
 enum dxgi_device_layer_id

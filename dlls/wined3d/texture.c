@@ -324,6 +324,8 @@ static HRESULT wined3d_texture_init(struct wined3d_texture *texture, const struc
     texture->flags |= WINED3D_TEXTURE_POW2_MAT_IDENT | WINED3D_TEXTURE_NORMALIZED_COORDS;
     if (flags & WINED3D_TEXTURE_CREATE_GET_DC_LENIENT)
         texture->flags |= WINED3D_TEXTURE_PIN_SYSMEM | WINED3D_TEXTURE_GET_DC_LENIENT;
+    if (flags & (WINED3D_TEXTURE_CREATE_GET_DC | WINED3D_TEXTURE_CREATE_GET_DC_LENIENT))
+        texture->flags |= WINED3D_TEXTURE_GET_DC;
     if (flags & WINED3D_TEXTURE_CREATE_DISCARD)
         texture->flags |= WINED3D_TEXTURE_DISCARD;
 
@@ -947,14 +949,6 @@ void wined3d_texture_load(struct wined3d_texture *texture,
     texture->flags |= flag;
 }
 
-void CDECL wined3d_texture_preload(struct wined3d_texture *texture)
-{
-    struct wined3d_context *context;
-    context = context_acquire(texture->resource.device, NULL);
-    wined3d_texture_load(texture, context, texture->flags & WINED3D_TEXTURE_IS_SRGB);
-    context_release(context);
-}
-
 void * CDECL wined3d_texture_get_parent(const struct wined3d_texture *texture)
 {
     TRACE("texture %p.\n", texture);
@@ -1015,6 +1009,7 @@ DWORD CDECL wined3d_texture_set_lod(struct wined3d_texture *texture, DWORD lod)
 
     if (texture->lod != lod)
     {
+        wined3d_resource_wait_idle(&texture->resource);
         texture->lod = lod;
 
         texture->texture_rgb.base_level = ~0u;
@@ -1135,7 +1130,7 @@ HRESULT CDECL wined3d_texture_update_desc(struct wined3d_texture *texture, UINT 
     }
 
     if (device->d3d_initialized)
-        texture->resource.resource_ops->resource_unload(&texture->resource);
+        wined3d_cs_emit_unload_resource(device->cs, &texture->resource);
 
     sub_resource = &texture->sub_resources[0];
     surface = sub_resource->u.surface;
@@ -1579,6 +1574,16 @@ static ULONG texture_resource_decref(struct wined3d_resource *resource)
     return wined3d_texture_decref(texture_from_resource(resource));
 }
 
+static void texture_resource_preload(struct wined3d_resource *resource)
+{
+    struct wined3d_texture *texture = texture_from_resource(resource);
+    struct wined3d_context *context;
+
+    context = context_acquire(resource->device, NULL);
+    wined3d_texture_load(texture, context, texture->flags & WINED3D_TEXTURE_IS_SRGB);
+    context_release(context);
+}
+
 static void wined3d_texture_unload(struct wined3d_resource *resource)
 {
     struct wined3d_texture *texture = texture_from_resource(resource);
@@ -1696,8 +1701,6 @@ static HRESULT texture_resource_sub_resource_map(struct wined3d_resource *resour
         WARN("Sub-resource is already mapped.\n");
         return WINED3DERR_INVALIDCALL;
     }
-
-    flags = wined3d_resource_sanitize_map_flags(resource, flags);
 
     if (device->d3d_initialized)
     {
@@ -1848,6 +1851,7 @@ static const struct wined3d_resource_ops texture_resource_ops =
 {
     texture_resource_incref,
     texture_resource_decref,
+    texture_resource_preload,
     wined3d_texture_unload,
     texture_resource_sub_resource_map,
     texture_resource_sub_resource_unmap,
@@ -2863,6 +2867,13 @@ HRESULT CDECL wined3d_texture_get_dc(struct wined3d_texture *texture, unsigned i
     HRESULT hr = WINED3D_OK;
 
     TRACE("texture %p, sub_resource_idx %u, dc %p.\n", texture, sub_resource_idx, dc);
+
+    if (!(texture->flags & WINED3D_TEXTURE_GET_DC))
+    {
+        WARN("Texture does not support GetDC\n");
+        /* Don't touch the DC */
+        return WINED3DERR_INVALIDCALL;
+    }
 
     if (!(sub_resource = wined3d_texture_get_sub_resource(texture, sub_resource_idx)))
         return WINED3DERR_INVALIDCALL;

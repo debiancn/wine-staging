@@ -169,6 +169,8 @@ static const struct wined3d_format_channels formats[] =
     {WINED3DFMT_BC3_TYPELESS,               0,  0,  0,  0,   0,  0,  0,  0,    1,   0,     0},
     {WINED3DFMT_BC4_TYPELESS,               0,  0,  0,  0,   0,  0,  0,  0,    1,   0,     0},
     {WINED3DFMT_BC5_TYPELESS,               0,  0,  0,  0,   0,  0,  0,  0,    1,   0,     0},
+    {WINED3DFMT_BC6H_TYPELESS,              0,  0,  0,  0,   0,  0,  0,  0,    1,   0,     0},
+    {WINED3DFMT_BC7_TYPELESS,               0,  0,  0,  0,   0,  0,  0,  0,    1,   0,     0},
     {WINED3DFMT_B8G8R8A8_TYPELESS,          8,  8,  8,  8,  16,  8,  0, 24,    4,   0,     0},
     {WINED3DFMT_B8G8R8X8_TYPELESS,          8,  8,  8,  0,  16,  8,  0,  0,    4,   0,     0},
 };
@@ -256,6 +258,10 @@ static const struct wined3d_typed_format_info typed_formats[] =
     {WINED3DFMT_BC3_UNORM,              WINED3DFMT_BC3_TYPELESS,          ""},
     {WINED3DFMT_BC4_UNORM,              WINED3DFMT_BC4_TYPELESS,          ""},
     {WINED3DFMT_BC5_UNORM,              WINED3DFMT_BC5_TYPELESS,          ""},
+    {WINED3DFMT_BC6H_UF16,              WINED3DFMT_BC6H_TYPELESS,         ""},
+    {WINED3DFMT_BC6H_SF16,              WINED3DFMT_BC6H_TYPELESS,         ""},
+    {WINED3DFMT_BC7_UNORM_SRGB,         WINED3DFMT_BC7_TYPELESS,          ""},
+    {WINED3DFMT_BC7_UNORM,              WINED3DFMT_BC7_TYPELESS,          ""},
     {WINED3DFMT_B8G8R8A8_UNORM_SRGB,    WINED3DFMT_B8G8R8A8_TYPELESS,     "uuuu"},
     {WINED3DFMT_B8G8R8A8_UNORM,         WINED3DFMT_B8G8R8A8_TYPELESS,     "uuuu"},
     {WINED3DFMT_B8G8R8X8_UNORM_SRGB,    WINED3DFMT_B8G8R8X8_TYPELESS,     "uuuX"},
@@ -318,6 +324,9 @@ static const struct wined3d_format_block_info format_block_info[] =
     {WINED3DFMT_BC3_UNORM, 4,  4,  16, TRUE},
     {WINED3DFMT_BC4_UNORM, 4,  4,  8,  TRUE},
     {WINED3DFMT_BC5_UNORM, 4,  4,  16, TRUE},
+    {WINED3DFMT_BC6H_UF16, 4,  4,  16, TRUE},
+    {WINED3DFMT_BC6H_SF16, 4,  4,  16, TRUE},
+    {WINED3DFMT_BC7_UNORM, 4,  4,  16, TRUE},
     {WINED3DFMT_ATI1N,     4,  4,  8,  FALSE},
     {WINED3DFMT_ATI2N,     4,  4,  16, FALSE},
     {WINED3DFMT_YUY2,      2,  1,  4,  FALSE},
@@ -1115,6 +1124,21 @@ static const struct wined3d_format_texture_info format_texture_info[] =
             WINED3DFMT_FLAG_TEXTURE | WINED3DFMT_FLAG_POSTPIXELSHADER_BLENDING | WINED3DFMT_FLAG_FILTERING
             | WINED3DFMT_FLAG_COMPRESSED,
             ARB_TEXTURE_COMPRESSION_RGTC, NULL},
+    {WINED3DFMT_BC6H_UF16,              GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT_ARB, GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT_ARB, 0,
+            GL_RGB,                     GL_UNSIGNED_BYTE,                 0,
+            WINED3DFMT_FLAG_TEXTURE | WINED3DFMT_FLAG_POSTPIXELSHADER_BLENDING | WINED3DFMT_FLAG_FILTERING
+            | WINED3DFMT_FLAG_COMPRESSED,
+            ARB_TEXTURE_COMPRESSION_BPTC, NULL},
+    {WINED3DFMT_BC6H_SF16,              GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT_ARB, GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT_ARB, 0,
+            GL_RGB,                     GL_UNSIGNED_BYTE,                 0,
+            WINED3DFMT_FLAG_TEXTURE | WINED3DFMT_FLAG_POSTPIXELSHADER_BLENDING | WINED3DFMT_FLAG_FILTERING
+            | WINED3DFMT_FLAG_COMPRESSED,
+            ARB_TEXTURE_COMPRESSION_BPTC, NULL},
+    {WINED3DFMT_BC7_UNORM,              GL_COMPRESSED_RGBA_BPTC_UNORM_ARB, GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM_ARB, 0,
+            GL_RGBA,                    GL_UNSIGNED_BYTE,                 0,
+            WINED3DFMT_FLAG_TEXTURE | WINED3DFMT_FLAG_POSTPIXELSHADER_BLENDING | WINED3DFMT_FLAG_FILTERING
+            | WINED3DFMT_FLAG_COMPRESSED,
+            ARB_TEXTURE_COMPRESSION_BPTC, NULL},
     /* IEEE formats */
     {WINED3DFMT_R32_FLOAT,              GL_RGB32F_ARB,                    GL_RGB32F_ARB,                          0,
             GL_RED,                     GL_FLOAT,                         0,
@@ -3553,6 +3577,9 @@ UINT wined3d_format_calculate_size(const struct wined3d_format *format, UINT ali
     if (format->id == WINED3DFMT_UNKNOWN)
         return 0;
 
+    if (format->flags[WINED3D_GL_RES_TYPE_TEX_2D] & WINED3DFMT_FLAG_BROKEN_PITCH)
+        return width * height * depth * format->byte_count;
+
     wined3d_format_calculate_pitch(format, alignment, width, height, &row_pitch, &slice_pitch);
 
     return slice_pitch * depth;
@@ -3671,6 +3698,7 @@ const char *debug_d3dformat(enum wined3d_format_id format_id)
         FMT_TO_STR(WINED3DFMT_R10G10B10A2_UNORM);
         FMT_TO_STR(WINED3DFMT_R10G10B10A2_UINT);
         FMT_TO_STR(WINED3DFMT_R10G10B10A2_SNORM);
+        FMT_TO_STR(WINED3DFMT_R10G10B10_XR_BIAS_A2_UNORM);
         FMT_TO_STR(WINED3DFMT_R11G11B10_FLOAT);
         FMT_TO_STR(WINED3DFMT_R8G8B8A8_TYPELESS);
         FMT_TO_STR(WINED3DFMT_R8G8B8A8_UNORM);
@@ -3738,6 +3766,9 @@ const char *debug_d3dformat(enum wined3d_format_id format_id)
         FMT_TO_STR(WINED3DFMT_B8G8R8A8_UNORM_SRGB);
         FMT_TO_STR(WINED3DFMT_B8G8R8X8_TYPELESS);
         FMT_TO_STR(WINED3DFMT_B8G8R8X8_UNORM_SRGB);
+        FMT_TO_STR(WINED3DFMT_BC6H_TYPELESS);
+        FMT_TO_STR(WINED3DFMT_BC6H_UF16);
+        FMT_TO_STR(WINED3DFMT_BC6H_SF16);
         FMT_TO_STR(WINED3DFMT_BC7_TYPELESS);
         FMT_TO_STR(WINED3DFMT_BC7_UNORM);
         FMT_TO_STR(WINED3DFMT_BC7_UNORM_SRGB);
@@ -5492,36 +5523,13 @@ void sampler_texdim(struct wined3d_context *context, const struct wined3d_state 
     texture_activate_dimensions(state->textures[sampler], context->gl_info);
 }
 
-void *wined3d_rb_alloc(size_t size)
-{
-    return HeapAlloc(GetProcessHeap(), 0, size);
-}
-
-void *wined3d_rb_realloc(void *ptr, size_t size)
-{
-    return HeapReAlloc(GetProcessHeap(), 0, ptr, size);
-}
-
-void wined3d_rb_free(void *ptr)
-{
-    HeapFree(GetProcessHeap(), 0, ptr);
-}
-
-static int ffp_frag_program_key_compare(const void *key, const struct wine_rb_entry *entry)
+int wined3d_ffp_frag_program_key_compare(const void *key, const struct wine_rb_entry *entry)
 {
     const struct ffp_frag_settings *ka = key;
     const struct ffp_frag_settings *kb = &WINE_RB_ENTRY_VALUE(entry, const struct ffp_frag_desc, entry)->settings;
 
     return memcmp(ka, kb, sizeof(*ka));
 }
-
-const struct wine_rb_functions wined3d_ffp_frag_program_rb_functions =
-{
-    wined3d_rb_alloc,
-    wined3d_rb_realloc,
-    wined3d_rb_free,
-    ffp_frag_program_key_compare,
-};
 
 void wined3d_ffp_get_vs_settings(const struct wined3d_context *context,
         const struct wined3d_state *state, struct wined3d_ffp_vs_settings *settings)
@@ -5652,7 +5660,7 @@ void wined3d_ffp_get_vs_settings(const struct wined3d_context *context,
     settings->padding = 0;
 }
 
-static int wined3d_ffp_vertex_program_key_compare(const void *key, const struct wine_rb_entry *entry)
+int wined3d_ffp_vertex_program_key_compare(const void *key, const struct wine_rb_entry *entry)
 {
     const struct wined3d_ffp_vs_settings *ka = key;
     const struct wined3d_ffp_vs_settings *kb = &WINE_RB_ENTRY_VALUE(entry,
@@ -5660,14 +5668,6 @@ static int wined3d_ffp_vertex_program_key_compare(const void *key, const struct 
 
     return memcmp(ka, kb, sizeof(*ka));
 }
-
-const struct wine_rb_functions wined3d_ffp_vertex_program_rb_functions =
-{
-    wined3d_rb_alloc,
-    wined3d_rb_realloc,
-    wined3d_rb_free,
-    wined3d_ffp_vertex_program_key_compare,
-};
 
 const struct blit_shader *wined3d_select_blitter(const struct wined3d_gl_info *gl_info,
         const struct wined3d_d3d_info *d3d_info, enum wined3d_blit_op blit_op,

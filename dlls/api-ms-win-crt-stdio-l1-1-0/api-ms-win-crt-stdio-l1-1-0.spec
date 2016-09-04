@@ -4,11 +4,11 @@
 @ cdecl __stdio_common_vfprintf(int64 ptr str ptr ptr) ucrtbase.__stdio_common_vfprintf
 @ stub __stdio_common_vfprintf_p
 @ stub __stdio_common_vfprintf_s
-@ stub __stdio_common_vfscanf
+@ cdecl __stdio_common_vfscanf(int64 ptr str ptr ptr) ucrtbase.__stdio_common_vfscanf
 @ cdecl __stdio_common_vfwprintf(int64 ptr wstr ptr ptr) ucrtbase.__stdio_common_vfwprintf
 @ stub __stdio_common_vfwprintf_p
 @ stub __stdio_common_vfwprintf_s
-@ stub __stdio_common_vfwscanf
+@ cdecl __stdio_common_vfwscanf(int64 ptr wstr ptr ptr) ucrtbase.__stdio_common_vfwscanf
 @ cdecl __stdio_common_vsnprintf_s(int64 ptr long long str ptr ptr) ucrtbase.__stdio_common_vsnprintf_s
 @ cdecl __stdio_common_vsnwprintf_s(int64 ptr long long wstr ptr ptr) ucrtbase.__stdio_common_vsnwprintf_s
 @ cdecl __stdio_common_vsprintf(int64 ptr long str ptr ptr) ucrtbase.__stdio_common_vsprintf
@@ -18,7 +18,7 @@
 @ cdecl __stdio_common_vswprintf(int64 ptr long wstr ptr ptr) ucrtbase.__stdio_common_vswprintf
 @ cdecl __stdio_common_vswprintf_p(int64 ptr long wstr ptr ptr) ucrtbase.__stdio_common_vswprintf_p
 @ cdecl __stdio_common_vswprintf_s(int64 ptr long wstr ptr ptr) ucrtbase.__stdio_common_vswprintf_s
-@ stub __stdio_common_vswscanf
+@ cdecl __stdio_common_vswscanf(int64 ptr long wstr ptr ptr) ucrtbase.__stdio_common_vswscanf
 @ cdecl _chsize(long long) ucrtbase._chsize
 @ cdecl _chsize_s(long int64) ucrtbase._chsize_s
 @ cdecl _close(long) ucrtbase._close

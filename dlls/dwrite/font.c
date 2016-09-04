@@ -3109,6 +3109,7 @@ static BOOL font_apply_differentiation_rules(struct dwrite_font_data *font, WCHA
         static const WCHAR ultraexpandedW[] = {'U','l','t','r','a',' ','E','x','p','a','n','d','e','d',0};
 
         static const WCHAR *stretchnamesW[] = {
+            NULL, /* DWRITE_FONT_STRETCH_UNDEFINED */
             ultracondensedW,
             extracondensedW,
             condensedW,
@@ -4500,6 +4501,10 @@ static HRESULT WINAPI localfontfileloader_CreateStreamFromKey(IDWriteLocalFontFi
 
     file_ptr = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0);
     CloseHandle(mapping);
+    if (!file_ptr) {
+        ERR("mapping failed, file size %s, error %d\n", wine_dbgstr_longlong(size.QuadPart), GetLastError());
+        return E_FAIL;
+    }
 
     stream = heap_alloc(sizeof(*stream));
     if (!stream) {

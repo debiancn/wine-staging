@@ -370,10 +370,10 @@ static HRESULT WINAPI d3d_viewport_SetViewport(IDirect3DViewport3 *iface, D3DVIE
  *
  * Params:
  *  dwVertexCount: The number of vertices to be transformed
- *  lpData: Pointer to the vertex data
+ *  data: Pointer to the vertex input / output data.
  *  dwFlags: D3DTRANSFORM_CLIPPED or D3DTRANSFORM_UNCLIPPED
- *  lpOffScreen: Set to the clipping plane clipping the vertex, if only one
- *               vertex is transformed and clipping is on. 0 otherwise
+ *  offscreen: Logical AND of the planes that clipped the vertices if clipping
+ *          is on. 0 if clipping is off.
  *
  * Returns:
  *  D3D_OK on success
@@ -381,20 +381,28 @@ static HRESULT WINAPI d3d_viewport_SetViewport(IDirect3DViewport3 *iface, D3DVIE
  *  DDERR_INVALIDPARAMS if no clipping flag is specified
  *
  *****************************************************************************/
+struct transform_vertices_vertex
+{
+    float x, y, z, w; /* w is unused in input data. */
+    struct
+    {
+        DWORD p[4];
+    } payload;
+};
+
 static HRESULT WINAPI d3d_viewport_TransformVertices(IDirect3DViewport3 *iface,
-        DWORD dwVertexCount, D3DTRANSFORMDATA *lpData, DWORD dwFlags, DWORD *lpOffScreen)
+        DWORD dwVertexCount, D3DTRANSFORMDATA *data, DWORD dwFlags, DWORD *offscreen)
 {
     struct d3d_viewport *viewport = impl_from_IDirect3DViewport3(iface);
     D3DVIEWPORT vp = viewport->viewports.vp1;
     D3DMATRIX view_mat, world_mat, mat;
-    float *in;
-    float *out;
+    struct transform_vertices_vertex *in, *out;
     float x, y, z, w;
     unsigned int i;
     D3DHVERTEX *outH;
 
-    TRACE("iface %p, vertex_count %u, vertex_data %p, flags %#x, clip_plane %p.\n",
-            iface, dwVertexCount, lpData, dwFlags, lpOffScreen);
+    TRACE("iface %p, vertex_count %u, data %p, flags %#x, offscreen %p.\n",
+            iface, dwVertexCount, data, dwFlags, offscreen);
 
     /* Tests on windows show that Windows crashes when this occurs,
      * so don't return the (intuitive) return value
@@ -405,7 +413,12 @@ static HRESULT WINAPI d3d_viewport_TransformVertices(IDirect3DViewport3 *iface,
     }
      */
 
-    if(!(dwFlags & (D3DTRANSFORM_UNCLIPPED | D3DTRANSFORM_CLIPPED)))
+    if (!data || data->dwSize != sizeof(*data))
+    {
+        WARN("Transform data is NULL or size is incorrect, returning DDERR_INVALIDPARAMS\n");
+        return DDERR_INVALIDPARAMS;
+    }
+    if (!(dwFlags & (D3DTRANSFORM_UNCLIPPED | D3DTRANSFORM_CLIPPED)))
     {
         WARN("No clipping flag passed, returning DDERR_INVALIDPARAMS\n");
         return DDERR_INVALIDPARAMS;
@@ -420,15 +433,22 @@ static HRESULT WINAPI d3d_viewport_TransformVertices(IDirect3DViewport3 *iface,
     multiply_matrix(&mat, &view_mat, &world_mat);
     multiply_matrix(&mat, &viewport->active_device->legacy_projection, &mat);
 
-    in = lpData->lpIn;
-    out = lpData->lpOut;
-    outH = lpData->lpHOut;
+    /* The pointer is not tested against NULL on Windows. */
+    if (dwFlags & D3DTRANSFORM_CLIPPED)
+        *offscreen = ~0U;
+    else
+        *offscreen = 0;
+
+    outH = data->lpHOut;
     for(i = 0; i < dwVertexCount; i++)
     {
-        x = (in[0] * mat._11) + (in[1] * mat._21) + (in[2] * mat._31) + mat._41;
-        y = (in[0] * mat._12) + (in[1] * mat._22) + (in[2] * mat._32) + mat._42;
-        z = (in[0] * mat._13) + (in[1] * mat._23) + (in[2] * mat._33) + mat._43;
-        w = (in[0] * mat._14) + (in[1] * mat._24) + (in[2] * mat._34) + mat._44;
+        in = (struct transform_vertices_vertex *)((char *)data->lpIn + data->dwInSize * i);
+        out = (struct transform_vertices_vertex *)((char *)data->lpOut + data->dwOutSize * i);
+
+        x = (in->x * mat._11) + (in->y * mat._21) + (in->z * mat._31) + mat._41;
+        y = (in->x * mat._12) + (in->y * mat._22) + (in->z * mat._32) + mat._42;
+        z = (in->x * mat._13) + (in->y * mat._23) + (in->z * mat._33) + mat._43;
+        w = (in->x * mat._14) + (in->y * mat._24) + (in->z * mat._34) + mat._44;
 
         if(dwFlags & D3DTRANSFORM_CLIPPED)
         {
@@ -451,6 +471,8 @@ static HRESULT WINAPI d3d_viewport_TransformVertices(IDirect3DViewport3 *iface,
             if(z > 1.0)
                 outH[i].dwFlags |= D3DCLIP_BACK;
 
+            *offscreen &= outH[i].dwFlags;
+
             if(outH[i].dwFlags)
             {
                 /* Looks like native just drops the vertex, leaves whatever data
@@ -458,12 +480,10 @@ static HRESULT WINAPI d3d_viewport_TransformVertices(IDirect3DViewport3 *iface,
                  * The exact scheme hasn't been figured out yet, but windows
                  * definitely writes something there.
                  */
-                out[0] = x;
-                out[1] = y;
-                out[2] = z;
-                out[3] = w;
-                in = (float *) ((char *) in + lpData->dwInSize);
-                out = (float *) ((char *) out + lpData->dwOutSize);
+                out->x = x;
+                out->y = y;
+                out->z = z;
+                out->w = w;
                 continue;
             }
         }
@@ -471,30 +491,13 @@ static HRESULT WINAPI d3d_viewport_TransformVertices(IDirect3DViewport3 *iface,
         w = 1 / w;
         x *= w; y *= w; z *= w;
 
-        out[0] = vp.dwWidth / 2 + vp.dwX + x * vp.dvScaleX;
-        out[1] = vp.dwHeight / 2 + vp.dwY - y * vp.dvScaleY;
-        out[2] = z;
-        out[3] = w;
-        in = (float *) ((char *) in + lpData->dwInSize);
-        out = (float *) ((char *) out + lpData->dwOutSize);
+        out->x = vp.dwWidth / 2 + vp.dwX + x * vp.dvScaleX;
+        out->y = vp.dwHeight / 2 + vp.dwY - y * vp.dvScaleY;
+        out->z = z;
+        out->w = w;
+        out->payload = in->payload;
     }
 
-    /* According to the d3d test, the offscreen flag is set only
-     * if exactly one vertex is transformed. It's not documented,
-     * but the test shows that the lpOffscreen flag is set to the
-     * flag combination of clipping planes that clips the vertex.
-     *
-     * If clipping is requested, Windows assumes that the offscreen
-     * param is a valid pointer.
-     */
-    if(dwVertexCount == 1 && dwFlags & D3DTRANSFORM_CLIPPED)
-    {
-        *lpOffScreen = outH[0].dwFlags;
-    }
-    else if(*lpOffScreen)
-    {
-        *lpOffScreen = 0;
-    }
     wined3d_mutex_unlock();
 
     TRACE("All done\n");

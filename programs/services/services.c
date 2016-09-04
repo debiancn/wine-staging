@@ -36,13 +36,12 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(service);
 
-HANDLE g_hStartedEvent;
 struct scmdatabase *active_database;
 
 DWORD service_pipe_timeout = 10000;
 DWORD service_kill_timeout = 60000;
 static DWORD default_preshutdown_timeout = 180000;
-static void *env = NULL;
+static void *environment = NULL;
 static HKEY service_current_key = NULL;
 
 static const BOOL is_win64 = (sizeof(void *) > sizeof(int));
@@ -83,9 +82,6 @@ static DWORD process_create(const WCHAR *name, struct process_entry **entry)
     (*entry)->overlapped_event = CreateEventW(NULL, TRUE, FALSE, NULL);
     if (!(*entry)->overlapped_event)
         goto error;
-    (*entry)->status_changed_event = CreateEventW(NULL, FALSE, FALSE, NULL);
-    if (!(*entry)->status_changed_event)
-        goto error;
     (*entry)->control_pipe = CreateNamedPipeW(name, PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
                                               PIPE_TYPE_BYTE|PIPE_WAIT, 1, 256, 256, 10000, NULL);
     if ((*entry)->control_pipe == INVALID_HANDLE_VALUE)
@@ -99,8 +95,6 @@ error:
         CloseHandle((*entry)->control_mutex);
     if ((*entry)->overlapped_event)
         CloseHandle((*entry)->overlapped_event);
-    if ((*entry)->status_changed_event)
-        CloseHandle((*entry)->status_changed_event);
     HeapFree(GetProcessHeap(), 0, *entry);
     return err;
 }
@@ -111,7 +105,6 @@ static void free_process_entry(struct process_entry *entry)
     CloseHandle(entry->control_mutex);
     CloseHandle(entry->control_pipe);
     CloseHandle(entry->overlapped_event);
-    CloseHandle(entry->status_changed_event);
     HeapFree(GetProcessHeap(), 0, entry);
 }
 
@@ -126,6 +119,13 @@ DWORD service_create(LPCWSTR name, struct service_entry **entry)
         HeapFree(GetProcessHeap(), 0, *entry);
         return ERROR_NOT_ENOUGH_SERVER_MEMORY;
     }
+    (*entry)->status_changed_event = CreateEventW(NULL, TRUE, FALSE, NULL);
+    if (!(*entry)->status_changed_event)
+    {
+        HeapFree(GetProcessHeap(), 0, (*entry)->name);
+        HeapFree(GetProcessHeap(), 0, *entry);
+        return GetLastError();
+    }
     (*entry)->ref_count = 1;
     (*entry)->status.dwCurrentState = SERVICE_STOPPED;
     (*entry)->status.dwWin32ExitCode = ERROR_SERVICE_NEVER_STARTED;
@@ -136,6 +136,7 @@ DWORD service_create(LPCWSTR name, struct service_entry **entry)
 
 void free_service_entry(struct service_entry *entry)
 {
+    CloseHandle(entry->status_changed_event);
     HeapFree(GetProcessHeap(), 0, entry->name);
     HeapFree(GetProcessHeap(), 0, entry->config.lpBinaryPathName);
     HeapFree(GetProcessHeap(), 0, entry->config.lpDependencies);
@@ -318,6 +319,13 @@ static void scmdatabase_remove_service(struct scmdatabase *db, struct service_en
     service->entry.next = service->entry.prev = NULL;
 }
 
+static int compare_tags(const void *a, const void *b)
+{
+    struct service_entry *service_a = *(struct service_entry **)a;
+    struct service_entry *service_b = *(struct service_entry **)b;
+    return service_a->config.dwTagId - service_b->config.dwTagId;
+}
+
 static void scmdatabase_autostart_services(struct scmdatabase *db)
 {
     struct service_entry **services_list;
@@ -346,15 +354,15 @@ static void scmdatabase_autostart_services(struct scmdatabase *db)
                     break;
                 services_list = slist_new;
             }
-            services_list[i] = service;
-            InterlockedIncrement(&service->ref_count);
-            i++;
+            services_list[i++] = grab_service(service);
         }
     }
+    size = i;
 
     scmdatabase_unlock(db);
+    qsort(services_list, size, sizeof(services_list[0]), compare_tags);
+    while (!scmdatabase_lock_startup(db)) Sleep(10);
 
-    size = i;
     for (i = 0; i < size; i++)
     {
         DWORD err;
@@ -366,6 +374,7 @@ static void scmdatabase_autostart_services(struct scmdatabase *db)
         release_service(service);
     }
 
+    scmdatabase_unlock_startup(db);
     HeapFree(GetProcessHeap(), 0, services_list);
 }
 
@@ -494,6 +503,13 @@ void release_process(struct process_entry *process)
     scmdatabase_unlock(db);
 }
 
+struct service_entry *grab_service(struct service_entry *service)
+{
+    if (service)
+        InterlockedIncrement(&service->ref_count);
+    return service;
+}
+
 void release_service(struct service_entry *service)
 {
     struct scmdatabase *db = service->db;
@@ -603,11 +619,9 @@ static DWORD scmdatabase_load_services(struct scmdatabase *db)
     return ERROR_SUCCESS;
 }
 
-DWORD scmdatabase_lock_startup(struct scmdatabase *db)
+BOOL scmdatabase_lock_startup(struct scmdatabase *db)
 {
-    if (InterlockedCompareExchange(&db->service_start_lock, TRUE, FALSE))
-        return ERROR_SERVICE_DATABASE_LOCKED;
-    return ERROR_SUCCESS;
+    return !InterlockedCompareExchange(&db->service_start_lock, TRUE, FALSE);
 }
 
 void scmdatabase_unlock_startup(struct scmdatabase *db)
@@ -669,35 +683,6 @@ static DWORD get_service_binary_path(const struct service_entry *service_entry, 
 
     ExpandEnvironmentStringsW(service_entry->config.lpBinaryPathName, *path, size);
 
-    if (service_entry->config.dwServiceType == SERVICE_KERNEL_DRIVER ||
-        service_entry->config.dwServiceType == SERVICE_FILE_SYSTEM_DRIVER)
-    {
-        static const WCHAR winedeviceW[] = {'\\','w','i','n','e','d','e','v','i','c','e','.','e','x','e',' ',0};
-        WCHAR system_dir[MAX_PATH];
-        DWORD type, len;
-
-        GetSystemDirectoryW( system_dir, MAX_PATH );
-        if (is_win64)
-        {
-            if (!GetBinaryTypeW( *path, &type ))
-            {
-                HeapFree( GetProcessHeap(), 0, *path );
-                return GetLastError();
-            }
-            if (type == SCS_32BIT_BINARY) GetSystemWow64DirectoryW( system_dir, MAX_PATH );
-        }
-
-        len = strlenW( system_dir ) + sizeof(winedeviceW)/sizeof(WCHAR) + strlenW(service_entry->name);
-        HeapFree( GetProcessHeap(), 0, *path );
-        if (!(*path = HeapAlloc( GetProcessHeap(), 0, len * sizeof(WCHAR) )))
-            return ERROR_NOT_ENOUGH_SERVER_MEMORY;
-
-        lstrcpyW( *path, system_dir );
-        lstrcatW( *path, winedeviceW );
-        lstrcatW( *path, service_entry->name );
-        return ERROR_SUCCESS;
-    }
-
     /* if service image is configured to systemdir, redirect it to wow64 systemdir */
     if (service_entry->is_wow64)
     {
@@ -729,12 +714,108 @@ static DWORD get_service_binary_path(const struct service_entry *service_entry, 
     return ERROR_SUCCESS;
 }
 
-static DWORD service_start_process(struct service_entry *service_entry, struct process_entry **new_process)
+static DWORD get_winedevice_binary_path(WCHAR **path, BOOL *is_wow64)
+{
+    static const WCHAR winedeviceW[] = {'\\','w','i','n','e','d','e','v','i','c','e','.','e','x','e',0};
+    WCHAR system_dir[MAX_PATH];
+    DWORD type;
+
+    if (!is_win64)
+        *is_wow64 = FALSE;
+    else if (GetBinaryTypeW(*path, &type))
+        *is_wow64 = (type == SCS_32BIT_BINARY);
+    else
+        return GetLastError();
+
+    GetSystemDirectoryW(system_dir, MAX_PATH);
+    HeapFree(GetProcessHeap(), 0, *path);
+    if (!(*path = HeapAlloc(GetProcessHeap(), 0, strlenW(system_dir) * sizeof(WCHAR) + sizeof(winedeviceW))))
+       return ERROR_NOT_ENOUGH_SERVER_MEMORY;
+
+    strcpyW(*path, system_dir);
+    strcatW(*path, winedeviceW);
+    return ERROR_SUCCESS;
+}
+
+static struct process_entry *get_winedevice_process(struct service_entry *service_entry, WCHAR *path, BOOL is_wow64)
+{
+    struct service_entry *winedevice_entry;
+
+    if (!service_entry->config.lpLoadOrderGroup)
+        return NULL;
+
+    LIST_FOR_EACH_ENTRY(winedevice_entry, &service_entry->db->services, struct service_entry, entry)
+    {
+        if (winedevice_entry->status.dwCurrentState != SERVICE_START_PENDING &&
+            winedevice_entry->status.dwCurrentState != SERVICE_RUNNING) continue;
+        if (!winedevice_entry->process) continue;
+
+        if (winedevice_entry->is_wow64 != is_wow64) continue;
+        if (strcmpW(winedevice_entry->config.lpBinaryPathName, path)) continue;
+
+        if (!winedevice_entry->config.lpLoadOrderGroup) continue;
+        if (strcmpW(winedevice_entry->config.lpLoadOrderGroup, service_entry->config.lpLoadOrderGroup)) continue;
+
+        return grab_process(winedevice_entry->process);
+    }
+
+    return NULL;
+}
+
+static DWORD add_winedevice_service(const struct service_entry *service, WCHAR *path, BOOL is_wow64,
+                                    struct service_entry **entry)
+{
+    static const WCHAR format[] = {'W','i','n','e','d','e','v','i','c','e','%','u',0};
+    static WCHAR name[sizeof(format)/sizeof(WCHAR) + 10]; /* strlenW("4294967295") */
+    static DWORD current = 0;
+    struct scmdatabase *db = service->db;
+    DWORD err;
+
+    for (;;)
+    {
+        sprintfW(name, format, ++current);
+        if (!scmdatabase_find_service(db, name)) break;
+    }
+
+    err = service_create(name, entry);
+    if (err != ERROR_SUCCESS)
+        return err;
+
+    (*entry)->is_wow64                  = is_wow64;
+    (*entry)->config.dwServiceType      = SERVICE_WIN32_OWN_PROCESS;
+    (*entry)->config.dwStartType        = SERVICE_DEMAND_START;
+    (*entry)->status.dwServiceType      = (*entry)->config.dwServiceType;
+
+    if (!((*entry)->config.lpBinaryPathName = strdupW(path)))
+        goto error;
+    if (!((*entry)->config.lpServiceStartName = strdupW(SZ_LOCAL_SYSTEM)))
+        goto error;
+    if (!((*entry)->config.lpDisplayName = strdupW(name)))
+        goto error;
+    if (service->config.lpLoadOrderGroup &&
+        !((*entry)->config.lpLoadOrderGroup = strdupW(service->config.lpLoadOrderGroup)))
+        goto error;
+
+    (*entry)->db = db;
+
+    list_add_tail(&db->services, &(*entry)->entry);
+    mark_for_delete(*entry);
+    return ERROR_SUCCESS;
+
+error:
+    free_service_entry(*entry);
+    return ERROR_NOT_ENOUGH_SERVER_MEMORY;
+}
+
+static DWORD service_start_process(struct service_entry *service_entry, struct process_entry **new_process,
+                                   BOOL *shared_process)
 {
     struct process_entry *process;
     PROCESS_INFORMATION pi;
     STARTUPINFOW si;
-    LPWSTR path = NULL;
+    BOOL is_wow64 = FALSE;
+    HANDLE token;
+    WCHAR *path;
     DWORD err;
     BOOL r;
 
@@ -747,24 +828,94 @@ static DWORD service_start_process(struct service_entry *service_entry, struct p
             service_unlock(service_entry);
             return ERROR_SERVICE_ALREADY_RUNNING;
         }
-        release_process(process);
         service_entry->process = NULL;
+        process->use_count--;
+        release_process(process);
     }
 
     service_entry->force_shutdown = FALSE;
+
+    if ((err = get_service_binary_path(service_entry, &path)))
+    {
+        service_unlock(service_entry);
+        return err;
+    }
+
+    if (service_entry->config.dwServiceType == SERVICE_KERNEL_DRIVER ||
+        service_entry->config.dwServiceType == SERVICE_FILE_SYSTEM_DRIVER)
+    {
+        struct service_entry *winedevice_entry;
+        WCHAR *group;
+
+        if ((err = get_winedevice_binary_path(&path, &is_wow64)))
+        {
+            service_unlock(service_entry);
+            HeapFree(GetProcessHeap(), 0, path);
+            return err;
+        }
+
+        if ((process = get_winedevice_process(service_entry, path, is_wow64)))
+        {
+            HeapFree(GetProcessHeap(), 0, path);
+            goto found;
+        }
+
+        err = add_winedevice_service(service_entry, path, is_wow64, &winedevice_entry);
+        HeapFree(GetProcessHeap(), 0, path);
+        if (err != ERROR_SUCCESS)
+        {
+            service_unlock(service_entry);
+            return err;
+        }
+
+        group = strdupW(winedevice_entry->config.lpLoadOrderGroup);
+        service_unlock(service_entry);
+
+        err = service_start(winedevice_entry, group != NULL, (const WCHAR **)&group);
+        HeapFree(GetProcessHeap(), 0, group);
+        if (err != ERROR_SUCCESS)
+        {
+            release_service(winedevice_entry);
+            return err;
+        }
+
+        service_lock(service_entry);
+        process = grab_process(winedevice_entry->process);
+        release_service(winedevice_entry);
+
+        if (!process)
+        {
+            service_unlock(service_entry);
+            return ERROR_SERVICE_REQUEST_TIMEOUT;
+        }
+
+found:
+        service_entry->status.dwCurrentState = SERVICE_START_PENDING;
+        service_entry->status.dwControlsAccepted = 0;
+        ResetEvent(service_entry->status_changed_event);
+
+        service_entry->process = grab_process(process);
+        service_entry->shared_process = *shared_process = TRUE;
+        process->use_count++;
+        service_unlock(service_entry);
+
+        err = WaitForSingleObject(process->control_mutex, 30000);
+        if (err != WAIT_OBJECT_0)
+        {
+            release_process(process);
+            return ERROR_SERVICE_REQUEST_TIMEOUT;
+        }
+
+        *new_process = process;
+        return ERROR_SUCCESS;
+    }
 
     if ((err = process_create(service_get_pipe_name(), &process)))
     {
         WINE_ERR("failed to create process object for %s, error = %u\n",
                  wine_dbgstr_w(service_entry->name), err);
         service_unlock(service_entry);
-        return err;
-    }
-
-    if ((err = get_service_binary_path(service_entry, &path)))
-    {
-        service_unlock(service_entry);
-        free_process_entry(process);
+        HeapFree(GetProcessHeap(), 0, path);
         return err;
     }
 
@@ -776,22 +927,33 @@ static DWORD service_start_process(struct service_entry *service_entry, struct p
         si.lpDesktop = desktopW;
     }
 
-    service_entry->status.dwCurrentState = SERVICE_START_PENDING;
-    scmdatabase_add_process(service_entry->db, process);
-    service_entry->process = process;
+    if (!environment && OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_DUPLICATE, &token))
+    {
+        CreateEnvironmentBlock(&environment, token, FALSE);
+        CloseHandle(token);
+    }
 
+    service_entry->status.dwCurrentState = SERVICE_START_PENDING;
+    service_entry->status.dwControlsAccepted = 0;
+    ResetEvent(service_entry->status_changed_event);
+
+    scmdatabase_add_process(service_entry->db, process);
+    service_entry->process = grab_process(process);
+    service_entry->shared_process = *shared_process = FALSE;
+    process->use_count++;
     service_unlock(service_entry);
 
-    r = CreateProcessW(NULL, path, NULL, NULL, FALSE, CREATE_UNICODE_ENVIRONMENT, env, NULL, &si, &pi);
-    HeapFree(GetProcessHeap(),0,path);
+    r = CreateProcessW(NULL, path, NULL, NULL, FALSE, CREATE_UNICODE_ENVIRONMENT, environment, NULL, &si, &pi);
+    HeapFree(GetProcessHeap(), 0, path);
     if (!r)
     {
         err = GetLastError();
-        service_terminate(service_entry);
+        process_terminate(process);
+        release_process(process);
         return err;
     }
 
-    service_entry->status.dwProcessId = pi.dwProcessId;
+    process->process_id = pi.dwProcessId;
     process->process = pi.hProcess;
     CloseHandle( pi.hThread );
 
@@ -799,38 +961,32 @@ static DWORD service_start_process(struct service_entry *service_entry, struct p
     return ERROR_SUCCESS;
 }
 
-static DWORD process_wait_for_startup(struct process_entry *process)
+static DWORD service_wait_for_startup(struct service_entry *service, struct process_entry *process)
 {
-    HANDLE handles[2] = { process->status_changed_event, process->process };
-    DWORD ret;
+    HANDLE handles[2] = { service->status_changed_event, process->process };
+    DWORD result;
 
-    ret = WaitForMultipleObjects( 2, handles, FALSE, service_pipe_timeout );
-    return (ret == WAIT_OBJECT_0) ? ERROR_SUCCESS : ERROR_SERVICE_REQUEST_TIMEOUT;
-}
-
-static DWORD service_is_running(struct service_entry *service)
-{
-    DWORD state;
+    result = WaitForMultipleObjects( 2, handles, FALSE, service_pipe_timeout );
+    if (result != WAIT_OBJECT_0)
+        return ERROR_SERVICE_REQUEST_TIMEOUT;
 
     service_lock(service);
-    state = service->status.dwCurrentState;
+    result = service->status.dwCurrentState;
     service_unlock(service);
 
-    return (state == SERVICE_START_PENDING || state == SERVICE_RUNNING) ?
+    return (result == SERVICE_START_PENDING || result == SERVICE_RUNNING) ?
            ERROR_SUCCESS : ERROR_SERVICE_REQUEST_TIMEOUT;
 }
 
 /******************************************************************************
  * process_send_start_message
  */
-static BOOL process_send_start_message(struct process_entry *process, const WCHAR *name,
-                                       LPCWSTR *argv, DWORD argc)
+static DWORD process_send_start_message(struct process_entry *process, BOOL shared_process,
+                                        const WCHAR *name, const WCHAR **argv, DWORD argc)
 {
     OVERLAPPED overlapped;
     DWORD i, len, result;
-    service_start_info *ssi;
-    LPWSTR p;
-    BOOL r;
+    WCHAR *str, *p;
 
     WINE_TRACE("%p %s %p %d\n", process, wine_dbgstr_w(name), argv, argc);
 
@@ -847,98 +1003,72 @@ static BOOL process_send_start_message(struct process_entry *process, const WCHA
             if (!HasOverlappedIoCompleted( &overlapped ))
             {
                 WINE_ERR("service %s failed to start\n", wine_dbgstr_w(name));
-                return FALSE;
+                return ERROR_SERVICE_REQUEST_TIMEOUT;
             }
         }
         else if (GetLastError() != ERROR_PIPE_CONNECTED)
         {
             WINE_ERR("pipe connect failed\n");
-            return FALSE;
+            return ERROR_SERVICE_REQUEST_TIMEOUT;
         }
     }
 
-    /* calculate how much space do we need to send the startup info */
     len = strlenW(name) + 1;
-    for (i=0; i<argc; i++)
+    for (i = 0; i < argc; i++)
         len += strlenW(argv[i])+1;
-    len++;
+    len = (len + 1) * sizeof(WCHAR);
 
-    ssi = HeapAlloc(GetProcessHeap(),0,FIELD_OFFSET(service_start_info, data[len]));
-    ssi->cmd = WINESERV_STARTINFO;
-    ssi->control = 0;
-    ssi->total_size = FIELD_OFFSET(service_start_info, data[len]);
-    ssi->name_size = strlenW(name) + 1;
-    strcpyW(ssi->data, name);
+    if (!(str = HeapAlloc(GetProcessHeap(), 0, len)))
+        return ERROR_NOT_ENOUGH_SERVER_MEMORY;
 
-    /* copy service args into a single buffer*/
-    p = &ssi->data[ssi->name_size];
-    for (i=0; i<argc; i++)
+    p = str;
+    strcpyW(p, name);
+    p += strlenW(name) + 1;
+    for (i = 0; i < argc; i++)
     {
         strcpyW(p, argv[i]);
         p += strlenW(p) + 1;
     }
-    *p=0;
+    *p = 0;
 
-    r = process_send_command( process, ssi, ssi->total_size, &result );
-    if (r && result)
-    {
-        SetLastError(result);
-        r = FALSE;
-    }
+    if (!process_send_control(process, shared_process, name,
+                              SERVICE_CONTROL_START, (const BYTE *)str, len, &result))
+        result = ERROR_SERVICE_REQUEST_TIMEOUT;
 
-    HeapFree(GetProcessHeap(),0,ssi);
-
-    return r;
+    HeapFree(GetProcessHeap(), 0, str);
+    return result;
 }
 
 DWORD service_start(struct service_entry *service, DWORD service_argc, LPCWSTR *service_argv)
 {
     struct process_entry *process = NULL;
+    BOOL shared_process;
     DWORD err;
 
-    err = scmdatabase_lock_startup(service->db);
-    if (err != ERROR_SUCCESS)
-        return err;
-
-    err = service_start_process(service, &process);
+    err = service_start_process(service, &process, &shared_process);
     if (err == ERROR_SUCCESS)
     {
-        if (!process_send_start_message(process, service->name, service_argv, service_argc))
-            err = ERROR_SERVICE_REQUEST_TIMEOUT;
+        err = process_send_start_message(process, shared_process, service->name, service_argv, service_argc);
 
         if (err == ERROR_SUCCESS)
-            err = process_wait_for_startup(process);
+            err = service_wait_for_startup(service, process);
 
-        if (err == ERROR_SUCCESS)
-            err = service_is_running(service);
+        if (err != ERROR_SUCCESS)
+        {
+            service_lock(service);
+            service->status.dwCurrentState = SERVICE_STOPPED;
+            service->process = NULL;
+            if (!--process->use_count) process_terminate(process);
+            release_process(process);
+            service_unlock(service);
+        }
 
-        if (err == ERROR_SUCCESS)
-            ReleaseMutex(process->control_mutex);
-        else
-            service_terminate(service);
+        ReleaseMutex(process->control_mutex);
+        release_process(process);
     }
-
-    scmdatabase_unlock_startup(service->db);
 
     WINE_TRACE("returning %d\n", err);
-
     return err;
-}
-
-void service_terminate(struct service_entry *service)
-{
-    struct process_entry *process;
-
-    service_lock(service);
-    if ((process = service->process))
-    {
-        TerminateProcess(process->process, 0);
-        release_process(process);
-        service->process = NULL;
-    }
-    service->status.dwProcessId = 0;
-    service->status.dwCurrentState = SERVICE_STOPPED;
-    service_unlock(service);
 }
 
 void process_terminate(struct process_entry *process)
@@ -951,9 +1081,10 @@ void process_terminate(struct process_entry *process)
     LIST_FOR_EACH_ENTRY(service, &db->services, struct service_entry, entry)
     {
         if (service->process != process) continue;
-        service->status.dwProcessId = 0;
         service->status.dwCurrentState = SERVICE_STOPPED;
         service->process = NULL;
+        process->use_count--;
+        release_process(process);
     }
     scmdatabase_unlock(db);
 }
@@ -994,19 +1125,10 @@ int main(int argc, char *argv[])
         'C','o','n','t','r','o','l','\\',
         'S','e','r','v','i','c','e','C','u','r','r','e','n','t',0};
     static const WCHAR svcctl_started_event[] = SVCCTL_STARTED_EVENT;
-    HANDLE htok;
+    HANDLE started_event;
     DWORD err;
 
-    g_hStartedEvent = CreateEventW(NULL, TRUE, FALSE, svcctl_started_event);
-
-    if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY|TOKEN_DUPLICATE, &htok))
-    {
-        CreateEnvironmentBlock(&env, htok, FALSE);
-        CloseHandle(htok);
-    }
-
-    if (!env)
-        WINE_ERR("failed to create services environment\n");
+    started_event = CreateEventW(NULL, TRUE, FALSE, svcctl_started_event);
 
     err = RegCreateKeyExW(HKEY_LOCAL_MACHINE, service_current_key_str, 0,
         NULL, REG_OPTION_VOLATILE, KEY_SET_VALUE | KEY_QUERY_VALUE, NULL,
@@ -1023,12 +1145,14 @@ int main(int argc, char *argv[])
     if ((err = RPC_Init()) == ERROR_SUCCESS)
     {
         scmdatabase_autostart_services(active_database);
-        events_loop();
+        SetEvent(started_event);
+        WaitForSingleObject(exit_event, INFINITE);
         scmdatabase_wait_terminate(active_database);
+        RPC_Stop();
     }
     scmdatabase_destroy(active_database);
-    if (env)
-        DestroyEnvironmentBlock(env);
+    if (environment)
+        DestroyEnvironmentBlock(environment);
 
     WINE_TRACE("services.exe exited with code %d\n", err);
     return err;

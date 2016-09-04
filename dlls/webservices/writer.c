@@ -558,6 +558,12 @@ static HRESULT write_add_namespace_attribute( struct writer *writer, const WS_XM
     return S_OK;
 }
 
+static inline BOOL str_equal( const WS_XML_STRING *str1, const WS_XML_STRING *str2 )
+{
+    if (!str1 && !str2) return TRUE;
+    return WsXmlStringEquals( str1, str2, NULL ) == S_OK;
+}
+
 static BOOL namespace_in_scope( const WS_XML_ELEMENT_NODE *elem, const WS_XML_STRING *prefix,
                                 const WS_XML_STRING *ns )
 {
@@ -572,11 +578,8 @@ static BOOL namespace_in_scope( const WS_XML_ELEMENT_NODE *elem, const WS_XML_ST
         for (i = 0; i < elem->attributeCount; i++)
         {
             if (!elem->attributes[i]->isXmlNs) continue;
-            if (WsXmlStringEquals( elem->attributes[i]->prefix, prefix, NULL ) == S_OK &&
-                WsXmlStringEquals( elem->attributes[i]->ns, ns, NULL ) == S_OK)
-            {
-                return TRUE;
-            }
+            if (str_equal( elem->attributes[i]->prefix, prefix ) &&
+                str_equal( elem->attributes[i]->ns, ns )) return TRUE;
         }
     }
     return FALSE;
@@ -587,8 +590,7 @@ static HRESULT write_set_element_namespace( struct writer *writer )
     WS_XML_ELEMENT_NODE *elem = &writer->current->hdr;
     HRESULT hr;
 
-    if (!elem->ns->length || is_current_namespace( writer, elem->ns ) ||
-        namespace_in_scope( elem, elem->prefix, elem->ns )) return S_OK;
+    if (!elem->ns->length || namespace_in_scope( elem, elem->prefix, elem->ns )) return S_OK;
 
     if ((hr = write_add_namespace_attribute( writer, elem->prefix, elem->ns, FALSE )) != S_OK)
         return hr;
@@ -1497,6 +1499,39 @@ static HRESULT write_type_uint64( struct writer *writer, WS_TYPE_MAPPING mapping
     return write_type_text( writer, mapping, &utf8.text );
 }
 
+static HRESULT write_type_guid( struct writer *writer, WS_TYPE_MAPPING mapping,
+                                const WS_GUID_DESCRIPTION *desc, const GUID *value )
+{
+    WS_XML_UTF8_TEXT utf8;
+    unsigned char buf[37]; /* "00000000-0000-0000-0000-000000000000" */
+
+    if (desc)
+    {
+        FIXME( "description not supported\n" );
+        return E_NOTIMPL;
+    }
+    utf8.text.textType = WS_XML_TEXT_TYPE_UTF8;
+    utf8.value.bytes   = buf;
+    utf8.value.length  = format_guid( value, buf );
+    return write_type_text( writer, mapping, &utf8.text );
+}
+
+static HRESULT write_type_string( struct writer *writer, WS_TYPE_MAPPING mapping,
+                                  const WS_STRING_DESCRIPTION *desc, const WS_STRING *value )
+{
+    WS_XML_UTF16_TEXT utf16;
+
+    if (desc)
+    {
+        FIXME( "description not supported\n" );
+        return E_NOTIMPL;
+    }
+    utf16.text.textType = WS_XML_TEXT_TYPE_UTF16;
+    utf16.bytes         = (BYTE *)value->chars;
+    utf16.byteCount     = value->length * sizeof(WCHAR);
+    return write_type_text( writer, mapping, &utf16.text );
+}
+
 static HRESULT write_type_wsz( struct writer *writer, WS_TYPE_MAPPING mapping,
                                const WS_WSZ_DESCRIPTION *desc, const WCHAR *value )
 {
@@ -1513,6 +1548,42 @@ static HRESULT write_type_wsz( struct writer *writer, WS_TYPE_MAPPING mapping,
     return write_type_text( writer, mapping, &utf16.text );
 }
 
+static HRESULT write_type_xml_string( struct writer *writer, WS_TYPE_MAPPING mapping,
+                                      const WS_XML_STRING_DESCRIPTION *desc, const WS_XML_STRING *value )
+{
+    WS_XML_UTF8_TEXT utf8;
+
+    if (desc)
+    {
+        FIXME( "description not supported\n" );
+        return E_NOTIMPL;
+    }
+    utf8.text.textType = WS_XML_TEXT_TYPE_UTF8;
+    utf8.value.bytes   = value->bytes;
+    utf8.value.length  = value->length;
+    return write_type_text( writer, mapping, &utf8.text );
+}
+
+static inline BOOL is_nil_value( const char *value, ULONG size )
+{
+    ULONG i;
+    for (i = 0; i < size; i++) if (value[i]) return FALSE;
+    return TRUE;
+}
+
+static HRESULT write_add_nil_attribute( struct writer *writer )
+{
+    static const WS_XML_STRING prefix = {1, (BYTE *)"a"};
+    static const WS_XML_STRING localname = {3, (BYTE *)"nil"};
+    static const WS_XML_STRING ns = {41, (BYTE *)"http://www.w3.org/2001/XMLSchema-instance"};
+    static const WS_XML_UTF8_TEXT value = {{WS_XML_TEXT_TYPE_UTF8}, {4, (BYTE *)"true"}};
+    HRESULT hr;
+
+    if ((hr = write_add_attribute( writer, &prefix, &localname, &ns, FALSE )) != S_OK) return hr;
+    if ((hr = write_set_attribute_value( writer, &value.text )) != S_OK) return hr;
+    return write_add_namespace_attribute( writer, &prefix, &ns, FALSE );
+}
+
 static HRESULT write_type( struct writer *, WS_TYPE_MAPPING, WS_TYPE, const void *, WS_WRITE_OPTION,
                            const void *, ULONG );
 
@@ -1523,12 +1594,31 @@ static HRESULT write_type_struct_field( struct writer *writer, const WS_FIELD_DE
     WS_TYPE_MAPPING mapping;
     WS_WRITE_OPTION option;
 
-    if (!desc->options || desc->options == WS_FIELD_OPTIONAL) option = 0;
-    else if (desc->options == WS_FIELD_POINTER) option = WS_WRITE_REQUIRED_POINTER;
-    else
+    if (desc->options & ~(WS_FIELD_POINTER|WS_FIELD_OPTIONAL|WS_FIELD_NILLABLE))
     {
         FIXME( "options 0x%x not supported\n", desc->options );
         return E_NOTIMPL;
+    }
+
+    if (is_nil_value( value, size ))
+    {
+        if (desc->options & WS_FIELD_NILLABLE)
+        {
+            if (desc->options & WS_FIELD_POINTER)
+                option = WS_WRITE_NILLABLE_POINTER;
+            else
+                option = WS_WRITE_NILLABLE_VALUE;
+        }
+        else
+        {
+            if (desc->options & WS_FIELD_OPTIONAL) return S_OK;
+            return E_INVALIDARG;
+        }
+    }
+    else
+    {
+        if (desc->options & WS_FIELD_POINTER) option = WS_WRITE_REQUIRED_POINTER;
+        else option = 0;
     }
 
     switch (desc->mapping)
@@ -1544,6 +1634,10 @@ static HRESULT write_type_struct_field( struct writer *writer, const WS_FIELD_DE
 
     case WS_ELEMENT_FIELD_MAPPING:
         if ((hr = write_element_node( writer, NULL, desc->localName, desc->ns )) != S_OK) return hr;
+        if (option == WS_WRITE_NILLABLE_VALUE || option == WS_WRITE_NILLABLE_POINTER)
+        {
+            if ((hr = write_add_nil_attribute( writer )) != S_OK) return hr;
+        }
         mapping = WS_ELEMENT_TYPE_MAPPING;
         break;
 
@@ -1569,8 +1663,11 @@ static HRESULT write_type_struct_field( struct writer *writer, const WS_FIELD_DE
         return E_NOTIMPL;
     }
 
-    if ((hr = write_type( writer, mapping, desc->type, desc->typeDescription, option, value, size )) != S_OK)
-        return hr;
+    if (option != WS_WRITE_NILLABLE_VALUE && option != WS_WRITE_NILLABLE_POINTER)
+    {
+        if ((hr = write_type( writer, mapping, desc->type, desc->typeDescription, option, value, size )) != S_OK)
+            return hr;
+    }
 
     switch (mapping)
     {
@@ -1601,11 +1698,7 @@ static HRESULT write_type_struct( struct writer *writer, WS_TYPE_MAPPING mapping
     HRESULT hr;
     const char *ptr;
 
-    if (desc->structOptions)
-    {
-        FIXME( "struct options 0x%x not supported\n", desc->structOptions );
-        return E_NOTIMPL;
-    }
+    if (desc->structOptions) FIXME( "struct options 0x%x not supported\n", desc->structOptions );
 
     for (i = 0; i < desc->fieldCount; i++)
     {
@@ -1623,11 +1716,13 @@ static HRESULT get_value_ptr( WS_WRITE_OPTION option, const void *value, ULONG s
     switch (option)
     {
     case WS_WRITE_REQUIRED_VALUE:
+    case WS_WRITE_NILLABLE_VALUE:
         if (!value || !size) return E_INVALIDARG;
         *ptr = value;
         return S_OK;
 
     case WS_WRITE_REQUIRED_POINTER:
+    case WS_WRITE_NILLABLE_POINTER:
         if (size != sizeof(const void *) || !(*ptr = *(const void **)value)) return E_INVALIDARG;
         return S_OK;
 
@@ -1648,9 +1743,7 @@ static HRESULT write_type( struct writer *writer, WS_TYPE_MAPPING mapping, WS_TY
     case WS_STRUCT_TYPE:
     {
         const void *ptr;
-
-        if (!desc || option == WS_WRITE_REQUIRED_VALUE) return E_INVALIDARG;
-
+        if (!desc) return E_INVALIDARG;
         if (!option) option = WS_WRITE_REQUIRED_POINTER;
         if ((hr = get_value_ptr( option, value, size, (const void **)&ptr )) != S_OK) return hr;
         return write_type_struct( writer, mapping, desc, ptr );
@@ -1664,14 +1757,14 @@ static HRESULT write_type( struct writer *writer, WS_TYPE_MAPPING mapping, WS_TY
     }
     case WS_INT8_TYPE:
     {
-        const INT8 *ptr = value;
+        const INT8 *ptr;
         if (!option) option = WS_WRITE_REQUIRED_VALUE;
         if ((hr = get_value_ptr( option, value, size, (const void **)&ptr )) != S_OK) return hr;
         return write_type_int8( writer, mapping, desc, ptr );
     }
     case WS_INT16_TYPE:
     {
-        const INT16 *ptr = value;
+        const INT16 *ptr;
         if (!option) option = WS_WRITE_REQUIRED_VALUE;
         if ((hr = get_value_ptr( option, value, size, (const void **)&ptr )) != S_OK) return hr;
         return write_type_int16( writer, mapping, desc, ptr );
@@ -1685,38 +1778,52 @@ static HRESULT write_type( struct writer *writer, WS_TYPE_MAPPING mapping, WS_TY
     }
     case WS_INT64_TYPE:
     {
-        const INT64 *ptr = value;
+        const INT64 *ptr;
         if (!option) option = WS_WRITE_REQUIRED_VALUE;
         if ((hr = get_value_ptr( option, value, size, (const void **)&ptr )) != S_OK) return hr;
         return write_type_int64( writer, mapping, desc, ptr );
     }
     case WS_UINT8_TYPE:
     {
-        const UINT8 *ptr = value;
+        const UINT8 *ptr;
         if (!option) option = WS_WRITE_REQUIRED_VALUE;
         if ((hr = get_value_ptr( option, value, size, (const void **)&ptr )) != S_OK) return hr;
         return write_type_uint8( writer, mapping, desc, ptr );
     }
     case WS_UINT16_TYPE:
     {
-        const UINT16 *ptr = value;
+        const UINT16 *ptr;
         if (!option) option = WS_WRITE_REQUIRED_VALUE;
         if ((hr = get_value_ptr( option, value, size, (const void **)&ptr )) != S_OK) return hr;
         return write_type_uint16( writer, mapping, desc, ptr );
     }
     case WS_UINT32_TYPE:
     {
-        const UINT32 *ptr = value;
+        const UINT32 *ptr;
         if (!option) option = WS_WRITE_REQUIRED_VALUE;
         if ((hr = get_value_ptr( option, value, size, (const void **)&ptr )) != S_OK) return hr;
         return write_type_uint32( writer, mapping, desc, ptr );
     }
     case WS_UINT64_TYPE:
     {
-        const UINT64 *ptr = value;
+        const UINT64 *ptr;
         if (!option) option = WS_WRITE_REQUIRED_VALUE;
         if ((hr = get_value_ptr( option, value, size, (const void **)&ptr )) != S_OK) return hr;
         return write_type_uint64( writer, mapping, desc, ptr );
+    }
+    case WS_GUID_TYPE:
+    {
+        const GUID *ptr;
+        if (!option) option = WS_WRITE_REQUIRED_VALUE;
+        if ((hr = get_value_ptr( option, value, size, (const void **)&ptr )) != S_OK) return hr;
+        return write_type_guid( writer, mapping, desc, ptr );
+    }
+    case WS_STRING_TYPE:
+    {
+        const WS_STRING *ptr;
+        if (!option) option = WS_WRITE_REQUIRED_VALUE;
+        if ((hr = get_value_ptr( option, value, size, (const void **)&ptr )) != S_OK) return hr;
+        return write_type_string( writer, mapping, desc, ptr );
     }
     case WS_WSZ_TYPE:
     {
@@ -1727,6 +1834,13 @@ static HRESULT write_type( struct writer *writer, WS_TYPE_MAPPING mapping, WS_TY
         if (!option) option = WS_WRITE_REQUIRED_POINTER;
         if ((hr = get_value_ptr( option, value, size, (const void **)&ptr )) != S_OK) return hr;
         return write_type_wsz( writer, mapping, desc, ptr );
+    }
+    case WS_XML_STRING_TYPE:
+    {
+        const WS_XML_STRING *ptr;
+        if (!option) option = WS_WRITE_REQUIRED_VALUE;
+        if ((hr = get_value_ptr( option, value, size, (const void **)&ptr )) != S_OK) return hr;
+        return write_type_xml_string( writer, mapping, desc, ptr );
     }
     default:
         FIXME( "type %u not supported\n", type );
@@ -1896,6 +2010,7 @@ HRESULT WINAPI WsWriteXmlBuffer( WS_XML_WRITER *handle, WS_XML_BUFFER *buffer, W
 
     if (!writer || !xmlbuf) return E_INVALIDARG;
 
+    if ((hr = write_flush( writer )) != S_OK) return hr;
     if ((hr = write_grow_buffer( writer, xmlbuf->size )) != S_OK) return hr;
     write_bytes( writer, xmlbuf->ptr, xmlbuf->size );
     return S_OK;

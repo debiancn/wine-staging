@@ -699,6 +699,68 @@ static BOOL write_reg_file(const char *value, char *tmp_name)
     return ret;
 }
 
+#define test_import_str(c,r) test_import_str_(__LINE__,c,r)
+static BOOL test_import_str_(unsigned line, const char *file_contents, DWORD *rc)
+{
+    HANDLE regfile;
+    DWORD written;
+    BOOL ret;
+
+    regfile = CreateFileA("test.reg", GENERIC_WRITE, 0, NULL, CREATE_ALWAYS,
+                          FILE_ATTRIBUTE_NORMAL, NULL);
+    lok(regfile != INVALID_HANDLE_VALUE, "Failed to create test.reg file\n");
+    if(regfile == INVALID_HANDLE_VALUE)
+        return FALSE;
+
+    ret = WriteFile(regfile, file_contents, strlen(file_contents), &written, NULL);
+    lok(ret, "WriteFile failed: %u\n", GetLastError());
+    CloseHandle(regfile);
+
+    run_reg_exe("reg import test.reg", rc);
+
+    ret = DeleteFileA("test.reg");
+    lok(ret, "DeleteFile failed: %u\n", GetLastError());
+
+    return ret;
+}
+
+#define test_import_wstr(c,r) test_import_wstr_(__LINE__,c,r)
+static BOOL test_import_wstr_(unsigned line, const char *file_contents, DWORD *rc)
+{
+    int lenA, len, memsize;
+    WCHAR *wstr;
+    HANDLE regfile;
+    DWORD written;
+    BOOL ret;
+
+    lenA = strlen(file_contents);
+
+    len = MultiByteToWideChar(CP_UTF8, 0, file_contents, lenA, NULL, 0);
+    memsize = len * sizeof(WCHAR);
+    wstr = HeapAlloc(GetProcessHeap(), 0, memsize);
+    if (!wstr) return FALSE;
+    MultiByteToWideChar(CP_UTF8, 0, file_contents, lenA, wstr, memsize);
+
+    regfile = CreateFileA("test.reg", GENERIC_WRITE, 0, NULL, CREATE_ALWAYS,
+                          FILE_ATTRIBUTE_NORMAL, NULL);
+    lok(regfile != INVALID_HANDLE_VALUE, "Failed to create test.reg file\n");
+    if(regfile == INVALID_HANDLE_VALUE)
+        return FALSE;
+
+    ret = WriteFile(regfile, wstr, memsize, &written, NULL);
+    lok(ret, "WriteFile failed: %u\n", GetLastError());
+    CloseHandle(regfile);
+
+    HeapFree(GetProcessHeap(), 0, wstr);
+
+    run_reg_exe("reg import test.reg", rc);
+
+    ret = DeleteFileA("test.reg");
+    lok(ret, "DeleteFile failed: %u\n", GetLastError());
+
+    return ret;
+}
+
 static void test_import(void)
 {
     DWORD r, dword = 0x123;
@@ -747,6 +809,213 @@ static void test_import(void)
 
     DeleteFileA(test1_reg);
     DeleteFileA(test2_reg);
+
+    /* Test file contents */
+    test_import_str("regedit\n", &r);
+    ok(r == REG_EXIT_FAILURE || broken(r == REG_EXIT_SUCCESS) /* WinXP */,
+       "got exit code %d, expected 1\n", r);
+
+    test_import_str("regedit4\n", &r);
+    ok(r == REG_EXIT_FAILURE || broken(r == REG_EXIT_SUCCESS) /* WinXP */,
+       "got exit code %d, expected 1\n", r);
+
+    test_import_str("REGEDIT\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+
+    test_import_str("REGEDIT4\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+
+    test_import_str(" REGEDIT4\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+
+    test_import_str("\tREGEDIT4\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+
+    test_import_str("\nREGEDIT4\n", &r);
+    ok(r == REG_EXIT_FAILURE || broken(r == REG_EXIT_SUCCESS) /* WinXP */,
+       "got exit code %d, expected 1\n", r);
+
+    test_import_str("AREGEDIT4\n", &r);
+    ok(r == REG_EXIT_FAILURE || broken(r == REG_EXIT_SUCCESS) /* WinXP */,
+       "got exit code %d, expected 1\n", r);
+
+    test_import_str("1REGEDIT4\n", &r);
+    ok(r == REG_EXIT_FAILURE || broken(r == REG_EXIT_SUCCESS) /* WinXP */,
+       "got exit code %d, expected 1\n", r);
+
+    test_import_str("REGEDIT3\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+
+    test_import_str("REGEDIT5\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+
+    test_import_str("REGEDIT9\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+
+    test_import_str("REGEDIT 4\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+
+    test_import_str("REGEDIT4 FOO\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+
+    test_import_str("REGEDIT4\n"
+                    "[HKEY_CURRENT_USER\\" KEY_BASE "]\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+
+    err = RegOpenKeyExA(HKEY_CURRENT_USER, KEY_BASE, 0, KEY_READ, &hkey);
+    todo_wine ok(err == ERROR_SUCCESS, "got %d, expected 0\n", err);
+
+    test_import_str("REGEDIT4\n"
+                    "[HKEY_CURRENT_USER\\" KEY_BASE "]\n"
+                    "\"Test1\"=\"Value1\"\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+    todo_wine verify_reg(hkey, "Test1", REG_SZ, "Value1", 7, 0);
+
+    test_import_str("REGEDIT4\n"
+                    "[HKEY_CURRENT_USER\\" KEY_BASE "]\n"
+                    "\"Test2\"=\"Value2\"\n\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+    todo_wine verify_reg(hkey, "Test2", REG_SZ, "Value2", 7, 0);
+
+    test_import_str("REGEDIT4\n\n"
+                    "[HKEY_CURRENT_USER\\" KEY_BASE "]\n"
+                    "\"Test3\"=\"Value3\"\n\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+    todo_wine verify_reg(hkey, "Test3", REG_SZ, "Value3", 7, 0);
+
+    test_import_str("Windows Registry Editor Version 4.00\n", &r);
+    ok(r == REG_EXIT_FAILURE || broken(r == REG_EXIT_SUCCESS) /* WinXP */,
+       "got exit code %d, expected 1\n", r);
+
+    test_import_str("Windows Registry Editor Version 5.00\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+
+    test_import_str("Windows Registry Editor Version 5.00\n"
+                    "[HKEY_CURRENT_USER\\" KEY_BASE "]\n"
+                    "\"Test4\"=\"Value4\"\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+    todo_wine verify_reg(hkey, "Test4", REG_SZ, "Value4", 7, 0);
+
+    test_import_str("Windows Registry Editor Version 5.00\n"
+                    "[HKEY_CURRENT_USER\\" KEY_BASE "]\n"
+                    "\"Test5\"=\"Value5\"\n\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+    todo_wine verify_reg(hkey, "Test5", REG_SZ, "Value5", 7, 0);
+
+    test_import_str("Windows Registry Editor Version 5.00\n\n"
+                    "[HKEY_CURRENT_USER\\" KEY_BASE "]\n"
+                    "\"Test6\"=\"Value6\"\n\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+    todo_wine verify_reg(hkey, "Test6", REG_SZ, "Value6", 7, 0);
+
+    err = RegCloseKey(hkey);
+    todo_wine ok(err == ERROR_SUCCESS, "got %d, expected 0\n", err);
+
+    err = RegDeleteKeyA(HKEY_CURRENT_USER, KEY_BASE);
+    todo_wine ok(err == ERROR_SUCCESS, "got %d, expected 0\n", err);
+
+    /* Test file contents - Unicode */
+    test_import_wstr("REGEDIT\n", &r);
+    ok(r == REG_EXIT_FAILURE || broken(r == REG_EXIT_SUCCESS) /* WinXP */,
+       "got exit code %d, expected 1\n", r);
+
+    test_import_wstr("REGEDIT4\n", &r);
+    ok(r == REG_EXIT_FAILURE || broken(r == REG_EXIT_SUCCESS) /* WinXP */,
+       "got exit code %d, expected 1\n", r);
+
+    test_import_wstr("\xef\xbb\xbfREGEDIT\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+
+    test_import_wstr("\xef\xbb\xbfREGEDIT4\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+
+    test_import_wstr("\xef\xbb\xbf REGEDIT4\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+
+    test_import_wstr("\xef\xbb\xbf\tREGEDIT4\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+
+    test_import_wstr("\xef\xbb\xbf\nREGEDIT4\n", &r);
+    ok(r == REG_EXIT_FAILURE || broken(r == REG_EXIT_SUCCESS) /* WinXP */,
+       "got exit code %d, expected 1\n", r);
+
+    test_import_wstr("\xef\xbb\xbfREGEDIT4\n"
+                     "[HKEY_CURRENT_USER\\" KEY_BASE "]\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+
+    err = RegOpenKeyExA(HKEY_CURRENT_USER, KEY_BASE, 0, KEY_READ, &hkey);
+    todo_wine ok(err == ERROR_SUCCESS, "got %d, expected 0\n", err);
+
+    test_import_wstr("\xef\xbb\xbfREGEDIT4\n"
+                     "[HKEY_CURRENT_USER\\" KEY_BASE "]\n"
+                     "\"Unicode1\"=\"Value1\"\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+    todo_wine verify_reg(hkey, "Unicode1", REG_SZ, "Value1", 7, 0);
+
+    test_import_wstr("\xef\xbb\xbfREGEDIT4\n"
+                     "[HKEY_CURRENT_USER\\" KEY_BASE "]\n"
+                     "\"Unicode2\"=\"Value2\"\n\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+    todo_wine verify_reg(hkey, "Unicode2", REG_SZ, "Value2", 7, 0);
+
+    test_import_wstr("\xef\xbb\xbfREGEDIT4\n\n"
+                     "[HKEY_CURRENT_USER\\" KEY_BASE "]\n"
+                     "\"Unicode3\"=\"Value3\"\n\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+    todo_wine verify_reg(hkey, "Unicode3", REG_SZ, "Value3", 7, 0);
+
+    test_import_wstr("Windows Registry Editor Version 4.00\n", &r);
+    ok(r == REG_EXIT_FAILURE || broken(r == REG_EXIT_SUCCESS) /* WinXP */,
+       "got exit code %d, expected 1\n", r);
+
+    test_import_wstr("Windows Registry Editor Version 5.00\n", &r);
+    ok(r == REG_EXIT_FAILURE || broken(r == REG_EXIT_SUCCESS) /* WinXP */,
+       "got exit code %d, expected 1\n", r);
+
+    test_import_wstr("\xef\xbb\xbfWindows Registry Editor Version 5\n", &r);
+    ok(r == REG_EXIT_FAILURE || broken(r == REG_EXIT_SUCCESS) /* WinXP */,
+       "got exit code %d, expected 1\n", r);
+
+    test_import_wstr("\xef\xbb\xbfWindows Registry Editor Version 5.00\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+
+    test_import_wstr("\xef\xbb\xbfWINDOWS Registry Editor Version 5.00\n", &r);
+    ok(r == REG_EXIT_FAILURE || broken(r == REG_EXIT_SUCCESS) /* WinXP */,
+       "got exit code %d, expected 1\n", r);
+
+    test_import_wstr("\xef\xbb\xbf Windows Registry Editor Version 5.00\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+
+    test_import_wstr("\xef\xbb\xbf\tWindows Registry Editor Version 5.00\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+
+    test_import_wstr("\xef\xbb\xbf\nWindows Registry Editor Version 5.00\n", &r);
+    ok(r == REG_EXIT_FAILURE || broken(r == REG_EXIT_SUCCESS) /* WinXP */,
+       "got exit code %d, expected 1\n", r);
+
+    test_import_wstr("\xef\xbb\xbfWindows Registry Editor Version 5.00\n"
+                     "[HKEY_CURRENT_USER\\" KEY_BASE "]\n"
+                     "\"Unicode4\"=\"Value4\"\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+    todo_wine verify_reg(hkey, "Unicode4", REG_SZ, "Value4", 7, 0);
+
+    test_import_wstr("\xef\xbb\xbfWindows Registry Editor Version 5.00\n"
+                     "[HKEY_CURRENT_USER\\" KEY_BASE "]\n"
+                     "\"Unicode5\"=\"Value5\"\n\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+    todo_wine verify_reg(hkey, "Unicode5", REG_SZ, "Value5", 7, 0);
+
+    test_import_wstr("\xef\xbb\xbfWindows Registry Editor Version 5.00\n\n"
+                     "[HKEY_CURRENT_USER\\" KEY_BASE "]\n"
+                     "\"Unicode6\"=\"Value6\"\n\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+    todo_wine verify_reg(hkey, "Unicode6", REG_SZ, "Value6", 7, 0);
+
+    err = RegCloseKey(hkey);
+    todo_wine ok(err == ERROR_SUCCESS, "got %d, expected 0\n", err);
+
+    err = RegDeleteKeyA(HKEY_CURRENT_USER, KEY_BASE);
+    todo_wine ok(err == ERROR_SUCCESS, "got %d, expected 0\n", err);
 }
 
 START_TEST(reg)

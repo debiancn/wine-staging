@@ -928,14 +928,6 @@ void buffer_internal_preload(struct wined3d_buffer *buffer, struct wined3d_conte
     HeapFree(GetProcessHeap(), 0, data);
 }
 
-void CDECL wined3d_buffer_preload(struct wined3d_buffer *buffer)
-{
-    struct wined3d_context *context;
-    context = context_acquire(buffer->resource.device, NULL);
-    buffer_internal_preload(buffer, context, NULL);
-    context_release(context);
-}
-
 struct wined3d_resource * CDECL wined3d_buffer_get_resource(struct wined3d_buffer *buffer)
 {
     TRACE("buffer %p.\n", buffer);
@@ -943,14 +935,13 @@ struct wined3d_resource * CDECL wined3d_buffer_get_resource(struct wined3d_buffe
     return &buffer->resource;
 }
 
-HRESULT CDECL wined3d_buffer_map(struct wined3d_buffer *buffer, UINT offset, UINT size, BYTE **data, DWORD flags)
+static HRESULT wined3d_buffer_map(struct wined3d_buffer *buffer, UINT offset, UINT size, BYTE **data, DWORD flags)
 {
     LONG count;
     BYTE *base;
 
     TRACE("buffer %p, offset %u, size %u, data %p, flags %#x.\n", buffer, offset, size, data, flags);
 
-    flags = wined3d_resource_sanitize_map_flags(&buffer->resource, flags);
     /* Filter redundant WINED3D_MAP_DISCARD maps. The 3DMark2001 multitexture
      * fill rate test seems to depend on this. When we map a buffer with
      * GL_MAP_INVALIDATE_BUFFER_BIT, the driver is free to discard the
@@ -1045,7 +1036,7 @@ HRESULT CDECL wined3d_buffer_map(struct wined3d_buffer *buffer, UINT offset, UIN
     return WINED3D_OK;
 }
 
-void CDECL wined3d_buffer_unmap(struct wined3d_buffer *buffer)
+static void wined3d_buffer_unmap(struct wined3d_buffer *buffer)
 {
     ULONG i;
 
@@ -1108,7 +1099,7 @@ void CDECL wined3d_buffer_unmap(struct wined3d_buffer *buffer)
     }
     else if (buffer->flags & WINED3D_BUFFER_HASDESC)
     {
-        wined3d_buffer_preload(buffer);
+        wined3d_resource_preload(&buffer->resource);
     }
 }
 
@@ -1225,6 +1216,15 @@ static ULONG buffer_resource_decref(struct wined3d_resource *resource)
     return wined3d_buffer_decref(buffer_from_resource(resource));
 }
 
+static void buffer_resource_preload(struct wined3d_resource *resource)
+{
+    struct wined3d_context *context;
+
+    context = context_acquire(resource->device, NULL);
+    buffer_internal_preload(buffer_from_resource(resource), context, NULL);
+    context_release(context);
+}
+
 static HRESULT buffer_resource_sub_resource_map(struct wined3d_resource *resource, unsigned int sub_resource_idx,
         struct wined3d_map_desc *map_desc, const struct wined3d_box *box, DWORD flags)
 {
@@ -1267,6 +1267,7 @@ static const struct wined3d_resource_ops buffer_resource_ops =
 {
     buffer_resource_incref,
     buffer_resource_decref,
+    buffer_resource_preload,
     buffer_unload,
     buffer_resource_sub_resource_map,
     buffer_resource_sub_resource_unmap,
