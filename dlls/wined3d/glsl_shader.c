@@ -8425,14 +8425,6 @@ static void constant_heap_free(struct constant_heap *heap)
     HeapFree(GetProcessHeap(), 0, heap->entries);
 }
 
-static const struct wine_rb_functions wined3d_glsl_program_rb_functions =
-{
-    wined3d_rb_alloc,
-    wined3d_rb_realloc,
-    wined3d_rb_free,
-    glsl_program_key_compare,
-};
-
 static HRESULT shader_glsl_alloc(struct wined3d_device *device, const struct wined3d_vertex_pipe_ops *vertex_pipe,
         const struct fragment_pipeline *fragment_pipe)
 {
@@ -8483,11 +8475,7 @@ static HRESULT shader_glsl_alloc(struct wined3d_device *device, const struct win
         goto fail;
     }
 
-    if (wine_rb_init(&priv->program_lookup, &wined3d_glsl_program_rb_functions) == -1)
-    {
-        ERR("Failed to initialize rbtree.\n");
-        goto fail;
-    }
+    wine_rb_init(&priv->program_lookup, glsl_program_key_compare);
 
     priv->next_constant_version = 1;
     priv->vertex_pipe = vertex_pipe;
@@ -8921,13 +8909,7 @@ static void *glsl_vertex_pipe_vp_alloc(const struct wined3d_shader_backend_ops *
     if (shader_backend == &glsl_shader_backend)
     {
         priv = shader_priv;
-
-        if (wine_rb_init(&priv->ffp_vertex_shaders, &wined3d_ffp_vertex_program_rb_functions) == -1)
-        {
-            ERR("Failed to initialize rbtree.\n");
-            return NULL;
-        }
-
+        wine_rb_init(&priv->ffp_vertex_shaders, wined3d_ffp_vertex_program_key_compare);
         return priv;
     }
 
@@ -9447,13 +9429,7 @@ static void *glsl_fragment_pipe_alloc(const struct wined3d_shader_backend_ops *s
     if (shader_backend == &glsl_shader_backend)
     {
         priv = shader_priv;
-
-        if (wine_rb_init(&priv->ffp_fragment_shaders, &wined3d_ffp_frag_program_rb_functions) == -1)
-        {
-            ERR("Failed to initialize rbtree.\n");
-            return NULL;
-        }
-
+        wine_rb_init(&priv->ffp_fragment_shaders, wined3d_ffp_frag_program_key_compare);
         return priv;
     }
 

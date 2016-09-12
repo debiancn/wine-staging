@@ -597,6 +597,7 @@ static void X11DRV_CLIPBOARD_FreeData(LPWINE_CLIPDATA lpData)
         DeleteEnhMetaFile(lpData->hData);
         break;
     default:
+        if (lpData->wFormatID >= CF_GDIOBJFIRST && lpData->wFormatID <= CF_GDIOBJLAST) break;
         if (lpData->wFormatID >= CF_PRIVATEFIRST && lpData->wFormatID <= CF_PRIVATELAST) break;
         GlobalFree(lpData->hData);
         break;
@@ -3013,28 +3014,9 @@ void CDECL X11DRV_EmptyClipboard(void)
  */
 BOOL CDECL X11DRV_SetClipboardData(UINT wFormat, HANDLE hData, BOOL owner)
 {
-    DWORD flags = 0;
-    BOOL bResult = TRUE;
+    if (!owner) X11DRV_CLIPBOARD_UpdateCache();
 
-    /* If it's not owned, data can only be set if the format data is not already owned
-       and its rendering is not delayed */
-    if (!owner)
-    {
-        LPWINE_CLIPDATA lpRender;
-
-        X11DRV_CLIPBOARD_UpdateCache();
-
-        if (!hData ||
-            ((lpRender = X11DRV_CLIPBOARD_LookupData(wFormat)) &&
-            !(lpRender->wFlags & CF_FLAG_UNOWNED)))
-            bResult = FALSE;
-        else
-            flags = CF_FLAG_UNOWNED;
-    }
-
-    bResult &= X11DRV_CLIPBOARD_InsertClipboardData(wFormat, hData, flags, NULL, TRUE);
-
-    return bResult;
+    return X11DRV_CLIPBOARD_InsertClipboardData(wFormat, hData, 0, NULL, TRUE);
 }
 
 
@@ -3530,19 +3512,21 @@ END:
 /***********************************************************************
  *           X11DRV_SelectionRequest
  */
-void X11DRV_SelectionRequest( HWND hWnd, XEvent *event )
+BOOL X11DRV_SelectionRequest( HWND hWnd, XEvent *event )
 {
     X11DRV_HandleSelectionRequest( hWnd, &event->xselectionrequest, FALSE );
+    return FALSE;
 }
 
 
 /***********************************************************************
  *           X11DRV_SelectionClear
  */
-void X11DRV_SelectionClear( HWND hWnd, XEvent *xev )
+BOOL X11DRV_SelectionClear( HWND hWnd, XEvent *xev )
 {
     XSelectionClearEvent *event = &xev->xselectionclear;
     if (event->selection == XA_PRIMARY || event->selection == x11drv_atom(CLIPBOARD))
         X11DRV_CLIPBOARD_ReleaseSelection( event->display, event->selection,
                                            event->window, hWnd, event->time );
+    return FALSE;
 }

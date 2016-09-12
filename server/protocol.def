@@ -3158,13 +3158,27 @@ enum caret_state
 #define SET_CLASS_EXTRA     0x0010
 
 
+/* Open the clipboard */
+@REQ(open_clipboard)
+    user_handle_t  window;         /* clipboard window */
+@REPLY
+    int            owner;          /* is the process already the owner? */
+@END
+
+
+/* Close the clipboard */
+@REQ(close_clipboard)
+    int            changed;        /* did it change since the open? */
+@REPLY
+    user_handle_t  viewer;         /* first clipboard viewer */
+    int            owner;          /* is the process already the owner? */
+@END
+
+
 /* Set/get clipboard information */
 @REQ(set_clipboard_info)
     unsigned int   flags;       /* flags for fields to set (see below) */
-    user_handle_t  clipboard;   /* clipboard window */
     user_handle_t  owner;       /* clipboard owner */
-    user_handle_t  viewer;      /* first clipboard viewer */
-    unsigned int   seqno;       /* change sequence number */
 @REPLY
     unsigned int   flags;           /* status flags (see below) */
     user_handle_t  old_clipboard;   /* old clipboard window */
@@ -3173,11 +3187,9 @@ enum caret_state
     unsigned int   seqno;           /* current sequence number */
 @END
 
-#define SET_CB_OPEN      0x001
-#define SET_CB_VIEWER    0x004
 #define SET_CB_SEQNO     0x008
 #define SET_CB_RELOWNER  0x010
-#define SET_CB_CLOSE     0x020
+#define CB_OPEN_ANY      0x020
 #define CB_OPEN          0x040
 #define CB_OWNER         0x080
 #define CB_PROCESS       0x100
@@ -3185,6 +3197,46 @@ enum caret_state
 
 /* Empty the clipboard and grab ownership */
 @REQ(empty_clipboard)
+@END
+
+
+/* Release ownership of the clipboard */
+@REQ(release_clipboard)
+    user_handle_t  owner;          /* clipboard owner to release */
+@REPLY
+    user_handle_t  viewer;         /* first clipboard viewer */
+@END
+
+
+/* Get clipboard information */
+@REQ(get_clipboard_info)
+@REPLY
+    user_handle_t  window;         /* clipboard window */
+    user_handle_t  owner;          /* clipboard owner */
+    user_handle_t  viewer;         /* clipboard viewer */
+    unsigned int   seqno;          /* current sequence number */
+@END
+
+
+/* Set the clipboard viewer window */
+@REQ(set_clipboard_viewer)
+    user_handle_t  viewer;         /* clipboard viewer */
+    user_handle_t  previous;       /* if non-zero, check that this was the previous viewer */
+@REPLY
+    user_handle_t  old_viewer;     /* previous clipboard viewer */
+    user_handle_t  owner;          /* clipboard owner */
+@END
+
+
+/* Add a clipboard listener window */
+@REQ(add_clipboard_listener)
+    user_handle_t  window;         /* clipboard listener window */
+@END
+
+
+/* Remove a clipboard listener window */
+@REQ(remove_clipboard_listener)
+    user_handle_t  window;         /* clipboard listener window */
 @END
 
 
