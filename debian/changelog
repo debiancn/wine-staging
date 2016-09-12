@@ -1,8 +1,20 @@
-wine-development (1.9.17-2) UNRELEASED; urgency=medium
+wine-development (1.9.18-1) unstable; urgency=medium
 
+  [ Michael Gilbert ]
+  * New upstream release 1.9.18, released Sep 2, 2016.
+    - Support for multiple kernel drivers in a single process.
+    - More WebServices reader support.
+    - Various improvements in joystick support.
+    - Some more work towards the Direct3D command stream.
+    - GDI performance improvements.
+    - Improved IME window handling.
+    - Compatibility fixes in the clipboard support.
+    - Various bug fixes.
+
+  [ Jens Reyer ]
   * Reorganize patches, drop kfreebsd.patch (applied upstream 1.9.18).
 
- -- Jens Reyer <jre.winesim@gmail.com>  Wed, 31 Aug 2016 20:18:07 +0200
+ -- Michael Gilbert <mgilbert@debian.org>  Sun, 04 Sep 2016 18:12:32 +0000
 
 wine-development (1.9.17-1) unstable; urgency=medium
 
