@@ -1,3 +1,12 @@
+wine-development (1.9.18-1~bpo8+1) jessie-backports; urgency=medium
+
+  * Rebuild for jessie-backports.
+  * Remaining changes:
+    - Revert "Drop alternative depends on perl:any (now handled by debhelper)."
+      - debhelper in backports doesn't support this yet.
+
+ -- Jens Reyer <jre.winesim@gmail.com>  Mon, 12 Sep 2016 13:24:56 +0200
+
 wine-development (1.9.18-1) unstable; urgency=medium
 
   [ Michael Gilbert ]
