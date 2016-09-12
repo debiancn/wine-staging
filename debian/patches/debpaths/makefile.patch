@@ -25,19 +25,3 @@ author: Michael Gilbert <mgilbert@debian.org>
  dlldir          = @dlldir@
  fakedlldir      = ${dlldir}/fakedlls
  top_srcdir      = @top_srcdir@
-@@ -103,15 +103,6 @@ CONFIGURE_TARGETS   = @CONFIGURE_TARGETS
- all: wine
- 	@echo "Wine build complete."
- 
--# Rules for re-running configure
--
--config.status: $(srcdir)/configure
--	@./config.status --recheck
--
--include/config.h: include/stamp-h
--include/stamp-h: $(srcdir)/include/config.h.in config.status
--	@./config.status include/config.h include/stamp-h
--
- # Rules for cleaning
- 
- .PHONY: clean distclean __clean__

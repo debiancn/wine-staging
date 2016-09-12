@@ -150,8 +150,7 @@ static BOOL read_sys_id_variable(int index, const char *property, WORD *value)
     BOOL ret = FALSE;
 
     sprintf(sys_path, SYS_PATH_FORMAT, index, property);
-    sys_fd = open(sys_path, O_RDONLY);
-    if (sys_fd > 0)
+    if ((sys_fd = open(sys_path, O_RDONLY)) != -1)
     {
         if (read(sys_fd, id_str, 4) == 4)
         {
@@ -180,10 +179,10 @@ static INT find_joystick_devices(void)
         BYTE axes_map[ABS_MAX + 1];
 
         snprintf(joydev.device, sizeof(joydev.device), "%s%d", JOYDEV_NEW, i);
-        if ((fd = open(joydev.device, O_RDONLY)) < 0)
+        if ((fd = open(joydev.device, O_RDONLY)) == -1)
         {
             snprintf(joydev.device, sizeof(joydev.device), "%s%d", JOYDEV_OLD, i);
-            if ((fd = open(joydev.device, O_RDONLY)) < 0) continue;
+            if ((fd = open(joydev.device, O_RDONLY)) == -1) continue;
         }
 
         strcpy(joydev.name, "Wine Joystick");
@@ -355,7 +354,7 @@ static HRESULT joydev_enum_deviceA(DWORD dwDevType, DWORD dwFlags, LPDIDEVICEINS
 	((dwDevType == DIDEVTYPE_JOYSTICK) && (version > 0x0300 && version < 0x0800)) ||
 	(((dwDevType == DI8DEVCLASS_GAMECTRL) || (dwDevType == DI8DEVTYPE_JOYSTICK)) && (version >= 0x0800))) {
         /* check whether we have a joystick */
-        if ((fd = open(joystick_devices[id].device, O_RDONLY)) < 0)
+        if ((fd = open(joystick_devices[id].device, O_RDONLY)) == -1)
         {
             WARN("open(%s, O_RDONLY) failed: %s\n", joystick_devices[id].device, strerror(errno));
             return S_FALSE;
@@ -384,7 +383,7 @@ static HRESULT joydev_enum_deviceW(DWORD dwDevType, DWORD dwFlags, LPDIDEVICEINS
 	((dwDevType == DIDEVTYPE_JOYSTICK) && (version > 0x0300 && version < 0x0800)) ||
 	(((dwDevType == DI8DEVCLASS_GAMECTRL) || (dwDevType == DI8DEVTYPE_JOYSTICK)) && (version >= 0x0800))) {
         /* check whether we have a joystick */
-        if ((fd = open(joystick_devices[id].device, O_RDONLY)) < 0)
+        if ((fd = open(joystick_devices[id].device, O_RDONLY)) == -1)
         {
             WARN("open(%s, O_RDONLY) failed: %s\n", joystick_devices[id].device, strerror(errno));
             return S_FALSE;
@@ -406,6 +405,7 @@ static HRESULT alloc_device(REFGUID rguid, IDirectInputImpl *dinput,
     HRESULT hr;
     LPDIDATAFORMAT df = NULL;
     int idx = 0;
+    DIDEVICEINSTANCEW ddi;
 
     TRACE("%s %p %p %hu\n", debugstr_guid(rguid), dinput, pdev, index);
 
@@ -496,10 +496,11 @@ static HRESULT alloc_device(REFGUID rguid, IDirectInputImpl *dinput,
 
     newDevice->generic.devcaps.dwSize = sizeof(newDevice->generic.devcaps);
     newDevice->generic.devcaps.dwFlags = DIDC_ATTACHED;
-    if (newDevice->generic.base.dinput->dwVersion >= 0x0800)
-        newDevice->generic.devcaps.dwDevType = DI8DEVTYPE_JOYSTICK | (DI8DEVTYPEJOYSTICK_STANDARD << 8);
-    else
-        newDevice->generic.devcaps.dwDevType = DIDEVTYPE_JOYSTICK | (DIDEVTYPEJOYSTICK_TRADITIONAL << 8);
+
+    ddi.dwSize = sizeof(ddi);
+    fill_joystick_dideviceinstanceW(&ddi, newDevice->generic.base.dinput->dwVersion, index);
+    newDevice->generic.devcaps.dwDevType = ddi.dwDevType;
+
     newDevice->generic.devcaps.dwFFSamplePeriod = 0;
     newDevice->generic.devcaps.dwFFMinTimeResolution = 0;
     newDevice->generic.devcaps.dwFirmwareRevision = 0;

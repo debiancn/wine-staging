@@ -3,9 +3,9 @@
 @ stub WsAbortChannel
 @ stub WsAbortListener
 @ stub WsAbortServiceHost
-@ stub WsAbortServiceProxy
+@ stdcall WsAbortServiceProxy(ptr ptr)
 @ stub WsAcceptChannel
-@ stub WsAddCustomHeader
+@ stdcall WsAddCustomHeader(ptr ptr long ptr long long ptr)
 @ stub WsAddErrorString
 @ stdcall WsAddMappedHeader(ptr ptr long long ptr long ptr)
 @ stdcall WsAddressMessage(ptr ptr ptr)
@@ -103,7 +103,7 @@
 @ stub WsPushBytes
 @ stub WsReadArray
 @ stub WsReadAttribute
-@ stub WsReadBody
+@ stdcall WsReadBody(ptr ptr long ptr ptr long ptr)
 @ stub WsReadBytes
 @ stub WsReadChars
 @ stub WsReadCharsUtf8
@@ -111,8 +111,8 @@
 @ stdcall WsReadEndAttribute(ptr ptr)
 @ stdcall WsReadEndElement(ptr ptr)
 @ stub WsReadEndpointAddressExtension
-@ stub WsReadEnvelopeEnd
-@ stub WsReadEnvelopeStart
+@ stdcall WsReadEnvelopeEnd(ptr ptr)
+@ stdcall WsReadEnvelopeStart(ptr ptr ptr ptr ptr)
 @ stub WsReadMessageEnd
 @ stub WsReadMessageStart
 @ stub WsReadMetadata
@@ -127,7 +127,7 @@
 @ stub WsReadXmlBufferFromBytes
 @ stub WsReceiveMessage
 @ stub WsRegisterOperationForCancel
-@ stub WsRemoveCustomHeader
+@ stdcall WsRemoveCustomHeader(ptr ptr ptr ptr)
 @ stdcall WsRemoveHeader(ptr long ptr)
 @ stdcall WsRemoveMappedHeader(ptr ptr ptr)
 @ stub WsRemoveNode

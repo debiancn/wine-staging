@@ -396,7 +396,7 @@ struct ddraw_palette
     IDirectDrawPalette IDirectDrawPalette_iface;
     LONG ref;
 
-    struct wined3d_palette *wineD3DPalette;
+    struct wined3d_palette *wined3d_palette;
     struct ddraw *ddraw;
     IUnknown *ifaceToRelease;
     DWORD flags;
@@ -552,8 +552,8 @@ struct d3d_vertex_buffer
     LONG ref;
 
     /*** WineD3D and ddraw links ***/
-    struct wined3d_buffer *wineD3DVertexBuffer;
-    struct wined3d_vertex_declaration *wineD3DVertexDeclaration;
+    struct wined3d_buffer *wined3d_buffer;
+    struct wined3d_vertex_declaration *wined3d_declaration;
     struct ddraw *ddraw;
 
     /*** Storage for D3D7 specific things ***/

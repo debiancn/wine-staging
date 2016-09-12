@@ -935,14 +935,13 @@ struct wined3d_resource * CDECL wined3d_buffer_get_resource(struct wined3d_buffe
     return &buffer->resource;
 }
 
-HRESULT CDECL wined3d_buffer_map(struct wined3d_buffer *buffer, UINT offset, UINT size, BYTE **data, DWORD flags)
+static HRESULT wined3d_buffer_map(struct wined3d_buffer *buffer, UINT offset, UINT size, BYTE **data, DWORD flags)
 {
     LONG count;
     BYTE *base;
 
     TRACE("buffer %p, offset %u, size %u, data %p, flags %#x.\n", buffer, offset, size, data, flags);
 
-    flags = wined3d_resource_sanitize_map_flags(&buffer->resource, flags);
     /* Filter redundant WINED3D_MAP_DISCARD maps. The 3DMark2001 multitexture
      * fill rate test seems to depend on this. When we map a buffer with
      * GL_MAP_INVALIDATE_BUFFER_BIT, the driver is free to discard the
@@ -1037,7 +1036,7 @@ HRESULT CDECL wined3d_buffer_map(struct wined3d_buffer *buffer, UINT offset, UIN
     return WINED3D_OK;
 }
 
-void CDECL wined3d_buffer_unmap(struct wined3d_buffer *buffer)
+static void wined3d_buffer_unmap(struct wined3d_buffer *buffer)
 {
     ULONG i;
 

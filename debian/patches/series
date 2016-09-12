@@ -1,23 +1,24 @@
-makefile.patch
-kfreebsd.patch
-sfnt2fon.patch
-manpages.patch
 version-string.patch
 manpages-wineserver-persistence.patch
 
 disable/tests.patch
 disable/addons-download.patch
+disable/rerun-configure.patch
 disable/shlib-exit-calls.patch
 
 generate/opengl.patch
 generate/unicode.patch
 generate/request.patch
 
+debpaths/addons.patch
+debpaths/makefile.patch
+
 debsuffix/winemenubuilder.patch
+
+binary-indep/manpages.patch
+binary-indep/sfnt2fon.patch
 
 glu32.patch
 openal.patch
-addons.patch
-
 font-divbyzero.patch
 printer-resolution.patch

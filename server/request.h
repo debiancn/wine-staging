@@ -326,8 +326,15 @@ DECL_HANDLER(get_hook_info);
 DECL_HANDLER(create_class);
 DECL_HANDLER(destroy_class);
 DECL_HANDLER(set_class_info);
+DECL_HANDLER(open_clipboard);
+DECL_HANDLER(close_clipboard);
 DECL_HANDLER(set_clipboard_info);
 DECL_HANDLER(empty_clipboard);
+DECL_HANDLER(release_clipboard);
+DECL_HANDLER(get_clipboard_info);
+DECL_HANDLER(set_clipboard_viewer);
+DECL_HANDLER(add_clipboard_listener);
+DECL_HANDLER(remove_clipboard_listener);
 DECL_HANDLER(open_token);
 DECL_HANDLER(set_global_windows);
 DECL_HANDLER(adjust_token_privileges);
@@ -605,8 +612,15 @@ static const req_handler req_handlers[REQ_NB_REQUESTS] =
     (req_handler)req_create_class,
     (req_handler)req_destroy_class,
     (req_handler)req_set_class_info,
+    (req_handler)req_open_clipboard,
+    (req_handler)req_close_clipboard,
     (req_handler)req_set_clipboard_info,
     (req_handler)req_empty_clipboard,
+    (req_handler)req_release_clipboard,
+    (req_handler)req_get_clipboard_info,
+    (req_handler)req_set_clipboard_viewer,
+    (req_handler)req_add_clipboard_listener,
+    (req_handler)req_remove_clipboard_listener,
     (req_handler)req_open_token,
     (req_handler)req_set_global_windows,
     (req_handler)req_adjust_token_privileges,
@@ -2010,12 +2024,18 @@ C_ASSERT( FIELD_OFFSET(struct set_class_info_reply, old_win_extra) == 20 );
 C_ASSERT( FIELD_OFFSET(struct set_class_info_reply, old_instance) == 24 );
 C_ASSERT( FIELD_OFFSET(struct set_class_info_reply, old_extra_value) == 32 );
 C_ASSERT( sizeof(struct set_class_info_reply) == 40 );
+C_ASSERT( FIELD_OFFSET(struct open_clipboard_request, window) == 12 );
+C_ASSERT( sizeof(struct open_clipboard_request) == 16 );
+C_ASSERT( FIELD_OFFSET(struct open_clipboard_reply, owner) == 8 );
+C_ASSERT( sizeof(struct open_clipboard_reply) == 16 );
+C_ASSERT( FIELD_OFFSET(struct close_clipboard_request, changed) == 12 );
+C_ASSERT( sizeof(struct close_clipboard_request) == 16 );
+C_ASSERT( FIELD_OFFSET(struct close_clipboard_reply, viewer) == 8 );
+C_ASSERT( FIELD_OFFSET(struct close_clipboard_reply, owner) == 12 );
+C_ASSERT( sizeof(struct close_clipboard_reply) == 16 );
 C_ASSERT( FIELD_OFFSET(struct set_clipboard_info_request, flags) == 12 );
-C_ASSERT( FIELD_OFFSET(struct set_clipboard_info_request, clipboard) == 16 );
-C_ASSERT( FIELD_OFFSET(struct set_clipboard_info_request, owner) == 20 );
-C_ASSERT( FIELD_OFFSET(struct set_clipboard_info_request, viewer) == 24 );
-C_ASSERT( FIELD_OFFSET(struct set_clipboard_info_request, seqno) == 28 );
-C_ASSERT( sizeof(struct set_clipboard_info_request) == 32 );
+C_ASSERT( FIELD_OFFSET(struct set_clipboard_info_request, owner) == 16 );
+C_ASSERT( sizeof(struct set_clipboard_info_request) == 24 );
 C_ASSERT( FIELD_OFFSET(struct set_clipboard_info_reply, flags) == 8 );
 C_ASSERT( FIELD_OFFSET(struct set_clipboard_info_reply, old_clipboard) == 12 );
 C_ASSERT( FIELD_OFFSET(struct set_clipboard_info_reply, old_owner) == 16 );
@@ -2023,6 +2043,26 @@ C_ASSERT( FIELD_OFFSET(struct set_clipboard_info_reply, old_viewer) == 20 );
 C_ASSERT( FIELD_OFFSET(struct set_clipboard_info_reply, seqno) == 24 );
 C_ASSERT( sizeof(struct set_clipboard_info_reply) == 32 );
 C_ASSERT( sizeof(struct empty_clipboard_request) == 16 );
+C_ASSERT( FIELD_OFFSET(struct release_clipboard_request, owner) == 12 );
+C_ASSERT( sizeof(struct release_clipboard_request) == 16 );
+C_ASSERT( FIELD_OFFSET(struct release_clipboard_reply, viewer) == 8 );
+C_ASSERT( sizeof(struct release_clipboard_reply) == 16 );
+C_ASSERT( sizeof(struct get_clipboard_info_request) == 16 );
+C_ASSERT( FIELD_OFFSET(struct get_clipboard_info_reply, window) == 8 );
+C_ASSERT( FIELD_OFFSET(struct get_clipboard_info_reply, owner) == 12 );
+C_ASSERT( FIELD_OFFSET(struct get_clipboard_info_reply, viewer) == 16 );
+C_ASSERT( FIELD_OFFSET(struct get_clipboard_info_reply, seqno) == 20 );
+C_ASSERT( sizeof(struct get_clipboard_info_reply) == 24 );
+C_ASSERT( FIELD_OFFSET(struct set_clipboard_viewer_request, viewer) == 12 );
+C_ASSERT( FIELD_OFFSET(struct set_clipboard_viewer_request, previous) == 16 );
+C_ASSERT( sizeof(struct set_clipboard_viewer_request) == 24 );
+C_ASSERT( FIELD_OFFSET(struct set_clipboard_viewer_reply, old_viewer) == 8 );
+C_ASSERT( FIELD_OFFSET(struct set_clipboard_viewer_reply, owner) == 12 );
+C_ASSERT( sizeof(struct set_clipboard_viewer_reply) == 16 );
+C_ASSERT( FIELD_OFFSET(struct add_clipboard_listener_request, window) == 12 );
+C_ASSERT( sizeof(struct add_clipboard_listener_request) == 16 );
+C_ASSERT( FIELD_OFFSET(struct remove_clipboard_listener_request, window) == 12 );
+C_ASSERT( sizeof(struct remove_clipboard_listener_request) == 16 );
 C_ASSERT( FIELD_OFFSET(struct open_token_request, handle) == 12 );
 C_ASSERT( FIELD_OFFSET(struct open_token_request, access) == 16 );
 C_ASSERT( FIELD_OFFSET(struct open_token_request, attributes) == 20 );

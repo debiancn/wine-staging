@@ -44,7 +44,6 @@ static void (WINAPI *pNDRSContextMarshall2)(RPC_BINDING_HANDLE, NDR_SCONTEXT, vo
 static NDR_SCONTEXT (WINAPI *pNDRSContextUnmarshall2)(RPC_BINDING_HANDLE, void*, ULONG, void*, ULONG);
 static RPC_STATUS (WINAPI *pRpcServerRegisterIfEx)(RPC_IF_HANDLE,UUID*, RPC_MGR_EPV*, unsigned int,
                    unsigned int,RPC_IF_CALLBACK_FN*);
-static BOOLEAN (WINAPI *pGetUserNameExA)(EXTENDED_NAME_FORMAT, LPSTR, PULONG);
 static RPC_STATUS (WINAPI *pRpcBindingSetAuthInfoExA)(RPC_BINDING_HANDLE, RPC_CSTR, ULONG, ULONG,
                                                       RPC_AUTH_IDENTITY_HANDLE, ULONG, RPC_SECURITY_QOS *);
 static RPC_STATUS (WINAPI *pRpcServerRegisterAuthInfoA)(RPC_CSTR, ULONG, RPC_AUTH_KEY_RETRIEVAL_FN, LPVOID);
@@ -60,14 +59,12 @@ static const WCHAR worldW[] = { 'W','o','r','l','d','!',0 };
 static void InitFunctionPointers(void)
 {
     HMODULE hrpcrt4 = GetModuleHandleA("rpcrt4.dll");
-    HMODULE hsecur32 = LoadLibraryA("secur32.dll");
 
     pNDRSContextMarshall2 = (void *)GetProcAddress(hrpcrt4, "NDRSContextMarshall2");
     pNDRSContextUnmarshall2 = (void *)GetProcAddress(hrpcrt4, "NDRSContextUnmarshall2");
     pRpcServerRegisterIfEx = (void *)GetProcAddress(hrpcrt4, "RpcServerRegisterIfEx");
     pRpcBindingSetAuthInfoExA = (void *)GetProcAddress(hrpcrt4, "RpcBindingSetAuthInfoExA");
     pRpcServerRegisterAuthInfoA = (void *)GetProcAddress(hrpcrt4, "RpcServerRegisterAuthInfoA");
-    pGetUserNameExA = (void *)GetProcAddress(hsecur32, "GetUserNameExA");
 
     if (!pNDRSContextMarshall2) old_windows_version = TRUE;
 }
@@ -743,6 +740,35 @@ void __cdecl s_context_handle_test(void)
         pNDRSContextMarshall2(binding, h, buf, NULL, &server_if.InterfaceId, 0);
 
         pNDRSContextUnmarshall2(binding, buf, NDR_LOCAL_DATA_REPRESENTATION, &server_if2.InterfaceId, 0);
+    }
+
+    binding = NULL;
+    status = RpcBindingServerFromClient(NULL, &binding);
+
+    todo_wine
+    {
+        ok(status == RPC_S_OK, "expected RPC_S_OK got %u\n", status);
+        ok(binding != NULL, "binding is NULL\n");
+    }
+
+    if (status == RPC_S_OK && binding != NULL)
+    {
+        unsigned char* string_binding = NULL;
+        unsigned char* computer_name = NULL;
+
+        status = RpcBindingToStringBindingA(binding, &string_binding);
+
+        ok(status == RPC_S_OK, "expected RPC_S_OK got %u\n", status);
+        ok(string_binding != NULL, "string_binding is NULL\n");
+
+        status = RpcStringBindingParseA(string_binding, NULL, NULL, &computer_name, NULL, NULL);
+
+        ok(status == RPC_S_OK, "expected RPC_S_OK got %u\n", status);
+        ok(computer_name != NULL, "computer_name is NULL\n");
+
+        RpcStringFreeA(&string_binding);
+        RpcStringFreeA(&computer_name);
+        RpcBindingFree(&binding);
     }
 }
 
@@ -1471,7 +1497,7 @@ void __cdecl s_authinfo_test(unsigned int protseq, int secure)
             todo_wine
             ok(principal != NULL, "NULL principal\n");
         }
-        if (protseq == RPC_PROTSEQ_LRPC && principal && pGetUserNameExA)
+        if (protseq == RPC_PROTSEQ_LRPC && principal)
         {
             int len;
             char *spn;
@@ -1518,9 +1544,6 @@ set_auth_info(RPC_BINDING_HANDLE handle)
 {
     RPC_STATUS status;
     RPC_SECURITY_QOS qos;
-
-    if (!pGetUserNameExA)
-        return;
 
     qos.Version = 1;
     qos.Capabilities = RPC_C_QOS_CAPABILITIES_MUTUAL_AUTH;
@@ -1680,11 +1703,9 @@ server(void)
   if (ncalrpc_status == RPC_S_OK)
   {
     run_client("ncalrpc_basic");
-    if (pGetUserNameExA)
-    {
-      /* we don't need to register RPC_C_AUTHN_WINNT for ncalrpc */
-      run_client("ncalrpc_secure");
-    }
+
+    /* we don't need to register RPC_C_AUTHN_WINNT for ncalrpc */
+    run_client("ncalrpc_secure");
   }
   else
     skip("lrpc tests skipped due to earlier failure\n");
@@ -1713,20 +1734,15 @@ server(void)
 
 START_TEST(server)
 {
+  ULONG size = 0;
   int argc;
   char **argv;
 
   InitFunctionPointers();
 
-  if (pGetUserNameExA)
-  {
-    ULONG size = 0;
-    ok(!pGetUserNameExA(NameSamCompatible, NULL, &size), "GetUserNameExA\n");
-    domain_and_user = HeapAlloc(GetProcessHeap(), 0, size);
-    ok(pGetUserNameExA(NameSamCompatible, domain_and_user, &size), "GetUserNameExA\n");
-  }
-  else
-    win_skip("GetUserNameExA is needed for some authentication tests\n");
+  ok(!GetUserNameExA(NameSamCompatible, NULL, &size), "GetUserNameExA\n");
+  domain_and_user = HeapAlloc(GetProcessHeap(), 0, size);
+  ok(GetUserNameExA(NameSamCompatible, domain_and_user, &size), "GetUserNameExA\n");
 
   argc = winetest_get_mainargs(&argv);
   progname = argv[0];

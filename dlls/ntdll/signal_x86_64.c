@@ -2400,7 +2400,6 @@ static NTSTATUS call_stack_handlers( EXCEPTION_RECORD *rec, CONTEXT *orig_contex
             {
             case ExceptionContinueExecution:
                 if (rec->ExceptionFlags & EH_NONCONTINUABLE) return STATUS_NONCONTINUABLE_EXCEPTION;
-                *orig_context = *dispatch.ContextRecord;
                 return STATUS_SUCCESS;
             case ExceptionContinueSearch:
                 break;
@@ -2431,7 +2430,6 @@ static NTSTATUS call_stack_handlers( EXCEPTION_RECORD *rec, CONTEXT *orig_contex
             {
             case ExceptionContinueExecution:
                 if (rec->ExceptionFlags & EH_NONCONTINUABLE) return STATUS_NONCONTINUABLE_EXCEPTION;
-                *orig_context = *dispatch.ContextRecord;
                 return STATUS_SUCCESS;
             case ExceptionContinueSearch:
                 break;
@@ -3557,6 +3555,8 @@ __ASM_GLOBAL_FUNC( call_consolidate_callback,
  */
 void WINAPI RtlRestoreContext( CONTEXT *context, EXCEPTION_RECORD *rec )
 {
+    EXCEPTION_REGISTRATION_RECORD *teb_frame = NtCurrentTeb()->Tib.ExceptionList;
+
     if (rec && rec->ExceptionCode == STATUS_LONGJUMP && rec->NumberParameters >= 1)
     {
         struct MSVCRT_JUMP_BUFFER *jmp = (struct MSVCRT_JUMP_BUFFER *)rec->ExceptionInformation[0];
@@ -3569,6 +3569,7 @@ void WINAPI RtlRestoreContext( CONTEXT *context, EXCEPTION_RECORD *rec )
         context->R13       = jmp->R13;
         context->R14       = jmp->R14;
         context->R15       = jmp->R15;
+        context->Rip       = jmp->Rip;
         context->u.s.Xmm6  = jmp->Xmm6;
         context->u.s.Xmm7  = jmp->Xmm7;
         context->u.s.Xmm8  = jmp->Xmm8;
@@ -3586,6 +3587,14 @@ void WINAPI RtlRestoreContext( CONTEXT *context, EXCEPTION_RECORD *rec )
         TRACE( "calling consolidate callback %p (rec=%p)\n", consolidate, rec );
         context->Rip = (ULONG64)call_consolidate_callback( context, consolidate, rec );
     }
+
+    /* hack: remove no longer accessible TEB frames */
+    while ((ULONG64)teb_frame < context->Rsp)
+    {
+        TRACE( "removing TEB frame: %p\n", teb_frame );
+        teb_frame = __wine_pop_frame( teb_frame );
+    }
+
     TRACE( "returning to %lx stack %lx\n", context->Rip, context->Rsp );
     set_cpu_context( context );
 }

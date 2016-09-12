@@ -1,5 +1,4 @@
-description: fix wineserver manpages for Debian's default persistence value.
- debian/scripts/wineserver sets -p0
+description: fix wineserver manpages for Debian's default persistence value
 author: Jens Reyer <jre.winesim@gmail.com>
 
 --- a/server/wineserver.de.UTF-8.man.in
