@@ -80,7 +80,7 @@ sonamesRecommends=$(shell \
     cut -d\" -f2)
 
 debian/control: debian/control.in
-	sed s/VERSION/$(VERSION)/g < $< > $@
+	sed "s/VERSION/$(VERSION)/g;s/DEBSUFFIX/$(DEBSUFFIX)/g" < $< > $@
 
 debian/wine$(VERSION)%: debian/wineVERSION%
 	sed "s/VERSION/$(VERSION)/g;s/DEBSUFFIX/$(DEBSUFFIX)/g" < $< > $@
