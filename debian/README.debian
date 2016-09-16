@@ -160,17 +160,33 @@ shown for Wine Gecko above, just replace gecko with mono.
 
 Automatically Launching Windows Executables
 ===========================================
-You can configure Wine to automatically launch Windows executables from the
-command line, for example:
-$ notepad.exe
+You can configure your system to automatically launch Windows executables. But
+this increases the risk of inadvertently launching Windows malware, so please
+make sure that you understand the security risks before blindly setting this
+up.
 
-To configure backend support for that, you'll need to install the wine-binfmt
-package first and then execute:
+You can directly launch Windows executables from the command line if the
+executable bit is set, and if they are either in PATH or you specify the path
+to them. To configure backend support for that, you'll need to execute:
+$ sudo apt install wine-binfmt
 $ sudo update-binfmts --import wine
 
-This change increases the risk of inadvertently launching Windows malware, so
-please make sure that you understand the security risks before blindly setting
-this up.
-
-To remove the support again execute:
+To remove this backend support again execute:
 $ sudo update-binfmts --package wine --remove wine /usr/bin/wine
+
+You can also make Wine known to your desktop environment. Then you may for
+example in a filebrowser double-click on Windows executables to start them, or
+right-click on them to "Open With Wine Windows Programs Loader". To enable
+support for this execute one of the following commands (both wine and
+wine-development have the same wine.desktop file):
+$ sudo cp /usr/share/doc/wine/examples/wine.desktop \
+    /usr/share/applications/
+$ sudo cp /usr/share/doc/wine-development/examples/wine.desktop \
+    /usr/share/applications/
+
+To remove this again execute:
+$ sudo rm /usr/share/applications/wine.desktop
+
+The changes should take effect automatically. If not execute:
+$ sudo apt install desktop-file-utils
+$ sudo update-desktop-database
