@@ -58,7 +58,7 @@ wine-development the development releases (e.g. version 1.7.15).
 wine and wine-development use the Debian alternatives system to provide
 /usr/bin/wine and other commands. If both packages are installed it defaults to
 use the commands provided by wine. You may change this by running:
-$ sudo update-alternatives --config wine
+$ sudo update-alternatives --quiet --config wine
 
 You may force a version at any time (as long as the wineserver isn't running
 yet), by using the suffixed command names, e.g.:
