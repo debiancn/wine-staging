@@ -2653,7 +2653,7 @@ SOCKET WINAPI WS_accept(SOCKET s, struct WS_sockaddr *addr, int *addrlen32)
         SERVER_END_REQ;
         if (!status)
         {
-            if (addr && WS_getpeername(as, addr, addrlen32))
+            if (addr && addrlen32 && WS_getpeername(as, addr, addrlen32))
             {
                 WS_closesocket(as);
                 return SOCKET_ERROR;
@@ -4393,11 +4393,61 @@ char* WINAPI WS_inet_ntoa(struct WS_in_addr in)
     return data->ntoa_buffer;
 }
 
-static const char *debugstr_wsaioctl(DWORD ioctl)
+static const char *debugstr_wsaioctl(DWORD code)
 {
-    const char *buf_type, *family;
+    const char *name = NULL, *buf_type, *family;
 
-    switch(ioctl & 0x18000000)
+#define IOCTL_NAME(x) case x: name = #x; break
+    switch (code)
+    {
+        IOCTL_NAME(WS_FIONBIO);
+        IOCTL_NAME(WS_FIONREAD);
+        IOCTL_NAME(WS_SIOCATMARK);
+        /* IOCTL_NAME(WS_SIO_ACQUIRE_PORT_RESERVATION); */
+        IOCTL_NAME(WS_SIO_ADDRESS_LIST_CHANGE);
+        IOCTL_NAME(WS_SIO_ADDRESS_LIST_QUERY);
+        IOCTL_NAME(WS_SIO_ASSOCIATE_HANDLE);
+        /* IOCTL_NAME(WS_SIO_ASSOCIATE_PORT_RESERVATION);
+        IOCTL_NAME(WS_SIO_BASE_HANDLE);
+        IOCTL_NAME(WS_SIO_BSP_HANDLE);
+        IOCTL_NAME(WS_SIO_BSP_HANDLE_SELECT);
+        IOCTL_NAME(WS_SIO_BSP_HANDLE_POLL);
+        IOCTL_NAME(WS_SIO_CHK_QOS); */
+        IOCTL_NAME(WS_SIO_ENABLE_CIRCULAR_QUEUEING);
+        IOCTL_NAME(WS_SIO_FIND_ROUTE);
+        IOCTL_NAME(WS_SIO_FLUSH);
+        IOCTL_NAME(WS_SIO_GET_BROADCAST_ADDRESS);
+        IOCTL_NAME(WS_SIO_GET_EXTENSION_FUNCTION_POINTER);
+        IOCTL_NAME(WS_SIO_GET_GROUP_QOS);
+        IOCTL_NAME(WS_SIO_GET_INTERFACE_LIST);
+        /* IOCTL_NAME(WS_SIO_GET_INTERFACE_LIST_EX); */
+        IOCTL_NAME(WS_SIO_GET_QOS);
+        /* IOCTL_NAME(WS_SIO_IDEAL_SEND_BACKLOG_CHANGE);
+        IOCTL_NAME(WS_SIO_IDEAL_SEND_BACKLOG_QUERY); */
+        IOCTL_NAME(WS_SIO_KEEPALIVE_VALS);
+        IOCTL_NAME(WS_SIO_MULTIPOINT_LOOPBACK);
+        IOCTL_NAME(WS_SIO_MULTICAST_SCOPE);
+        /* IOCTL_NAME(WS_SIO_QUERY_RSS_SCALABILITY_INFO);
+        IOCTL_NAME(WS_SIO_QUERY_WFP_ALE_ENDPOINT_HANDLE); */
+        IOCTL_NAME(WS_SIO_RCVALL);
+        IOCTL_NAME(WS_SIO_RCVALL_IGMPMCAST);
+        IOCTL_NAME(WS_SIO_RCVALL_MCAST);
+        /* IOCTL_NAME(WS_SIO_RELEASE_PORT_RESERVATION); */
+        IOCTL_NAME(WS_SIO_ROUTING_INTERFACE_CHANGE);
+        IOCTL_NAME(WS_SIO_ROUTING_INTERFACE_QUERY);
+        IOCTL_NAME(WS_SIO_SET_COMPATIBILITY_MODE);
+        IOCTL_NAME(WS_SIO_SET_GROUP_QOS);
+        IOCTL_NAME(WS_SIO_SET_QOS);
+        IOCTL_NAME(WS_SIO_TRANSLATE_HANDLE);
+        IOCTL_NAME(WS_SIO_UDP_CONNRESET);
+    }
+#undef IOCTL_NAME
+
+    if (name)
+        return name + 3;
+
+    /* If this is not a known code split its bits */
+    switch(code & 0x18000000)
     {
     case WS_IOC_WS2:
         family = "IOC_WS2";
@@ -4410,12 +4460,12 @@ static const char *debugstr_wsaioctl(DWORD ioctl)
         break;
     default: /* WS_IOC_UNIX */
     {
-        BYTE size = (ioctl >> 16) & WS_IOCPARM_MASK;
-        char x = (ioctl & 0xff00) >> 8;
-        BYTE y = ioctl & 0xff;
+        BYTE size = (code >> 16) & WS_IOCPARM_MASK;
+        char x = (code & 0xff00) >> 8;
+        BYTE y = code & 0xff;
         char args[14];
 
-        switch (ioctl & (WS_IOC_VOID|WS_IOC_INOUT))
+        switch (code & (WS_IOC_VOID|WS_IOC_INOUT))
         {
             case WS_IOC_VOID:
                 buf_type = "_IO";
@@ -4439,7 +4489,7 @@ static const char *debugstr_wsaioctl(DWORD ioctl)
     }
 
     /* We are different from WS_IOC_UNIX. */
-    switch (ioctl & (WS_IOC_VOID|WS_IOC_INOUT))
+    switch (code & (WS_IOC_VOID|WS_IOC_INOUT))
     {
         case WS_IOC_VOID:
             buf_type = "_WSAIO";
@@ -4459,7 +4509,7 @@ static const char *debugstr_wsaioctl(DWORD ioctl)
     }
 
     return wine_dbg_sprintf("%s(%s, %d)", buf_type, family,
-                            (USHORT)(ioctl & 0xffff));
+                            (USHORT)(code & 0xffff));
 }
 
 /* do an ioctl call through the server */
@@ -4651,19 +4701,17 @@ INT WINAPI WSAIoctl(SOCKET s, DWORD code, LPVOID in_buff, DWORD in_size, LPVOID 
                         addr = inet_addr(ptr->IpAddressList.IpAddress.String);
                         mask = inet_addr(ptr->IpAddressList.IpMask.String);
                         bcast = addr | ~mask;
-                        intArray->iiAddress.AddressIn.sin_family = AF_INET;
+                        intArray->iiAddress.AddressIn.sin_family = WS_AF_INET;
                         intArray->iiAddress.AddressIn.sin_port = 0;
-                        intArray->iiAddress.AddressIn.sin_addr.WS_s_addr =
-                         addr;
-                        intArray->iiNetmask.AddressIn.sin_family = AF_INET;
+                        intArray->iiAddress.AddressIn.sin_addr.WS_s_addr = addr;
+
+                        intArray->iiNetmask.AddressIn.sin_family = WS_AF_INET;
                         intArray->iiNetmask.AddressIn.sin_port = 0;
-                        intArray->iiNetmask.AddressIn.sin_addr.WS_s_addr =
-                         mask;
-                        intArray->iiBroadcastAddress.AddressIn.sin_family =
-                         AF_INET;
+                        intArray->iiNetmask.AddressIn.sin_addr.WS_s_addr = mask;
+
+                        intArray->iiBroadcastAddress.AddressIn.sin_family = WS_AF_INET;
                         intArray->iiBroadcastAddress.AddressIn.sin_port = 0;
-                        intArray->iiBroadcastAddress.AddressIn.sin_addr.
-                         WS_s_addr = bcast;
+                        intArray->iiBroadcastAddress.AddressIn.sin_addr.WS_s_addr = bcast;
                         intArray++;
                         numInt++;
                      }
@@ -4747,7 +4795,7 @@ INT WINAPI WSAIoctl(SOCKET s, DWORD code, LPVOID in_buff, DWORD in_size, LPVOID 
                 sa[i].lpSockaddr = (SOCKADDR *)&sockaddr[i];
                 sa[i].iSockaddrLength = sizeof(SOCKADDR);
 
-                sockaddr[i].sin_family = AF_INET;
+                sockaddr[i].sin_family = WS_AF_INET;
                 sockaddr[i].sin_port = 0;
                 sockaddr[i].sin_addr.WS_s_addr = inet_addr(p->IpAddressList.IpAddress.String);
                 i++;
@@ -4886,7 +4934,7 @@ INT WINAPI WSAIoctl(SOCKET s, DWORD code, LPVOID in_buff, DWORD in_size, LPVOID 
            SetLastError(WSAEFAULT);
            return SOCKET_ERROR;
        }
-       if (daddr->sa_family != AF_INET)
+       if (daddr->sa_family != WS_AF_INET)
        {
            FIXME("unsupported address family %d\n", daddr->sa_family);
            status = WSAEAFNOSUPPORT;
@@ -4919,7 +4967,7 @@ INT WINAPI WSAIoctl(SOCKET s, DWORD code, LPVOID in_buff, DWORD in_size, LPVOID 
            status = WSAEFAULT;
            break;
        }
-       saddr_in->sin_family = AF_INET;
+       saddr_in->sin_family = WS_AF_INET;
        saddr_in->sin_addr.S_un.S_addr = ipAddrTable->table[found_index].dwAddr;
        saddr_in->sin_port = 0;
        total = sizeof(struct WS_sockaddr_in);
@@ -5330,7 +5378,20 @@ int WINAPI WSAPoll(WSAPOLLFD *wfds, ULONG count, int timeout)
         if (ufds[i].fd != -1)
         {
             release_sock_fd(wfds[i].fd, ufds[i].fd);
-            wfds[i].revents = convert_poll_u2w(ufds[i].revents);
+            if (ufds[i].revents & POLLHUP)
+            {
+                /* Check if the socket still exists */
+                int fd = get_sock_fd(wfds[i].fd, 0, NULL);
+                if (fd != -1)
+                {
+                    wfds[i].revents = WS_POLLHUP;
+                    release_sock_fd(wfds[i].fd, fd);
+                }
+                else
+                    wfds[i].revents = WS_POLLNVAL;
+            }
+            else
+                wfds[i].revents = convert_poll_u2w(ufds[i].revents);
         }
         else
             wfds[i].revents = WS_POLLNVAL;

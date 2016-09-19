@@ -293,7 +293,7 @@ DECL_HANDLER(close_clipboard)
     if (req->changed) clipboard->seqno++;
 
     reply->viewer = close_clipboard( clipboard );
-    reply->owner  = (clipboard->owner_thread && clipboard->owner_thread->process == current->process);
+    reply->owner  = clipboard->owner_win;
 }
 
 
@@ -353,9 +353,11 @@ DECL_HANDLER(release_clipboard)
     if (!(owner = get_valid_window_handle( req->owner ))) return;
 
     if (clipboard->owner_win == owner)
+    {
         reply->viewer = release_clipboard( clipboard );
-    else
-        set_error( STATUS_INVALID_OWNER );
+        reply->owner = clipboard->owner_win;
+    }
+    else set_error( STATUS_INVALID_OWNER );
 }
 
 

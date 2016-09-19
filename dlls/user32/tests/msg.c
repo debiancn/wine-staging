@@ -6644,7 +6644,7 @@ static const struct message WmSetParentStyle[] = {
 static void test_paint_messages(void)
 {
     BOOL ret;
-    RECT rect;
+    RECT rect, rect2;
     POINT pt;
     MSG msg;
     HWND hparent, hchild;
@@ -6709,7 +6709,8 @@ static void test_paint_messages(void)
      */
     trace("testing ValidateRect(0, NULL)\n");
     SetRectEmpty( &rect );
-    if (ValidateRect(0, &rect))  /* not supported on Win9x */
+    if (ValidateRect(0, &rect) && /* not supported on Win9x */
+        GetUpdateRect(hwnd, NULL, FALSE))  /* or >= Win 8 */
     {
         check_update_rgn( hwnd, hrgn );
         ok_sequence( WmInvalidateErase, "InvalidateErase", FALSE );
@@ -7183,15 +7184,21 @@ static void test_paint_messages(void)
     SetRectRgn( hrgn, 10, 10, 40, 40 );
     check_update_rgn( hchild, hrgn );
     MoveWindow( hparent, -20, -20, 200, 200, FALSE );
-    SetRectRgn( hrgn, 20, 20, 100, 100 );
+    GetUpdateRect( hparent, &rect2, FALSE );
+    if (!EqualRect( &rect2, &rect )) /* Win 8 and later don't crop update to screen */
+    {
+        rect.left += 20;
+        rect.top += 20;
+    }
+    SetRectRgn( hrgn, rect.left, rect.top, rect.right, rect.bottom );
     check_update_rgn( hparent, hrgn );
-    SetRectRgn( hrgn, 30, 30, 40, 40 );
+    SetRectRgn( hrgn, rect.left + 10, rect.top + 10, 40, 40 );
     check_update_rgn( hchild, hrgn );
 
     /* invalidated region is cropped by the parent rects */
     SetRect( &rect, 0, 0, 50, 50 );
     RedrawWindow( hchild, &rect, 0, RDW_INVALIDATE | RDW_ERASE );
-    SetRectRgn( hrgn, 30, 30, 50, 50 );
+    SetRectRgn( hrgn, rect2.left + 10, rect2.top + 10, 50, 50 );
     check_update_rgn( hchild, hrgn );
 
     DestroyWindow( hparent );
@@ -13902,6 +13909,25 @@ static const struct message NCRBUTTONDOWNSeq[] =
     { 0 }
 };
 
+struct rbuttonup_thread_data
+{
+    HWND hwnd;
+    HANDLE wndproc_finished;
+};
+
+static DWORD CALLBACK post_rbuttonup_msg( void *arg )
+{
+    struct rbuttonup_thread_data *data = arg;
+    DWORD ret;
+
+    ret = WaitForSingleObject( data->wndproc_finished, 500 );
+    todo_wine ok( ret == WAIT_OBJECT_0, "WaitForSingleObject returned %x\n", ret );
+    if( ret == WAIT_OBJECT_0 ) return 0;
+
+    PostMessageA( data->hwnd, WM_RBUTTONUP, 0, 0 );
+    return 0;
+}
+
 static void test_defwinproc(void)
 {
     HWND hwnd;
@@ -13911,6 +13937,8 @@ static void test_defwinproc(void)
     RECT rect;
     INT x, y;
     LRESULT res;
+    struct rbuttonup_thread_data data;
+    HANDLE thread;
 
     hwnd = CreateWindowExA(0, "TestWindowClass", "test_defwndproc",
             WS_VISIBLE | WS_CAPTION | WS_OVERLAPPEDWINDOW, 0,0,500,100,0,0,0, NULL);
@@ -13926,10 +13954,24 @@ static void test_defwinproc(void)
     res = DefWindowProcA( hwnd, WM_NCHITTEST, 0, MAKELPARAM(x, y));
     ok(res == HTCAPTION, "WM_NCHITTEST returned %ld\n", res);
 
+    mouse_event( MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0 );
+    mouse_event( MOUSEEVENTF_LEFTUP, 0, 0, 0, 0 );
+    flush_events();
+
     flush_sequence();
-    PostMessageA( hwnd, WM_RBUTTONUP, 0, 0);
+    mouse_event( MOUSEEVENTF_RIGHTUP, 0, 0, 0, 0 );
+    /* workaround for missing support for clicking on window frame */
+    data.hwnd = hwnd;
+    data.wndproc_finished = CreateEventA( NULL, FALSE, FALSE, NULL );
+    thread = CreateThread( NULL, 0, post_rbuttonup_msg, (void*)&data, 0, NULL );
+
     DefWindowProcA( hwnd, WM_NCRBUTTONDOWN, HTCAPTION, MAKELPARAM(x, y));
     ok_sequence(NCRBUTTONDOWNSeq, "WM_NCRBUTTONDOWN on caption", FALSE);
+
+    SetEvent( data.wndproc_finished );
+    WaitForSingleObject( thread, 1000 );
+    CloseHandle( data.wndproc_finished );
+    CloseHandle( thread );
 
     SetCursorPos(pos.x, pos.y);
 
