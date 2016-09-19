@@ -465,6 +465,7 @@ static void test_WsWriteStartAttribute(void)
     text.text.textType = WS_XML_TEXT_TYPE_UTF8;
     text.value.length  = 1;
     text.value.bytes   = (BYTE *)"0";
+    text.value.dictionary = NULL;
     hr = WsWriteText( writer, &text.text, NULL );
     ok( hr == S_OK, "got %08x\n", hr );
     check_output( writer, "", __LINE__ );
@@ -1130,6 +1131,7 @@ static void test_WsWriteStartCData(void)
     text.text.textType = WS_XML_TEXT_TYPE_UTF8;
     text.value.bytes = (BYTE *)"<data>";
     text.value.length = 6;
+    text.value.dictionary = NULL;
     hr = WsWriteText( writer, &text.text, NULL );
     ok( hr == S_OK, "got %08x\n", hr );
     check_output( writer, "<t><![CDATA[<data>", __LINE__ );
@@ -1818,6 +1820,7 @@ static void test_WsWriteNode(void)
     utf8.text.textType = WS_XML_TEXT_TYPE_UTF8;
     utf8.value.bytes   = (BYTE *)"value";
     utf8.value.length  = sizeof("value") - 1;
+    utf8.value.dictionary = NULL;
 
     attr.singleQuote = TRUE;
     attr.isXmlNs     = FALSE;
@@ -1840,6 +1843,7 @@ static void test_WsWriteNode(void)
     comment.node.nodeType = WS_XML_NODE_TYPE_COMMENT;
     comment.value.bytes   = (BYTE *)"comment";
     comment.value.length  = sizeof("comment") - 1;
+    comment.value.dictionary = NULL;
     hr = WsWriteNode( writer, (const WS_XML_NODE *)&comment, NULL );
     ok( hr == S_OK, "got %08x\n", hr );
 
@@ -1857,6 +1861,7 @@ static void test_WsWriteNode(void)
 
     utf8.value.bytes   = (BYTE *)"cdata";
     utf8.value.length  = sizeof("cdata") - 1;
+    utf8.value.dictionary = NULL;
     text.node.nodeType = WS_XML_NODE_TYPE_TEXT;
     text.text          = &utf8.text;
     hr = WsWriteNode( writer, (const WS_XML_NODE *)&text, NULL );
@@ -1868,6 +1873,7 @@ static void test_WsWriteNode(void)
 
     utf8.value.bytes   = (BYTE *)"text";
     utf8.value.length  = sizeof("text") - 1;
+    utf8.value.dictionary = NULL;
     hr = WsWriteNode( writer, (const WS_XML_NODE *)&text, NULL );
     ok( hr == S_OK, "got %08x\n", hr );
 
@@ -2210,8 +2216,95 @@ static void test_WsWriteText(void)
     utf8.text.textType = WS_XML_TEXT_TYPE_UTF8;
     utf8.value.bytes  = (BYTE *)"test";
     utf8.value.length = 4;
+    utf8.value.dictionary = NULL;
     hr = WsWriteText( writer, &utf8.text, NULL );
     todo_wine ok( hr == WS_E_INVALID_FORMAT, "got %08x\n", hr );
+
+    WsFreeWriter( writer );
+}
+
+static void test_WsWriteArray(void)
+{
+    static const WS_XML_STRING localname = {4, (BYTE *)"item"}, localname2 = {5, (BYTE *)"array"};
+    static const WS_XML_STRING ns = {0, NULL};
+    WS_XML_WRITER *writer;
+    BOOL array_bool[2];
+    HRESULT hr;
+
+    hr = WsCreateWriter( NULL, 0, &writer, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsWriteArray( writer, NULL, NULL, 0, NULL, 0, 0, 0, NULL );
+    ok( hr == WS_E_INVALID_OPERATION, "got %08x\n", hr );
+
+    hr = set_output( writer );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsWriteArray( writer, NULL, NULL, 0, NULL, 0, 0, 0, NULL );
+    ok( hr == E_INVALIDARG, "got %08x\n", hr );
+
+    hr = set_output( writer );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsWriteArray( writer, &localname, NULL, 0, NULL, 0, 0, 0, NULL );
+    ok( hr == E_INVALIDARG, "got %08x\n", hr );
+
+    hr = set_output( writer );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsWriteArray( writer, &localname, &ns, 0, NULL, 0, 0, 0, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    check_output( writer, "", __LINE__ );
+
+    hr = WsWriteArray( writer, &localname, &ns, ~0u, NULL, 0, 0, 0, NULL );
+    ok( hr == E_INVALIDARG, "got %08x\n", hr );
+
+    hr = set_output( writer );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsWriteArray( writer, &localname, &ns, WS_BOOL_VALUE_TYPE, NULL, 0, 0, 0, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    check_output( writer, "", __LINE__ );
+
+    array_bool[0] = FALSE;
+    hr = WsWriteArray( writer, &localname, &ns, WS_BOOL_VALUE_TYPE, array_bool, 0, 0, 0, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    check_output( writer, "", __LINE__ );
+
+    hr = WsWriteArray( writer, &localname, &ns, WS_BOOL_VALUE_TYPE, array_bool, sizeof(array_bool), 0, 0, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    check_output( writer, "", __LINE__ );
+
+    hr = WsWriteArray( writer, &localname, &ns, WS_BOOL_VALUE_TYPE, NULL, sizeof(array_bool), 0, 0, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    check_output( writer, "", __LINE__ );
+
+    hr = WsWriteArray( writer, &localname, &ns, WS_BOOL_VALUE_TYPE, NULL, sizeof(array_bool), 0, 1, NULL );
+    ok( hr == E_INVALIDARG, "got %08x\n", hr );
+
+    hr = set_output( writer );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsWriteArray( writer, &localname, &ns, WS_BOOL_VALUE_TYPE, array_bool, sizeof(array_bool), 0, 1, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    check_output( writer, "<item>false</item>", __LINE__ );
+
+    hr = WsWriteArray( writer, &localname, &ns, WS_BOOL_VALUE_TYPE, array_bool, sizeof(array_bool) - 1, 0, 2, NULL );
+    ok( hr == E_INVALIDARG, "got %08x\n", hr );
+
+    hr = set_output( writer );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsWriteArray( writer, &localname, &ns, WS_BOOL_VALUE_TYPE, array_bool, sizeof(array_bool), 0, 3, NULL );
+    ok( hr == E_INVALIDARG, "got %08x\n", hr );
+
+    hr = set_output( writer );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsWriteStartElement( writer, NULL, &localname2, &ns, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    array_bool[1] = TRUE;
+    hr = WsWriteArray( writer, &localname, &ns, WS_BOOL_VALUE_TYPE, array_bool, sizeof(array_bool), 0, 2, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsWriteEndElement( writer, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    check_output( writer, "<array><item>false</item><item>true</item></array>", __LINE__ );
 
     WsFreeWriter( writer );
 }
@@ -2244,4 +2337,5 @@ START_TEST(writer)
     test_double();
     test_field_flags();
     test_WsWriteText();
+    test_WsWriteArray();
 }

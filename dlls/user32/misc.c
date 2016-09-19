@@ -538,7 +538,7 @@ void WINAPI RegisterSystemThread(DWORD flags, DWORD reserved)
 /***********************************************************************
  *           RegisterShellHookWindow			[USER32.@]
  */
-BOOL WINAPI RegisterShellHookWindow ( HWND hWnd )
+BOOL WINAPI RegisterShellHookWindow(HWND hWnd)
 {
     FIXME("(%p): stub\n", hWnd);
     return FALSE;
@@ -548,11 +548,10 @@ BOOL WINAPI RegisterShellHookWindow ( HWND hWnd )
 /***********************************************************************
  *           DeregisterShellHookWindow			[USER32.@]
  */
-HRESULT WINAPI DeregisterShellHookWindow ( DWORD u )
+BOOL WINAPI DeregisterShellHookWindow(HWND hWnd)
 {
-    FIXME("0x%08x stub\n",u);
-    return 0;
-
+    FIXME("(%p): stub\n", hWnd);
+    return FALSE;
 }
 
 
@@ -882,7 +881,7 @@ LRESULT WINAPI ImeWndProcA( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam )
 {
     HWND uiwnd;
 
-    if (msg==WM_CREATE || msg==WM_NCCREATE)
+    if (msg==WM_CREATE)
         return TRUE;
 
     if (imm_get_ui_window && is_ime_ui_msg(msg))
@@ -899,7 +898,7 @@ LRESULT WINAPI ImeWndProcW( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam )
 {
     HWND uiwnd;
 
-    if (msg==WM_CREATE || msg==WM_NCCREATE)
+    if (msg==WM_CREATE)
         return TRUE;
 
     if (imm_get_ui_window && is_ime_ui_msg(msg))

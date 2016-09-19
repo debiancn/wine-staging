@@ -2541,6 +2541,7 @@ BOOL FILEDLG95_OnOpen(HWND hwnd)
                 && fodInfos->ofnInfos->Flags & OFN_EXPLORER)
             {
               SendCustomDlgNotificationMessage(hwnd, CDN_FOLDERCHANGE);
+              SendMessageA(fodInfos->DlgInfos.hwndFileName, WM_SETTEXT, 0, (LPARAM)"");
             }
 	  }
 	  else if( nOpenAction == ONOPEN_SEARCH )
@@ -2551,6 +2552,13 @@ BOOL FILEDLG95_OnOpen(HWND hwnd)
           COMDLG32_SHFree(pidlCurrent);
           if (filename_is_edit( fodInfos ))
               SendMessageW(fodInfos->DlgInfos.hwndFileName, EM_SETSEL, 0, -1);
+          else
+          {
+              HWND hwnd;
+
+              hwnd = (HWND)SendMessageA(fodInfos->DlgInfos.hwndFileName, CBEM_GETEDITCONTROL, 0, 0);
+              SendMessageW(hwnd, EM_SETSEL, 0, -1);
+          }
         }
       }
       ret = FALSE;

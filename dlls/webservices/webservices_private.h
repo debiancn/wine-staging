@@ -35,6 +35,7 @@ void free_attribute( WS_XML_ATTRIBUTE * ) DECLSPEC_HIDDEN;
 WS_TYPE map_value_type( WS_VALUE_TYPE ) DECLSPEC_HIDDEN;
 BOOL set_fp_rounding( unsigned short * ) DECLSPEC_HIDDEN;
 void restore_fp_rounding( unsigned short ) DECLSPEC_HIDDEN;
+ULONG get_type_size( WS_TYPE, const WS_STRUCT_DESCRIPTION * ) DECLSPEC_HIDDEN;
 
 struct node
 {
@@ -103,6 +104,13 @@ HRESULT create_channel( WS_CHANNEL_TYPE, WS_CHANNEL_BINDING, const WS_CHANNEL_PR
 void free_channel( struct channel * ) DECLSPEC_HIDDEN;
 HRESULT open_channel( struct channel *, const WS_ENDPOINT_ADDRESS * ) DECLSPEC_HIDDEN;
 HRESULT close_channel( struct channel * ) DECLSPEC_HIDDEN;
+
+static inline BOOL is_nil_value( const char *value, ULONG size )
+{
+    ULONG i;
+    for (i = 0; i < size; i++) if (value[i]) return FALSE;
+    return TRUE;
+}
 
 static inline void *heap_alloc( SIZE_T size )
 {

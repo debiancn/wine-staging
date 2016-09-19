@@ -2626,6 +2626,26 @@ todo_wine
     DestroyWindow(window);
 }
 
+static void create_target_dibsection(HDC hdc, UINT32 width, UINT32 height)
+{
+    char bmibuf[FIELD_OFFSET(BITMAPINFO, bmiColors[256])];
+    BITMAPINFO *bmi = (BITMAPINFO*)bmibuf;
+    HBITMAP hbm;
+
+    memset(bmi, 0, sizeof(bmibuf));
+    bmi->bmiHeader.biSize = sizeof(bmi->bmiHeader);
+    bmi->bmiHeader.biHeight = -height;
+    bmi->bmiHeader.biWidth = width;
+    bmi->bmiHeader.biBitCount = 32;
+    bmi->bmiHeader.biPlanes = 1;
+    bmi->bmiHeader.biCompression = BI_RGB;
+
+    hbm = CreateDIBSection(hdc, bmi, DIB_RGB_COLORS, NULL, NULL, 0);
+    ok(hbm != NULL, "Failed to create a dib section.\n");
+
+    DeleteObject(SelectObject(hdc, hbm));
+}
+
 static void test_dc_target(void)
 {
     static const D2D1_PIXEL_FORMAT invalid_formats[] =
@@ -2634,14 +2654,32 @@ static void test_dc_target(void)
         { DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_UNKNOWN },
         { DXGI_FORMAT_R8G8B8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED },
     };
+    D2D1_TEXT_ANTIALIAS_MODE text_aa_mode;
     D2D1_RENDER_TARGET_PROPERTIES desc;
+    D2D1_MATRIX_3X2_F matrix, matrix2;
+    D2D1_ANTIALIAS_MODE aa_mode;
     ID2D1SolidColorBrush *brush;
     ID2D1DCRenderTarget *rt;
     ID2D1Factory *factory;
+    ID3D10Device1 *device;
+    FLOAT dpi_x, dpi_y;
     D2D1_COLOR_F color;
+    D2D1_SIZE_U sizeu;
     D2D1_SIZE_F size;
+    D2D1_TAG t1, t2;
     unsigned int i;
+    HDC hdc, hdc2;
+    D2D_RECT_F r;
+    COLORREF clr;
     HRESULT hr;
+    RECT rect;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device, skipping tests.\n");
+        return;
+    }
+    ID3D10Device1_Release(device);
 
     hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &IID_ID2D1Factory, NULL, (void **)&factory);
     ok(SUCCEEDED(hr), "Failed to create factory, hr %#x.\n", hr);
@@ -2656,7 +2694,6 @@ static void test_dc_target(void)
         desc.minLevel = D2D1_FEATURE_LEVEL_DEFAULT;
 
         hr = ID2D1Factory_CreateDCRenderTarget(factory, &desc, &rt);
-    todo_wine
         ok(hr == D2DERR_UNSUPPORTED_PIXEL_FORMAT, "Got unexpected hr %#x.\n", hr);
     }
 
@@ -2668,13 +2705,15 @@ static void test_dc_target(void)
     desc.usage = D2D1_RENDER_TARGET_USAGE_NONE;
     desc.minLevel = D2D1_FEATURE_LEVEL_DEFAULT;
     hr = ID2D1Factory_CreateDCRenderTarget(factory, &desc, &rt);
-todo_wine
     ok(SUCCEEDED(hr), "Failed to create target, hr %#x.\n", hr);
-if (SUCCEEDED(hr))
-{
+
     size = ID2D1DCRenderTarget_GetSize(rt);
     ok(size.width == 0.0f, "got width %.08e.\n", size.width);
     ok(size.height == 0.0f, "got height %.08e.\n", size.height);
+
+    sizeu = ID2D1DCRenderTarget_GetPixelSize(rt);
+    ok(sizeu.width == 0, "got width %u.\n", sizeu.width);
+    ok(sizeu.height == 0, "got height %u.\n", sizeu.height);
 
     /* object creation methods work without BindDC() */
     set_color(&color, 0.0f, 0.0f, 0.0f, 0.0f);
@@ -2687,7 +2726,108 @@ if (SUCCEEDED(hr))
     ok(hr == D2DERR_WRONG_STATE, "Got unexpected hr %#x.\n", hr);
 
     ID2D1DCRenderTarget_Release(rt);
-}
+
+    /* BindDC() */
+    hr = ID2D1Factory_CreateDCRenderTarget(factory, &desc, &rt);
+    ok(SUCCEEDED(hr), "Failed to create target, hr %#x.\n", hr);
+
+    aa_mode = ID2D1DCRenderTarget_GetAntialiasMode(rt);
+    ok(aa_mode == D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, "Got wrong default aa mode %d.\n", aa_mode);
+    text_aa_mode = ID2D1DCRenderTarget_GetTextAntialiasMode(rt);
+    ok(text_aa_mode == D2D1_TEXT_ANTIALIAS_MODE_DEFAULT, "Got wrong default text aa mode %d.\n", text_aa_mode);
+
+    ID2D1DCRenderTarget_GetDpi(rt, &dpi_x, &dpi_y);
+    ok(dpi_x == 96.0f && dpi_y == 96.0f, "Got dpi_x %f, dpi_y %f.\n", dpi_x, dpi_y);
+
+    hdc = CreateCompatibleDC(NULL);
+    ok(hdc != NULL, "Failed to create an HDC.\n");
+
+    create_target_dibsection(hdc, 16, 16);
+
+    SetRect(&rect, 0, 0, 32, 32);
+    hr = ID2D1DCRenderTarget_BindDC(rt, NULL, &rect);
+    ok(hr == E_INVALIDARG, "BindDC() returned %#x.\n", hr);
+
+    /* Target properties are retained during BindDC() */
+    ID2D1DCRenderTarget_SetTags(rt, 1, 2);
+    ID2D1DCRenderTarget_SetAntialiasMode(rt, D2D1_ANTIALIAS_MODE_ALIASED);
+    ID2D1DCRenderTarget_SetTextAntialiasMode(rt, D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE);
+
+    set_matrix_identity(&matrix);
+    translate_matrix(&matrix, 200.0f, 600.0f);
+    ID2D1DCRenderTarget_SetTransform(rt, &matrix);
+
+    hr = ID2D1DCRenderTarget_BindDC(rt, hdc, &rect);
+    ok(hr == S_OK, "BindDC() returned %#x.\n", hr);
+
+    ID2D1DCRenderTarget_GetTags(rt, &t1, &t2);
+    ok(t1 == 1 && t2 == 2, "Got wrong tags.\n");
+
+    aa_mode = ID2D1DCRenderTarget_GetAntialiasMode(rt);
+    ok(aa_mode == D2D1_ANTIALIAS_MODE_ALIASED, "Got wrong aa mode %d.\n", aa_mode);
+
+    text_aa_mode = ID2D1DCRenderTarget_GetTextAntialiasMode(rt);
+    ok(text_aa_mode == D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE, "Got wrong text aa mode %d.\n", text_aa_mode);
+
+    ID2D1DCRenderTarget_GetTransform(rt, &matrix2);
+    ok(!memcmp(&matrix, &matrix2, sizeof(matrix)), "Got wrong target transform.\n");
+
+    set_matrix_identity(&matrix);
+    ID2D1DCRenderTarget_SetTransform(rt, &matrix);
+
+    /* target size comes from specified dimensions, not from selected bitmap size */
+    size = ID2D1DCRenderTarget_GetSize(rt);
+    ok(size.width == 32.0f, "got width %.08e.\n", size.width);
+    ok(size.height == 32.0f, "got height %.08e.\n", size.height);
+
+    /* clear one HDC to red, switch to another one, partially fill it and test contents */
+    ID2D1DCRenderTarget_BeginDraw(rt);
+
+    set_color(&color, 1.0f, 0.0f, 0.0f, 1.0f);
+    ID2D1DCRenderTarget_Clear(rt, &color);
+
+    hr = ID2D1DCRenderTarget_EndDraw(rt, NULL, NULL);
+    ok(SUCCEEDED(hr), "EndDraw() failed, hr %#x.\n", hr);
+
+    clr = GetPixel(hdc, 0, 0);
+    ok(clr == RGB(255, 0, 0), "Got color %#x\n", clr);
+
+    hdc2 = CreateCompatibleDC(NULL);
+    ok(hdc2 != NULL, "Failed to create an HDC.\n");
+
+    create_target_dibsection(hdc2, 16, 16);
+
+    hr = ID2D1DCRenderTarget_BindDC(rt, hdc2, &rect);
+    ok(hr == S_OK, "BindDC() returned %#x.\n", hr);
+
+    clr = GetPixel(hdc2, 0, 0);
+    ok(clr == 0, "Got color %#x\n", clr);
+
+    set_color(&color, 0.0f, 1.0f, 0.0f, 1.0f);
+    hr = ID2D1DCRenderTarget_CreateSolidColorBrush(rt, &color, NULL, &brush);
+    ok(SUCCEEDED(hr), "Failed to create brush, hr %#x.\n", hr);
+
+    ID2D1DCRenderTarget_BeginDraw(rt);
+
+    r.left = r.top = 0.0f;
+    r.bottom = 16.0f;
+    r.right = 8.0f;
+    ID2D1DCRenderTarget_FillRectangle(rt, &r, (ID2D1Brush*)brush);
+
+    hr = ID2D1DCRenderTarget_EndDraw(rt, NULL, NULL);
+    ok(SUCCEEDED(hr), "EndDraw() failed, hr %#x.\n", hr);
+
+    ID2D1SolidColorBrush_Release(brush);
+
+    clr = GetPixel(hdc2, 0, 0);
+    ok(clr == RGB(0, 255, 0), "Got color %#x\n", clr);
+
+    clr = GetPixel(hdc2, 10, 0);
+    ok(clr == 0, "Got color %#x\n", clr);
+
+    DeleteDC(hdc);
+    DeleteDC(hdc2);
+    ID2D1DCRenderTarget_Release(rt);
     ID2D1Factory_Release(factory);
 }
 
