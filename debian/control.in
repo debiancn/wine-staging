@@ -43,6 +43,7 @@ Build-Depends:
  libjpeg-dev,
  libtiff-dev,
  libpcap-dev,
+ libudev-dev [linux-any],
  libpulse-dev [!kfreebsd-any],
  liblcms2-dev,
  libldap2-dev,
