@@ -1,4 +1,4 @@
-wine-development (1.9.19-1) UNRELEASED; urgency=medium
+wine-development (1.9.19-1) unstable; urgency=medium
 
   * New upstream release 1.9.19, released Sep 16, 2016.
     - Initial version of a udev bus driver for HID.
@@ -10,8 +10,10 @@ wine-development (1.9.19-1) UNRELEASED; urgency=medium
     in stable: #836566).
   * Mention the alternatives system in wineVERSION's package description.
   * Provide wine.desktop as example in wineVERSION.
+  * Build-depend on libudev-dev on linux architectures.
+  * Refresh patches.
 
- -- Jens Reyer <jre.winesim@gmail.com>  Mon, 19 Sep 2016 12:43:24 +0200
+ -- Jens Reyer <jre.winesim@gmail.com>  Mon, 19 Sep 2016 18:19:04 +0200
 
 wine-development (1.9.18-1) unstable; urgency=medium
 
