@@ -93,7 +93,7 @@ author: Michael Gilbert <mgilbert@debian.org>
  	url.c \
 --- a/dlls/winmm/tests/Makefile.in
 +++ b/dlls/winmm/tests/Makefile.in
-@@ -3,7 +3,6 @@ IMPORTS   = winmm user32 advapi32
+@@ -3,7 +3,6 @@ IMPORTS   = winmm ole32 user32 advapi32
  
  C_SRCS = \
  	capture.c \
