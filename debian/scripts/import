@@ -49,3 +49,11 @@ dch -v "$version-1" "New upstream release $version, released $release_date."
 sed -n 's/^  - \(.*\)/- \1/p' ANNOUNCE | while read line; do
   dch $line
 done
+
+# set upstream's SERVER_PROTOCOL_VERSION in request.patch
+# this is usually stored in include/wine/server_protocol.h, but we clean that file because it is generated
+proto_version=$(expr $(grep "#define SERVER_PROTOCOL_VERSION" include/wine/server_protocol.h | cut -d\  -f 3) - 1)
+[ "$proto_version" -lt 32767 ] || {
+    echo "error: proto_version $proto_version is not valid."
+    exit 1;}
+sed -i "s|\(+    my \$protocol = \)[[:digit:]]*;|\1${proto_version};|" debian/patches/generate/request.patch
