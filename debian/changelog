@@ -1,3 +1,20 @@
+wine-development (1.9.19-1) unstable; urgency=medium
+
+  * New upstream release 1.9.19, released Sep 16, 2016.
+    - Initial version of a udev bus driver for HID.
+    - Various improvements in joystick support.
+    - Initial implementation of DC rendering in Direct2D.
+    - Improved metafile support in GDI+.
+    - Various bug fixes.
+  * Generate the correct SERVER_PROTOCOL_VERSION (closes: #836911, see also
+    in stable: #836566).
+  * Mention the alternatives system in wineVERSION's package description.
+  * Provide wine.desktop as example in wineVERSION.
+  * Build-depend on libudev-dev on linux architectures.
+  * Refresh patches.
+
+ -- Jens Reyer <jre.winesim@gmail.com>  Mon, 19 Sep 2016 18:19:04 +0200
+
 wine-development (1.9.18-1~bpo8+1) jessie-backports; urgency=medium
 
   * Rebuild for jessie-backports.

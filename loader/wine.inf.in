@@ -130,6 +130,7 @@ AddService=FontCache3.0.0.0,0,WPFFontCacheService
 AddService=LanmanServer,0,LanmanServerService
 AddService=FontCache,0,FontCacheService
 AddService=Schedule,0,TaskSchedulerService
+AddService=WineBus,0,WineBusService
 
 [DefaultInstall.NT.Services]
 AddService=BITS,0,BITSService
@@ -144,6 +145,7 @@ AddService=FontCache3.0.0.0,0,WPFFontCacheService
 AddService=LanmanServer,0,LanmanServerService
 AddService=FontCache,0,FontCacheService
 AddService=Schedule,0,TaskSchedulerService
+AddService=WineBus,0,WineBusService
 
 [DefaultInstall.ntamd64.Services]
 AddService=BITS,0,BITSService
@@ -158,6 +160,7 @@ AddService=FontCache3.0.0.0,0,WPFFontCacheService
 AddService=LanmanServer,0,LanmanServerService
 AddService=FontCache,0,FontCacheService
 AddService=Schedule,0,TaskSchedulerService
+AddService=WineBus,0,WineBusService
 
 [Strings]
 MciExtStr="Software\Microsoft\Windows NT\CurrentVersion\MCI Extensions"
@@ -176,6 +179,7 @@ HKCR,.ini,,2,"inifile"
 HKCR,.lnk,,2,"lnkfile"
 HKCR,.msi,,2,"Msi.Package"
 HKCR,.msp,,2,"Msi.Patch"
+HKCR,.pdf,,2,"pdffile"
 HKCR,.rtf,,2,"rtffile"
 HKCR,.wri,,2,"wrifile"
 HKCR,*\shellex\ContextMenuHandlers,,16
@@ -220,6 +224,12 @@ HKCR,Msi.Package\shell\Uninstall\command,,2,"%11%\msiexec.exe /x ""%1"""
 HKCR,Msi.Patch,,2,"Windows Installer Patch"
 HKCR,Msi.Patch\DefaultIcon,,2,"msiexec.exe"
 HKCR,Msi.Patch\shell\Open\command,,2,"%11%\msiexec.exe /p ""%1"""
+HKCR,pdffile,,2,"PDF Document"
+HKCR,pdffile\shell\open\command,,2,"""%11%\winebrowser.exe"" -nohome"
+HKCR,pdffile\shell\open\ddeexec,,2,"""%1"",,-1,0,,,,"
+HKCR,pdffile\shell\open\ddeexec,"NoActivateHandler",2,""
+HKCR,pdffile\shell\open\ddeexec\Application,,2,"IExplore"
+HKCR,pdffile\shell\open\ddeexec\Topic,,2,"WWW_OpenURL"
 HKCR,rtffile,,2,"Rich Text Document"
 HKCR,rtffile\shell\open\command,,2,"""%16422%\Windows NT\Accessories\wordpad.exe"" %1"
 HKCR,rtffile\shell\print\command,,2,"""%16422%\Windows NT\Accessories\wordpad.exe"" /p %1"
@@ -2518,6 +2528,7 @@ HKLM,%CurrentVersion%\Telephony\Country List\998,"SameAreaRule",,"G"
 12,,mountmgr.sys,-
 12,,ndis.sys,-
 12,,tdi.sys,-
+12,,winebus.sys,-
 ; skip .NET fake dlls in Wine Mono package
 11,,aspnet_regiis.exe,-
 11,,ngen.exe,-
@@ -2560,6 +2571,7 @@ HKLM,%CurrentVersion%\Telephony\Country List\998,"SameAreaRule",,"G"
 12,,mountmgr.sys
 12,,ndis.sys
 12,,tdi.sys
+12,,winebus.sys
 ; skip .NET fake dlls in Wine Mono package
 11,,aspnet_regiis.exe,-
 11,,ngen.exe,-
@@ -3173,6 +3185,15 @@ Description="RPC service"
 DisplayName="Remote Procedure Call (RPC)"
 ServiceBinary="%11%\rpcss.exe"
 ServiceType=32
+StartType=3
+ErrorControl=1
+
+[WineBusService]
+Description="Wine Platform Bus Kernel"
+DisplayName="Platform Bus Kernel"
+ServiceBinary="%12%\winebus.sys"
+LoadOrderGroup="WinePlugPlay"
+ServiceType=1
 StartType=3
 ErrorControl=1
 
