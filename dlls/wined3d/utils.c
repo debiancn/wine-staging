@@ -1882,8 +1882,7 @@ static void create_and_bind_fbo_attachment(const struct wined3d_gl_info *gl_info
         case WINED3D_GL_RES_TYPE_TEX_3D:
             gl_info->gl_ops.gl.p_glGenTextures(1, object);
             gl_info->gl_ops.gl.p_glBindTexture(GL_TEXTURE_3D, *object);
-            GL_EXTCALL(glTexImage3D)(GL_TEXTURE_3D, 0, internal, 16, 16, 16, 0,
-                    format, type, NULL);
+            GL_EXTCALL(glTexImage3D(GL_TEXTURE_3D, 0, internal, 16, 16, 16, 0, format, type, NULL));
             gl_info->gl_ops.gl.p_glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
             gl_info->gl_ops.gl.p_glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
@@ -2321,7 +2320,7 @@ static void check_fbo_compat(struct wined3d_caps_gl_ctx *ctx, struct wined3d_for
         }
 
         delete_fbo_attachment(gl_info, type, object);
-        checkGLcall("Framebuffer format check cleaup");
+        checkGLcall("Framebuffer format check cleanup");
     }
 
     if (fallback_fmt_used && regular_fmt_used)
@@ -4954,10 +4953,10 @@ void wined3d_format_get_float_color_key(const struct wined3d_format *format,
         case WINED3DFMT_R8G8B8X8_UNORM:
         case WINED3DFMT_R16G16_UNORM:
         case WINED3DFMT_B10G10R10A2_UNORM:
-            slop.r = 0.5f / ((1 << format->red_size) - 1);
-            slop.g = 0.5f / ((1 << format->green_size) - 1);
-            slop.b = 0.5f / ((1 << format->blue_size) - 1);
-            slop.a = 0.5f / ((1 << format->alpha_size) - 1);
+            slop.r = 0.5f / ((1u << format->red_size) - 1);
+            slop.g = 0.5f / ((1u << format->green_size) - 1);
+            slop.b = 0.5f / ((1u << format->blue_size) - 1);
+            slop.a = 0.5f / ((1u << format->alpha_size) - 1);
 
             float_colors[0].r = color_to_float(key->color_space_low_value, format->red_size, format->red_offset)
                     - slop.r;

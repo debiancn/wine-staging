@@ -3135,6 +3135,7 @@ INT WINAPI LCMapStringEx(LPCWSTR name, DWORD flags, LPCWSTR src, INT srclen, LPW
                          LPNLSVERSIONINFO version, LPVOID reserved, LPARAM lparam)
 {
     LPWSTR dst_ptr;
+    INT len;
 
     if (version) FIXME("unsupported version structure %p\n", version);
     if (reserved) FIXME("unsupported reserved pointer %p\n", reserved);
@@ -3154,7 +3155,8 @@ INT WINAPI LCMapStringEx(LPCWSTR name, DWORD flags, LPCWSTR src, INT srclen, LPW
     if ((flags & (LCMAP_LOWERCASE | LCMAP_UPPERCASE)) == (LCMAP_LOWERCASE | LCMAP_UPPERCASE) ||
         (flags & (LCMAP_HIRAGANA | LCMAP_KATAKANA)) == (LCMAP_HIRAGANA | LCMAP_KATAKANA) ||
         (flags & (LCMAP_HALFWIDTH | LCMAP_FULLWIDTH)) == (LCMAP_HALFWIDTH | LCMAP_FULLWIDTH) ||
-        (flags & (LCMAP_TRADITIONAL_CHINESE | LCMAP_SIMPLIFIED_CHINESE)) == (LCMAP_TRADITIONAL_CHINESE | LCMAP_SIMPLIFIED_CHINESE))
+        (flags & (LCMAP_TRADITIONAL_CHINESE | LCMAP_SIMPLIFIED_CHINESE)) == (LCMAP_TRADITIONAL_CHINESE | LCMAP_SIMPLIFIED_CHINESE) ||
+        !flags)
     {
         SetLastError(ERROR_INVALID_FLAGS);
         return 0;
@@ -3190,6 +3192,14 @@ INT WINAPI LCMapStringEx(LPCWSTR name, DWORD flags, LPCWSTR src, INT srclen, LPW
         SetLastError(ERROR_INVALID_FLAGS);
         return 0;
     }
+    if (((flags & (NORM_IGNORENONSPACE | NORM_IGNORESYMBOLS)) &&
+         (flags & ~(NORM_IGNORENONSPACE | NORM_IGNORESYMBOLS))) ||
+        ((flags & (LCMAP_HIRAGANA | LCMAP_KATAKANA)) &&
+         (flags & (LCMAP_SIMPLIFIED_CHINESE | LCMAP_TRADITIONAL_CHINESE))))
+    {
+        SetLastError(ERROR_INVALID_FLAGS);
+        return 0;
+    }
 
     if (srclen < 0) srclen = strlenW(src) + 1;
 
@@ -3198,61 +3208,92 @@ INT WINAPI LCMapStringEx(LPCWSTR name, DWORD flags, LPCWSTR src, INT srclen, LPW
 
     if (!dst) /* return required string length */
     {
-        INT len;
-
-        for (len = 0; srclen; src++, srclen--)
+        if (flags & NORM_IGNORESYMBOLS)
         {
-            WCHAR wch = *src;
-            /* tests show that win2k just ignores NORM_IGNORENONSPACE,
-             * and skips white space and punctuation characters for
-             * NORM_IGNORESYMBOLS.
-             */
-            if ((flags & NORM_IGNORESYMBOLS) && (get_char_typeW(wch) & (C1_PUNCT | C1_SPACE)))
-                continue;
-            len++;
+            for (len = 0; srclen; src++, srclen--)
+            {
+                WCHAR wch = *src;
+                /* tests show that win2k just ignores NORM_IGNORENONSPACE,
+                 * and skips white space and punctuation characters for
+                 * NORM_IGNORESYMBOLS.
+                 */
+                if (get_char_typeW(wch) & (C1_PUNCT | C1_SPACE))
+                    continue;
+                len++;
+            }
         }
+        else
+            len = srclen;
         return len;
     }
 
-    if (flags & LCMAP_UPPERCASE)
+    if (src == dst && (flags & ~(LCMAP_LOWERCASE | LCMAP_UPPERCASE)))
     {
-        for (dst_ptr = dst; srclen && dstlen; src++, srclen--)
-        {
-            WCHAR wch = *src;
-            if ((flags & NORM_IGNORESYMBOLS) && (get_char_typeW(wch) & (C1_PUNCT | C1_SPACE)))
-                continue;
-            *dst_ptr++ = toupperW(wch);
-            dstlen--;
-        }
+        SetLastError(ERROR_INVALID_FLAGS);
+        return 0;
     }
-    else if (flags & LCMAP_LOWERCASE)
+
+    if (flags & (NORM_IGNORENONSPACE | NORM_IGNORESYMBOLS))
     {
-        for (dst_ptr = dst; srclen && dstlen; src++, srclen--)
-        {
-            WCHAR wch = *src;
-            if ((flags & NORM_IGNORESYMBOLS) && (get_char_typeW(wch) & (C1_PUNCT | C1_SPACE)))
-                continue;
-            *dst_ptr++ = tolowerW(wch);
-            dstlen--;
-        }
-    }
-    else
-    {
-        if (src == dst)
-        {
-            SetLastError(ERROR_INVALID_FLAGS);
-            return 0;
-        }
-        for (dst_ptr = dst; srclen && dstlen; src++, srclen--)
+        for (len = dstlen, dst_ptr = dst; srclen && len; src++, srclen--)
         {
             WCHAR wch = *src;
             if ((flags & NORM_IGNORESYMBOLS) && (get_char_typeW(wch) & (C1_PUNCT | C1_SPACE)))
                 continue;
             *dst_ptr++ = wch;
-            dstlen--;
+            len--;
+        }
+        goto done;
+    }
+
+    if (flags & LCMAP_UPPERCASE)
+    {
+        for (len = dstlen, dst_ptr = dst; srclen && len; src++, srclen--)
+        {
+            *dst_ptr++ = toupperW(*src);
+            len--;
+        }
+    }
+    else if (flags & LCMAP_LOWERCASE)
+    {
+        for (len = dstlen, dst_ptr = dst; srclen && len; src++, srclen--)
+        {
+            *dst_ptr++ = tolowerW(*src);
+            len--;
+        }
+    }
+    else
+    {
+        len = min(srclen, dstlen);
+        memcpy(dst, src, len * sizeof(WCHAR));
+        dst_ptr = dst + len;
+        srclen -= len;
+    }
+
+    if (flags & LCMAP_HIRAGANA)
+    {
+        /* map katakana to hiragana, e.g. U+30A1 -> U+3041.
+           we can't use C3_KATAKANA as some characters can't map to hiragana */
+        for (len = dst_ptr - dst, dst_ptr = dst; len; len--, dst_ptr++)
+        {
+            if ((*dst_ptr >= 0x30A1 && *dst_ptr <= 0x30F6) ||
+                *dst_ptr == 0x30FD || *dst_ptr == 0x30FE)
+                *dst_ptr -= 0x60;
+        }
+    }
+    else if (flags & LCMAP_KATAKANA)
+    {
+        /* map hiragana to katakana, e.g. U+3041 -> U+30A1.
+           we can't use C3_HIRAGANA as some characters can't map to katakana */
+        for (len = dst_ptr - dst, dst_ptr = dst; len; len--, dst_ptr++)
+        {
+            if ((*dst_ptr >= 0x3041 && *dst_ptr <= 0x3096) ||
+                *dst_ptr == 0x309D || *dst_ptr == 0x309E)
+                *dst_ptr += 0x60;
         }
     }
 
+done:
     if (srclen)
     {
         SetLastError(ERROR_INSUFFICIENT_BUFFER);
