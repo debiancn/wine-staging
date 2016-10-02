@@ -16,6 +16,8 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include "winhttp.h"
+
 struct xmlbuf
 {
     WS_HEAP *heap;
@@ -35,6 +37,8 @@ void free_attribute( WS_XML_ATTRIBUTE * ) DECLSPEC_HIDDEN;
 WS_TYPE map_value_type( WS_VALUE_TYPE ) DECLSPEC_HIDDEN;
 BOOL set_fp_rounding( unsigned short * ) DECLSPEC_HIDDEN;
 void restore_fp_rounding( unsigned short ) DECLSPEC_HIDDEN;
+HRESULT set_output( WS_XML_WRITER * ) DECLSPEC_HIDDEN;
+HRESULT set_input( WS_XML_READER *, char *, ULONG ) DECLSPEC_HIDDEN;
 ULONG get_type_size( WS_TYPE, const WS_STRUCT_DESCRIPTION * ) DECLSPEC_HIDDEN;
 
 struct node
@@ -90,20 +94,11 @@ void prop_init( const struct prop_desc *, ULONG, struct prop *, void * ) DECLSPE
 HRESULT prop_set( const struct prop *, ULONG, ULONG, const void *, ULONG ) DECLSPEC_HIDDEN;
 HRESULT prop_get( const struct prop *, ULONG, ULONG, void *, ULONG ) DECLSPEC_HIDDEN;
 
-struct channel
-{
-    WS_CHANNEL_TYPE         type;
-    WS_CHANNEL_BINDING      binding;
-    WS_CHANNEL_STATE        state;
-    ULONG                   prop_count;
-    struct prop             prop[50];
-};
+HRESULT message_set_action( WS_MESSAGE *, const WS_XML_STRING * ) DECLSPEC_HIDDEN;
+HRESULT message_insert_http_headers( WS_MESSAGE *, HINTERNET ) DECLSPEC_HIDDEN;
 
-HRESULT create_channel( WS_CHANNEL_TYPE, WS_CHANNEL_BINDING, const WS_CHANNEL_PROPERTY *,
-                        ULONG, struct channel ** ) DECLSPEC_HIDDEN;
-void free_channel( struct channel * ) DECLSPEC_HIDDEN;
-HRESULT open_channel( struct channel *, const WS_ENDPOINT_ADDRESS * ) DECLSPEC_HIDDEN;
-HRESULT close_channel( struct channel * ) DECLSPEC_HIDDEN;
+HRESULT channel_send_message( WS_CHANNEL *, WS_MESSAGE * ) DECLSPEC_HIDDEN;
+HRESULT channel_receive_message( WS_CHANNEL *, char **, ULONG * ) DECLSPEC_HIDDEN;
 
 static inline BOOL is_nil_value( const char *value, ULONG size )
 {

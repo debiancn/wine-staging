@@ -94,6 +94,8 @@ struct wine_driver
     DRIVER_EXTENSION driver_extension;
 };
 
+static NTSTATUS get_device_id( DEVICE_OBJECT *device, BUS_QUERY_ID_TYPE type, WCHAR **id );
+
 static int wine_drivers_rb_compare( const void *key, const struct wine_rb_entry *entry )
 {
     const struct wine_driver *driver = WINE_RB_ENTRY_VALUE( entry, const struct wine_driver, entry );
@@ -1132,6 +1134,30 @@ NTSTATUS WINAPI IoGetDeviceProperty( DEVICE_OBJECT *device, DEVICE_REGISTRY_PROP
            property_buffer, result_length );
     switch (device_property)
     {
+        case DevicePropertyEnumeratorName:
+        {
+            WCHAR *id, *ptr;
+
+            status = get_device_id( device, BusQueryInstanceID, &id );
+            if (status != STATUS_SUCCESS)
+            {
+                ERR( "Failed to get device id\n" );
+                break;
+            }
+
+            struprW( id );
+            ptr = strchrW( id, '\\' );
+            if (ptr) *ptr = 0;
+
+            *result_length = sizeof(WCHAR) * (strlenW(id) + 1);
+            if (buffer_length >= *result_length)
+                memcpy( property_buffer, id, *result_length );
+            else
+                status = STATUS_BUFFER_TOO_SMALL;
+
+            HeapFree( GetProcessHeap(), 0, id );
+            break;
+        }
         case DevicePropertyPhysicalDeviceObjectName:
         {
             ULONG used_len, len = buffer_length + sizeof(OBJECT_NAME_INFORMATION);
@@ -2927,6 +2953,44 @@ static BOOL get_driver_for_id( const WCHAR *id, WCHAR *driver )
 }
 
 
+static NTSTATUS send_pnp_irp( DEVICE_OBJECT *device, UCHAR minor )
+{
+    IO_STACK_LOCATION *irpsp;
+    IO_STATUS_BLOCK irp_status;
+    IRP *irp;
+
+    if (!(irp = IoBuildSynchronousFsdRequest( IRP_MJ_PNP, device, NULL, 0, NULL, NULL, &irp_status )))
+        return STATUS_NO_MEMORY;
+
+    irpsp = IoGetNextIrpStackLocation( irp );
+    irpsp->MinorFunction = minor;
+
+    irpsp->Parameters.StartDevice.AllocatedResources = NULL;
+    irpsp->Parameters.StartDevice.AllocatedResourcesTranslated = NULL;
+
+    return send_device_irp( device, irp, NULL );
+}
+
+
+static NTSTATUS send_power_irp( DEVICE_OBJECT *device, DEVICE_POWER_STATE power )
+{
+    IO_STATUS_BLOCK irp_status;
+    IO_STACK_LOCATION *irpsp;
+    IRP *irp;
+
+    if (!(irp = IoBuildSynchronousFsdRequest( IRP_MJ_POWER, device, NULL, 0, NULL, NULL, &irp_status )))
+        return STATUS_NO_MEMORY;
+
+    irpsp = IoGetNextIrpStackLocation( irp );
+    irpsp->MinorFunction = IRP_MN_SET_POWER;
+
+    irpsp->Parameters.Power.Type = DevicePowerState;
+    irpsp->Parameters.Power.State.DeviceState = power;
+
+    return send_device_irp( device, irp, NULL );
+}
+
+
 static void handle_bus_relations( DEVICE_OBJECT *device )
 {
     static const WCHAR driverW[] = {'\\','D','r','i','v','e','r','\\',0};
@@ -2990,7 +3054,23 @@ static void handle_bus_relations( DEVICE_OBJECT *device )
     ObDereferenceObject( driver_obj );
 
     if (status != STATUS_SUCCESS)
+    {
         ERR_(plugplay)( "AddDevice failed for driver %s\n", debugstr_w(driver) );
+        return;
+    }
+
+    send_pnp_irp( device, IRP_MN_START_DEVICE );
+    send_power_irp( device, PowerDeviceD0 );
+}
+
+
+static void handle_removal_relations( DEVICE_OBJECT *device )
+{
+    TRACE_(plugplay)( "(%p)\n", device );
+
+    send_power_irp( device, PowerDeviceD3 );
+    send_pnp_irp( device, IRP_MN_SURPRISE_REMOVAL );
+    send_pnp_irp( device, IRP_MN_REMOVE_DEVICE );
 }
 
 
@@ -3005,6 +3085,9 @@ void WINAPI IoInvalidateDeviceRelations( DEVICE_OBJECT *device_object, DEVICE_RE
     {
         case BusRelations:
             handle_bus_relations( device_object );
+            break;
+        case RemovalRelations:
+            handle_removal_relations( device_object );
             break;
         default:
             FIXME( "unhandled relation %i\n", type );
