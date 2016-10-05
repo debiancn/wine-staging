@@ -171,9 +171,9 @@ Description: Windows API implementation - prelinked 64-bit binary loader
  This package provides the prelinked loader for 64-bit Windows applications.
 
 Package: wine32VERSION-tools
+Section: libdevel
 Architecture: any-i386 any-powerpc armel armhf
 Multi-Arch: foreign
-Section: libdevel
 Built-Using: ${built:Using}
 Depends:
  gcc | gcc-multilib:amd64 [i386],
@@ -184,11 +184,11 @@ Depends:
 Recommends:
  wineVERSION (= ${source:Version}),
  g++ | g++-multilib:amd64 [i386],
-Conflicts:
- wine64VERSION-tools,
 Breaks:
  wine32-tools (<< 1.8.3-3~),
  wine64-tools (<< 1.8.3-3~),
+Conflicts:
+ wine64VERSION-tools,
 Description: Windows API implementation - 32-bit developer tools
  Wine is a free MS-Windows API implementation.
  This is still a work in progress and many applications may still not work.
@@ -197,9 +197,9 @@ Description: Windows API implementation - 32-bit developer tools
  generating 32-bit results.
 
 Package: wine64VERSION-tools
+Section: libdevel
 Architecture: amd64 arm64
 Multi-Arch: foreign
-Section: libdevel
 Built-Using: ${built:Using}
 Depends:
  gcc,
@@ -213,11 +213,11 @@ Depends:
 Recommends:
  wineVERSION (= ${source:Version}),
  g++,
-Conflicts:
- wine32VERSION-tools,
 Breaks:
  wine32-tools (<< 1.8.3-3~),
  wine64-tools (<< 1.8.3-3~),
+Conflicts:
+ wine32VERSION-tools,
 Description: Windows API implementation - 64-bit developer tools
  Wine is a free MS-Windows API implementation.
  This is still a work in progress and many applications may still not work.
@@ -255,8 +255,8 @@ Description: Windows API implementation - library
  This package provides the Wine library.
 
 Package: libwineVERSION-dev
-Architecture: amd64 any-i386 any-powerpc armel armhf arm64
 Section: libdevel
+Architecture: amd64 any-i386 any-powerpc armel armhf arm64
 Multi-Arch: same
 Built-Using: ${built:Using}
 Depends:
