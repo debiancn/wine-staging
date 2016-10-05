@@ -1,3 +1,14 @@
+wine-development (1.9.20-1) UNRELEASED; urgency=medium
+
+  * New upstream release 1.9.20, released Oct 1, 2016.
+    - Reimplementation of the clipboard API.
+    - Message handling in WebServices.
+    - Many more API Set libraries.
+    - Various bug fixes.
+  * Refresh patches and bump SERVER_PROTOCOL_VERSION.
+
+ -- Jens Reyer <jre.winesim@gmail.com>  Wed, 05 Oct 2016 14:23:46 +0200
+
 wine-development (1.9.19-1) unstable; urgency=medium
 
   * New upstream release 1.9.19, released Sep 16, 2016.
