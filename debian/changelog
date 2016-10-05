@@ -6,6 +6,7 @@ wine-development (1.9.20-1) UNRELEASED; urgency=medium
     - Many more API Set libraries.
     - Various bug fixes.
   * Refresh patches and bump SERVER_PROTOCOL_VERSION.
+  * Declare relationship to the old Ubuntu packages in d/control.in.
 
  -- Jens Reyer <jre.winesim@gmail.com>  Wed, 05 Oct 2016 14:23:46 +0200
 
