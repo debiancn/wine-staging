@@ -5,6 +5,7 @@ wine (1.8.4-2) UNRELEASED; urgency=medium
     - Generate the correct SERVER_PROTOCOL_VERSION (closes: #836566).
     - Mention the alternatives system in wine's package description.
     - Provide wine.desktop as example in package wine.
+  * Declare relationship to the old Ubuntu packages in d/control.in.
 
  -- Jens Reyer <jre.winesim@gmail.com>  Fri, 23 Sep 2016 14:09:58 +0200
 
