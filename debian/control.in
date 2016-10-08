@@ -201,7 +201,6 @@ Recommends:
  wineVERSION (= ${source:Version}),
  g++ | g++-multilib:amd64 [i386],
 Breaks:
- wine64-tools (<< 1.8.3-3~),
  wine1.6 (<< 1:1.8.4ubuntu1~),
 Conflicts:
  wine64VERSION-tools,
@@ -232,7 +231,6 @@ Recommends:
  wineVERSION (= ${source:Version}),
  g++,
 Breaks:
- wine32-tools (<< 1.8.3-3~),
  wine1.6 (<< 1:1.8.4ubuntu1~),
 Conflicts:
  wine32VERSION-tools,
