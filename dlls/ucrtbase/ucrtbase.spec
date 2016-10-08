@@ -155,14 +155,14 @@
 @ stub __stdio_common_vfwprintf_s
 @ stub __stdio_common_vfwscanf
 @ cdecl __stdio_common_vsnprintf_s(int64 ptr long long ptr ptr ptr) MSVCRT__stdio_common_vsnprintf_s
-@ stub __stdio_common_vsnwprintf_s
+@ cdecl __stdio_common_vsnwprintf_s(int64 ptr long long ptr ptr ptr) MSVCRT__stdio_common_vsnwprintf_s
 @ cdecl __stdio_common_vsprintf(int64 ptr long ptr ptr ptr) MSVCRT__stdio_common_vsprintf
 @ stub __stdio_common_vsprintf_p
 @ cdecl __stdio_common_vsprintf_s(int64 ptr long ptr ptr ptr) MSVCRT__stdio_common_vsprintf_s
 @ cdecl __stdio_common_vsscanf(int64 ptr long ptr ptr ptr) MSVCRT__stdio_common_vsscanf
 @ cdecl __stdio_common_vswprintf(int64 ptr long ptr ptr ptr) MSVCRT__stdio_common_vswprintf
 @ stub __stdio_common_vswprintf_p
-@ stub __stdio_common_vswprintf_s
+@ cdecl __stdio_common_vswprintf_s(int64 ptr long wstr ptr ptr) MSVCRT__stdio_common_vswprintf_s
 @ stub __stdio_common_vswscanf
 @ stub __strncnt
 @ cdecl __sys_errlist()
@@ -230,7 +230,7 @@
 @ cdecl _commit(long) MSVCRT__commit
 @ cdecl _configthreadlocale(long)
 @ cdecl _configure_narrow_argv(long)
-@ stub _configure_wide_argv
+@ cdecl _configure_wide_argv(long)
 @ cdecl _control87(long long)
 @ cdecl _controlfp(long long)
 @ cdecl _controlfp_s(ptr long long)
@@ -242,7 +242,7 @@
 @ cdecl _create_locale(long str) MSVCRT__create_locale
 @ stub _crt_at_quick_exit
 @ cdecl _crt_atexit(ptr) MSVCRT__crt_atexit
-@ stub _crt_debugger_hook
+@ cdecl _crt_debugger_hook(long) MSVCRT__crt_debugger_hook
 @ cdecl _ctime32(ptr) MSVCRT__ctime32
 @ cdecl _ctime32_s(str long ptr) MSVCRT__ctime32_s
 @ cdecl _ctime64(ptr) MSVCRT__ctime64
@@ -368,7 +368,7 @@
 @ cdecl _get_initial_narrow_environment()
 @ stub _get_initial_wide_environment
 @ cdecl _get_invalid_parameter_handler()
-@ stub _get_narrow_winmain_command_line
+@ cdecl _get_narrow_winmain_command_line()
 @ cdecl _get_osfhandle(long) MSVCRT__get_osfhandle
 @ cdecl _get_pgmptr(ptr)
 @ cdecl _get_printf_count_output() MSVCRT__get_printf_count_output
@@ -379,7 +379,7 @@
 @ cdecl _get_timezone(ptr)
 @ cdecl _get_tzname(ptr str long long) MSVCRT__get_tzname
 @ cdecl _get_unexpected() MSVCRT__get_unexpected
-@ stub _get_wide_winmain_command_line
+@ cdecl _get_wide_winmain_command_line()
 @ cdecl _get_wpgmptr(ptr)
 @ cdecl _getc_nolock(ptr) MSVCRT__fgetc_nolock
 @ cdecl _getch()
@@ -420,7 +420,7 @@
 @ cdecl _i64tow_s(int64 ptr long long) MSVCRT__i64tow_s
 @ cdecl _initialize_narrow_environment()
 @ stub _initialize_onexit_table
-@ stub _initialize_wide_environment
+@ cdecl _initialize_wide_environment()
 @ cdecl _initterm(ptr ptr)
 @ cdecl _initterm_e(ptr ptr)
 @ cdecl _invalid_parameter_noinfo()
@@ -2434,9 +2434,9 @@
 @ stub nearbyint
 @ stub nearbyintf
 @ stub nearbyintl
-@ stub nextafter
-@ stub nextafterf
-@ stub nextafterl
+@ cdecl nextafter(double double) MSVCRT__nextafter
+@ cdecl nextafterf(float float) MSVCRT__nextafterf
+@ cdecl nextafterl(double double) MSVCRT__nextafter
 @ stub nexttoward
 @ stub nexttowardf
 @ stub nexttowardl
