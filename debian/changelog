@@ -1,13 +1,16 @@
-wine (1.8.4-2) UNRELEASED; urgency=medium
+wine (1.8.5-1) unstable; urgency=medium
 
+  * New upstream release 1.8.5, released Oct 7, 2016.
+    - Various bug fixes.
   * Cherrypick changes from master:
     - Make libc6-dev dependency portable.
     - Generate the correct SERVER_PROTOCOL_VERSION (closes: #836566).
     - Mention the alternatives system in wine's package description.
     - Provide wine.desktop as example in package wine.
   * Declare relationship to the old Ubuntu packages in d/control.in.
+  * Refresh patches.
 
- -- Jens Reyer <jre.winesim@gmail.com>  Fri, 23 Sep 2016 14:09:58 +0200
+ -- Jens Reyer <jre.winesim@gmail.com>  Mon, 10 Oct 2016 14:27:43 +0200
 
 wine (1.8.4-1) unstable; urgency=medium
 
