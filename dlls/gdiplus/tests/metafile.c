@@ -211,12 +211,16 @@ static BOOL CALLBACK play_metafile_proc(EmfPlusRecordType record_type, unsigned 
     {
         todo_wine_if (state->expected[state->count].playback_todo)
             ok(stat == Ok, "%s.%i: GdipPlayMetafileRecord failed with stat %i\n", state->desc, state->count, stat);
+        todo_wine_if (state->expected[state->count].todo)
+            ok(state->expected[state->count].record_type == record_type,
+                "%s.%i: expected record type 0x%x, got 0x%x\n", state->desc, state->count,
+                state->expected[state->count].record_type, record_type);
         state->count++;
     }
     else
     {
         todo_wine_if (state->expected[state->count].playback_todo)
-            ok(0, "%s: too many records\n", state->desc);
+            ok(0, "%s: unexpected record 0x%x\n", state->desc, record_type);
 
         return FALSE;
     }
@@ -1846,6 +1850,9 @@ static const emfplus_record container_records[] = {
     {0, EmfPlusRecordTypeBeginContainerNoParams},
     {0, EmfPlusRecordTypeEndContainer},
     {0, EmfPlusRecordTypeFillRects},
+    {0, EmfPlusRecordTypeBeginContainer},
+    {0, EmfPlusRecordTypeFillRects},
+    {0, EmfPlusRecordTypeEndContainer},
     {0, EmfPlusRecordTypeBeginContainerNoParams},
     {0, EmfPlusRecordTypeEndOfFile},
     {0, EMR_EOF},
@@ -1865,6 +1872,8 @@ static void test_containers(void)
     static const GpPointF dst_points[3] = {{0.0,0.0},{100.0,0.0},{0.0,100.0}};
     static const WCHAR description[] = {'w','i','n','e','t','e','s','t',0};
     GraphicsContainer state1, state2;
+    GpRectF srcrect, dstrect;
+    REAL dpix, dpiy;
 
     hdc = CreateCompatibleDC(0);
 
@@ -1938,6 +1947,41 @@ static void test_containers(void)
     stat = GdipFillRectangle(graphics, brush, 20.0, 20.0, 5.0, 5.0);
     expect(Ok, stat);
 
+    stat = GdipDeleteBrush(brush);
+    expect(Ok, stat);
+
+    /* With transform applied */
+    stat = GdipGetDpiX(graphics, &dpix);
+    expect(Ok, stat);
+
+    stat = GdipGetDpiY(graphics, &dpiy);
+    expect(Ok, stat);
+
+    srcrect.X = 0.0;
+    srcrect.Y = 0.0;
+    srcrect.Width = 1.0;
+    srcrect.Height = 1.0;
+
+    dstrect.X = 25.0;
+    dstrect.Y = 0.0;
+    dstrect.Width = 5.0;
+    dstrect.Height = 5.0;
+
+    stat = GdipBeginContainer(graphics, &dstrect, &srcrect, UnitInch, &state1);
+    expect(Ok, stat);
+
+    stat = GdipCreateSolidFill((ARGB)0xff00ffff, (GpSolidFill**)&brush);
+    expect(Ok, stat);
+
+    stat = GdipFillRectangle(graphics, brush, 0.0, 0.0, dpix, dpiy);
+    expect(Ok, stat);
+
+    stat = GdipDeleteBrush(brush);
+    expect(Ok, stat);
+
+    stat = GdipEndContainer(graphics, state1);
+    expect(Ok, stat);
+
     /* Restoring an invalid state seems to break the graphics object? */
     if (0) {
         stat = GdipEndContainer(graphics, state1);
@@ -1978,6 +2022,10 @@ static void test_containers(void)
     stat = GdipBitmapGetPixel(bitmap, 42, 42, &color);
     expect(Ok, stat);
     expect(0xff00ff00, color);
+
+    stat = GdipBitmapGetPixel(bitmap, 55, 5, &color);
+    expect(Ok, stat);
+    expect(0xff00ffff, color);
 
     stat = GdipDeleteGraphics(graphics);
     expect(Ok, stat);

@@ -441,7 +441,7 @@ static void test_WsWriteStartAttribute(void)
     HRESULT hr;
     WS_XML_WRITER *writer;
     WS_XML_STRING prefix = {1, (BYTE *)"p"}, localname = {3, (BYTE *)"str"}, ns = {2, (BYTE *)"ns"};
-    WS_XML_UTF8_TEXT text;
+    WS_XML_UTF8_TEXT text = {{WS_XML_TEXT_TYPE_UTF8}};
 
     hr = WsCreateWriter( NULL, 0, &writer, NULL );
     ok( hr == S_OK, "got %08x\n", hr );
@@ -462,10 +462,8 @@ static void test_WsWriteStartAttribute(void)
     ok( hr == S_OK, "got %08x\n", hr );
     check_output( writer, "", __LINE__ );
 
-    text.text.textType = WS_XML_TEXT_TYPE_UTF8;
     text.value.length  = 1;
     text.value.bytes   = (BYTE *)"0";
-    text.value.dictionary = NULL;
     hr = WsWriteText( writer, &text.text, NULL );
     ok( hr == S_OK, "got %08x\n", hr );
     check_output( writer, "", __LINE__ );
@@ -1103,7 +1101,7 @@ static void test_WsWriteStartCData(void)
     HRESULT hr;
     WS_XML_WRITER *writer;
     WS_XML_STRING localname = {1, (BYTE *)"t"}, ns = {0, NULL};
-    WS_XML_UTF8_TEXT text;
+    WS_XML_UTF8_TEXT text = {{WS_XML_TEXT_TYPE_UTF8}};
 
     hr = WsCreateWriter( NULL, 0, &writer, NULL );
     ok( hr == S_OK, "got %08x\n", hr );
@@ -1128,10 +1126,8 @@ static void test_WsWriteStartCData(void)
     ok( hr == S_OK, "got %08x\n", hr );
     check_output( writer, "<t><![CDATA[", __LINE__ );
 
-    text.text.textType = WS_XML_TEXT_TYPE_UTF8;
     text.value.bytes = (BYTE *)"<data>";
     text.value.length = 6;
-    text.value.dictionary = NULL;
     hr = WsWriteText( writer, &text.text, NULL );
     ok( hr == S_OK, "got %08x\n", hr );
     check_output( writer, "<t><![CDATA[<data>", __LINE__ );
@@ -1790,12 +1786,12 @@ static void test_WsWriteNode(void)
     WS_XML_STRING localname = {1, (BYTE *)"t"}, localname2 = {4, (BYTE *)"attr"}, ns = {0, NULL};
     WS_XML_WRITER *writer;
     WS_XML_BUFFER *buffer;
-    WS_XML_UTF8_TEXT utf8;
+    WS_XML_UTF8_TEXT utf8 = {{WS_XML_TEXT_TYPE_UTF8}};
     WS_XML_ATTRIBUTE attr, *attrs[1];
     WS_XML_ELEMENT_NODE elem;
-    WS_XML_COMMENT_NODE comment;
+    WS_XML_COMMENT_NODE comment = {{WS_XML_NODE_TYPE_COMMENT}};
     WS_XML_NODE node;
-    WS_XML_TEXT_NODE text;
+    WS_XML_TEXT_NODE text = {{WS_XML_NODE_TYPE_TEXT}};
     WS_HEAP *heap;
     HRESULT hr;
 
@@ -1817,10 +1813,8 @@ static void test_WsWriteNode(void)
     hr = WsSetOutputToBuffer( writer, buffer, NULL, 0, NULL );
     ok( hr == S_OK, "got %08x\n", hr );
 
-    utf8.text.textType = WS_XML_TEXT_TYPE_UTF8;
     utf8.value.bytes   = (BYTE *)"value";
     utf8.value.length  = sizeof("value") - 1;
-    utf8.value.dictionary = NULL;
 
     attr.singleQuote = TRUE;
     attr.isXmlNs     = FALSE;
@@ -1837,14 +1831,12 @@ static void test_WsWriteNode(void)
     elem.attributeCount = 1;
     elem.attributes     = attrs;
     elem.isEmpty        = FALSE;
-    hr = WsWriteNode( writer, (const WS_XML_NODE *)&elem, NULL );
+    hr = WsWriteNode( writer, &elem.node, NULL );
     ok( hr == S_OK, "got %08x\n", hr );
 
-    comment.node.nodeType = WS_XML_NODE_TYPE_COMMENT;
     comment.value.bytes   = (BYTE *)"comment";
     comment.value.length  = sizeof("comment") - 1;
-    comment.value.dictionary = NULL;
-    hr = WsWriteNode( writer, (const WS_XML_NODE *)&comment, NULL );
+    hr = WsWriteNode( writer, &comment.node, NULL );
     ok( hr == S_OK, "got %08x\n", hr );
 
     node.nodeType = WS_XML_NODE_TYPE_EOF;
@@ -1861,10 +1853,8 @@ static void test_WsWriteNode(void)
 
     utf8.value.bytes   = (BYTE *)"cdata";
     utf8.value.length  = sizeof("cdata") - 1;
-    utf8.value.dictionary = NULL;
-    text.node.nodeType = WS_XML_NODE_TYPE_TEXT;
     text.text          = &utf8.text;
-    hr = WsWriteNode( writer, (const WS_XML_NODE *)&text, NULL );
+    hr = WsWriteNode( writer, &text.node, NULL );
     ok( hr == S_OK, "got %08x\n", hr );
 
     node.nodeType = WS_XML_NODE_TYPE_END_CDATA;
@@ -1873,8 +1863,7 @@ static void test_WsWriteNode(void)
 
     utf8.value.bytes   = (BYTE *)"text";
     utf8.value.length  = sizeof("text") - 1;
-    utf8.value.dictionary = NULL;
-    hr = WsWriteNode( writer, (const WS_XML_NODE *)&text, NULL );
+    hr = WsWriteNode( writer, &text.node, NULL );
     ok( hr == S_OK, "got %08x\n", hr );
 
     node.nodeType = WS_XML_NODE_TYPE_END_ELEMENT;
@@ -2205,7 +2194,7 @@ static void test_WsWriteText(void)
 {
     HRESULT hr;
     WS_XML_WRITER *writer;
-    WS_XML_UTF8_TEXT utf8;
+    WS_XML_UTF8_TEXT utf8 = {{WS_XML_TEXT_TYPE_UTF8}};
 
     hr = WsCreateWriter( NULL, 0, &writer, NULL );
     ok( hr == S_OK, "got %08x\n", hr );
@@ -2213,12 +2202,10 @@ static void test_WsWriteText(void)
     hr = set_output( writer );
     ok( hr == S_OK, "got %08x\n", hr );
 
-    utf8.text.textType = WS_XML_TEXT_TYPE_UTF8;
     utf8.value.bytes  = (BYTE *)"test";
     utf8.value.length = 4;
-    utf8.value.dictionary = NULL;
     hr = WsWriteText( writer, &utf8.text, NULL );
-    todo_wine ok( hr == WS_E_INVALID_FORMAT, "got %08x\n", hr );
+    ok( hr == WS_E_INVALID_FORMAT, "got %08x\n", hr );
 
     WsFreeWriter( writer );
 }
@@ -2309,6 +2296,257 @@ static void test_WsWriteArray(void)
     WsFreeWriter( writer );
 }
 
+static void test_escapes(void)
+{
+    WS_XML_STRING localname = {1, (BYTE *)"t"}, ns = {0, NULL};
+    WS_XML_UTF8_TEXT utf8 = {{WS_XML_TEXT_TYPE_UTF8}};
+    WS_XML_WRITER *writer;
+    struct test
+    {
+        const char *text;
+        const char *result;
+        BOOL        single;
+    };
+    static const struct test tests_elem[] =
+    {
+        { "<",  "<t>&lt;</t>" },
+        { ">",  "<t>&gt;</t>" },
+        { "\"", "<t>\"</t>" },
+        { "&",  "<t>&amp;</t>" },
+        { "&&",  "<t>&amp;&amp;</t>" },
+        { "'",  "<t>'</t>" },
+    };
+    static const struct test tests_attr[] =
+    {
+        { "<",  "<t t=\"&lt;\"/>" },
+        { ">",  "<t t=\">\"/>" },
+        { "\"", "<t t=\"&quot;\"/>" },
+        { "&", "<t t=\"&amp;\"/>" },
+        { "'", "<t t=\"'\"/>" },
+        { "\"", "<t t='\"'/>", TRUE },
+        { "'", "<t t='&apos;'/>", TRUE },
+    };
+    static const struct test tests_cdata[] =
+    {
+        { "<",  "<t><![CDATA[<]]></t>" },
+        { ">",  "<t><![CDATA[>]]></t>" },
+        { "\"", "<t><![CDATA[\"]]></t>" },
+        { "&",  "<t><![CDATA[&]]></t>" },
+        { "[",  "<t><![CDATA[[]]></t>" },
+        { "]",  "<t><![CDATA[]]]></t>" },
+        { "'",  "<t><![CDATA[']]></t>" },
+    };
+    static const struct test tests_comment[] =
+    {
+        { "<",  "<t><!--<--></t>" },
+        { ">",  "<t><!-->--></t>" },
+        { "\"", "<t><!--\"--></t>" },
+        { "&",  "<t><!--&--></t>" },
+        { "'",  "<t><!--'--></t>" },
+    };
+    HRESULT hr;
+    ULONG i;
+
+    hr = WsCreateWriter( NULL, 0, &writer, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    for (i = 0; i < sizeof(tests_elem)/sizeof(tests_elem[0]); i++)
+    {
+        hr = set_output( writer );
+        ok( hr == S_OK, "%u: got %08x\n", i, hr );
+        hr = WsWriteStartElement( writer, NULL, &localname, &ns, NULL );
+        ok( hr == S_OK, "%u: got %08x\n", i, hr );
+
+        utf8.value.bytes  = (BYTE *)tests_elem[i].text;
+        utf8.value.length = strlen( tests_elem[i].text );
+        hr = WsWriteText( writer, &utf8.text, NULL );
+        ok( hr == S_OK, "%u: got %08x\n", i, hr );
+
+        hr = WsWriteEndElement( writer, NULL );
+        ok( hr == S_OK, "%u: got %08x\n", i, hr );
+        check_output( writer, tests_elem[i].result, __LINE__ );
+    }
+
+    for (i = 0; i < sizeof(tests_attr)/sizeof(tests_attr[0]); i++)
+    {
+        hr = set_output( writer );
+        ok( hr == S_OK, "%u: got %08x\n", i, hr );
+        hr = WsWriteStartElement( writer, NULL, &localname, &ns, NULL );
+        ok( hr == S_OK, "%u: got %08x\n", i, hr );
+
+        hr = WsWriteStartAttribute( writer, NULL, &localname, &ns, tests_attr[i].single, NULL );
+        ok( hr == S_OK, "%u: got %08x\n", i, hr );
+
+        utf8.value.bytes  = (BYTE *)tests_attr[i].text;
+        utf8.value.length = strlen( tests_attr[i].text );
+        hr = WsWriteText( writer, &utf8.text, NULL );
+        ok( hr == S_OK, "%u: got %08x\n", i, hr );
+
+        hr = WsWriteEndAttribute( writer, NULL );
+        ok( hr == S_OK, "%u: got %08x\n", i, hr );
+
+        hr = WsWriteEndElement( writer, NULL );
+        ok( hr == S_OK, "%u: got %08x\n", i, hr );
+        check_output( writer, tests_attr[i].result, __LINE__ );
+    }
+
+    for (i = 0; i < sizeof(tests_cdata)/sizeof(tests_cdata[0]); i++)
+    {
+        hr = set_output( writer );
+        ok( hr == S_OK, "%u: got %08x\n", i, hr );
+        hr = WsWriteStartElement( writer, NULL, &localname, &ns, NULL );
+        ok( hr == S_OK, "%u: got %08x\n", i, hr );
+
+        hr = WsWriteStartCData( writer, NULL );
+        ok( hr == S_OK, "%u: got %08x\n", i, hr );
+
+        utf8.value.bytes  = (BYTE *)tests_cdata[i].text;
+        utf8.value.length = strlen( tests_cdata[i].text );
+        hr = WsWriteText( writer, &utf8.text, NULL );
+        ok( hr == S_OK, "%u: got %08x\n", i, hr );
+
+        hr = WsWriteEndCData( writer, NULL );
+        ok( hr == S_OK, "%u: got %08x\n", i, hr );
+
+        hr = WsWriteEndElement( writer, NULL );
+        ok( hr == S_OK, "%u: got %08x\n", i, hr );
+        check_output( writer, tests_cdata[i].result, __LINE__ );
+    }
+
+    for (i = 0; i < sizeof(tests_comment)/sizeof(tests_comment[0]); i++)
+    {
+        WS_XML_COMMENT_NODE comment = {{WS_XML_NODE_TYPE_COMMENT}};
+
+        hr = set_output( writer );
+        ok( hr == S_OK, "%u: got %08x\n", i, hr );
+        hr = WsWriteStartElement( writer, NULL, &localname, &ns, NULL );
+        ok( hr == S_OK, "%u: got %08x\n", i, hr );
+
+        comment.value.bytes  = (BYTE *)tests_comment[i].text;
+        comment.value.length = strlen( tests_comment[i].text );
+        hr = WsWriteNode( writer, &comment.node, NULL );
+        ok( hr == S_OK, "%u: got %08x\n", i, hr );
+
+        hr = WsWriteEndElement( writer, NULL );
+        ok( hr == S_OK, "%u: got %08x\n", i, hr );
+        check_output( writer, tests_comment[i].result, __LINE__ );
+    }
+
+    WsFreeWriter( writer );
+}
+
+static void test_write_option(void)
+{
+    static const WCHAR sW[] = {'s',0};
+    static const WS_XML_STRING localname = {1, (BYTE *)"t"}, ns = {0, NULL};
+    WS_XML_WRITER *writer;
+    int val_int = -1, val_int_zero = 0, *ptr_int = &val_int, *ptr_int_null = NULL;
+    const WCHAR *ptr_wsz = sW, *ptr_wsz_null = NULL;
+    static const WS_XML_STRING val_xmlstr = {1, (BYTE *)"x"}, val_xmlstr_zero = {0, NULL};
+    const WS_XML_STRING *ptr_xmlstr = &val_xmlstr, *ptr_xmlstr_null = NULL;
+    struct
+    {
+        WS_TYPE          type;
+        WS_WRITE_OPTION  option;
+        const void      *value;
+        ULONG            size;
+        HRESULT          hr;
+        const char      *result;
+    }
+    tests[] =
+    {
+        { WS_INT32_TYPE, 0, NULL, 0, E_INVALIDARG },
+        { WS_INT32_TYPE, 0, "str", 0, E_INVALIDARG },
+        { WS_INT32_TYPE, 0, NULL, sizeof(val_int), E_INVALIDARG },
+        { WS_INT32_TYPE, 0, &val_int, sizeof(val_int), E_INVALIDARG },
+        { WS_INT32_TYPE, 0, &val_int_zero, sizeof(val_int_zero), E_INVALIDARG },
+        { WS_INT32_TYPE, WS_WRITE_REQUIRED_VALUE, NULL, 0, E_INVALIDARG },
+        { WS_INT32_TYPE, WS_WRITE_REQUIRED_VALUE, &val_int, 0, E_INVALIDARG },
+        { WS_INT32_TYPE, WS_WRITE_REQUIRED_VALUE, NULL, sizeof(val_int), E_INVALIDARG },
+        { WS_INT32_TYPE, WS_WRITE_REQUIRED_VALUE, &val_int, sizeof(val_int), S_OK, "<t>-1</t>" },
+        { WS_INT32_TYPE, WS_WRITE_REQUIRED_VALUE, &val_int_zero, sizeof(val_int_zero), S_OK, "<t>0</t>" },
+        { WS_INT32_TYPE, WS_WRITE_NILLABLE_VALUE, NULL, 0, E_INVALIDARG },
+        { WS_INT32_TYPE, WS_WRITE_NILLABLE_VALUE, &val_int, 0, E_INVALIDARG },
+        { WS_INT32_TYPE, WS_WRITE_NILLABLE_VALUE, NULL, sizeof(val_int), E_INVALIDARG },
+        { WS_INT32_TYPE, WS_WRITE_NILLABLE_VALUE, &val_int, sizeof(val_int), E_INVALIDARG },
+        { WS_INT32_TYPE, WS_WRITE_NILLABLE_VALUE, &val_int_zero, sizeof(val_int_zero), E_INVALIDARG },
+        { WS_INT32_TYPE, WS_WRITE_REQUIRED_POINTER, NULL, 0, E_INVALIDARG },
+        { WS_INT32_TYPE, WS_WRITE_REQUIRED_POINTER, &ptr_int, 0, E_INVALIDARG },
+        { WS_INT32_TYPE, WS_WRITE_REQUIRED_POINTER, NULL, sizeof(ptr_int), E_INVALIDARG },
+        { WS_INT32_TYPE, WS_WRITE_REQUIRED_POINTER, &ptr_int, sizeof(ptr_int), S_OK, "<t>-1</t>" },
+        { WS_INT32_TYPE, WS_WRITE_REQUIRED_POINTER, &ptr_int_null, sizeof(ptr_int_null), E_INVALIDARG },
+        { WS_INT32_TYPE, WS_WRITE_NILLABLE_POINTER, NULL, 0, E_INVALIDARG },
+        { WS_INT32_TYPE, WS_WRITE_NILLABLE_POINTER, &ptr_int, 0, E_INVALIDARG },
+        { WS_INT32_TYPE, WS_WRITE_NILLABLE_POINTER, NULL, sizeof(ptr_int), E_INVALIDARG },
+        { WS_INT32_TYPE, WS_WRITE_NILLABLE_POINTER, &ptr_int, sizeof(ptr_int), S_OK, "<t>-1</t>" },
+        { WS_INT32_TYPE, WS_WRITE_NILLABLE_POINTER, &ptr_int_null, sizeof(ptr_int_null), S_OK,
+          "<t a:nil=\"true\" xmlns:a=\"http://www.w3.org/2001/XMLSchema-instance\"/>" },
+        { WS_XML_STRING_TYPE, 0, NULL, 0, E_INVALIDARG },
+        { WS_XML_STRING_TYPE, 0, &val_xmlstr, 0, E_INVALIDARG },
+        { WS_XML_STRING_TYPE, 0, NULL, sizeof(val_xmlstr), E_INVALIDARG },
+        { WS_XML_STRING_TYPE, 0, &val_xmlstr, sizeof(val_xmlstr), E_INVALIDARG },
+        { WS_XML_STRING_TYPE, 0, &val_xmlstr_zero, sizeof(val_xmlstr_zero), E_INVALIDARG },
+        { WS_XML_STRING_TYPE, WS_WRITE_REQUIRED_VALUE, NULL, 0, E_INVALIDARG },
+        { WS_XML_STRING_TYPE, WS_WRITE_REQUIRED_VALUE, &val_xmlstr, 0, E_INVALIDARG },
+        { WS_XML_STRING_TYPE, WS_WRITE_REQUIRED_VALUE, NULL, sizeof(&val_xmlstr), E_INVALIDARG },
+        { WS_XML_STRING_TYPE, WS_WRITE_REQUIRED_VALUE, &val_xmlstr, sizeof(val_xmlstr), S_OK, "<t>x</t>" },
+        { WS_XML_STRING_TYPE, WS_WRITE_REQUIRED_VALUE, &val_xmlstr_zero, sizeof(val_xmlstr_zero), S_OK, "<t/>" },
+        { WS_XML_STRING_TYPE, WS_WRITE_NILLABLE_VALUE, &val_xmlstr, 0, E_INVALIDARG },
+        { WS_XML_STRING_TYPE, WS_WRITE_NILLABLE_VALUE, NULL, sizeof(&val_xmlstr), E_INVALIDARG },
+        { WS_XML_STRING_TYPE, WS_WRITE_NILLABLE_VALUE, &val_xmlstr, sizeof(&val_xmlstr), E_INVALIDARG },
+        { WS_XML_STRING_TYPE, WS_WRITE_NILLABLE_VALUE, &val_xmlstr_zero, sizeof(val_xmlstr_zero), S_OK,
+          "<t a:nil=\"true\" xmlns:a=\"http://www.w3.org/2001/XMLSchema-instance\"/>" },
+        { WS_XML_STRING_TYPE, WS_WRITE_REQUIRED_POINTER, NULL, 0, E_INVALIDARG },
+        { WS_XML_STRING_TYPE, WS_WRITE_REQUIRED_POINTER, &ptr_xmlstr, 0, E_INVALIDARG },
+        { WS_XML_STRING_TYPE, WS_WRITE_REQUIRED_POINTER, NULL, sizeof(ptr_xmlstr), E_INVALIDARG },
+        { WS_XML_STRING_TYPE, WS_WRITE_REQUIRED_POINTER, &ptr_xmlstr, sizeof(ptr_xmlstr), S_OK, "<t>x</t>" },
+        { WS_XML_STRING_TYPE, WS_WRITE_REQUIRED_POINTER, &ptr_xmlstr_null, sizeof(ptr_xmlstr_null), E_INVALIDARG },
+        { WS_XML_STRING_TYPE, WS_WRITE_NILLABLE_POINTER, NULL, 0, E_INVALIDARG },
+        { WS_XML_STRING_TYPE, WS_WRITE_NILLABLE_POINTER, &ptr_xmlstr, 0, E_INVALIDARG },
+        { WS_XML_STRING_TYPE, WS_WRITE_NILLABLE_POINTER, NULL, sizeof(ptr_xmlstr), E_INVALIDARG },
+        { WS_XML_STRING_TYPE, WS_WRITE_NILLABLE_POINTER, &ptr_xmlstr, sizeof(ptr_xmlstr), S_OK, "<t>x</t>" },
+        { WS_XML_STRING_TYPE, WS_WRITE_NILLABLE_POINTER, &ptr_xmlstr_null, sizeof(ptr_xmlstr_null), S_OK,
+          "<t a:nil=\"true\" xmlns:a=\"http://www.w3.org/2001/XMLSchema-instance\"/>" },
+        { WS_WSZ_TYPE, 0, NULL, 0, E_INVALIDARG },
+        { WS_WSZ_TYPE, 0, &ptr_wsz, 0, E_INVALIDARG },
+        { WS_WSZ_TYPE, 0, NULL, sizeof(ptr_wsz), E_INVALIDARG },
+        { WS_WSZ_TYPE, 0, &ptr_wsz, sizeof(ptr_wsz), E_INVALIDARG },
+        { WS_WSZ_TYPE, 0, &ptr_wsz_null, sizeof(ptr_wsz_null), E_INVALIDARG },
+        { WS_WSZ_TYPE, WS_WRITE_REQUIRED_VALUE, &ptr_wsz, sizeof(ptr_wsz), E_INVALIDARG },
+        { WS_WSZ_TYPE, WS_WRITE_NILLABLE_VALUE, &ptr_wsz, sizeof(ptr_wsz), E_INVALIDARG },
+        { WS_WSZ_TYPE, WS_WRITE_REQUIRED_POINTER, NULL, 0, E_INVALIDARG },
+        { WS_WSZ_TYPE, WS_WRITE_REQUIRED_POINTER, &ptr_wsz, 0, E_INVALIDARG },
+        { WS_WSZ_TYPE, WS_WRITE_REQUIRED_POINTER, NULL, sizeof(ptr_wsz), E_INVALIDARG },
+        { WS_WSZ_TYPE, WS_WRITE_REQUIRED_POINTER, &ptr_wsz, sizeof(ptr_wsz), S_OK, "<t>s</t>" },
+        { WS_WSZ_TYPE, WS_WRITE_REQUIRED_POINTER, &ptr_wsz_null, sizeof(ptr_wsz_null), E_INVALIDARG },
+        { WS_WSZ_TYPE, WS_WRITE_NILLABLE_POINTER, NULL, 0, E_INVALIDARG },
+        { WS_WSZ_TYPE, WS_WRITE_NILLABLE_POINTER, &ptr_wsz, 0, E_INVALIDARG },
+        { WS_WSZ_TYPE, WS_WRITE_NILLABLE_POINTER, NULL, sizeof(ptr_wsz), E_INVALIDARG },
+        { WS_WSZ_TYPE, WS_WRITE_NILLABLE_POINTER, &ptr_wsz, sizeof(ptr_wsz), S_OK, "<t>s</t>" },
+        { WS_WSZ_TYPE, WS_WRITE_NILLABLE_POINTER, &ptr_wsz_null, sizeof(ptr_wsz_null), S_OK,
+          "<t a:nil=\"true\" xmlns:a=\"http://www.w3.org/2001/XMLSchema-instance\"/>" },
+    };
+    HRESULT hr;
+    ULONG i;
+
+    hr = WsCreateWriter( NULL, 0, &writer, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    for (i = 0; i < sizeof(tests)/sizeof(tests[0]); i++)
+    {
+        hr = set_output( writer );
+        ok( hr == S_OK, "%u: got %08x\n", i, hr );
+        WsWriteStartElement( writer, NULL, &localname, &ns, NULL );
+        hr = WsWriteType( writer, WS_ELEMENT_TYPE_MAPPING, tests[i].type, NULL, tests[i].option, tests[i].value,
+                          tests[i].size, NULL );
+        ok( hr == tests[i].hr, "%u: got %08x\n", i, hr );
+        WsWriteEndElement( writer, NULL );
+        if (hr == S_OK) check_output( writer, tests[i].result, __LINE__ );
+    }
+
+    WsFreeWriter( writer );
+}
+
 START_TEST(writer)
 {
     test_WsCreateWriter();
@@ -2338,4 +2576,6 @@ START_TEST(writer)
     test_field_flags();
     test_WsWriteText();
     test_WsWriteArray();
+    test_escapes();
+    test_write_option();
 }

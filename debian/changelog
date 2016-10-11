@@ -1,3 +1,15 @@
+wine-development (1.9.20-1) unstable; urgency=medium
+
+  * New upstream release 1.9.20, released Oct 1, 2016.
+    - Reimplementation of the clipboard API.
+    - Message handling in WebServices.
+    - Many more API Set libraries.
+    - Various bug fixes.
+  * Refresh patches and bump SERVER_PROTOCOL_VERSION.
+  * Declare relationship to the old Ubuntu packages in d/control.in.
+
+ -- Jens Reyer <jre.winesim@gmail.com>  Wed, 05 Oct 2016 15:59:02 +0200
+
 wine-development (1.9.19-1~bpo8+1) jessie-backports; urgency=medium
 
   * Rebuild for jessie-backports.
