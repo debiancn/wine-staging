@@ -1,3 +1,9 @@
+wine-development (1.9.20-2) UNRELEASED; urgency=medium
+
+  * Simplify the foreign-arch test in the wine script.
+
+ -- Jens Reyer <jre.winesim@gmail.com>  Fri, 14 Oct 2016 14:57:50 +0200
+
 wine-development (1.9.20-1) unstable; urgency=medium
 
   * New upstream release 1.9.20, released Oct 1, 2016.
