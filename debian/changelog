@@ -1,6 +1,7 @@
 wine-development (1.9.20-2) UNRELEASED; urgency=medium
 
   * Simplify the foreign-arch test in the wine script.
+  * Drop shlib-exit-calls.patch.
 
  -- Jens Reyer <jre.winesim@gmail.com>  Fri, 14 Oct 2016 14:57:50 +0200
 

@@ -4,3 +4,6 @@ package-has-unnecessary-activation-of-ldconfig-trigger
 hardening-no-fortify-functions
 # incorrectly flagged
 spelling-error-in-binary
+# the loader often requires exit in the shared lib, see thread around
+# https://www.winehq.org/pipermail/wine-devel/2016-October/114988.html
+shlib-calls-exit
