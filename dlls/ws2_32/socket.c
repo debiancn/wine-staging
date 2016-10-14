@@ -4520,18 +4520,27 @@ static DWORD server_ioctl_sock( SOCKET s, DWORD code, LPVOID in_buff, DWORD in_s
 {
     HANDLE event = overlapped ? overlapped->hEvent : 0;
     HANDLE handle = SOCKET2HANDLE( s );
-    struct ws2_async *wsa;
+    struct ws2_async *wsa = NULL;
+    IO_STATUS_BLOCK *io = (PIO_STATUS_BLOCK)overlapped, iosb;
+    void *cvalue = NULL;
     NTSTATUS status;
-    PIO_STATUS_BLOCK io;
 
-    if (!(wsa = (struct ws2_async *)alloc_async_io( sizeof(*wsa) )))
-        return WSA_NOT_ENOUGH_MEMORY;
-    wsa->hSocket           = handle;
-    wsa->user_overlapped   = overlapped;
-    wsa->completion_func   = completion;
-    io = (overlapped ? (PIO_STATUS_BLOCK)overlapped : &wsa->local_iosb);
+    if (completion)
+    {
+        if (!(wsa = (struct ws2_async *)alloc_async_io( sizeof(*wsa) )))
+            return WSA_NOT_ENOUGH_MEMORY;
+        wsa->hSocket           = handle;
+        wsa->user_overlapped   = overlapped;
+        wsa->completion_func   = completion;
+        if (!io) io = &wsa->local_iosb;
+        cvalue = wsa;
+    }
+    else if (!io)
+        io = &iosb;
+    else if (!((ULONG_PTR)overlapped->hEvent & 1))
+        cvalue = overlapped;
 
-    status = NtDeviceIoControlFile( handle, event, ws2_async_apc, wsa, io, code,
+    status = NtDeviceIoControlFile( handle, event, wsa ? ws2_async_apc : NULL, cvalue, io, code,
                                     in_buff, in_size, out_buff, out_size );
     if (status == STATUS_NOT_SUPPORTED)
     {
@@ -7880,7 +7889,7 @@ int WINAPI WSAInstallServiceClassW(LPWSASERVICECLASSINFOW info)
  */
 int WINAPI WSARemoveServiceClass(LPGUID info)
 {
-    FIXME("Request to remove service %p\n",info);
+    FIXME("Request to remove service %s\n", debugstr_guid(info));
     SetLastError(WSATYPE_NOT_FOUND);
     return SOCKET_ERROR;
 }
@@ -8569,7 +8578,7 @@ INT WINAPI WSCInstallNameSpace( LPWSTR identifier, LPWSTR path, DWORD namespace,
  */
 INT WINAPI WSCUnInstallNameSpace( LPGUID lpProviderId )
 {
-    FIXME("(%p) Stub!\n", lpProviderId);
+    FIXME("(%s) Stub!\n", debugstr_guid(lpProviderId));
     return NO_ERROR;
 }
 

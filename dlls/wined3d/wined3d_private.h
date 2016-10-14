@@ -180,7 +180,7 @@ static inline enum complex_fixup get_complex_fixup(struct color_fixup_desc fixup
 #define MAX_VERTEX_SAMPLERS         4
 #define MAX_COMBINED_SAMPLERS       (MAX_FRAGMENT_SAMPLERS + MAX_VERTEX_SAMPLERS)
 #define MAX_ACTIVE_LIGHTS           8
-#define MAX_CLIPPLANES              WINED3DMAXUSERCLIPPLANES
+#define MAX_CLIP_DISTANCES          WINED3DMAXUSERCLIPPLANES
 #define MAX_CONSTANT_BUFFERS        15
 #define MAX_SAMPLER_OBJECTS         16
 #define MAX_SHADER_RESOURCE_VIEWS   128
@@ -1107,7 +1107,8 @@ struct ps_compile_args {
     DWORD pointsprite : 1;
     DWORD flatshading : 1;
     DWORD alpha_test_func : 3;
-    DWORD padding : 27;
+    DWORD render_offscreen : 1;
+    DWORD padding : 26;
 };
 
 enum fog_src_type {
@@ -1332,9 +1333,9 @@ DWORD get_flexible_vertex_size(DWORD d3dvtVertexType) DECLSPEC_HIDDEN;
 #define STATE_IS_SCISSORRECT(a) ((a) == STATE_SCISSORRECT)
 
 #define STATE_CLIPPLANE(a) (STATE_SCISSORRECT + 1 + (a))
-#define STATE_IS_CLIPPLANE(a) ((a) >= STATE_CLIPPLANE(0) && (a) <= STATE_CLIPPLANE(MAX_CLIPPLANES - 1))
+#define STATE_IS_CLIPPLANE(a) ((a) >= STATE_CLIPPLANE(0) && (a) <= STATE_CLIPPLANE(MAX_CLIP_DISTANCES - 1))
 
-#define STATE_MATERIAL (STATE_CLIPPLANE(MAX_CLIPPLANES))
+#define STATE_MATERIAL (STATE_CLIPPLANE(MAX_CLIP_DISTANCES))
 #define STATE_IS_MATERIAL(a) ((a) == STATE_MATERIAL)
 
 #define STATE_FRONTFACE (STATE_MATERIAL + 1)
@@ -1461,6 +1462,7 @@ struct wined3d_context
     DWORD                   numDirtyEntries;
     DWORD isStateDirty[STATE_HIGHEST / (sizeof(DWORD) * CHAR_BIT) + 1]; /* Bitmap to find out quickly if a state is dirty */
 
+    struct wined3d_device *device;
     struct wined3d_swapchain *swapchain;
     struct
     {
@@ -1495,7 +1497,8 @@ struct wined3d_context
     DWORD hdc_is_private : 1;
     DWORD hdc_has_format : 1;           /* only meaningful if hdc_is_private */
     DWORD update_shader_resource_bindings : 1;
-    DWORD padding : 14;
+    DWORD destroy_delayed : 1;
+    DWORD padding : 13;
     DWORD last_swizzle_map; /* MAX_ATTRIBS, 16 */
     DWORD shader_update_mask;
     DWORD constant_update_mask;
@@ -1720,6 +1723,8 @@ void context_apply_fbo_state_blit(struct wined3d_context *context, GLenum target
         struct wined3d_surface *render_target, struct wined3d_surface *depth_stencil, DWORD location) DECLSPEC_HIDDEN;
 void context_active_texture(struct wined3d_context *context, const struct wined3d_gl_info *gl_info,
         unsigned int unit) DECLSPEC_HIDDEN;
+void context_bind_dummy_textures(const struct wined3d_device *device,
+        const struct wined3d_context *context) DECLSPEC_HIDDEN;
 void context_bind_texture(struct wined3d_context *context, GLenum target, GLuint name) DECLSPEC_HIDDEN;
 void context_check_fbo_status(const struct wined3d_context *context, GLenum target) DECLSPEC_HIDDEN;
 struct wined3d_context *context_create(struct wined3d_swapchain *swapchain, struct wined3d_texture *target,
@@ -1996,14 +2001,30 @@ enum wined3d_pci_device
     CARD_INTEL_IVBS                 = 0x015a,
     CARD_INTEL_HWD                  = 0x0412,
     CARD_INTEL_HWM                  = 0x0416,
-    CARD_INTEL_IG6100               = 0x162b,
+    CARD_INTEL_HD5300               = 0x161e,
+    CARD_INTEL_HD5500               = 0x1616,
+    CARD_INTEL_HD5600               = 0x1612,
+    CARD_INTEL_HD6000               = 0x1626,
+    CARD_INTEL_I6100                = 0x162b,
     CARD_INTEL_IP6200               = 0x1622,
     CARD_INTEL_IPP6300              = 0x162a,
-    CARD_INTEL_HD520                = 0x1916,
+    CARD_INTEL_HD510_1              = 0x1902,
+    CARD_INTEL_HD510_2              = 0x1906,
+    CARD_INTEL_HD510_3              = 0x190b,
+    CARD_INTEL_HD515                = 0x191e,
+    CARD_INTEL_HD520_1              = 0x1916,
+    CARD_INTEL_HD520_2              = 0x1921,
     CARD_INTEL_HD530_1              = 0x1912,
     CARD_INTEL_HD530_2              = 0x191b,
-    CARD_INTEL_HD540                = 0x1926,
-    CARD_INTEL_IPP580               = 0x193d,
+    CARD_INTEL_HDP530               = 0x191d,
+    CARD_INTEL_I540                 = 0x1926,
+    CARD_INTEL_I550                 = 0x1927,
+    CARD_INTEL_I555                 = 0x192b,
+    CARD_INTEL_IP555                = 0x192d,
+    CARD_INTEL_IP580_1              = 0x1932,
+    CARD_INTEL_IP580_2              = 0x193b,
+    CARD_INTEL_IPP580_1             = 0x193a,
+    CARD_INTEL_IPP580_2             = 0x193d,
 };
 
 struct wined3d_fbo_ops
@@ -2052,7 +2073,7 @@ struct wined3d_gl_limits
     UINT vertex_samplers;
     UINT combined_samplers;
     UINT general_combiners;
-    UINT clipplanes;
+    UINT user_clip_distances;
     UINT texture_size;
     UINT texture3d_size;
     float pointsize_max;
@@ -2391,7 +2412,7 @@ struct wined3d_state
     DWORD texture_states[MAX_TEXTURES][WINED3D_HIGHEST_TEXTURE_STATE + 1];
 
     struct wined3d_matrix transforms[HIGHEST_TRANSFORMSTATE + 1];
-    struct wined3d_vec4 clip_planes[MAX_CLIPPLANES];
+    struct wined3d_vec4 clip_planes[MAX_CLIP_DISTANCES];
     struct wined3d_material material;
     struct wined3d_viewport viewport;
     RECT scissor_rect;
@@ -2484,11 +2505,14 @@ struct wined3d_device
     struct wined3d_texture *logo_texture;
 
     /* Textures for when no other textures are mapped */
-    GLuint dummy_texture_2d[MAX_COMBINED_SAMPLERS];
-    GLuint dummy_texture_rect[MAX_COMBINED_SAMPLERS];
-    GLuint dummy_texture_3d[MAX_COMBINED_SAMPLERS];
-    GLuint dummy_texture_cube[MAX_COMBINED_SAMPLERS];
-    GLuint dummy_texture_2d_array[MAX_COMBINED_SAMPLERS];
+    struct
+    {
+        GLuint tex_2d;
+        GLuint tex_rect;
+        GLuint tex_3d;
+        GLuint tex_cube;
+        GLuint tex_2d_array;
+    } dummy_textures;
 
     /* Default sampler used to emulate the direct resource access without using wined3d_sampler */
     GLuint default_sampler;
@@ -3516,7 +3540,7 @@ static inline void shader_get_position_fixup(const struct wined3d_context *conte
 {
     float center_offset;
 
-    if (context->swapchain->device->wined3d->flags & WINED3D_PIXEL_CENTER_INTEGER)
+    if (context->d3d_info->wined3d_creation_flags & WINED3D_PIXEL_CENTER_INTEGER)
         center_offset = 63.0f / 64.0f;
     else
         center_offset = -1.0f / 64.0f;

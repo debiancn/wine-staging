@@ -71,6 +71,12 @@ static const char data11[] =
     "</o:services>"
     "</o:OfficeConfig>";
 
+static const char data11b[] =
+    "<o:OfficeConfig xmlns:o=\"urn:schemas-microsoft-com:office:office\">"
+    "<o:services o:GenerationTime=\"2015-09-03T18:47:54\"></o:services>"
+    "<trailing>content</trailing>"
+    "</o:OfficeConfig>";
+
 static const char data12[] =
     "<services>"
     "<service><id>1</id></service>"
@@ -1339,6 +1345,7 @@ static void test_WsReadType(void)
     UINT32 val_uint32;
     UINT64 val_uint64;
     GUID val_guid;
+    WS_BYTES val_bytes;
 
     hr = WsCreateHeap( 1 << 16, 0, NULL, 0, &heap, NULL );
     ok( hr == S_OK, "got %08x\n", hr );
@@ -1607,6 +1614,27 @@ static void test_WsReadType(void)
                      WS_READ_REQUIRED_VALUE, heap, &val_guid, sizeof(val_guid), NULL );
     ok( hr == S_OK, "got %08x\n", hr );
     ok( IsEqualGUID( &val_guid, &guid2 ), "wrong guid\n" );
+
+    memset( &val_bytes, 0, sizeof(val_bytes) );
+    prepare_type_test( reader, "<t>dGVzdA==</t>", sizeof("<t>dGVzdA==</t>") - 1 );
+    hr = WsReadType( reader, WS_ELEMENT_CONTENT_TYPE_MAPPING, WS_BYTES_TYPE, NULL,
+                     WS_READ_REQUIRED_VALUE, heap, &val_bytes, sizeof(val_bytes), NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    ok( val_bytes.length == 4, "got %u\n", val_bytes.length );
+    ok( !memcmp( val_bytes.bytes, "test", 4 ), "wrong data\n" );
+
+    memset( &val_bytes, 0, sizeof(val_bytes) );
+    prepare_type_test( reader, "<t> dGVzdA== </t>", sizeof("<t> dGVzdA== </t>") - 1 );
+    hr = WsReadType( reader, WS_ELEMENT_CONTENT_TYPE_MAPPING, WS_BYTES_TYPE, NULL,
+                     WS_READ_REQUIRED_VALUE, heap, &val_bytes, sizeof(val_bytes), NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    ok( val_bytes.length == 4, "got %u\n", val_bytes.length );
+    ok( !memcmp( val_bytes.bytes, "test", 4 ), "wrong data\n" );
+
+    prepare_type_test( reader, "<t>dGVzdA===</t>", sizeof("<t>dGVzdA===</t>") - 1 );
+    hr = WsReadType( reader, WS_ELEMENT_CONTENT_TYPE_MAPPING, WS_BYTES_TYPE, NULL,
+                     WS_READ_REQUIRED_VALUE, heap, &val_bytes, sizeof(val_bytes), NULL );
+    ok( hr == WS_E_INVALID_FORMAT, "got %08x\n", hr );
 
     WsFreeReader( reader );
     WsFreeHeap( heap );
@@ -2047,11 +2075,22 @@ static void test_simple_struct_type(void)
     s.typeLocalName = &localname2;
     s.typeNs        = &ns;
 
-    test = NULL;
     prepare_struct_type_test( reader, "<?xml version=\"1.0\" encoding=\"utf-8\"?><str>test</str><str>test2</str>" );
     hr = WsReadType( reader, WS_ELEMENT_CONTENT_TYPE_MAPPING, WS_STRUCT_TYPE, &s,
                      WS_READ_REQUIRED_POINTER, heap, &test, sizeof(test), NULL );
     ok( hr == WS_E_INVALID_FORMAT, "got %08x\n", hr );
+
+    prepare_struct_type_test( reader, "<?xml version=\"1.0\" encoding=\"utf-8\"?><str>test</str><str>test2</str>" );
+    hr = WsReadType( reader, WS_ELEMENT_TYPE_MAPPING, WS_STRUCT_TYPE, &s,
+                     WS_READ_REQUIRED_POINTER, heap, &test, sizeof(test), NULL );
+    ok( hr == WS_E_INVALID_FORMAT, "got %08x\n", hr );
+
+    s.structOptions = WS_STRUCT_IGNORE_TRAILING_ELEMENT_CONTENT;
+    prepare_struct_type_test( reader, "<?xml version=\"1.0\" encoding=\"utf-8\"?><str>test</str><str>test2</str>" );
+    hr = WsReadType( reader, WS_ELEMENT_TYPE_MAPPING, WS_STRUCT_TYPE, &s,
+                     WS_READ_REQUIRED_POINTER, heap, &test, sizeof(test), NULL );
+    ok( hr == WS_E_INVALID_FORMAT, "got %08x\n", hr );
+    s.structOptions = 0;
 
     test = NULL;
     prepare_struct_type_test( reader, "<?xml version=\"1.0\" encoding=\"utf-8\"?><str>test</str>" );
@@ -2792,6 +2831,29 @@ static void test_complex_struct_type(void)
     hr = WsGetReaderNode( reader, &node, NULL );
     ok( hr == S_OK, "got %08x\n", hr );
     ok( node->nodeType == WS_XML_NODE_TYPE_EOF, "got %u\n", node->nodeType );
+
+    /* trailing content */
+    prepare_struct_type_test( reader, data11b );
+    hr = WsReadToStartElement( reader, NULL, NULL, NULL, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    s.structOptions = WS_STRUCT_IGNORE_TRAILING_ELEMENT_CONTENT;
+    hr = WsReadType( reader, WS_ELEMENT_TYPE_MAPPING, WS_STRUCT_TYPE, &s,
+                     WS_READ_REQUIRED_POINTER, heap, &test, sizeof(test), error );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = WsGetReaderNode( reader, &node, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    ok( node->nodeType == WS_XML_NODE_TYPE_EOF, "got %u\n", node->nodeType );
+
+    prepare_struct_type_test( reader, data11b );
+    hr = WsReadToStartElement( reader, NULL, NULL, NULL, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    s.structOptions = 0;
+    hr = WsReadType( reader, WS_ELEMENT_TYPE_MAPPING, WS_STRUCT_TYPE, &s,
+                     WS_READ_REQUIRED_POINTER, heap, &test, sizeof(test), error );
+    ok( hr == WS_E_INVALID_FORMAT, "got %08x\n", hr );
 
     WsFreeReader( reader );
     WsFreeHeap( heap );
@@ -3588,10 +3650,20 @@ static void test_entities(void)
     static const char str25[] = "<t>&#xfffe;</t>";
     static const char str26[] = "<t>&#xffff;</t>";
     static const char str27[] = "<t>&LT;</t>";
+    static const char str28[] = "<t>&#x0;</t>";
+    static const char str29[] = "<t>&#0;</t>";
+    static const char str30[] = "<t>&#65;</t>";
+    static const char str31[] = "<t>&#65393;</t>";
+    static const char str32[] = "<t>&#x10ffff;</t>";
+    static const char str33[] = "<t>&#x110000;</t>";
+    static const char str34[] = "<t>&#1114111;</t>";
+    static const char str35[] = "<t>&#1114112;</t>";
     static const char res4[] = {0xea, 0xaa, 0xaa, 0x00};
     static const char res5[] = {0xf2, 0xaa, 0xaa, 0xaa, 0x00};
     static const char res21[] = {0xed, 0x9f, 0xbf, 0x00};
     static const char res24[] = {0xee, 0x80, 0x80, 0x00};
+    static const char res31[] = {0xef, 0xbd, 0xb1, 0x00};
+    static const char res32[] = {0xf4, 0x8f, 0xbf, 0xbf, 0x00};
     static const struct
     {
         const char *str;
@@ -3627,6 +3699,14 @@ static void test_entities(void)
         { str25, WS_E_INVALID_FORMAT },
         { str26, WS_E_INVALID_FORMAT },
         { str27, WS_E_INVALID_FORMAT },
+        { str28, WS_E_INVALID_FORMAT },
+        { str29, WS_E_INVALID_FORMAT },
+        { str30, S_OK, "A" },
+        { str31, S_OK, res31 },
+        { str32, S_OK, res32 },
+        { str33, WS_E_INVALID_FORMAT },
+        { str34, S_OK, res32 },
+        { str35, WS_E_INVALID_FORMAT },
     };
     HRESULT hr;
     WS_XML_READER *reader;

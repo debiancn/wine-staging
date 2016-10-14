@@ -341,7 +341,7 @@ static HRESULT STDMETHODCALLTYPE d2d_d3d_render_target_CreateSharedBitmap(ID2D1R
     TRACE("iface %p, iid %s, data %p, desc %p, bitmap %p.\n",
             iface, debugstr_guid(iid), data, desc, bitmap);
 
-    if (SUCCEEDED(hr = d2d_bitmap_create_shared(render_target->factory, render_target->device, iid, data, desc, &object)))
+    if (SUCCEEDED(hr = d2d_bitmap_create_shared(iface, render_target->device, iid, data, desc, &object)))
         *bitmap = &object->ID2D1Bitmap_iface;
 
     return hr;
@@ -466,8 +466,21 @@ static void STDMETHODCALLTYPE d2d_d3d_render_target_DrawLine(ID2D1RenderTarget *
 static void STDMETHODCALLTYPE d2d_d3d_render_target_DrawRectangle(ID2D1RenderTarget *iface,
         const D2D1_RECT_F *rect, ID2D1Brush *brush, float stroke_width, ID2D1StrokeStyle *stroke_style)
 {
-    FIXME("iface %p, rect %p, brush %p, stroke_width %.8e, stroke_style %p stub!\n",
+    struct d2d_d3d_render_target *render_target = impl_from_ID2D1RenderTarget(iface);
+    ID2D1RectangleGeometry *geometry;
+    HRESULT hr;
+
+    TRACE("iface %p, rect %p, brush %p, stroke_width %.8e, stroke_style %p.\n",
             iface, rect, brush, stroke_width, stroke_style);
+
+    if (FAILED(hr = ID2D1Factory_CreateRectangleGeometry(render_target->factory, rect, &geometry)))
+    {
+        ERR("Failed to create geometry, hr %#x.\n", hr);
+        return;
+    }
+
+    ID2D1RenderTarget_DrawGeometry(iface, (ID2D1Geometry *)geometry, brush, stroke_width, stroke_style);
+    ID2D1RectangleGeometry_Release(geometry);
 }
 
 static void STDMETHODCALLTYPE d2d_d3d_render_target_FillRectangle(ID2D1RenderTarget *iface,
@@ -492,8 +505,21 @@ static void STDMETHODCALLTYPE d2d_d3d_render_target_FillRectangle(ID2D1RenderTar
 static void STDMETHODCALLTYPE d2d_d3d_render_target_DrawRoundedRectangle(ID2D1RenderTarget *iface,
         const D2D1_ROUNDED_RECT *rect, ID2D1Brush *brush, float stroke_width, ID2D1StrokeStyle *stroke_style)
 {
-    FIXME("iface %p, rect %p, brush %p, stroke_width %.8e, stroke_style %p stub!\n",
+    struct d2d_d3d_render_target *render_target = impl_from_ID2D1RenderTarget(iface);
+    ID2D1RoundedRectangleGeometry *geometry;
+    HRESULT hr;
+
+    TRACE("iface %p, rect %p, brush %p, stroke_width %.8e, stroke_style %p.\n",
             iface, rect, brush, stroke_width, stroke_style);
+
+    if (FAILED(hr = ID2D1Factory_CreateRoundedRectangleGeometry(render_target->factory, rect, &geometry)))
+    {
+        ERR("Failed to create geometry, hr %#x.\n", hr);
+        return;
+    }
+
+    ID2D1RenderTarget_DrawGeometry(iface, (ID2D1Geometry *)geometry, brush, stroke_width, stroke_style);
+    ID2D1RoundedRectangleGeometry_Release(geometry);
 }
 
 static void STDMETHODCALLTYPE d2d_d3d_render_target_FillRoundedRectangle(ID2D1RenderTarget *iface,
@@ -518,8 +544,21 @@ static void STDMETHODCALLTYPE d2d_d3d_render_target_FillRoundedRectangle(ID2D1Re
 static void STDMETHODCALLTYPE d2d_d3d_render_target_DrawEllipse(ID2D1RenderTarget *iface,
         const D2D1_ELLIPSE *ellipse, ID2D1Brush *brush, float stroke_width, ID2D1StrokeStyle *stroke_style)
 {
-    FIXME("iface %p, ellipse %p, brush %p, stroke_width %.8e, stroke_style %p stub!\n",
+    struct d2d_d3d_render_target *render_target = impl_from_ID2D1RenderTarget(iface);
+    ID2D1EllipseGeometry *geometry;
+    HRESULT hr;
+
+    TRACE("iface %p, ellipse %p, brush %p, stroke_width %.8e, stroke_style %p.\n",
             iface, ellipse, brush, stroke_width, stroke_style);
+
+    if (FAILED(hr = ID2D1Factory_CreateEllipseGeometry(render_target->factory, ellipse, &geometry)))
+    {
+        ERR("Failed to create geometry, hr %#x.\n", hr);
+        return;
+    }
+
+    ID2D1RenderTarget_DrawGeometry(iface, (ID2D1Geometry *)geometry, brush, stroke_width, stroke_style);
+    ID2D1EllipseGeometry_Release(geometry);
 }
 
 static void STDMETHODCALLTYPE d2d_d3d_render_target_FillEllipse(ID2D1RenderTarget *iface,
@@ -2181,13 +2220,20 @@ err:
     return hr;
 }
 
-HRESULT d2d_d3d_render_target_update_surface(ID2D1RenderTarget *iface, IDXGISurface1 *surface)
+HRESULT d2d_d3d_render_target_create_rtv(ID2D1RenderTarget *iface, IDXGISurface1 *surface)
 {
     struct d2d_d3d_render_target *render_target = impl_from_ID2D1RenderTarget(iface);
     DXGI_SURFACE_DESC surface_desc;
     ID3D10RenderTargetView *view;
     ID3D10Resource *resource;
     HRESULT hr;
+
+    if (!surface)
+    {
+        ID3D10RenderTargetView_Release(render_target->view);
+        render_target->view = NULL;
+        return S_OK;
+    }
 
     if (FAILED(hr = IDXGISurface1_GetDesc(surface, &surface_desc)))
     {

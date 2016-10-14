@@ -26,8 +26,20 @@
 #ifdef HAVE_UNISTD_H
 # include <unistd.h>
 #endif
+#ifdef HAVE_POLL_H
+# include <poll.h>
+#endif
+#ifdef HAVE_SYS_POLL_H
+# include <sys/poll.h>
+#endif
 #ifdef HAVE_LIBUDEV_H
 # include <libudev.h>
+#endif
+#ifdef HAVE_LINUX_HIDRAW_H
+# include <linux/hidraw.h>
+#endif
+#ifdef HAVE_SYS_IOCTL_H
+# include <sys/ioctl.h>
 #endif
 
 #define NONAMELESSUNION
@@ -39,7 +51,9 @@
 #include "winnls.h"
 #include "winternl.h"
 #include "ddk/wdm.h"
+#include "ddk/hidtypes.h"
 #include "wine/debug.h"
+#include "wine/unicode.h"
 
 #include "bus.h"
 
@@ -55,6 +69,28 @@ static const WCHAR hidraw_busidW[] = {'H','I','D','R','A','W',0};
 #include "initguid.h"
 DEFINE_GUID(GUID_DEVCLASS_HIDRAW, 0x3def44ad,0x242e,0x46e5,0x82,0x6d,0x70,0x72,0x13,0xf3,0xaa,0x81);
 
+struct platform_private
+{
+    struct udev_device *udev_device;
+    int device_fd;
+};
+
+static inline struct platform_private *impl_from_DEVICE_OBJECT(DEVICE_OBJECT *device)
+{
+    return (struct platform_private *)get_platform_private(device);
+}
+
+static inline WCHAR *strdupAtoW(const char *src)
+{
+    WCHAR *dst;
+    DWORD len;
+    if (!src) return NULL;
+    len = MultiByteToWideChar(CP_UNIXCP, 0, src, -1, NULL, 0);
+    if ((dst = HeapAlloc(GetProcessHeap(), 0, len * sizeof(WCHAR))))
+        MultiByteToWideChar(CP_UNIXCP, 0, src, -1, dst, len);
+    return dst;
+}
+
 static DWORD get_sysattr_dword(struct udev_device *dev, const char *sysattr, int base)
 {
     const char *attr = udev_device_get_sysattr_value(dev, sysattr);
@@ -69,18 +105,129 @@ static DWORD get_sysattr_dword(struct udev_device *dev, const char *sysattr, int
 static WCHAR *get_sysattr_string(struct udev_device *dev, const char *sysattr)
 {
     const char *attr = udev_device_get_sysattr_value(dev, sysattr);
-    WCHAR *dst;
-    DWORD len;
     if (!attr)
     {
         WARN("Could not get %s from device\n", sysattr);
         return NULL;
     }
-    len = MultiByteToWideChar(CP_UNIXCP, 0, attr, -1, NULL, 0);
-    if ((dst = HeapAlloc(GetProcessHeap(), 0, len * sizeof(WCHAR))))
-        MultiByteToWideChar(CP_UNIXCP, 0, attr, -1, dst, len);
-    return dst;
+    return strdupAtoW(attr);
 }
+
+static int compare_platform_device(DEVICE_OBJECT *device, void *platform_dev)
+{
+    struct udev_device *dev1 = impl_from_DEVICE_OBJECT(device)->udev_device;
+    struct udev_device *dev2 = platform_dev;
+    return strcmp(udev_device_get_syspath(dev1), udev_device_get_syspath(dev2));
+}
+
+static NTSTATUS hidraw_get_reportdescriptor(DEVICE_OBJECT *device, BYTE *buffer, DWORD length, DWORD *out_length)
+{
+#ifdef HAVE_LINUX_HIDRAW_H
+    struct hidraw_report_descriptor descriptor;
+    struct platform_private *private = impl_from_DEVICE_OBJECT(device);
+
+    if (ioctl(private->device_fd, HIDIOCGRDESCSIZE, &descriptor.size) == -1)
+    {
+        WARN("ioctl(HIDIOCGRDESCSIZE) failed: %d %s\n", errno, strerror(errno));
+        return STATUS_UNSUCCESSFUL;
+    }
+
+    *out_length = descriptor.size;
+
+    if (length < descriptor.size)
+        return STATUS_BUFFER_TOO_SMALL;
+    if (!descriptor.size)
+        return STATUS_SUCCESS;
+
+    if (ioctl(private->device_fd, HIDIOCGRDESC, &descriptor) == -1)
+    {
+        WARN("ioctl(HIDIOCGRDESC) failed: %d %s\n", errno, strerror(errno));
+        return STATUS_UNSUCCESSFUL;
+    }
+
+    memcpy(buffer, descriptor.value, descriptor.size);
+    return STATUS_SUCCESS;
+#else
+    return STATUS_NOT_IMPLEMENTED;
+#endif
+}
+
+static NTSTATUS hidraw_get_string(DEVICE_OBJECT *device, DWORD index, WCHAR *buffer, DWORD length)
+{
+    struct udev_device *usbdev;
+    struct platform_private *private = impl_from_DEVICE_OBJECT(device);
+    WCHAR *str = NULL;
+
+    usbdev = udev_device_get_parent_with_subsystem_devtype(private->udev_device, "usb", "usb_device");
+    if (usbdev)
+    {
+        switch (index)
+        {
+            case HID_STRING_ID_IPRODUCT:
+                str = get_sysattr_string(usbdev, "product");
+                break;
+            case HID_STRING_ID_IMANUFACTURER:
+                str = get_sysattr_string(usbdev, "manufacturer");
+                break;
+            case HID_STRING_ID_ISERIALNUMBER:
+                str = get_sysattr_string(usbdev, "serial");
+                break;
+            default:
+                ERR("Unhandled string index %08x\n", index);
+                return STATUS_NOT_IMPLEMENTED;
+        }
+    }
+    else
+    {
+#ifdef HAVE_LINUX_HIDRAW_H
+        switch (index)
+        {
+            case HID_STRING_ID_IPRODUCT:
+            {
+                char buf[MAX_PATH];
+                if (ioctl(private->device_fd, HIDIOCGRAWNAME(MAX_PATH), buf) == -1)
+                    WARN("ioctl(HIDIOCGRAWNAME) failed: %d %s\n", errno, strerror(errno));
+                else
+                    str = strdupAtoW(buf);
+                break;
+            }
+            case HID_STRING_ID_IMANUFACTURER:
+                break;
+            case HID_STRING_ID_ISERIALNUMBER:
+                break;
+            default:
+                ERR("Unhandled string index %08x\n", index);
+                return STATUS_NOT_IMPLEMENTED;
+        }
+#else
+        return STATUS_NOT_IMPLEMENTED;
+#endif
+    }
+
+    if (!str)
+    {
+        if (!length) return STATUS_BUFFER_TOO_SMALL;
+        buffer[0] = 0;
+        return STATUS_SUCCESS;
+    }
+
+    if (length <= strlenW(str))
+    {
+        HeapFree(GetProcessHeap(), 0, str);
+        return STATUS_BUFFER_TOO_SMALL;
+    }
+
+    strcpyW(buffer, str);
+    HeapFree(GetProcessHeap(), 0, str);
+    return STATUS_SUCCESS;
+}
+
+static const platform_vtbl hidraw_vtbl =
+{
+    compare_platform_device,
+    hidraw_get_reportdescriptor,
+    hidraw_get_string,
+};
 
 static void try_add_device(struct udev_device *dev)
 {
@@ -100,7 +247,6 @@ static void try_add_device(struct udev_device *dev)
         WARN("Unable to open udev device %s: %s\n", debugstr_a(devnode), strerror(errno));
         return;
     }
-    close(fd);
 
     usbdev = udev_device_get_parent_with_subsystem_devtype(dev, "usb", "usb_device");
     if (usbdev)
@@ -117,16 +263,37 @@ static void try_add_device(struct udev_device *dev)
     subsystem = udev_device_get_subsystem(dev);
     if (strcmp(subsystem, "hidraw") == 0)
     {
-        device = bus_create_hid_device(udev_driver_obj, hidraw_busidW, dev, vid, pid,
-                                       version, 0, serial, FALSE, &GUID_DEVCLASS_HIDRAW);
+        device = bus_create_hid_device(udev_driver_obj, hidraw_busidW, vid, pid, version, 0, serial, FALSE,
+                                       &GUID_DEVCLASS_HIDRAW, &hidraw_vtbl, sizeof(struct platform_private));
     }
 
     if (device)
-        udev_device_ref(dev);
+    {
+        struct platform_private *private = impl_from_DEVICE_OBJECT(device);
+        private->udev_device = udev_device_ref(dev);
+        private->device_fd = fd;
+        IoInvalidateDeviceRelations(device, BusRelations);
+    }
     else
+    {
         WARN("Ignoring device %s with subsystem %s\n", debugstr_a(devnode), subsystem);
+        close(fd);
+    }
 
     HeapFree(GetProcessHeap(), 0, serial);
+}
+
+static void try_remove_device(struct udev_device *dev)
+{
+    DEVICE_OBJECT *device = bus_find_hid_device(&hidraw_vtbl, dev);
+    struct platform_private *private;
+    if (!device) return;
+
+    private = impl_from_DEVICE_OBJECT(device);
+    dev = private->udev_device;
+    close(private->device_fd);
+    bus_remove_hid_device(device);
+    udev_device_unref(dev);
 }
 
 static void build_initial_deviceset(void)
@@ -164,8 +331,90 @@ static void build_initial_deviceset(void)
     udev_enumerate_unref(enumerate);
 }
 
+static struct udev_monitor *create_monitor(struct pollfd *pfd)
+{
+    struct udev_monitor *monitor;
+
+    monitor = udev_monitor_new_from_netlink(udev_context, "udev");
+    if (!monitor)
+    {
+        WARN("Unable to get udev monitor object\n");
+        return NULL;
+    }
+
+    if (udev_monitor_filter_add_match_subsystem_devtype(monitor, "hidraw", NULL) < 0)
+        WARN("Failed to add subsystem 'hidraw' to monitor\n");
+
+    if (udev_monitor_enable_receiving(monitor) < 0)
+        goto error;
+
+    if ((pfd->fd = udev_monitor_get_fd(monitor)) >= 0)
+    {
+        pfd->events = POLLIN;
+        return monitor;
+    }
+
+error:
+    WARN("Failed to start monitoring\n");
+    udev_monitor_unref(monitor);
+    return NULL;
+}
+
+static void process_monitor_event(struct udev_monitor *monitor)
+{
+    struct udev_device *dev;
+    const char *action;
+
+    dev = udev_monitor_receive_device(monitor);
+    if (!dev)
+    {
+        FIXME("Failed to get device that has changed\n");
+        return;
+    }
+
+    action = udev_device_get_action(dev);
+    TRACE("Received action %s for udev device %s\n", debugstr_a(action),
+          debugstr_a(udev_device_get_devnode(dev)));
+
+    if (!action)
+        WARN("No action received\n");
+    else if (strcmp(action, "add") == 0)
+        try_add_device(dev);
+    else if (strcmp(action, "remove") == 0)
+        try_remove_device(dev);
+    else
+        WARN("Unhandled action %s\n", debugstr_a(action));
+
+    udev_device_unref(dev);
+}
+
+static DWORD CALLBACK deviceloop_thread(void *args)
+{
+    struct udev_monitor *monitor;
+    HANDLE init_done = args;
+    struct pollfd pfd;
+
+    monitor = create_monitor(&pfd);
+    build_initial_deviceset();
+    SetEvent(init_done);
+
+    while (monitor)
+    {
+        if (poll(&pfd, 1, -1) <= 0) continue;
+        process_monitor_event(monitor);
+    }
+
+    TRACE("Monitor thread exiting\n");
+    if (monitor)
+        udev_monitor_unref(monitor);
+    return 0;
+}
+
 NTSTATUS WINAPI udev_driver_init(DRIVER_OBJECT *driver, UNICODE_STRING *registry_path)
 {
+    HANDLE events[2];
+    DWORD result;
+
     TRACE("(%p, %s)\n", driver, debugstr_w(registry_path->Buffer));
 
     if (!(udev_context = udev_new()))
@@ -176,9 +425,31 @@ NTSTATUS WINAPI udev_driver_init(DRIVER_OBJECT *driver, UNICODE_STRING *registry
 
     udev_driver_obj = driver;
     driver->MajorFunction[IRP_MJ_PNP] = common_pnp_dispatch;
+    driver->MajorFunction[IRP_MJ_INTERNAL_DEVICE_CONTROL] = hid_internal_dispatch;
 
-    build_initial_deviceset();
-    return STATUS_SUCCESS;
+    if (!(events[0] = CreateEventW(NULL, TRUE, FALSE, NULL)))
+        goto error;
+    if (!(events[1] = CreateThread(NULL, 0, deviceloop_thread, events[0], 0, NULL)))
+    {
+        CloseHandle(events[0]);
+        goto error;
+    }
+
+    result = WaitForMultipleObjects(2, events, FALSE, INFINITE);
+    CloseHandle(events[0]);
+    CloseHandle(events[1]);
+    if (result == WAIT_OBJECT_0)
+    {
+        TRACE("Initialization successful\n");
+        return STATUS_SUCCESS;
+    }
+
+error:
+    ERR("Failed to initialize udev device thread\n");
+    udev_unref(udev_context);
+    udev_context = NULL;
+    udev_driver_obj = NULL;
+    return STATUS_UNSUCCESSFUL;
 }
 
 #else

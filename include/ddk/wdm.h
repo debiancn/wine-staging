@@ -457,6 +457,23 @@ typedef struct _IRP {
 } IRP;
 typedef struct _IRP *PIRP;
 
+#define IRP_NOCACHE               0x0001
+#define IRP_PAGING_IO             0x0002
+#define IRP_MOUNT_COMPLETION      0x0002
+#define IRP_SYNCHRONOUS_API       0x0004
+#define IRP_ASSOCIATED_IRP        0x0008
+#define IRP_BUFFERED_IO           0x0010
+#define IRP_DEALLOCATE_BUFFER     0x0020
+#define IRP_INPUT_OPERATION       0x0040
+#define IRP_SYNCHRONOUS_PAGING_IO 0x0040
+#define IRP_CREATE_OPERATION      0x0080
+#define IRP_READ_OPERATION        0x0100
+#define IRP_WRITE_OPERATION       0x0200
+#define IRP_CLOSE_OPERATION       0x0400
+#define IRP_DEFER_IO_COMPLETION   0x0800
+#define IRP_OB_QUERY_NAME         0x1000
+#define IRP_HOLD_DEVICE_QUEUE     0x2000
+
 typedef VOID (WINAPI *PINTERFACE_REFERENCE)(
   PVOID  Context);
 
@@ -1175,19 +1192,35 @@ NTSTATUS WINAPI ObCloseHandle(IN HANDLE handle);
 # ifdef NONAMELESSSTRUCT
 #  define IoGetCurrentIrpStackLocation(_Irp) ((_Irp)->Tail.Overlay.s.u2.CurrentStackLocation)
 #  define IoGetNextIrpStackLocation(_Irp) ((_Irp)->Tail.Overlay.s.u2.CurrentStackLocation - 1)
+   static inline void IoSkipCurrentIrpStackLocation(IRP *irp) {irp->Tail.Overlay.s.u2.CurrentStackLocation++; irp->CurrentLocation++;}
 # else
 #  define IoGetCurrentIrpStackLocation(_Irp) ((_Irp)->Tail.Overlay.u2.CurrentStackLocation)
 #  define IoGetNextIrpStackLocation(_Irp) ((_Irp)->Tail.Overlay.u2.CurrentStackLocation - 1)
+   static inline void IoSkipCurrentIrpStackLocation(IRP *irp) {irp->Tail.Overlay.u2.CurrentStackLocation++; irp->CurrentLocation++;}
 # endif
 #else
 # ifdef NONAMELESSSTRUCT
 #  define IoGetCurrentIrpStackLocation(_Irp) ((_Irp)->Tail.Overlay.s.CurrentStackLocation)
 #  define IoGetNextIrpStackLocation(_Irp) ((_Irp)->Tail.Overlay.s.CurrentStackLocation - 1)
+    static inline void IoSkipCurrentIrpStackLocation(IRP *irp) {irp->Tail.Overlay.s.CurrentStackLocation++; irp->CurrentLocation++;}
 # else
 #  define IoGetCurrentIrpStackLocation(_Irp) ((_Irp)->Tail.Overlay.CurrentStackLocation)
 #  define IoGetNextIrpStackLocation(_Irp) ((_Irp)->Tail.Overlay.CurrentStackLocation - 1)
+    static inline void IoSkipCurrentIrpStackLocation(IRP *irp) {irp->Tail.Overlay.CurrentStackLocation++; irp->CurrentLocation++;}
 # endif
 #endif
+
+static inline void IoSetCompletionRoutine(IRP *irp, PIO_COMPLETION_ROUTINE routine, void *context,
+                                          BOOLEAN on_success, BOOLEAN on_error, BOOLEAN on_cancel)
+{
+    IO_STACK_LOCATION *irpsp = IoGetNextIrpStackLocation(irp);
+    irpsp->CompletionRoutine = routine;
+    irpsp->Context = context;
+    irpsp->Control = 0;
+    if (on_success) irpsp->Control |= SL_INVOKE_ON_SUCCESS;
+    if (on_error)   irpsp->Control |= SL_INVOKE_ON_ERROR;
+    if (on_cancel)  irpsp->Control |= SL_INVOKE_ON_CANCEL;
+}
 
 #define KernelMode 0
 #define UserMode   1

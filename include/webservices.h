@@ -58,9 +58,12 @@ typedef struct _WS_OPERATION_CONTEXT WS_OPERATION_CONTEXT;
 typedef struct _WS_CALL_PROPERTY WS_CALL_PROPERTY;
 typedef struct _WS_DOUBLE_DESCRIPTION WS_DOUBLE_DESCRIPTION;
 typedef struct _WS_DATETIME WS_DATETIME;
+typedef struct _WS_XML_DATETIME_TEXT WS_XML_DATETIME_TEXT;
+typedef struct _WS_XML_BASE64_TEXT WS_XML_BASE64_TEXT;
 typedef struct _WS_DATETIME_DESCRIPTION WS_DATETIME_DESCRIPTION;
 typedef struct _WS_GUID_DESCRIPTION WS_GUID_DESCRIPTION;
 typedef struct _WS_UNIQUE_ID_DESCRIPTION WS_UNIQUE_ID_DESCRIPTION;
+typedef struct _WS_BYTES_DESCRIPTION WS_BYTES_DESCRIPTION;
 typedef struct _WS_URL WS_URL;
 typedef struct _WS_HTTP_URL WS_HTTP_URL;
 typedef struct _WS_HTTPS_URL WS_HTTPS_URL;
@@ -423,6 +426,11 @@ struct _WS_GUID_DESCRIPTION {
 struct _WS_UNIQUE_ID_DESCRIPTION {
     ULONG minCharCount;
     ULONG maxCharCount;
+};
+
+struct _WS_BYTES_DESCRIPTION {
+    ULONG minByteCount;
+    ULONG maxByteCount;
 };
 
 typedef enum {
@@ -1104,6 +1112,17 @@ struct _WS_DATETIME {
 struct _WS_DATETIME_DESCRIPTION {
     WS_DATETIME minValue;
     WS_DATETIME maxValue;
+};
+
+struct _WS_XML_DATETIME_TEXT {
+    WS_XML_TEXT text;
+    WS_DATETIME value;
+};
+
+struct _WS_XML_BASE64_TEXT {
+    WS_XML_TEXT text;
+    BYTE *bytes;
+    ULONG length;
 };
 
 typedef enum {
