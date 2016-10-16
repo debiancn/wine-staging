@@ -1084,8 +1084,8 @@
 @ cdecl _cputws(wstr)
 @ cdecl _creat(str long) MSVCRT__creat
 @ cdecl _create_locale(long str) MSVCRT__create_locale
-@ stub -arch=i386 _crt_debugger_hook
-@ stub -arch=arm,win64 __crt_debugger_hook
+@ cdecl -arch=i386 _crt_debugger_hook(long) MSVCRT__crt_debugger_hook
+@ cdecl -arch=arm,win64 __crt_debugger_hook(long) MSVCRT__crt_debugger_hook
 @ varargs _cscanf(str)
 @ varargs _cscanf_l(str ptr)
 @ varargs _cscanf_s(str)
@@ -1639,7 +1639,7 @@
 @ stdcall -arch=i386 _seh_longjmp_unwind4(ptr)
 @ stdcall -arch=i386 _seh_longjmp_unwind(ptr)
 @ cdecl -arch=i386 _set_SSE2_enable(long) MSVCRT__set_SSE2_enable
-@ stub -arch=win64 _set_FMA3_enable
+@ cdecl -arch=win64 _set_FMA3_enable(long) MSVCRT__set_FMA3_enable
 @ cdecl _set_abort_behavior(long long) MSVCRT__set_abort_behavior
 @ cdecl _set_controlfp(long long)
 @ cdecl _set_doserrno(long)
@@ -2299,9 +2299,9 @@
 @ stub nearbyint
 @ stub nearbyintf
 @ stub nearbyintl
-@ stub nextafter
-@ stub nextafterf
-@ stub nextafterl
+@ cdecl nextafter(double double) MSVCRT__nextafter
+@ cdecl nextafterf(float float) MSVCRT__nextafterf
+@ cdecl nextafterl(double double) MSVCRT__nextafter
 @ stub nexttoward
 @ stub nexttowardf
 @ stub nexttowardl

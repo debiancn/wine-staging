@@ -3,7 +3,22 @@ author: Michael Gilbert <mgilbert@debian.org>
 
 --- a/tools/make_requests
 +++ b/tools/make_requests
-@@ -437,7 +437,7 @@ foreach my $err (sort keys %errors)
+@@ -270,13 +270,7 @@ sub PARSE_REQUESTS()
+ 
+ sub GET_PROTOCOL_VERSION()
+ {
+-    my $protocol = 0;
+-    open SERVER_PROT, "include/wine/server_protocol.h" or return 0;
+-    while (<SERVER_PROT>)
+-    {
+-        if (/^\#define SERVER_PROTOCOL_VERSION (\d+)/) { $protocol = $1; last; }
+-    }
+-    close SERVER_PROT;
++    my $protocol = 489;
+     return $protocol;
+ }
+ 
+@@ -437,7 +431,7 @@ foreach my $err (sort keys %errors)
  push @trace_lines, "    { NULL, 0 }\n";
  push @trace_lines, "};\n";
  
@@ -12,7 +27,7 @@ author: Michael Gilbert <mgilbert@debian.org>
                   "### make_requests begin ###",
                   "### make_requests end ###",
                   @trace_lines );
-@@ -464,7 +464,7 @@ foreach my $type (sort keys %formats)
+@@ -464,7 +458,7 @@ foreach my $type (sort keys %formats)
  push @request_lines, @asserts;
  push @request_lines, "\n#endif  /* WANT_REQUEST_HANDLERS */\n";
  
