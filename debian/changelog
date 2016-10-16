@@ -1,3 +1,10 @@
+wine (1.8.5-1~bpo8+1) jessie-backports; urgency=medium
+
+  * Rebuild for jessie-backports.
+  * No changes.
+
+ -- Jens Reyer <jre.winesim@gmail.com>  Sun, 16 Oct 2016 22:11:21 +0200
+
 wine (1.8.5-1) unstable; urgency=medium
 
   * New upstream release 1.8.5, released Oct 7, 2016.
