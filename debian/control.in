@@ -293,9 +293,15 @@ Description: Windows API implementation - development files
 
 # Package: wine-binfmt
 # Architecture: all
+# Multi-Arch: foreign
 # Depends:
 #  ${misc:Depends},
+#  wine,
 #  binfmt-support,
+# Breaks:
+#  wine1.6 (<< 1:1.8.4ubuntu1~),
+# Replaces:
+#  wine1.6 (<< 1:1.8.4ubuntu1~),
 # Description: Windows API implementation - binfmt support
 #  Wine is a free MS-Windows API implementation.
 #  This is still a work in progress and many applications may still not work.
@@ -309,6 +315,12 @@ Description: Windows API implementation - development files
 # Built-Using: ${built:Using}
 # Depends:
 #  ${misc:Depends},
+# Breaks:
+#  libwineVERSION (<< 1.7.41-2~),
+#  wine1.6 (<< 1:1.8.4ubuntu1~),
+# Replaces:
+#  libwineVERSION (<< 1.7.41-2~),
+#  wine1.6 (<< 1:1.8.4ubuntu1~),
 # Description: Windows API implementation - fonts
 #  Wine is a free MS-Windows API implementation.
 #  This is still a work in progress and many applications may still not work.
