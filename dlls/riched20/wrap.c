@@ -33,6 +33,22 @@ WINE_DECLARE_DEBUG_CHANNEL(richedit_check);
  * - no tabs
  */
 
+typedef struct tagME_WrapContext
+{
+  ME_Style *style;
+  ME_Context *context;
+  int nLeftMargin, nRightMargin;
+  int nFirstMargin;   /* Offset to first line's text, always to the text itself even if a para number is present */
+  int nParaNumOffset; /* Offset to the para number */
+  int nAvailWidth;    /* Width avail for text to wrap into.  Does not include any para number text */
+  int nRow;
+  POINT pt;
+  BOOL bOverflown, bWordWrap;
+  ME_DisplayItem *pPara;
+  ME_DisplayItem *pRowStart;
+
+  ME_DisplayItem *pLastSplittableRun;
+} ME_WrapContext;
 
 static BOOL get_run_glyph_buffers( ME_Run *run )
 {
@@ -289,7 +305,12 @@ static void ME_InsertRowStart(ME_WrapContext *wc, const ME_DisplayItem *pEnd)
   BOOL bSkippingSpaces = TRUE;
   int ascent = 0, descent = 0, width=0, shift = 0, align = 0;
 
-  /* wrap text */
+  /* Include height of para numbering label */
+  if (wc->nRow == 0 && para->fmt.wNumbering)
+  {
+      ascent = para->para_num.style->tm.tmAscent;
+      descent = para->para_num.style->tm.tmDescent;
+  }
 
   for (p = pEnd->prev; p!=wc->pRowStart->prev; p = p->prev)
   {
@@ -353,6 +374,13 @@ static void ME_InsertRowStart(ME_WrapContext *wc, const ME_DisplayItem *pEnd)
       p->member.run.pt.x += row->member.row.nLMargin+shift;
     }
   }
+
+  if (wc->nRow == 0 && para->fmt.wNumbering)
+  {
+    para->para_num.pt.x = wc->nParaNumOffset + shift;
+    para->para_num.pt.y = wc->pt.y + row->member.row.nBaseline;
+  }
+
   ME_InsertBefore(wc->pRowStart, row);
   wc->nRow++;
   wc->pt.y += row->member.row.nHeight;
@@ -610,8 +638,8 @@ static ME_DisplayItem *ME_WrapHandleRun(ME_WrapContext *wc, ME_DisplayItem *p)
       wc->pt.x + run->nWidth - wc->context->pt.x > wc->nAvailWidth)
   {
     int loc = wc->context->pt.x + wc->nAvailWidth - wc->pt.x;
-    /* total white run ? */
-    if (run->nFlags & MERF_WHITESPACE) {
+    /* total white run or end para */
+    if (run->nFlags & (MERF_WHITESPACE | MERF_ENDPARA)) {
       /* let the overflow logic handle it */
       wc->bOverflown = TRUE;
       return p;
@@ -855,6 +883,9 @@ static void ME_WrapTextParagraph(ME_Context *c, ME_DisplayItem *tp) {
   }
   ME_PrepareParagraphForWrapping(c, tp);
 
+  /* Calculate paragraph numbering label */
+  para_num_init( c, &tp->member.para );
+
   /* For now treating all non-password text as complex for better testing */
   if (!c->editor->cPasswordMask /* &&
       ScriptIsComplex( tp->member.para.text->szData, tp->member.para.text->nLen, SIC_COMPLEX ) == S_OK */)
@@ -869,6 +900,7 @@ static void ME_WrapTextParagraph(ME_Context *c, ME_DisplayItem *tp) {
   wc.pPara = tp;
 /*   wc.para_style = tp->member.para.style; */
   wc.style = NULL;
+  wc.nParaNumOffset = 0;
   if (tp->member.para.nFlags & MEPF_ROWEND) {
     wc.nFirstMargin = wc.nLeftMargin = wc.nRightMargin = 0;
   } else {
@@ -876,8 +908,15 @@ static void ME_WrapTextParagraph(ME_Context *c, ME_DisplayItem *tp) {
     if (tp->member.para.pCell) {
       dxStartIndent += ME_GetTableRowEnd(tp)->member.para.fmt.dxOffset;
     }
+    wc.nLeftMargin = ME_twips2pointsX(c, dxStartIndent + pFmt->dxOffset);
     wc.nFirstMargin = ME_twips2pointsX(c, dxStartIndent);
-    wc.nLeftMargin = wc.nFirstMargin + ME_twips2pointsX(c, pFmt->dxOffset);
+    if (pFmt->wNumbering)
+    {
+        wc.nParaNumOffset = wc.nFirstMargin;
+        dxStartIndent = max( ME_twips2pointsX(c, pFmt->wNumberingTab),
+                             tp->member.para.para_num.width );
+        wc.nFirstMargin += dxStartIndent;
+    }
     wc.nRightMargin = ME_twips2pointsX(c, pFmt->dxRightIndent);
 
     if (wc.nFirstMargin < 0)

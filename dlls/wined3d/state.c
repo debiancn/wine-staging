@@ -609,7 +609,7 @@ void state_alpha_test(struct wined3d_context *context, const struct wined3d_stat
 void state_clipping(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
 {
     const struct wined3d_gl_info *gl_info = context->gl_info;
-    unsigned int clipplane_count = gl_info->limits.clipplanes;
+    unsigned int clipplane_count = gl_info->limits.user_clip_distances;
     unsigned int i, enable_mask, disable_mask;
 
     if (use_vs(state) && !context->d3d_info->vs_clipping)
@@ -1712,7 +1712,7 @@ static void state_depthbias(struct wined3d_context *context, const struct wined3
         gl_info->gl_ops.gl.p_glEnable(GL_POLYGON_OFFSET_FILL);
         checkGLcall("glEnable(GL_POLYGON_OFFSET_FILL)");
 
-        if (context->swapchain->device->wined3d->flags & WINED3D_LEGACY_DEPTH_BIAS)
+        if (context->d3d_info->wined3d_creation_flags & WINED3D_LEGACY_DEPTH_BIAS)
         {
             float bias = -(float)const_bias.d;
             gl_info->gl_ops.gl.p_glPolygonOffset(bias, bias);
@@ -3620,7 +3620,7 @@ static void sampler(struct wined3d_context *context, const struct wined3d_state 
         }
         else
         {
-            struct wined3d_device *device = context->swapchain->device;
+            struct wined3d_device *device = context->device;
             struct wined3d_sampler *sampler;
             struct wine_rb_entry *entry;
 
@@ -3760,7 +3760,7 @@ void clipplane(struct wined3d_context *context, const struct wined3d_state *stat
     UINT index = state_id - STATE_CLIPPLANE(0);
     GLdouble plane[4];
 
-    if (isStateDirty(context, STATE_TRANSFORM(WINED3D_TS_VIEW)) || index >= gl_info->limits.clipplanes)
+    if (isStateDirty(context, STATE_TRANSFORM(WINED3D_TS_VIEW)) || index >= gl_info->limits.user_clip_distances)
         return;
 
     gl_info->gl_ops.gl.p_glMatrixMode(GL_MODELVIEW);
@@ -3841,8 +3841,8 @@ static void state_vertexblend_w(struct wined3d_context *context, const struct wi
 static void state_vertexblend(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
 {
     enum wined3d_vertex_blend_flags val = state->render_states[WINED3D_RS_VERTEXBLEND];
-    struct wined3d_device *device = context->swapchain->device;
     const struct wined3d_gl_info *gl_info = context->gl_info;
+    struct wined3d_device *device = context->device;
     static unsigned int once;
 
     switch (val)
@@ -3914,7 +3914,7 @@ static void transform_view(struct wined3d_context *context, const struct wined3d
     }
 
     /* Reset Clipping Planes  */
-    for (k = 0; k < gl_info->limits.clipplanes; ++k)
+    for (k = 0; k < gl_info->limits.user_clip_distances; ++k)
     {
         if (!isStateDirty(context, STATE_CLIPPLANE(k)))
             clipplane(context, state, STATE_CLIPPLANE(k));
@@ -3934,7 +3934,7 @@ static void transform_view(struct wined3d_context *context, const struct wined3d
         transform_world(context, state, STATE_TRANSFORM(WINED3D_TS_WORLD_MATRIX(0)));
 
     /* Avoid looping over a number of matrices if the app never used the functionality */
-    if (context->swapchain->device->vertexBlendUsed)
+    if (context->device->vertexBlendUsed)
     {
         for (k = 1; k < gl_info->limits.blends; ++k)
         {
@@ -4531,7 +4531,7 @@ static void vertexdeclaration(struct wined3d_context *context, const struct wine
                 state_clipping(context, state, STATE_RENDER(WINED3D_RS_CLIPPLANEENABLE));
             }
 
-            for (i = 0; i < gl_info->limits.clipplanes; ++i)
+            for (i = 0; i < gl_info->limits.user_clip_distances; ++i)
             {
                 clipplane(context, state, STATE_CLIPPLANE(i));
             }
@@ -4548,7 +4548,7 @@ static void vertexdeclaration(struct wined3d_context *context, const struct wine
                 /* Disable all clip planes to get defined results on all drivers. See comment in the
                  * state_clipping state handler
                  */
-                for (i = 0; i < gl_info->limits.clipplanes; ++i)
+                for (i = 0; i < gl_info->limits.user_clip_distances; ++i)
                 {
                     gl_info->gl_ops.gl.p_glDisable(GL_CLIP_PLANE0 + i);
                     checkGLcall("glDisable(GL_CLIP_PLANE0 + i)");
@@ -4580,7 +4580,7 @@ static void vertexdeclaration(struct wined3d_context *context, const struct wine
              * (Note: ARB shaders can read the clip planes for clipping emulation even if
              * device->vs_clipping is false.
              */
-            for (i = 0; i < gl_info->limits.clipplanes; ++i)
+            for (i = 0; i < gl_info->limits.user_clip_distances; ++i)
             {
                 clipplane(context, state, STATE_CLIPPLANE(i));
             }
@@ -4646,6 +4646,57 @@ static void viewport_miscpart(struct wined3d_context *context, const struct wine
     else
         gl_info->gl_ops.gl.p_glViewport(vp.x, (height - (vp.y + vp.height)), vp.width, vp.height);
     checkGLcall("glViewport");
+}
+
+static void viewport_miscpart_cc(struct wined3d_context *context,
+        const struct wined3d_state *state, DWORD state_id)
+{
+    const struct wined3d_rendertarget_view *depth_stencil = state->fb->depth_stencil;
+    const struct wined3d_rendertarget_view *target = state->fb->render_targets[0];
+    /* See get_projection_matrix() in utils.c for a discussion about those
+     * values. */
+    float pixel_center_offset = context->d3d_info->wined3d_creation_flags
+            & WINED3D_PIXEL_CENTER_INTEGER ? 63.0f / 128.0f : -1.0f / 128.0f;
+    const struct wined3d_gl_info *gl_info = context->gl_info;
+    struct wined3d_viewport vp = state->viewport;
+    unsigned int width, height;
+
+    if (target)
+    {
+        if (vp.width > target->width)
+            vp.width = target->width;
+        if (vp.height > target->height)
+            vp.height = target->height;
+
+        surface_get_drawable_size(wined3d_rendertarget_view_get_surface(target), context, &width, &height);
+    }
+    else if (depth_stencil)
+    {
+        width = depth_stencil->width;
+        height = depth_stencil->height;
+    }
+    else
+    {
+        FIXME("No attachments draw calls not supported.\n");
+        return;
+    }
+
+    gl_info->gl_ops.gl.p_glDepthRange(vp.min_z, vp.max_z);
+    checkGLcall("glDepthRange");
+
+    if (context->render_offscreen)
+    {
+        GL_EXTCALL(glClipControl(GL_UPPER_LEFT, GL_ZERO_TO_ONE));
+        GL_EXTCALL(glViewportIndexedf(0, vp.x + pixel_center_offset, vp.y + pixel_center_offset,
+                vp.width, vp.height));
+    }
+    else
+    {
+        GL_EXTCALL(glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE));
+        GL_EXTCALL(glViewportIndexedf(0, vp.x + pixel_center_offset,
+                (height - (vp.y + vp.height)) + pixel_center_offset, vp.width, vp.height));
+    }
+    checkGLcall("setting clip space and viewport");
 }
 
 static void viewport_vertexpart(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
@@ -4837,6 +4888,17 @@ static void frontface(struct wined3d_context *context, const struct wined3d_stat
     checkGLcall("glFrontFace");
 }
 
+static void frontface_cc(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
+{
+    const struct wined3d_gl_info *gl_info = context->gl_info;
+    GLenum mode;
+
+    mode = state->rasterizer_state && state->rasterizer_state->desc.front_ccw ? GL_CCW : GL_CW;
+
+    gl_info->gl_ops.gl.p_glFrontFace(mode);
+    checkGLcall("glFrontFace");
+}
+
 static void psorigin_w(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
 {
     static BOOL warned;
@@ -4923,8 +4985,10 @@ const struct StateEntryTemplate misc_state_template[] =
     { STATE_RENDER(WINED3D_RS_BLENDOPALPHA),              { STATE_RENDER(WINED3D_RS_ALPHABLENDENABLE),          NULL                }, WINED3D_GL_EXT_NONE             },
     { STATE_STREAMSRC,                                    { STATE_STREAMSRC,                                    streamsrc           }, WINED3D_GL_EXT_NONE             },
     { STATE_VDECL,                                        { STATE_VDECL,                                        vdecl_miscpart      }, WINED3D_GL_EXT_NONE             },
+    { STATE_FRONTFACE,                                    { STATE_FRONTFACE,                                    frontface_cc        }, ARB_CLIP_CONTROL                },
     { STATE_FRONTFACE,                                    { STATE_FRONTFACE,                                    frontface           }, WINED3D_GL_EXT_NONE             },
     { STATE_SCISSORRECT,                                  { STATE_SCISSORRECT,                                  scissorrect         }, WINED3D_GL_EXT_NONE             },
+    { STATE_POINTSPRITECOORDORIGIN,                       { STATE_POINTSPRITECOORDORIGIN,                       state_nop           }, ARB_CLIP_CONTROL                },
     { STATE_POINTSPRITECOORDORIGIN,                       { STATE_POINTSPRITECOORDORIGIN,                       psorigin            }, WINED3D_GL_VERSION_2_0          },
     { STATE_POINTSPRITECOORDORIGIN,                       { STATE_POINTSPRITECOORDORIGIN,                       psorigin_w          }, WINED3D_GL_EXT_NONE             },
 
@@ -4980,6 +5044,7 @@ const struct StateEntryTemplate misc_state_template[] =
     { STATE_TEXTURESTAGE(7, WINED3D_TSS_BUMPENV_LSCALE),  { STATE_TEXTURESTAGE(7, WINED3D_TSS_BUMPENV_LSCALE),  shader_bumpenv      }, WINED3D_GL_EXT_NONE             },
     { STATE_TEXTURESTAGE(7, WINED3D_TSS_BUMPENV_LOFFSET), { STATE_TEXTURESTAGE(7, WINED3D_TSS_BUMPENV_LSCALE),  NULL                }, WINED3D_GL_EXT_NONE             },
 
+    { STATE_VIEWPORT,                                     { STATE_VIEWPORT,                                     viewport_miscpart_cc}, ARB_CLIP_CONTROL                },
     { STATE_VIEWPORT,                                     { STATE_VIEWPORT,                                     viewport_miscpart   }, WINED3D_GL_EXT_NONE             },
     { STATE_INDEXBUFFER,                                  { STATE_INDEXBUFFER,                                  indexbuffer         }, ARB_VERTEX_BUFFER_OBJECT        },
     { STATE_INDEXBUFFER,                                  { STATE_INDEXBUFFER,                                  state_nop           }, WINED3D_GL_EXT_NONE             },
@@ -5634,7 +5699,7 @@ static void vp_ffp_get_caps(const struct wined3d_gl_info *gl_info, struct wined3
             | WINED3DVTXPCAPS_TEXGEN
             | WINED3DVTXPCAPS_TEXGEN_SPHEREMAP;
     caps->fvf_caps = WINED3DFVFCAPS_PSIZE | 0x0008; /* 8 texture coords */
-    caps->max_user_clip_planes = gl_info->limits.clipplanes;
+    caps->max_user_clip_planes = gl_info->limits.user_clip_distances;
     caps->raster_caps = 0;
     if (gl_info->supported[NV_FOG_DISTANCE])
         caps->raster_caps |= WINED3DPRASTERCAPS_FOGRANGE;
@@ -5807,15 +5872,15 @@ static unsigned int num_handlers(const APPLYSTATEFUNC *funcs)
 
 static void multistate_apply_2(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
 {
-    context->swapchain->device->multistate_funcs[state_id][0](context, state, state_id);
-    context->swapchain->device->multistate_funcs[state_id][1](context, state, state_id);
+    context->device->multistate_funcs[state_id][0](context, state, state_id);
+    context->device->multistate_funcs[state_id][1](context, state, state_id);
 }
 
 static void multistate_apply_3(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
 {
-    context->swapchain->device->multistate_funcs[state_id][0](context, state, state_id);
-    context->swapchain->device->multistate_funcs[state_id][1](context, state, state_id);
-    context->swapchain->device->multistate_funcs[state_id][2](context, state, state_id);
+    context->device->multistate_funcs[state_id][0](context, state, state_id);
+    context->device->multistate_funcs[state_id][1](context, state, state_id);
+    context->device->multistate_funcs[state_id][2](context, state, state_id);
 }
 
 static void prune_invalid_states(struct StateEntry *state_table, const struct wined3d_gl_info *gl_info,

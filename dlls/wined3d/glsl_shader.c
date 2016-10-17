@@ -1160,7 +1160,7 @@ static void shader_glsl_ffp_vertex_normalmatrix_uniform(const struct wined3d_con
         return;
 
     get_modelview_matrix(context, state, 0, &mv);
-    if (context->swapchain->device->wined3d->flags & WINED3D_LEGACY_FFP_LIGHTING)
+    if (context->d3d_info->wined3d_creation_flags & WINED3D_LEGACY_FFP_LIGHTING)
         invert_matrix_3d(&mv, &mv);
     else
         invert_matrix(&mv, &mv);
@@ -1407,7 +1407,7 @@ static void shader_glsl_load_constants(void *shader_priv, struct wined3d_context
 
     if (update_mask & WINED3D_SHADER_CONST_VS_CLIP_PLANES)
     {
-        for (i = 0; i < gl_info->limits.clipplanes; ++i)
+        for (i = 0; i < gl_info->limits.user_clip_distances; ++i)
             shader_glsl_clip_plane_uniform(context, state, i, prog);
     }
 
@@ -1894,7 +1894,7 @@ static void shader_generate_glsl_declarations(const struct wined3d_context *cont
                  * clipplane as well. */
                 max_constantsF = gl_info->limits.glsl_vs_float_constants - 3;
                 if (vs_args->clip_enabled)
-                    max_constantsF -= gl_info->limits.clipplanes;
+                    max_constantsF -= gl_info->limits.user_clip_distances;
                 max_constantsF -= wined3d_popcount(reg_maps->integer_constants);
                 /* Strictly speaking a bool only uses one scalar, but the nvidia(Linux) compiler doesn't pack them properly,
                  * so each scalar requires a full vec4. We could work around this by packing the booleans ourselves, but
@@ -2097,7 +2097,7 @@ static void shader_generate_glsl_declarations(const struct wined3d_context *cont
         if (!gl_info->supported[WINED3D_GL_LEGACY_CONTEXT])
         {
             if (vs_args->clip_enabled)
-                shader_addline(buffer, "uniform vec4 clip_planes[%u];\n", gl_info->limits.clipplanes);
+                shader_addline(buffer, "uniform vec4 clip_planes[%u];\n", gl_info->limits.user_clip_distances);
 
             if (version->major < 3)
             {
@@ -2194,9 +2194,23 @@ static void shader_generate_glsl_declarations(const struct wined3d_context *cont
         }
         if (reg_maps->vpos || reg_maps->usesdsy)
         {
-            ++extra_constants_needed;
-            shader_addline(buffer, "uniform vec4 ycorrection;\n");
-            shader_addline(buffer, "vec4 vpos;\n");
+            if (reg_maps->usesdsy || !gl_info->supported[ARB_FRAGMENT_COORD_CONVENTIONS])
+            {
+                ++extra_constants_needed;
+                shader_addline(buffer, "uniform vec4 ycorrection;\n");
+            }
+            if (reg_maps->vpos)
+            {
+                if (gl_info->supported[ARB_FRAGMENT_COORD_CONVENTIONS])
+                {
+                    if (context->d3d_info->wined3d_creation_flags & WINED3D_PIXEL_CENTER_INTEGER)
+                        shader_addline(buffer, "layout(%spixel_center_integer) in vec4 gl_FragCoord;\n",
+                                ps_args->render_offscreen ? "" : "origin_upper_left, ");
+                    else if (!ps_args->render_offscreen)
+                        shader_addline(buffer, "layout(origin_upper_left) in vec4 gl_FragCoord;\n");
+                }
+                shader_addline(buffer, "vec4 vpos;\n");
+            }
         }
 
         if (ps_args->alpha_test_func + 1 != WINED3D_CMP_ALWAYS)
@@ -4384,7 +4398,8 @@ static void shader_glsl_emit(const struct wined3d_shader_instruction *ins)
     unsigned int stream = ins->handler_idx == WINED3DSIH_EMIT ? 0 : ins->src[0].reg.idx[0].offset;
 
     shader_addline(ins->ctx->buffer, "setup_gs_output(gs_out);\n");
-    shader_glsl_fixup_position(ins->ctx->buffer);
+    if (!ins->ctx->gl_info->supported[ARB_CLIP_CONTROL])
+        shader_glsl_fixup_position(ins->ctx->buffer);
 
     if (!stream)
         shader_addline(ins->ctx->buffer, "EmitVertex();\n");
@@ -5899,6 +5914,8 @@ static GLuint shader_glsl_generate_pshader(const struct wined3d_context *context
     shader_glsl_enable_extensions(buffer, gl_info);
     if (gl_info->supported[ARB_DERIVATIVE_CONTROL])
         shader_addline(buffer, "#extension GL_ARB_derivative_control : enable\n");
+    if (gl_info->supported[ARB_FRAGMENT_COORD_CONVENTIONS])
+        shader_addline(buffer, "#extension GL_ARB_fragment_coord_conventions : enable\n");
     if (gl_info->supported[ARB_SHADER_TEXTURE_LOD])
         shader_addline(buffer, "#extension GL_ARB_shader_texture_lod : enable\n");
     /* The spec says that it doesn't have to be explicitly enabled, but the
@@ -5929,7 +5946,9 @@ static GLuint shader_glsl_generate_pshader(const struct wined3d_context *context
      * on drivers that returns integer values. */
     if (reg_maps->vpos)
     {
-        if (shader->device->wined3d->flags & WINED3D_PIXEL_CENTER_INTEGER)
+        if (gl_info->supported[ARB_FRAGMENT_COORD_CONVENTIONS])
+            shader_addline(buffer, "vpos = gl_FragCoord;\n");
+        else if (context->d3d_info->wined3d_creation_flags & WINED3D_PIXEL_CENTER_INTEGER)
             shader_addline(buffer,
                     "vpos = floor(vec4(0, ycorrection[0], 0, 0) + gl_FragCoord * vec4(1, ycorrection[1], 1, 1));\n");
         else
@@ -6028,7 +6047,7 @@ static GLuint shader_glsl_generate_vshader(const struct wined3d_context *context
     /* Base Declarations */
     shader_generate_glsl_declarations(context, buffer, shader, reg_maps, &priv_ctx);
 
-    if (args->next_shader_type == WINED3D_SHADER_TYPE_PIXEL)
+    if (args->next_shader_type == WINED3D_SHADER_TYPE_PIXEL && !gl_info->supported[ARB_CLIP_CONTROL])
         shader_addline(buffer, "uniform vec4 pos_fixup;\n");
 
     if (reg_maps->shader_version.major >= 4)
@@ -6068,14 +6087,14 @@ static GLuint shader_glsl_generate_vshader(const struct wined3d_context *context
         if (legacy_context)
             shader_addline(buffer, "gl_ClipVertex = gl_Position;\n");
         else
-            for (i = 0; i < gl_info->limits.clipplanes; ++i)
+            for (i = 0; i < gl_info->limits.user_clip_distances; ++i)
                 shader_addline(buffer, "gl_ClipDistance[%u] = dot(gl_Position, clip_planes[%u]);\n", i, i);
     }
 
     if (args->point_size && !args->per_vertex_point_size)
         shader_addline(buffer, "gl_PointSize = clamp(ffp_point.size, ffp_point.size_min, ffp_point.size_max);\n");
 
-    if (args->next_shader_type == WINED3D_SHADER_TYPE_PIXEL)
+    if (args->next_shader_type == WINED3D_SHADER_TYPE_PIXEL && !gl_info->supported[ARB_CLIP_CONTROL])
         shader_glsl_fixup_position(buffer);
 
     shader_addline(buffer, "}\n");
@@ -6109,7 +6128,8 @@ static GLuint shader_glsl_generate_geometry_shader(const struct wined3d_context 
     memset(&priv_ctx, 0, sizeof(priv_ctx));
     priv_ctx.string_buffers = string_buffers;
     shader_generate_glsl_declarations(context, buffer, shader, reg_maps, &priv_ctx);
-    shader_addline(buffer, "uniform vec4 pos_fixup;\n");
+    if (!gl_info->supported[ARB_CLIP_CONTROL])
+        shader_addline(buffer, "uniform vec4 pos_fixup;\n");
     shader_glsl_generate_sm4_rasterizer_input_setup(priv, shader, args->ps_input_count, gl_info);
     shader_addline(buffer, "void main()\n{\n");
     shader_generate_main(shader, buffer, reg_maps, function, &priv_ctx);
@@ -6605,7 +6625,7 @@ static GLuint shader_glsl_generate_ffp_vertex_shader(struct shader_glsl_priv *pr
     else
     {
         if (settings->clipping)
-            shader_addline(buffer, "uniform vec4 clip_planes[%u];\n", gl_info->limits.clipplanes);
+            shader_addline(buffer, "uniform vec4 clip_planes[%u];\n", gl_info->limits.user_clip_distances);
 
         declare_out_varying(gl_info, buffer, settings->flatshading, "vec4 ffp_varying_diffuse;\n");
         declare_out_varying(gl_info, buffer, settings->flatshading, "vec4 ffp_varying_specular;\n");
@@ -6654,7 +6674,7 @@ static GLuint shader_glsl_generate_ffp_vertex_shader(struct shader_glsl_priv *pr
             if (gl_info->supported[WINED3D_GL_LEGACY_CONTEXT])
                 shader_addline(buffer, "gl_ClipVertex = ec_pos;\n");
             else
-                for (i = 0; i < gl_info->limits.clipplanes; ++i)
+                for (i = 0; i < gl_info->limits.user_clip_distances; ++i)
                     shader_addline(buffer, "gl_ClipDistance[%u] = dot(ec_pos, clip_planes[%u]);\n", i, i);
         }
         shader_addline(buffer, "ec_pos /= ec_pos.w;\n");
@@ -6749,12 +6769,21 @@ static GLuint shader_glsl_generate_ffp_vertex_shader(struct shader_glsl_priv *pr
 
         case WINED3D_FFP_VS_FOG_DEPTH:
             if (settings->ortho_fog)
-                /* Need to undo the [0.0 - 1.0] -> [-1.0 - 1.0] transformation from D3D to GL coordinates. */
-                shader_addline(buffer, "ffp_varying_fogcoord = gl_Position.z * 0.5 + 0.5;\n");
+            {
+                if (gl_info->supported[ARB_CLIP_CONTROL])
+                    shader_addline(buffer, "ffp_varying_fogcoord = gl_Position.z;\n");
+                else
+                    /* Need to undo the [0.0 - 1.0] -> [-1.0 - 1.0] transformation from D3D to GL coordinates. */
+                    shader_addline(buffer, "ffp_varying_fogcoord = gl_Position.z * 0.5 + 0.5;\n");
+            }
             else if (settings->transformed)
+            {
                 shader_addline(buffer, "ffp_varying_fogcoord = ec_pos.z;\n");
+            }
             else
+            {
                 shader_addline(buffer, "ffp_varying_fogcoord = abs(ec_pos.z);\n");
+            }
             break;
 
         default:
@@ -7976,7 +8005,8 @@ static void set_glsl_shader_program(const struct wined3d_context *context, const
 
     if (gshader)
     {
-        entry->constant_update_mask |= WINED3D_SHADER_CONST_POS_FIXUP;
+        if (entry->gs.pos_fixup_location != -1)
+            entry->constant_update_mask |= WINED3D_SHADER_CONST_POS_FIXUP;
         shader_glsl_init_uniform_block_bindings(gl_info, priv, program_id, &gshader->reg_maps);
         shader_glsl_load_icb(gl_info, priv, program_id, &gshader->reg_maps);
     }
@@ -8913,7 +8943,7 @@ static void glsl_vertex_pipe_vp_get_caps(const struct wined3d_gl_info *gl_info, 
             | WINED3DVTXPCAPS_LOCALVIEWER
             | WINED3DVTXPCAPS_TEXGEN_SPHEREMAP;
     caps->fvf_caps = WINED3DFVFCAPS_PSIZE | 8; /* 8 texture coordinates. */
-    caps->max_user_clip_planes = gl_info->limits.clipplanes;
+    caps->max_user_clip_planes = gl_info->limits.user_clip_distances;
     caps->raster_caps = WINED3DPRASTERCAPS_FOGRANGE;
 }
 
@@ -9002,7 +9032,7 @@ static void glsl_vertex_pipe_vdecl(struct wined3d_context *context,
         if (context->last_was_vshader)
         {
             if (legacy_context)
-                for (i = 0; i < gl_info->limits.clipplanes; ++i)
+                for (i = 0; i < gl_info->limits.user_clip_distances; ++i)
                     clipplane(context, state, STATE_CLIPPLANE(i));
             else
                 context->constant_update_mask |= WINED3D_SHADER_CONST_VS_CLIP_PLANES;
@@ -9028,7 +9058,7 @@ static void glsl_vertex_pipe_vdecl(struct wined3d_context *context,
         {
             /* Vertex shader clipping ignores the view matrix. Update all clip planes. */
             if (legacy_context)
-                for (i = 0; i < gl_info->limits.clipplanes; ++i)
+                for (i = 0; i < gl_info->limits.user_clip_distances; ++i)
                     clipplane(context, state, STATE_CLIPPLANE(i));
             else
                 context->constant_update_mask |= WINED3D_SHADER_CONST_VS_CLIP_PLANES;
@@ -9089,7 +9119,7 @@ static void glsl_vertex_pipe_view(struct wined3d_context *context, const struct 
 
     if (gl_info->supported[WINED3D_GL_LEGACY_CONTEXT])
     {
-        for (k = 0; k < gl_info->limits.clipplanes; ++k)
+        for (k = 0; k < gl_info->limits.user_clip_distances; ++k)
         {
             if (!isStateDirty(context, STATE_CLIPPLANE(k)))
                 clipplane(context, state, STATE_CLIPPLANE(k));
@@ -9199,7 +9229,7 @@ static void glsl_vertex_pipe_clip_plane(struct wined3d_context *context,
     const struct wined3d_gl_info *gl_info = context->gl_info;
     UINT index = state_id - STATE_CLIPPLANE(0);
 
-    if (index >= gl_info->limits.clipplanes)
+    if (index >= gl_info->limits.user_clip_distances)
         return;
 
     context->constant_update_mask |= WINED3D_SHADER_CONST_VS_CLIP_PLANES;
@@ -9433,8 +9463,8 @@ static void glsl_fragment_pipe_get_caps(const struct wined3d_gl_info *gl_info, s
             | WINED3DTEXOPCAPS_LERP
             | WINED3DTEXOPCAPS_BUMPENVMAP
             | WINED3DTEXOPCAPS_BUMPENVMAPLUMINANCE;
-    caps->MaxTextureBlendStages = 8;
-    caps->MaxSimultaneousTextures = min(gl_info->limits.fragment_samplers, 8);
+    caps->MaxTextureBlendStages = MAX_TEXTURES;
+    caps->MaxSimultaneousTextures = min(gl_info->limits.fragment_samplers, MAX_TEXTURES);
 }
 
 static DWORD glsl_fragment_pipe_get_emul_mask(const struct wined3d_gl_info *gl_info)
