@@ -1,4 +1,4 @@
-fonts/*.fon usr/share/wineVERSION/wine/fonts
+fonts/*.fon usr/share/wine/fonts
 
 fonts/symbol.ttf usr/share/wine/fonts
 fonts/tahoma.ttf usr/share/wine/fonts

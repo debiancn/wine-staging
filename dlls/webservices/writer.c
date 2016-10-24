@@ -130,6 +130,13 @@ static void write_insert_node( struct writer *writer, struct node *parent, struc
     writer->current = node;
 }
 
+static struct node *find_parent( struct writer *writer )
+{
+    if (is_valid_parent( writer->current )) return writer->current;
+    if (is_valid_parent( writer->current->parent )) return writer->current->parent;
+    return NULL;
+}
+
 static HRESULT write_init_state( struct writer *writer )
 {
     struct node *node;
@@ -890,7 +897,7 @@ static HRESULT write_flush( struct writer *writer )
 static HRESULT write_add_cdata_node( struct writer *writer )
 {
     struct node *node, *parent;
-    if (!(parent = find_parent( writer->current ))) return WS_E_INVALID_FORMAT;
+    if (!(parent = find_parent( writer ))) return WS_E_INVALID_FORMAT;
     if (!(node = alloc_node( WS_XML_NODE_TYPE_CDATA ))) return E_OUTOFMEMORY;
     write_insert_node( writer, parent, node );
     return S_OK;
@@ -977,7 +984,7 @@ static HRESULT write_add_element_node( struct writer *writer, const WS_XML_STRIN
     struct node *node, *parent;
     WS_XML_ELEMENT_NODE *elem;
 
-    if (!(parent = find_parent( writer->current ))) return WS_E_INVALID_FORMAT;
+    if (!(parent = find_parent( writer ))) return WS_E_INVALID_FORMAT;
 
     if (!prefix && node_type( parent ) == WS_XML_NODE_TYPE_ELEMENT)
     {
@@ -1187,6 +1194,69 @@ static ULONG format_double( const double *ptr, unsigned char *buf )
 #endif
 }
 
+static inline int year_size( int year )
+{
+    return leap_year( year ) ? 366 : 365;
+}
+
+#define TZ_OFFSET 8
+static ULONG format_datetime( const WS_DATETIME *ptr, unsigned char *buf )
+{
+    static const char fmt[] = "%04u-%02u-%02uT%02u:%02u:%02u";
+    int day, hour, min, sec, sec_frac, month = 1, year = 1, tz_hour;
+    unsigned __int64 ticks, day_ticks;
+    ULONG len;
+
+    if (ptr->format == WS_DATETIME_FORMAT_LOCAL &&
+        ptr->ticks >= TICKS_1601_01_01 + TZ_OFFSET * TICKS_PER_HOUR)
+    {
+        ticks = ptr->ticks - TZ_OFFSET * TICKS_PER_HOUR;
+        tz_hour = TZ_OFFSET;
+    }
+    else
+    {
+        ticks = ptr->ticks;
+        tz_hour = 0;
+    }
+    day = ticks / TICKS_PER_DAY;
+    day_ticks = ticks % TICKS_PER_DAY;
+    hour = day_ticks / TICKS_PER_HOUR;
+    min = (day_ticks % TICKS_PER_HOUR) / TICKS_PER_MIN;
+    sec = (day_ticks % TICKS_PER_MIN) / TICKS_PER_SEC;
+    sec_frac = day_ticks % TICKS_PER_SEC;
+
+    while (day >= year_size( year ))
+    {
+        day -= year_size( year );
+        year++;
+    }
+    while (day >= month_days[leap_year( year )][month])
+    {
+        day -= month_days[leap_year( year )][month];
+        month++;
+    }
+    day++;
+
+    len = sprintf( (char *)buf, fmt, year, month, day, hour, min, sec );
+    if (sec_frac)
+    {
+        static const char fmt_frac[] = ".%07u";
+        len += sprintf( (char *)buf + len, fmt_frac, sec_frac );
+        while (buf[len - 1] == '0') len--;
+    }
+    if (ptr->format == WS_DATETIME_FORMAT_UTC)
+    {
+        buf[len++] = 'Z';
+    }
+    else if (ptr->format == WS_DATETIME_FORMAT_LOCAL)
+    {
+        static const char fmt_tz[] = "%c%02u:00";
+        len += sprintf( (char *)buf + len, fmt_tz, tz_hour ? '-' : '+', tz_hour );
+    }
+
+    return len;
+}
+
 static ULONG format_guid( const GUID *ptr, unsigned char *buf )
 {
     static const char fmt[] = "%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x";
@@ -1201,6 +1271,38 @@ static ULONG format_urn( const GUID *ptr, unsigned char *buf )
     return sprintf( (char *)buf, fmt, ptr->Data1, ptr->Data2, ptr->Data3,
                     ptr->Data4[0], ptr->Data4[1], ptr->Data4[2], ptr->Data4[3],
                     ptr->Data4[4], ptr->Data4[5], ptr->Data4[6], ptr->Data4[7] );
+}
+
+static ULONG encode_base64( const unsigned char *bin, ULONG len, unsigned char *buf )
+{
+    static const char base64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    ULONG i = 0, x;
+
+    while (len > 0)
+    {
+        buf[i++] = base64[(bin[0] & 0xfc) >> 2];
+        x = (bin[0] & 3) << 4;
+        if (len == 1)
+        {
+            buf[i++] = base64[x];
+            buf[i++] = '=';
+            buf[i++] = '=';
+            break;
+        }
+        buf[i++] = base64[x | ((bin[1] & 0xf0) >> 4)];
+        x = (bin[1] & 0x0f) << 2;
+        if (len == 2)
+        {
+            buf[i++] = base64[x];
+            buf[i++] = '=';
+            break;
+        }
+        buf[i++] = base64[x | ((bin[2] & 0xc0) >> 6)];
+        buf[i++] = base64[bin[2] & 0x3f];
+        bin += 3;
+        len -= 3;
+    }
+    return i;
 }
 
 static HRESULT text_to_utf8text( const WS_XML_TEXT *text, WS_XML_UTF8_TEXT **ret )
@@ -1223,6 +1325,14 @@ static HRESULT text_to_utf8text( const WS_XML_TEXT *text, WS_XML_UTF8_TEXT **ret
         len_utf8 = WideCharToMultiByte( CP_UTF8, 0, str, len, NULL, 0, NULL, NULL );
         if (!(*ret = alloc_utf8_text( NULL, len_utf8 ))) return E_OUTOFMEMORY;
         WideCharToMultiByte( CP_UTF8, 0, str, len, (char *)(*ret)->value.bytes, (*ret)->value.length, NULL, NULL );
+        return S_OK;
+    }
+    case WS_XML_TEXT_TYPE_BASE64:
+    {
+        const WS_XML_BASE64_TEXT *base64 = (const WS_XML_BASE64_TEXT *)text;
+        ULONG len = ((4 * base64->length / 3) + 3) & ~3;
+        if (!(*ret = alloc_utf8_text( NULL, len ))) return E_OUTOFMEMORY;
+        (*ret)->value.length = encode_base64( base64->bytes, base64->length, (*ret)->value.bytes );
         return S_OK;
     }
     case WS_XML_TEXT_TYPE_BOOL:
@@ -1282,6 +1392,13 @@ static HRESULT text_to_utf8text( const WS_XML_TEXT *text, WS_XML_UTF8_TEXT **ret
         const WS_XML_UNIQUE_ID_TEXT *id = (const WS_XML_UNIQUE_ID_TEXT *)text;
         if (!(*ret = alloc_utf8_text( NULL, 46 ))) return E_OUTOFMEMORY;
         (*ret)->value.length = format_urn( &id->value, (*ret)->value.bytes );
+        return S_OK;
+    }
+    case WS_XML_TEXT_TYPE_DATETIME:
+    {
+        const WS_XML_DATETIME_TEXT *dt = (const WS_XML_DATETIME_TEXT *)text;
+        if (!(*ret = alloc_utf8_text( NULL, 34 ))) return E_OUTOFMEMORY;
+        (*ret)->value.length = format_datetime( &dt->value, (*ret)->value.bytes );
         return S_OK;
     }
     default:
@@ -1666,6 +1783,32 @@ static HRESULT write_type_uint64( struct writer *writer, WS_TYPE_MAPPING mapping
     return write_type_text( writer, mapping, &utf8.text );
 }
 
+static HRESULT write_type_datetime( struct writer *writer, WS_TYPE_MAPPING mapping,
+                                    const WS_DATETIME_DESCRIPTION *desc, WS_WRITE_OPTION option,
+                                    const void *value, ULONG size )
+{
+    WS_XML_UTF8_TEXT utf8;
+    unsigned char buf[34]; /* "0000-00-00T00:00:00.0000000-00:00" */
+    const WS_DATETIME *ptr;
+    HRESULT hr;
+
+    if (desc)
+    {
+        FIXME( "description not supported\n" );
+        return E_NOTIMPL;
+    }
+
+    if (!option || option == WS_WRITE_NILLABLE_VALUE) return E_INVALIDARG;
+    if ((hr = get_value_ptr( option, value, size, sizeof(WS_DATETIME), (const void **)&ptr )) != S_OK) return hr;
+    if (option == WS_WRITE_NILLABLE_POINTER && !ptr) return write_add_nil_attribute( writer );
+    if (ptr->ticks > TICKS_MAX || ptr->format > WS_DATETIME_FORMAT_NONE) return WS_E_INVALID_FORMAT;
+
+    utf8.text.textType = WS_XML_TEXT_TYPE_UTF8;
+    utf8.value.bytes   = buf;
+    utf8.value.length  = format_datetime( ptr, buf );
+    return write_type_text( writer, mapping, &utf8.text );
+}
+
 static HRESULT write_type_guid( struct writer *writer, WS_TYPE_MAPPING mapping,
                                 const WS_GUID_DESCRIPTION *desc, WS_WRITE_OPTION option,
                                 const void *value, ULONG size )
@@ -1742,6 +1885,32 @@ static HRESULT write_type_wsz( struct writer *writer, WS_TYPE_MAPPING mapping,
     return write_type_text( writer, mapping, &utf16.text );
 }
 
+static HRESULT write_type_bytes( struct writer *writer, WS_TYPE_MAPPING mapping,
+                                 const WS_BYTES_DESCRIPTION *desc, WS_WRITE_OPTION option,
+                                 const void *value, ULONG size )
+{
+    WS_XML_BASE64_TEXT base64;
+    const WS_BYTES *ptr;
+    HRESULT hr;
+
+    if (desc)
+    {
+        FIXME( "description not supported\n" );
+        return E_NOTIMPL;
+    }
+
+    if (!option) return E_INVALIDARG;
+    if ((hr = get_value_ptr( option, value, size, sizeof(WS_BYTES), (const void **)&ptr )) != S_OK) return hr;
+    if ((option == WS_WRITE_NILLABLE_VALUE && is_nil_value( value, size )) ||
+        (option == WS_WRITE_NILLABLE_POINTER && !ptr)) return write_add_nil_attribute( writer );
+    if (!ptr->length) return S_OK;
+
+    base64.text.textType = WS_XML_TEXT_TYPE_BASE64;
+    base64.bytes         = ptr->bytes;
+    base64.length        = ptr->length;
+    return write_type_text( writer, mapping, &base64.text );
+}
+
 static HRESULT write_type_xml_string( struct writer *writer, WS_TYPE_MAPPING mapping,
                                       const WS_XML_STRING_DESCRIPTION *desc, WS_WRITE_OPTION option,
                                       const void *value, ULONG size )
@@ -1790,16 +1959,13 @@ static HRESULT write_type_struct_field( struct writer *writer, const WS_FIELD_DE
 
     if (is_nil_value( value, size ))
     {
+        if (field_options & WS_FIELD_OPTIONAL) return S_OK;
         if (field_options & WS_FIELD_NILLABLE)
         {
             if (field_options & WS_FIELD_POINTER) option = WS_WRITE_NILLABLE_POINTER;
             else option = WS_WRITE_NILLABLE_VALUE;
         }
-        else
-        {
-            if (field_options & WS_FIELD_OPTIONAL) return S_OK;
-            return E_INVALIDARG;
-        }
+        else return E_INVALIDARG;
     }
     else
     {
@@ -1864,10 +2030,70 @@ static HRESULT write_type_struct_field( struct writer *writer, const WS_FIELD_DE
     return S_OK;
 }
 
-static ULONG get_field_size( const WS_STRUCT_DESCRIPTION *desc, ULONG index )
+static WS_WRITE_OPTION get_field_write_option( WS_TYPE type, ULONG options )
 {
-    if (index < desc->fieldCount - 1) return desc->fields[index + 1]->offset - desc->fields[index]->offset;
-    return desc->size - desc->fields[index]->offset;
+    if (options & WS_FIELD_POINTER)
+    {
+        if (options & (WS_FIELD_OPTIONAL|WS_FIELD_NILLABLE)) return WS_WRITE_NILLABLE_POINTER;
+        return WS_WRITE_REQUIRED_POINTER;
+    }
+
+    switch (type)
+    {
+    case WS_BOOL_TYPE:
+    case WS_INT8_TYPE:
+    case WS_INT16_TYPE:
+    case WS_INT32_TYPE:
+    case WS_INT64_TYPE:
+    case WS_UINT8_TYPE:
+    case WS_UINT16_TYPE:
+    case WS_UINT32_TYPE:
+    case WS_UINT64_TYPE:
+    case WS_DOUBLE_TYPE:
+    case WS_DATETIME_TYPE:
+    case WS_GUID_TYPE:
+    case WS_STRING_TYPE:
+    case WS_BYTES_TYPE:
+    case WS_XML_STRING_TYPE:
+    case WS_STRUCT_TYPE:
+    case WS_ENUM_TYPE:
+        if (options & (WS_FIELD_OPTIONAL|WS_FIELD_NILLABLE)) return WS_WRITE_NILLABLE_VALUE;
+        return WS_WRITE_REQUIRED_VALUE;
+
+    case WS_WSZ_TYPE:
+    case WS_DESCRIPTION_TYPE:
+        if (options & (WS_FIELD_OPTIONAL|WS_FIELD_NILLABLE)) return WS_WRITE_NILLABLE_POINTER;
+        return WS_WRITE_REQUIRED_POINTER;
+
+    default:
+        FIXME( "unhandled type %u\n", type );
+        return 0;
+    }
+}
+
+static ULONG get_field_size( const WS_FIELD_DESCRIPTION *desc )
+{
+    WS_WRITE_OPTION option;
+    ULONG size;
+
+    switch ((option = get_field_write_option( desc->type, desc->options )))
+    {
+    case WS_WRITE_REQUIRED_POINTER:
+    case WS_WRITE_NILLABLE_POINTER:
+        size = sizeof(const void *);
+        break;
+
+    case WS_WRITE_REQUIRED_VALUE:
+    case WS_WRITE_NILLABLE_VALUE:
+        size = get_type_size( desc->type, desc->typeDescription );
+        break;
+
+    default:
+        WARN( "unhandled option %u\n", option );
+        return 0;
+    }
+
+    return size;
 }
 
 static HRESULT write_type_struct( struct writer *writer, WS_TYPE_MAPPING mapping,
@@ -1886,7 +2112,7 @@ static HRESULT write_type_struct( struct writer *writer, WS_TYPE_MAPPING mapping
     for (i = 0; i < desc->fieldCount; i++)
     {
         field_ptr = (const char *)ptr + desc->fields[i]->offset;
-        field_size = get_field_size( desc, i );
+        field_size = get_field_size( desc->fields[i] );
         if ((hr = write_type_struct_field( writer, desc->fields[i], field_ptr, field_size )) != S_OK)
             return hr;
     }
@@ -1901,9 +2127,6 @@ static HRESULT write_type( struct writer *writer, WS_TYPE_MAPPING mapping, WS_TY
 {
     switch (type)
     {
-    case WS_STRUCT_TYPE:
-        return write_type_struct( writer, mapping, desc, option, value, size );
-
     case WS_BOOL_TYPE:
         return write_type_bool( writer, mapping, desc, option, value, size );
 
@@ -1931,6 +2154,9 @@ static HRESULT write_type( struct writer *writer, WS_TYPE_MAPPING mapping, WS_TY
     case WS_UINT64_TYPE:
         return write_type_uint64( writer, mapping, desc, option, value, size );
 
+    case WS_DATETIME_TYPE:
+        return write_type_datetime( writer, mapping, desc, option, value, size );
+
     case WS_GUID_TYPE:
         return write_type_guid( writer, mapping, desc, option, value, size );
 
@@ -1940,8 +2166,14 @@ static HRESULT write_type( struct writer *writer, WS_TYPE_MAPPING mapping, WS_TY
     case WS_WSZ_TYPE:
         return write_type_wsz( writer, mapping, desc, option, value, size );
 
+    case WS_BYTES_TYPE:
+        return write_type_bytes( writer, mapping, desc, option, value, size );
+
     case WS_XML_STRING_TYPE:
         return write_type_xml_string( writer, mapping, desc, option, value, size );
+
+    case WS_STRUCT_TYPE:
+        return write_type_struct( writer, mapping, desc, option, value, size );
 
     default:
         FIXME( "type %u not supported\n", type );
@@ -2338,7 +2570,7 @@ static HRESULT write_add_comment_node( struct writer *writer, const WS_XML_STRIN
     struct node *node, *parent;
     WS_XML_COMMENT_NODE *comment;
 
-    if (!(parent = find_parent( writer->current ))) return WS_E_INVALID_FORMAT;
+    if (!(parent = find_parent( writer ))) return WS_E_INVALID_FORMAT;
     if (!(node = alloc_node( WS_XML_NODE_TYPE_COMMENT ))) return E_OUTOFMEMORY;
     comment = (WS_XML_COMMENT_NODE *)node;
 
@@ -2549,7 +2781,7 @@ HRESULT WINAPI WsCopyNode( WS_XML_WRITER *handle, WS_XML_READER *reader, WS_ERRO
     if (error) FIXME( "ignoring error parameter\n" );
 
     if (!writer) return E_INVALIDARG;
-    if (!(parent = find_parent( writer->current ))) return WS_E_INVALID_FORMAT;
+    if (!(parent = find_parent( writer ))) return WS_E_INVALID_FORMAT;
 
     if ((hr = copy_node( reader, &node )) != S_OK) return hr;
     write_insert_node( writer, parent, node );

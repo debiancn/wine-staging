@@ -574,6 +574,17 @@ static void test_WsWriteType(void)
     WsFreeWriter( writer );
 }
 
+static void prepare_basic_type_test( WS_XML_WRITER *writer )
+{
+    WS_XML_STRING localname = {1, (BYTE *)"t"}, ns = {0, NULL};
+    HRESULT hr;
+
+    hr = set_output( writer );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsWriteStartElement( writer, NULL, &localname, &ns, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+}
+
 static void test_basic_type(void)
 {
     static WCHAR testW[] = {'t','e','s','t',0};
@@ -583,6 +594,7 @@ static void test_basic_type(void)
     GUID guid;
     WCHAR *str;
     WS_STRING string;
+    WS_BYTES bytes;
     ULONG i;
     static const struct
     {
@@ -615,12 +627,7 @@ static void test_basic_type(void)
     /* element content type mapping */
     for (i = 0; i < sizeof(tests)/sizeof(tests[0]); i++)
     {
-        hr = set_output( writer );
-        ok( hr == S_OK, "got %08x\n", hr );
-
-        hr = WsWriteStartElement( writer, NULL, &localname, &ns, NULL );
-        ok( hr == S_OK, "got %08x\n", hr );
-
+        prepare_basic_type_test( writer );
         hr = WsWriteType( writer, WS_ELEMENT_CONTENT_TYPE_MAPPING, tests[i].type, NULL,
                           WS_WRITE_REQUIRED_VALUE, &tests[i].val, tests[i].size, NULL );
         ok( hr == S_OK, "%u: got %08x\n", i, hr );
@@ -635,12 +642,7 @@ static void test_basic_type(void)
     {
         const INT64 *ptr = &tests[i].val;
 
-        hr = set_output( writer );
-        ok( hr == S_OK, "got %08x\n", hr );
-
-        hr = WsWriteStartElement( writer, NULL, &localname, &ns, NULL );
-        ok( hr == S_OK, "got %08x\n", hr );
-
+        prepare_basic_type_test( writer );
         hr = WsWriteType( writer, WS_ELEMENT_TYPE_MAPPING, tests[i].type, NULL,
                           WS_WRITE_REQUIRED_POINTER, &ptr, sizeof(ptr), NULL );
         ok( hr == S_OK, "%u: got %08x\n", i, hr );
@@ -653,12 +655,7 @@ static void test_basic_type(void)
     /* attribute type mapping */
     for (i = 0; i < sizeof(tests)/sizeof(tests[0]); i++)
     {
-        hr = set_output( writer );
-        ok( hr == S_OK, "got %08x\n", hr );
-
-        hr = WsWriteStartElement( writer, NULL, &localname, &ns, NULL );
-        ok( hr == S_OK, "got %08x\n", hr );
-
+        prepare_basic_type_test( writer );
         hr = WsWriteStartAttribute( writer, NULL, &localname, &ns, FALSE, NULL );
         ok( hr == S_OK, "got %08x\n", hr );
 
@@ -674,67 +671,80 @@ static void test_basic_type(void)
         check_output( writer, tests[i].result2, __LINE__ );
     }
 
-    hr = set_output( writer );
-    ok( hr == S_OK, "got %08x\n", hr );
-
-    hr = WsWriteStartElement( writer, NULL, &localname, &ns, NULL );
-    ok( hr == S_OK, "got %08x\n", hr );
-
+    prepare_basic_type_test( writer );
     memset( &guid, 0, sizeof(guid) );
     hr = WsWriteType( writer, WS_ELEMENT_TYPE_MAPPING, WS_GUID_TYPE, NULL, WS_WRITE_REQUIRED_VALUE,
                       &guid, sizeof(guid), NULL );
     ok( hr == S_OK, "got %08x\n", hr );
-
     hr = WsWriteEndElement( writer, NULL );
     ok( hr == S_OK, "got %08x\n", hr );
     check_output( writer, "<t>00000000-0000-0000-0000-000000000000</t>", __LINE__ );
 
-    hr = set_output( writer );
-    ok( hr == S_OK, "got %08x\n", hr );
-
-    hr = WsWriteStartElement( writer, NULL, &localname, &ns, NULL );
-    ok( hr == S_OK, "got %08x\n", hr );
-
+    prepare_basic_type_test( writer );
     string.chars  = testW;
     string.length = 4;
     hr = WsWriteType( writer, WS_ELEMENT_TYPE_MAPPING, WS_STRING_TYPE, NULL, WS_WRITE_REQUIRED_VALUE,
                       &string, sizeof(string), NULL );
     ok( hr == S_OK, "got %08x\n", hr );
-
     hr = WsWriteEndElement( writer, NULL );
     ok( hr == S_OK, "got %08x\n", hr );
     check_output( writer, "<t>test</t>", __LINE__ );
 
-    hr = set_output( writer );
-    ok( hr == S_OK, "got %08x\n", hr );
-
-    hr = WsWriteStartElement( writer, NULL, &localname, &ns, NULL );
-    ok( hr == S_OK, "got %08x\n", hr );
-
+    prepare_basic_type_test( writer );
     str = testW;
     hr = WsWriteType( writer, WS_ELEMENT_TYPE_MAPPING, WS_WSZ_TYPE, NULL, WS_WRITE_REQUIRED_POINTER,
                       &str, sizeof(str), NULL );
     ok( hr == S_OK, "got %08x\n", hr );
-
     hr = WsWriteEndElement( writer, NULL );
     ok( hr == S_OK, "got %08x\n", hr );
     check_output( writer, "<t>test</t>", __LINE__ );
 
-    hr = set_output( writer );
-    ok( hr == S_OK, "got %08x\n", hr );
-
-    hr = WsWriteStartElement( writer, NULL, &localname, &ns, NULL );
-    ok( hr == S_OK, "got %08x\n", hr );
-
+    prepare_basic_type_test( writer );
     xmlstr.bytes  = (BYTE *)"test";
     xmlstr.length = 4;
     hr = WsWriteType( writer, WS_ELEMENT_TYPE_MAPPING, WS_XML_STRING_TYPE, NULL, WS_WRITE_REQUIRED_VALUE,
                       &xmlstr, sizeof(xmlstr), NULL );
     ok( hr == S_OK, "got %08x\n", hr );
-
     hr = WsWriteEndElement( writer, NULL );
     ok( hr == S_OK, "got %08x\n", hr );
     check_output( writer, "<t>test</t>", __LINE__ );
+
+    prepare_basic_type_test( writer );
+    bytes.bytes  = (BYTE *)"test";
+    bytes.length = 4;
+    hr = WsWriteType( writer, WS_ELEMENT_TYPE_MAPPING, WS_BYTES_TYPE, NULL, WS_WRITE_REQUIRED_VALUE,
+                      &bytes, sizeof(bytes), NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsWriteEndElement( writer, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    check_output( writer, "<t>dGVzdA==</t>", __LINE__ );
+
+    prepare_basic_type_test( writer );
+    bytes.length = 0;
+    hr = WsWriteType( writer, WS_ELEMENT_TYPE_MAPPING, WS_BYTES_TYPE, NULL, WS_WRITE_REQUIRED_VALUE,
+                      &bytes, sizeof(bytes), NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsWriteEndElement( writer, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    check_output( writer, "<t/>", __LINE__ );
+
+    prepare_basic_type_test( writer );
+    bytes.bytes  = NULL;
+    hr = WsWriteType( writer, WS_ELEMENT_TYPE_MAPPING, WS_BYTES_TYPE, NULL, WS_WRITE_REQUIRED_VALUE,
+                      &bytes, sizeof(bytes), NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsWriteEndElement( writer, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    check_output( writer, "<t/>", __LINE__ );
+
+    prepare_basic_type_test( writer );
+    hr = WsWriteType( writer, WS_ELEMENT_TYPE_MAPPING, WS_BYTES_TYPE, NULL, WS_WRITE_NILLABLE_VALUE,
+                      &bytes, sizeof(bytes), NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    hr = WsWriteEndElement( writer, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    check_output( writer, "<t a:nil=\"true\" xmlns:a=\"http://www.w3.org/2001/XMLSchema-instance\"/>",
+                  __LINE__ );
 
     WsFreeWriter( writer );
 }
@@ -1970,6 +1980,9 @@ static void test_text_types(void)
     static const WS_XML_INT32_TEXT val_int32 = { {WS_XML_TEXT_TYPE_INT32}, -2147483647 - 1 };
     static const WS_XML_INT64_TEXT val_int64 = { {WS_XML_TEXT_TYPE_INT64}, -9223372036854775807 - 1 };
     static const WS_XML_UINT64_TEXT val_uint64 = { {WS_XML_TEXT_TYPE_UINT64}, ~0 };
+    static const WS_XML_DATETIME_TEXT val_datetime = { {WS_XML_TEXT_TYPE_DATETIME}, {0, WS_DATETIME_FORMAT_UTC} };
+    static const WS_XML_DOUBLE_TEXT val_double = { {WS_XML_TEXT_TYPE_DOUBLE}, 1.1 };
+    static const WS_XML_BASE64_TEXT val_base64 = { {WS_XML_TEXT_TYPE_BASE64}, (BYTE *)"test", 4 };
     static const struct
     {
         const WS_XML_TEXT *text;
@@ -1985,6 +1998,9 @@ static void test_text_types(void)
         { &val_int32.text,  "<t>-2147483648</t>" },
         { &val_int64.text,  "<t>-9223372036854775808</t>" },
         { &val_uint64.text, "<t>18446744073709551615</t>" },
+        { &val_datetime.text, "<t>0001-01-01T00:00:00Z</t>" },
+        { &val_double.text, "<t>1.1</t>" },
+        { &val_base64.text, "<t>dGVzdA==</t>" },
     };
     HRESULT hr;
     ULONG i;
@@ -2106,7 +2122,7 @@ static void test_double(void)
     WsFreeWriter( writer );
 }
 
-static void test_field_flags(void)
+static void test_field_options(void)
 {
     static const char expected[] =
         "<t><bool a:nil=\"true\" xmlns:a=\"http://www.w3.org/2001/XMLSchema-instance\"/><int32>-1</int32>"
@@ -2114,10 +2130,10 @@ static void test_field_flags(void)
     HRESULT hr;
     WS_XML_WRITER *writer;
     WS_STRUCT_DESCRIPTION s;
-    WS_FIELD_DESCRIPTION f, f2, f3, f4, *fields[4];
+    WS_FIELD_DESCRIPTION f, f2, f3, f4, f5, *fields[5];
     WS_XML_STRING localname = {1, (BYTE *)"t"}, ns = {0, NULL}, str_guid = {4, (BYTE *)"guid"};
     WS_XML_STRING str_int32 = {5, (BYTE *)"int32"}, str_bool = {4, (BYTE *)"bool"};
-    WS_XML_STRING str_xmlstr = {6, (BYTE *)"xmlstr"};
+    WS_XML_STRING str_xmlstr = {6, (BYTE *)"xmlstr"}, str_str = {3, (BYTE *)"str"};
     INT32 val = -1;
     struct test
     {
@@ -2125,6 +2141,7 @@ static void test_field_flags(void)
         BOOL          *bool_ptr;
         INT32         *int32_ptr;
         WS_XML_STRING  xmlstr;
+        WCHAR         *str;
     } test;
 
     hr = WsCreateWriter( NULL, 0, &writer, NULL );
@@ -2171,11 +2188,20 @@ static void test_field_flags(void)
     f4.options   = WS_FIELD_NILLABLE;
     fields[3] = &f4;
 
+    memset( &f5, 0, sizeof(f5) );
+    f5.mapping   = WS_ELEMENT_FIELD_MAPPING;
+    f5.localName = &str_str;
+    f5.offset    = FIELD_OFFSET(struct test, str);
+    f5.ns        = &ns;
+    f5.type      = WS_WSZ_TYPE;
+    f5.options   = WS_FIELD_OPTIONAL|WS_FIELD_NILLABLE;
+    fields[4] = &f5;
+
     memset( &s, 0, sizeof(s) );
     s.size       = sizeof(struct test);
     s.alignment  = TYPE_ALIGNMENT(struct test);
     s.fields     = fields;
-    s.fieldCount = 4;
+    s.fieldCount = 5;
 
     memset( &test, 0, sizeof(test) );
     test.int32_ptr = &val;
@@ -2547,6 +2573,96 @@ static void test_write_option(void)
     WsFreeWriter( writer );
 }
 
+static BOOL check_result( WS_XML_WRITER *writer, const char *expected )
+{
+    WS_BYTES bytes;
+    ULONG size = sizeof(bytes);
+    int len = strlen( expected );
+
+    memset( &bytes, 0, sizeof(bytes) );
+    WsGetWriterProperty( writer, WS_XML_WRITER_PROPERTY_BYTES, &bytes, size, NULL );
+    if (bytes.length != len) return FALSE;
+    return !memcmp( bytes.bytes, expected, len );
+}
+
+static void test_datetime(void)
+{
+    WS_XML_STRING localname = {1, (BYTE *)"t"}, ns = {0, NULL};
+    static const struct
+    {
+        unsigned __int64   ticks;
+        WS_DATETIME_FORMAT format;
+        HRESULT            hr;
+        const char        *result;
+        const char        *result2;
+    }
+    tests[] =
+    {
+        { 0, WS_DATETIME_FORMAT_UTC, S_OK, "<t>0001-01-01T00:00:00Z</t>" },
+        { 0, WS_DATETIME_FORMAT_LOCAL, S_OK, "<t>0001-01-01T00:00:00+00:00</t>" },
+        { 0, WS_DATETIME_FORMAT_NONE, S_OK, "<t>0001-01-01T00:00:00</t>" },
+        { 1, WS_DATETIME_FORMAT_UTC, S_OK, "<t>0001-01-01T00:00:00.0000001Z</t>" },
+        { 1, WS_DATETIME_FORMAT_LOCAL, S_OK, "<t>0001-01-01T00:00:00.0000001+00:00</t>" },
+        { 1, WS_DATETIME_FORMAT_NONE, S_OK, "<t>0001-01-01T00:00:00.0000001</t>" },
+        { 10, WS_DATETIME_FORMAT_NONE, S_OK, "<t>0001-01-01T00:00:00.000001</t>" },
+        { 1000000, WS_DATETIME_FORMAT_NONE, S_OK, "<t>0001-01-01T00:00:00.1</t>" },
+        { 0x23c34600, WS_DATETIME_FORMAT_LOCAL, S_OK, "<t>0001-01-01T00:01:00+00:00</t>" },
+        { 0x861c46800, WS_DATETIME_FORMAT_LOCAL, S_OK, "<t>0001-01-01T01:00:00+00:00</t>" },
+        { 0x430e234000, WS_DATETIME_FORMAT_LOCAL, S_OK, "<t>0001-01-01T08:00:00+00:00</t>" },
+        { 0x4b6fe7a800, WS_DATETIME_FORMAT_LOCAL, S_OK, "<t>0001-01-01T09:00:00+00:00</t>" },
+        { 0x989680, WS_DATETIME_FORMAT_NONE, S_OK, "<t>0001-01-01T00:00:01</t>" },
+        { 0x23c34600, WS_DATETIME_FORMAT_NONE, S_OK, "<t>0001-01-01T00:01:00</t>" },
+        { 0x861c46800, WS_DATETIME_FORMAT_NONE, S_OK, "<t>0001-01-01T01:00:00</t>" },
+        { 0xc92a69c000, WS_DATETIME_FORMAT_NONE, S_OK, "<t>0001-01-02T00:00:00</t>" },
+        { 0x11ed178c6c000, WS_DATETIME_FORMAT_NONE, S_OK, "<t>0002-01-01T00:00:00</t>" },
+        { 0x2bca2875f4373fff, WS_DATETIME_FORMAT_UTC, S_OK, "<t>9999-12-31T23:59:59.9999999Z</t>" },
+        { 0x2bca2875f4373fff, WS_DATETIME_FORMAT_LOCAL, S_OK, "<t>9999-12-31T15:59:59.9999999-08:00</t>",
+          "<t>9999-12-31T17:59:59.9999999-06:00</t>" /* win7 */ },
+        { 0x2bca2875f4373fff, WS_DATETIME_FORMAT_NONE, S_OK, "<t>9999-12-31T23:59:59.9999999</t>" },
+        { 0x2bca2875f4374000, WS_DATETIME_FORMAT_UTC, WS_E_INVALID_FORMAT },
+        { 0x2bca2875f4374000, WS_DATETIME_FORMAT_LOCAL, WS_E_INVALID_FORMAT },
+        { 0x2bca2875f4374000, WS_DATETIME_FORMAT_NONE, WS_E_INVALID_FORMAT },
+        { 0x8d3123e7df74000, WS_DATETIME_FORMAT_LOCAL, S_OK, "<t>2015-12-31T16:00:00-08:00</t>",
+          "<t>2015-12-31T18:00:00-06:00</t>" /* win7 */ },
+        { 0x701ce1722770000, WS_DATETIME_FORMAT_LOCAL, S_OK, "<t>1601-01-01T00:00:00+00:00</t>" },
+        { 0x701ce5a309a4000, WS_DATETIME_FORMAT_LOCAL, S_OK, "<t>1601-01-01T00:00:00-08:00</t>",
+          "<t>1601-01-01T02:00:00-06:00</t>" /* win7 */ },
+        { 0x701ce5e617c7400, WS_DATETIME_FORMAT_LOCAL, S_OK, "<t>1601-01-01T00:30:00-08:00</t>",
+          "<t>1601-01-01T02:30:00-06:00</t>" /* win7 */ },
+        { 0x701ce51ced5d800, WS_DATETIME_FORMAT_LOCAL, S_OK, "<t>1601-01-01T07:00:00+00:00</t>",
+          "<t>1601-01-01T01:00:00-06:00</t>" /* win7 */ },
+        { 0, WS_DATETIME_FORMAT_NONE + 1, WS_E_INVALID_FORMAT },
+    };
+    HRESULT hr;
+    WS_XML_WRITER *writer;
+    WS_DATETIME date;
+    ULONG i;
+
+    hr = WsCreateWriter( NULL, 0, &writer, NULL );
+    ok( hr == S_OK, "got %08x\n", hr );
+    for (i = 0; i < sizeof(tests)/sizeof(tests[0]); i++)
+    {
+        hr = set_output( writer );
+        ok( hr == S_OK, "got %08x\n", hr );
+
+        date.ticks  = tests[i].ticks;
+        date.format = tests[i].format;
+        WsWriteStartElement( writer, NULL, &localname, &ns, NULL );
+        hr = WsWriteType( writer, WS_ELEMENT_TYPE_MAPPING, WS_DATETIME_TYPE, NULL, WS_WRITE_REQUIRED_VALUE,
+                          &date, sizeof(date), NULL );
+        WsWriteEndElement( writer, NULL );
+        ok( hr == tests[i].hr, "%u: got %08x\n", i, hr );
+        if (hr == S_OK)
+        {
+            ok( check_result( writer, tests[i].result ) ||
+                (tests[i].result2 && broken(check_result( writer, tests[i].result2 ))),
+                "%u: wrong result\n", i );
+        }
+    }
+
+    WsFreeWriter( writer );
+}
+
 START_TEST(writer)
 {
     test_WsCreateWriter();
@@ -2573,9 +2689,10 @@ START_TEST(writer)
     test_WsCopyNode();
     test_text_types();
     test_double();
-    test_field_flags();
+    test_field_options();
     test_WsWriteText();
     test_WsWriteArray();
     test_escapes();
     test_write_option();
+    test_datetime();
 }

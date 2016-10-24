@@ -30,7 +30,9 @@
 #include "winternl.h"
 #include "winreg.h"
 #include "setupapi.h"
+#include "winioctl.h"
 #include "ddk/wdm.h"
+#include "ddk/hidport.h"
 #include "wine/debug.h"
 #include "wine/unicode.h"
 #include "wine/list.h"
@@ -47,13 +49,16 @@ struct pnp_device
 
 struct device_extension
 {
-    void *native;  /* Must be the first member of the structure */
+    struct pnp_device *pnp_device;
 
     WORD vid, pid;
     DWORD uid, version, index;
     BOOL is_gamepad;
     WCHAR *serial;
     const WCHAR *busid;  /* Expected to be a static constant */
+
+    const platform_vtbl *vtbl;
+    BYTE platform_private[1];
 };
 
 static CRITICAL_SECTION device_list_cs;
@@ -78,6 +83,12 @@ static inline WCHAR *strdupW(const WCHAR *src)
     dst = HeapAlloc(GetProcessHeap(), 0, (strlenW(src) + 1)*sizeof(WCHAR));
     if (dst) strcpyW(dst, src);
     return dst;
+}
+
+void *get_platform_private(DEVICE_OBJECT *device)
+{
+    struct device_extension *ext = (struct device_extension *)device->DeviceExtension;
+    return ext->platform_private;
 }
 
 static DWORD get_vidpid_index(WORD vid, WORD pid)
@@ -157,9 +168,9 @@ static WCHAR *get_compatible_ids(DEVICE_OBJECT *device)
     return dst;
 }
 
-DEVICE_OBJECT *bus_create_hid_device(DRIVER_OBJECT *driver, const WCHAR *busidW, void *native, WORD vid,
-                                     WORD pid, DWORD version, DWORD uid, const WCHAR *serialW, BOOL is_gamepad,
-                                     const GUID *class)
+DEVICE_OBJECT *bus_create_hid_device(DRIVER_OBJECT *driver, const WCHAR *busidW, WORD vid, WORD pid,
+                                     DWORD version, DWORD uid, const WCHAR *serialW, BOOL is_gamepad,
+                                     const GUID *class, const platform_vtbl *vtbl, DWORD platform_data_size)
 {
     static const WCHAR device_name_fmtW[] = {'\\','D','e','v','i','c','e','\\','%','s','#','%','p',0};
     struct device_extension *ext;
@@ -169,16 +180,18 @@ DEVICE_OBJECT *bus_create_hid_device(DRIVER_OBJECT *driver, const WCHAR *busidW,
     WCHAR dev_name[256];
     HDEVINFO devinfo;
     NTSTATUS status;
+    DWORD length;
 
-    TRACE("(%p, %s, %p, %04x, %04x, %u, %u, %s, %u, %s)\n", driver, debugstr_w(busidW), native,
-          vid, pid, version, uid, debugstr_w(serialW), is_gamepad, debugstr_guid(class));
+    TRACE("(%p, %s, %04x, %04x, %u, %u, %s, %u, %s, %p, %u)\n", driver, debugstr_w(busidW), vid, pid,
+          version, uid, debugstr_w(serialW), is_gamepad, debugstr_guid(class), vtbl, platform_data_size);
 
     if (!(pnp_dev = HeapAlloc(GetProcessHeap(), 0, sizeof(*pnp_dev))))
         return NULL;
 
-    sprintfW(dev_name, device_name_fmtW, busidW, native);
+    sprintfW(dev_name, device_name_fmtW, busidW, pnp_dev);
     RtlInitUnicodeString(&nameW, dev_name);
-    status = IoCreateDevice(driver, sizeof(*ext), &nameW, 0, 0, FALSE, &device);
+    length = FIELD_OFFSET(struct device_extension, platform_private[platform_data_size]);
+    status = IoCreateDevice(driver, length, &nameW, 0, 0, FALSE, &device);
     if (status)
     {
         FIXME("failed to create device error %x\n", status);
@@ -190,7 +203,7 @@ DEVICE_OBJECT *bus_create_hid_device(DRIVER_OBJECT *driver, const WCHAR *busidW,
 
     /* fill out device_extension struct */
     ext = (struct device_extension *)device->DeviceExtension;
-    ext->native     = native;
+    ext->pnp_device = pnp_dev;
     ext->vid        = vid;
     ext->pid        = pid;
     ext->uid        = uid;
@@ -199,6 +212,7 @@ DEVICE_OBJECT *bus_create_hid_device(DRIVER_OBJECT *driver, const WCHAR *busidW,
     ext->is_gamepad = is_gamepad;
     ext->serial     = strdupW(serialW);
     ext->busid      = busidW;
+    ext->vtbl       = vtbl;
 
     /* add to list of pnp devices */
     pnp_dev->device = device;
@@ -226,8 +240,50 @@ DEVICE_OBJECT *bus_create_hid_device(DRIVER_OBJECT *driver, const WCHAR *busidW,
     else
         ERR("failed to get ClassDevs: %x\n", GetLastError());
 
-    IoInvalidateDeviceRelations(device, BusRelations);
     return device;
+}
+
+DEVICE_OBJECT *bus_find_hid_device(const platform_vtbl *vtbl, void *platform_dev)
+{
+    struct pnp_device *dev;
+    DEVICE_OBJECT *ret = NULL;
+
+    TRACE("(%p, %p)\n", vtbl, platform_dev);
+
+    EnterCriticalSection(&device_list_cs);
+    LIST_FOR_EACH_ENTRY(dev, &pnp_devset, struct pnp_device, entry)
+    {
+        struct device_extension *ext = (struct device_extension *)dev->device->DeviceExtension;
+        if (ext->vtbl != vtbl) continue;
+        if (ext->vtbl->compare_platform_device(dev->device, platform_dev) == 0)
+        {
+            ret = dev->device;
+            break;
+        }
+    }
+    LeaveCriticalSection(&device_list_cs);
+
+    TRACE("returning %p\n", ret);
+    return ret;
+}
+
+void bus_remove_hid_device(DEVICE_OBJECT *device)
+{
+    struct device_extension *ext = (struct device_extension *)device->DeviceExtension;
+    struct pnp_device *pnp_device = ext->pnp_device;
+
+    TRACE("(%p)\n", device);
+
+    EnterCriticalSection(&device_list_cs);
+    list_remove(&pnp_device->entry);
+    LeaveCriticalSection(&device_list_cs);
+
+    IoInvalidateDeviceRelations(device, RemovalRelations);
+    HeapFree(GetProcessHeap(), 0, ext->serial);
+    IoDeleteDevice(device);
+
+    /* pnp_device must be released after the device is gone */
+    HeapFree(GetProcessHeap(), 0, pnp_device);
 }
 
 static NTSTATUS handle_IRP_MN_QUERY_ID(DEVICE_OBJECT *device, IRP *irp)
@@ -289,6 +345,104 @@ NTSTATUS WINAPI common_pnp_dispatch(DEVICE_OBJECT *device, IRP *irp)
     }
 
     IoCompleteRequest(irp, IO_NO_INCREMENT);
+    return status;
+}
+
+NTSTATUS WINAPI hid_internal_dispatch(DEVICE_OBJECT *device, IRP *irp)
+{
+    NTSTATUS status = irp->IoStatus.u.Status;
+    IO_STACK_LOCATION *irpsp = IoGetCurrentIrpStackLocation(irp);
+    struct device_extension *ext = (struct device_extension *)device->DeviceExtension;
+
+    TRACE("(%p, %p)\n", device, irp);
+
+    switch (irpsp->Parameters.DeviceIoControl.IoControlCode)
+    {
+        case IOCTL_HID_GET_DEVICE_ATTRIBUTES:
+        {
+            HID_DEVICE_ATTRIBUTES *attr = (HID_DEVICE_ATTRIBUTES *)irp->UserBuffer;
+            TRACE("IOCTL_HID_GET_DEVICE_ATTRIBUTES\n");
+
+            if (irpsp->Parameters.DeviceIoControl.OutputBufferLength < sizeof(*attr))
+            {
+                irp->IoStatus.u.Status = status = STATUS_BUFFER_TOO_SMALL;
+                break;
+            }
+
+            memset(attr, 0, sizeof(*attr));
+            attr->Size = sizeof(*attr);
+            attr->VendorID = ext->vid;
+            attr->ProductID = ext->pid;
+            attr->VersionNumber = ext->version;
+
+            irp->IoStatus.u.Status = status = STATUS_SUCCESS;
+            irp->IoStatus.Information = sizeof(*attr);
+            break;
+        }
+        case IOCTL_HID_GET_DEVICE_DESCRIPTOR:
+        {
+            HID_DESCRIPTOR *descriptor = (HID_DESCRIPTOR *)irp->UserBuffer;
+            DWORD length;
+            TRACE("IOCTL_HID_GET_DEVICE_DESCRIPTOR\n");
+
+            if (irpsp->Parameters.DeviceIoControl.OutputBufferLength < sizeof(*descriptor))
+            {
+                irp->IoStatus.u.Status = status = STATUS_BUFFER_TOO_SMALL;
+                break;
+            }
+
+            status = ext->vtbl->get_reportdescriptor(device, NULL, 0, &length);
+            if (status != STATUS_SUCCESS && status != STATUS_BUFFER_TOO_SMALL)
+            {
+                WARN("Failed to get platform report descriptor length\n");
+                irp->IoStatus.u.Status = status;
+                break;
+            }
+
+            memset(descriptor, 0, sizeof(*descriptor));
+            descriptor->bLength = sizeof(*descriptor);
+            descriptor->bDescriptorType = HID_HID_DESCRIPTOR_TYPE;
+            descriptor->bcdHID = HID_REVISION;
+            descriptor->bCountry = 0;
+            descriptor->bNumDescriptors = 1;
+            descriptor->DescriptorList[0].bReportType = HID_REPORT_DESCRIPTOR_TYPE;
+            descriptor->DescriptorList[0].wReportLength = length;
+
+            irp->IoStatus.u.Status = status = STATUS_SUCCESS;
+            irp->IoStatus.Information = sizeof(*descriptor);
+            break;
+        }
+        case IOCTL_HID_GET_REPORT_DESCRIPTOR:
+        {
+            DWORD length = irpsp->Parameters.DeviceIoControl.OutputBufferLength;
+            TRACE("IOCTL_HID_GET_REPORT_DESCRIPTOR\n");
+
+            irp->IoStatus.u.Status = status = ext->vtbl->get_reportdescriptor(device, irp->UserBuffer, length, &length);
+            irp->IoStatus.Information = length;
+            break;
+        }
+        case IOCTL_HID_GET_STRING:
+        {
+            DWORD length = irpsp->Parameters.DeviceIoControl.OutputBufferLength / sizeof(WCHAR);
+            DWORD index = (ULONG_PTR)irpsp->Parameters.DeviceIoControl.Type3InputBuffer;
+            TRACE("IOCTL_HID_GET_STRING[%08x]\n", index);
+
+            irp->IoStatus.u.Status = status = ext->vtbl->get_string(device, index, (WCHAR *)irp->UserBuffer, length);
+            if (status == STATUS_SUCCESS)
+                irp->IoStatus.Information = (strlenW((WCHAR *)irp->UserBuffer) + 1) * sizeof(WCHAR);
+            break;
+        }
+        default:
+        {
+            ULONG code = irpsp->Parameters.DeviceIoControl.IoControlCode;
+            FIXME("Unsupported ioctl %x (device=%x access=%x func=%x method=%x)\n",
+                  code, code >> 16, (code >> 14) & 3, (code >> 2) & 0xfff, code & 3);
+            break;
+        }
+    }
+
+    IoCompleteRequest(irp, IO_NO_INCREMENT);
+
     return status;
 }
 

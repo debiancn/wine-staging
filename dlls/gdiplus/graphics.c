@@ -3306,6 +3306,12 @@ GpStatus WINGDIPAPI GdipDrawLine(GpGraphics *graphics, GpPen *pen, REAL x1,
 
     TRACE("(%p, %p, %.2f, %.2f, %.2f, %.2f)\n", graphics, pen, x1, y1, x2, y2);
 
+    if (!pen)
+        return InvalidParameter;
+
+    if (pen->unit == UnitPixel && pen->width <= 0.0)
+        return Ok;
+
     pt[0].X = x1;
     pt[0].Y = y1;
     pt[1].X = x2;
@@ -3369,25 +3375,11 @@ GpStatus WINGDIPAPI GdipDrawLinesI(GpGraphics *graphics, GpPen *pen, GDIPCONST
     return retval;
 }
 
-GpStatus WINGDIPAPI GdipDrawPath(GpGraphics *graphics, GpPen *pen, GpPath *path)
+GpStatus GDI32_GdipDrawPath(GpGraphics *graphics, GpPen *pen, GpPath *path)
 {
     INT save_state;
     GpStatus retval;
     HRGN hrgn=NULL;
-
-    TRACE("(%p, %p, %p)\n", graphics, pen, path);
-
-    if(!pen || !graphics)
-        return InvalidParameter;
-
-    if(graphics->busy)
-        return ObjectBusy;
-
-    if (!graphics->hdc)
-    {
-        FIXME("graphics object has no HDC\n");
-        return Ok;
-    }
 
     save_state = prepare_dc(graphics, pen);
 
@@ -3405,6 +3397,398 @@ GpStatus WINGDIPAPI GdipDrawPath(GpGraphics *graphics, GpPen *pen, GpPath *path)
 end:
     restore_dc(graphics, save_state);
     DeleteObject(hrgn);
+
+    return retval;
+}
+
+GpStatus SOFTWARE_GdipDrawThinPath(GpGraphics *graphics, GpPen *pen, GpPath *path)
+{
+    GpStatus stat;
+    GpPath* flat_path;
+    GpMatrix* transform;
+    GpRectF gp_bound_rect;
+    GpRect gp_output_area;
+    RECT output_area;
+    INT output_height, output_width;
+    DWORD *output_bits, *brush_bits=NULL;
+    int i;
+    static const BYTE static_dash_pattern[] = {1,1,1,0,1,0,1,0};
+    const BYTE *dash_pattern;
+    INT dash_pattern_size;
+    BYTE *dyn_dash_pattern = NULL;
+
+    stat = GdipClonePath(path, &flat_path);
+
+    if (stat != Ok)
+        return stat;
+
+    stat = GdipCreateMatrix(&transform);
+
+    if (stat == Ok)
+    {
+        stat = get_graphics_transform(graphics, CoordinateSpaceDevice,
+                CoordinateSpaceWorld, transform);
+
+        if (stat == Ok)
+            stat = GdipFlattenPath(flat_path, transform, 1.0);
+
+        GdipDeleteMatrix(transform);
+    }
+
+    /* estimate the output size in pixels, can be larger than necessary */
+    if (stat == Ok)
+    {
+        output_area.left = floorf(flat_path->pathdata.Points[0].X);
+        output_area.right = ceilf(flat_path->pathdata.Points[0].X);
+        output_area.top = floorf(flat_path->pathdata.Points[0].Y);
+        output_area.bottom = ceilf(flat_path->pathdata.Points[0].Y);
+
+        for (i=1; i<flat_path->pathdata.Count; i++)
+        {
+            REAL x, y;
+            x = flat_path->pathdata.Points[i].X;
+            y = flat_path->pathdata.Points[i].Y;
+
+            if (floorf(x) < output_area.left) output_area.left = floorf(x);
+            if (floorf(y) < output_area.top) output_area.top = floorf(y);
+            if (ceilf(x) > output_area.right) output_area.right = ceilf(x);
+            if (ceilf(y) > output_area.bottom) output_area.bottom = ceilf(y);
+        }
+
+        stat = get_graphics_bounds(graphics, &gp_bound_rect);
+    }
+
+    if (stat == Ok)
+    {
+        output_area.left = max(output_area.left, floorf(gp_bound_rect.X));
+        output_area.top = max(output_area.top, floorf(gp_bound_rect.Y));
+        output_area.right = min(output_area.right, ceilf(gp_bound_rect.X + gp_bound_rect.Width));
+        output_area.bottom = min(output_area.bottom, ceilf(gp_bound_rect.Y + gp_bound_rect.Height));
+
+        output_width = output_area.right - output_area.left + 1;
+        output_height = output_area.bottom - output_area.top + 1;
+
+        if (output_width <= 0 || output_height <= 0)
+        {
+            GdipDeletePath(flat_path);
+            return Ok;
+        }
+
+        gp_output_area.X = output_area.left;
+        gp_output_area.Y = output_area.top;
+        gp_output_area.Width = output_width;
+        gp_output_area.Height = output_height;
+
+        output_bits = heap_alloc_zero(output_width * output_height * sizeof(DWORD));
+        if (!output_bits)
+            stat = OutOfMemory;
+    }
+
+    if (stat == Ok)
+    {
+        if (pen->brush->bt != BrushTypeSolidColor)
+        {
+            /* allocate and draw brush output */
+            brush_bits = heap_alloc_zero(output_width * output_height * sizeof(DWORD));
+
+            if (brush_bits)
+            {
+                stat = brush_fill_pixels(graphics, pen->brush, brush_bits,
+                    &gp_output_area, output_width);
+            }
+            else
+                stat = OutOfMemory;
+        }
+
+        if (stat == Ok)
+        {
+            /* convert dash pattern to bool array */
+            switch (pen->dash)
+            {
+            case DashStyleCustom:
+            {
+                dash_pattern_size = 0;
+
+                for (i=0; i < pen->numdashes; i++)
+                    dash_pattern_size += gdip_round(pen->dashes[i]);
+
+                if (dash_pattern_size != 0)
+                {
+                    dash_pattern = dyn_dash_pattern = heap_alloc(dash_pattern_size);
+
+                    if (dyn_dash_pattern)
+                    {
+                        int j=0;
+                        for (i=0; i < pen->numdashes; i++)
+                        {
+                            int k;
+                            for (k=0; k < gdip_round(pen->dashes[i]); k++)
+                                dyn_dash_pattern[j++] = (i&1)^1;
+                        }
+                    }
+                    else
+                        stat = OutOfMemory;
+
+                    break;
+                }
+                /* else fall through */
+            }
+            case DashStyleSolid:
+            default:
+                dash_pattern = static_dash_pattern;
+                dash_pattern_size = 1;
+                break;
+            case DashStyleDash:
+                dash_pattern = static_dash_pattern;
+                dash_pattern_size = 4;
+                break;
+            case DashStyleDot:
+                dash_pattern = &static_dash_pattern[4];
+                dash_pattern_size = 2;
+                break;
+            case DashStyleDashDot:
+                dash_pattern = static_dash_pattern;
+                dash_pattern_size = 6;
+                break;
+            case DashStyleDashDotDot:
+                dash_pattern = static_dash_pattern;
+                dash_pattern_size = 8;
+                break;
+            }
+        }
+
+        if (stat == Ok)
+        {
+            /* trace path */
+            GpPointF subpath_start = flat_path->pathdata.Points[0];
+            INT prev_x = INT_MAX, prev_y = INT_MAX;
+            int dash_pos = dash_pattern_size - 1;
+
+            for (i=0; i < flat_path->pathdata.Count; i++)
+            {
+                BYTE type, type2;
+                GpPointF start_point, end_point;
+                GpPoint start_pointi, end_pointi;
+
+                type = flat_path->pathdata.Types[i];
+                if (i+1 < flat_path->pathdata.Count)
+                    type2 = flat_path->pathdata.Types[i+1];
+                else
+                    type2 = PathPointTypeStart;
+
+                start_point = flat_path->pathdata.Points[i];
+
+                if ((type & PathPointTypePathTypeMask) == PathPointTypeStart)
+                    subpath_start = start_point;
+
+                if ((type & PathPointTypeCloseSubpath) == PathPointTypeCloseSubpath)
+                    end_point = subpath_start;
+                else if ((type2 & PathPointTypePathTypeMask) == PathPointTypeStart)
+                    continue;
+                else
+                    end_point = flat_path->pathdata.Points[i+1];
+
+                start_pointi.X = floorf(start_point.X);
+                start_pointi.Y = floorf(start_point.Y);
+                end_pointi.X = floorf(end_point.X);
+                end_pointi.Y = floorf(end_point.Y);
+
+                /* draw line segment */
+                if (abs(start_pointi.Y - end_pointi.Y) > abs(start_pointi.X - end_pointi.X))
+                {
+                    INT x, y, start_y, end_y, step;
+
+                    if (start_pointi.Y < end_pointi.Y)
+                    {
+                        step = 1;
+                        start_y = ceilf(start_point.Y) - output_area.top;
+                        end_y = end_pointi.Y - output_area.top;
+                    }
+                    else
+                    {
+                        step = -1;
+                        start_y = start_point.Y - output_area.top;
+                        end_y = ceilf(end_point.Y) - output_area.top;
+                    }
+
+                    for (y=start_y; y != (end_y+step); y+=step)
+                    {
+                        x = gdip_round( start_point.X +
+                            (end_point.X - start_point.X) * (y + output_area.top - start_point.Y) / (end_point.Y - start_point.Y) )
+                            - output_area.left;
+
+                        if (x == prev_x && y == prev_y)
+                            continue;
+
+                        prev_x = x;
+                        prev_y = y;
+                        dash_pos = (dash_pos + 1 == dash_pattern_size) ? 0 : dash_pos + 1;
+
+                        if (!dash_pattern[dash_pos])
+                            continue;
+
+                        if (x < 0 || x >= output_width || y < 0 || y >= output_height)
+                            continue;
+
+                        if (brush_bits)
+                            output_bits[x + y*output_width] = brush_bits[x + y*output_width];
+                        else
+                            output_bits[x + y*output_width] = ((GpSolidFill*)pen->brush)->color;
+                    }
+                }
+                else
+                {
+                    INT x, y, start_x, end_x, step;
+
+                    if (start_pointi.X < end_pointi.X)
+                    {
+                        step = 1;
+                        start_x = ceilf(start_point.X) - output_area.left;
+                        end_x = end_pointi.X - output_area.left;
+                    }
+                    else
+                    {
+                        step = -1;
+                        start_x = start_point.X - output_area.left;
+                        end_x = ceilf(end_point.X) - output_area.left;
+                    }
+
+                    for (x=start_x; x != (end_x+step); x+=step)
+                    {
+                        y = gdip_round( start_point.Y +
+                            (end_point.Y - start_point.Y) * (x + output_area.left - start_point.X) / (end_point.X - start_point.X) )
+                            - output_area.top;
+
+                        if (x == prev_x && y == prev_y)
+                            continue;
+
+                        prev_x = x;
+                        prev_y = y;
+                        dash_pos = (dash_pos + 1 == dash_pattern_size) ? 0 : dash_pos + 1;
+
+                        if (!dash_pattern[dash_pos])
+                            continue;
+
+                        if (x < 0 || x >= output_width || y < 0 || y >= output_height)
+                            continue;
+
+                        if (brush_bits)
+                            output_bits[x + y*output_width] = brush_bits[x + y*output_width];
+                        else
+                            output_bits[x + y*output_width] = ((GpSolidFill*)pen->brush)->color;
+                    }
+                }
+            }
+        }
+
+        /* draw output image */
+        if (stat == Ok)
+        {
+            stat = alpha_blend_pixels(graphics, output_area.left, output_area.top,
+                (BYTE*)output_bits, output_width, output_height, output_width * 4,
+                PixelFormat32bppARGB);
+        }
+
+        heap_free(brush_bits);
+        heap_free(dyn_dash_pattern);
+        heap_free(output_bits);
+    }
+
+    GdipDeletePath(flat_path);
+
+    return stat;
+}
+
+GpStatus SOFTWARE_GdipDrawPath(GpGraphics *graphics, GpPen *pen, GpPath *path)
+{
+    GpStatus stat;
+    GpPath *wide_path;
+    GpMatrix *transform=NULL;
+
+    /* Check if the final pen thickness in pixels is too thin. */
+    if (pen->unit == UnitPixel)
+    {
+        if (pen->width < 1.415)
+            return SOFTWARE_GdipDrawThinPath(graphics, pen, path);
+    }
+    else
+    {
+        GpPointF points[3] = {{0,0}, {1,0}, {0,1}};
+
+        points[1].X = pen->width;
+        points[2].Y = pen->width;
+
+        stat = GdipTransformPoints(graphics, CoordinateSpaceDevice,
+            CoordinateSpaceWorld, points, 3);
+
+        if (stat != Ok)
+            return stat;
+
+        if (((points[1].X-points[0].X)*(points[1].X-points[0].X) +
+             (points[1].Y-points[0].Y)*(points[1].Y-points[0].Y) < 2.0001) &&
+            ((points[2].X-points[0].X)*(points[2].X-points[0].X) +
+             (points[2].Y-points[0].Y)*(points[2].Y-points[0].Y) < 2.0001))
+            return SOFTWARE_GdipDrawThinPath(graphics, pen, path);
+    }
+
+    stat = GdipClonePath(path, &wide_path);
+
+    if (stat != Ok)
+        return stat;
+
+    if (pen->unit == UnitPixel)
+    {
+        /* We have to transform this to device coordinates to get the widths right. */
+        stat = GdipCreateMatrix(&transform);
+
+        if (stat == Ok)
+            stat = get_graphics_transform(graphics, CoordinateSpaceDevice,
+                CoordinateSpaceWorld, transform);
+    }
+
+    if (stat == Ok)
+        stat = GdipWidenPath(wide_path, pen, transform, 1.0);
+
+    if (pen->unit == UnitPixel)
+    {
+        /* Transform the path back to world coordinates */
+        if (stat == Ok)
+            stat = GdipInvertMatrix(transform);
+
+        if (stat == Ok)
+            stat = GdipTransformPath(wide_path, transform);
+    }
+
+    /* Actually draw the path */
+    if (stat == Ok)
+        stat = GdipFillPath(graphics, pen->brush, wide_path);
+
+    GdipDeleteMatrix(transform);
+
+    GdipDeletePath(wide_path);
+
+    return stat;
+}
+
+GpStatus WINGDIPAPI GdipDrawPath(GpGraphics *graphics, GpPen *pen, GpPath *path)
+{
+    GpStatus retval;
+
+    TRACE("(%p, %p, %p)\n", graphics, pen, path);
+
+    if(!pen || !graphics)
+        return InvalidParameter;
+
+    if(graphics->busy)
+        return ObjectBusy;
+
+    if (path->pathdata.Count == 0)
+        return Ok;
+
+    if (!graphics->hdc)
+        retval = SOFTWARE_GdipDrawPath(graphics, pen, path);
+    else
+        retval = GDI32_GdipDrawPath(graphics, pen, path);
 
     return retval;
 }
