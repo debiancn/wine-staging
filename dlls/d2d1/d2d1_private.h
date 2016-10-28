@@ -87,11 +87,9 @@ struct d2d_d3d_render_target
     IDWriteRenderingParams *text_rendering_params;
     IDWriteRenderingParams *default_text_rendering_params;
 
-    D2D1_PIXEL_FORMAT format;
+    D2D1_RENDER_TARGET_PROPERTIES desc;
     D2D1_SIZE_U pixel_size;
     struct d2d_clip_stack clip_stack;
-    float dpi_x;
-    float dpi_y;
 };
 
 HRESULT d2d_d3d_render_target_init(struct d2d_d3d_render_target *render_target, ID2D1Factory *factory,
@@ -146,6 +144,20 @@ HRESULT d2d_hwnd_render_target_init(struct d2d_hwnd_render_target *render_target
         ID3D10Device1 *device, const D2D1_RENDER_TARGET_PROPERTIES *desc,
         const D2D1_HWND_RENDER_TARGET_PROPERTIES *hwnd_desc) DECLSPEC_HIDDEN;
 
+struct d2d_bitmap_render_target
+{
+    ID2D1BitmapRenderTarget ID2D1BitmapRenderTarget_iface;
+    LONG refcount;
+
+    ID2D1RenderTarget *dxgi_target;
+    ID2D1Bitmap *bitmap;
+};
+
+HRESULT d2d_bitmap_render_target_init(struct d2d_bitmap_render_target *render_target,
+        const struct d2d_d3d_render_target *parent_target, const D2D1_SIZE_F *size,
+        const D2D1_SIZE_U *pixel_size, const D2D1_PIXEL_FORMAT *format,
+        D2D1_COMPATIBLE_RENDER_TARGET_OPTIONS options) DECLSPEC_HIDDEN;
+
 struct d2d_gradient
 {
     ID2D1GradientStopCollection ID2D1GradientStopCollection_iface;
@@ -184,6 +196,11 @@ struct d2d_brush
             D2D1_BITMAP_INTERPOLATION_MODE interpolation_mode;
             ID3D10SamplerState *sampler_state;
         } bitmap;
+        struct
+        {
+            D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES desc;
+            ID2D1GradientStopCollection *gradient;
+        } linear;
     } u;
 };
 
@@ -343,6 +360,29 @@ static inline void d2d_matrix_multiply(D2D_MATRIX_3X2_F *a, const D2D_MATRIX_3X2
     a->_22 = tmp._21 * b->_12 + tmp._22 * b->_22;
     a->_31 = tmp._31 * b->_11 + tmp._32 * b->_21 + b->_31;
     a->_32 = tmp._31 * b->_12 + tmp._32 * b->_22 + b->_32;
+}
+
+/* Dst must be different from src. */
+static inline BOOL d2d_matrix_invert(D2D_MATRIX_3X2_F *dst, const D2D_MATRIX_3X2_F *src)
+{
+    float d = src->_11 * src->_22 - src->_21 * src->_12;
+
+    if (d == 0.0f)
+        return FALSE;
+    dst->_11 = src->_22 / d;
+    dst->_21 = -src->_21 / d;
+    dst->_31 = (src->_21 * src->_32 - src->_31 * src->_22) / d;
+    dst->_12 = -src->_12 / d;
+    dst->_22 = src->_11 / d;
+    dst->_32 = -(src->_11 * src->_32 - src->_31 * src->_12) / d;
+
+    return TRUE;
+}
+
+static inline void d2d_point_transform(D2D1_POINT_2F *dst, const D2D1_MATRIX_3X2_F *matrix, float x, float y)
+{
+    dst->x = x * matrix->_11 + y * matrix->_21 + matrix->_31;
+    dst->y = x * matrix->_12 + y * matrix->_22 + matrix->_32;
 }
 
 #endif /* __WINE_D2D1_PRIVATE_H */

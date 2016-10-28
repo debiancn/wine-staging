@@ -1313,12 +1313,12 @@ static void test_path_geometry(void)
     ID3D10Device1 *device;
     IDXGISurface *surface;
     ID2D1Factory *factory;
+    BOOL match, contains;
     D2D1_COLOR_F color;
     ULONG refcount;
     UINT32 count;
     HWND window;
     HRESULT hr;
-    BOOL match;
 
     if (!(device = create_device()))
     {
@@ -1537,6 +1537,29 @@ static void test_path_geometry(void)
     ok(SUCCEEDED(hr), "Failed to end draw, hr %#x.\n", hr);
     match = compare_surface(surface, "3aace1b22aae111cb577614fed16e4eb1650dba5");
     ok(match, "Surface does not match.\n");
+
+    /* Edge test. */
+    set_point(&point, 94.0f, 620.0f);
+    contains = TRUE;
+    hr = ID2D1TransformedGeometry_FillContainsPoint(transformed_geometry, point, NULL, 0.0f, &contains);
+    ok(hr == S_OK, "FillContainsPoint failed, hr %#x.\n", hr);
+    ok(!contains, "Got unexpected contains %#x.\n", contains);
+
+    set_point(&point, 95.0f, 620.0f);
+    contains = FALSE;
+    hr = ID2D1TransformedGeometry_FillContainsPoint(transformed_geometry, point, NULL, 0.0f, &contains);
+    ok(hr == S_OK, "FillContainsPoint failed, hr %#x.\n", hr);
+    ok(contains == TRUE, "Got unexpected contains %#x.\n", contains);
+
+    /* With transformation matrix. */
+    set_matrix_identity(&matrix);
+    translate_matrix(&matrix, -10.0f, 0.0f);
+    set_point(&point, 85.0f, 620.0f);
+    contains = FALSE;
+    hr = ID2D1TransformedGeometry_FillContainsPoint(transformed_geometry, point, &matrix, 0.0f, &contains);
+    ok(hr == S_OK, "FillContainsPoint failed, hr %#x.\n", hr);
+    ok(contains == TRUE, "Got unexpected contains %#x.\n", contains);
+
     ID2D1TransformedGeometry_Release(transformed_geometry);
     ID2D1PathGeometry_Release(geometry);
 
@@ -2993,16 +3016,7 @@ static void test_bitmap_target(void)
 
     hr = ID2D1HwndRenderTarget_CreateCompatibleRenderTarget(hwnd_rt, NULL, NULL, NULL,
             D2D1_COMPATIBLE_RENDER_TARGET_OPTIONS_NONE, &rt);
-todo_wine
     ok(SUCCEEDED(hr), "Failed to create render target, hr %#x.\n", hr);
-
-    if (FAILED(hr))
-    {
-        ID2D1HwndRenderTarget_Release(hwnd_rt);
-        DestroyWindow(hwnd_rt_desc.hwnd);
-        ID2D1Factory_Release(factory);
-        return;
-    }
 
     /* See if parent target is referenced. */
     ID2D1HwndRenderTarget_AddRef(hwnd_rt);
@@ -3059,8 +3073,8 @@ todo_wine
     ID2D1BitmapRenderTarget_GetDpi(rt, dpi2, dpi2 + 1);
 
     pixel_size = ID2D1BitmapRenderTarget_GetPixelSize(rt);
-    ok(pixel_size.width == ceilf(size.width * dpi2[0] / 96.0f)
-            && pixel_size.height == ceilf(size.height * dpi2[1] / 96.0f), "Wrong pixel size %ux%u\n",
+    ok(pixel_size.width == ceilf(size.width * dpi[0] / 96.0f)
+            && pixel_size.height == ceilf(size.height * dpi[1] / 96.0f), "Wrong pixel size %ux%u\n",
             pixel_size.width, pixel_size.height);
 
     dpi[0] *= (pixel_size.width / size.width) * (96.0f / dpi[0]);
