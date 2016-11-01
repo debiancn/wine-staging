@@ -2585,6 +2585,10 @@ static HRESULT WINAPI xmlreader_SetProperty(IXmlReader* iface, UINT property, LO
 
     switch (property)
     {
+        case XmlReaderProperty_MultiLanguage:
+            if (value)
+                FIXME("Ignoring MultiLanguage %lx\n", value);
+            break;
         case XmlReaderProperty_XmlResolver:
             if (This->resolver)
                 IXmlResolver_Release(This->resolver);
@@ -2595,6 +2599,9 @@ static HRESULT WINAPI xmlreader_SetProperty(IXmlReader* iface, UINT property, LO
         case XmlReaderProperty_DtdProcessing:
             if (value < 0 || value > _DtdProcessing_Last) return E_INVALIDARG;
             This->dtdmode = value;
+            break;
+        case XmlReaderProperty_MaxElementDepth:
+            FIXME("Ignoring MaxElementDepth %ld\n", value);
             break;
         default:
             FIXME("Unimplemented property (%u)\n", property);

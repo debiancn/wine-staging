@@ -3163,6 +3163,7 @@ struct wined3d_buffer
 
     struct wined3d_map_range *maps;
     ULONG maps_size, modified_areas;
+    DWORD locations;
     struct wined3d_event_query *query;
 
     /* conversion stuff */
@@ -3178,16 +3179,20 @@ static inline struct wined3d_buffer *buffer_from_resource(struct wined3d_resourc
     return CONTAINING_RECORD(resource, struct wined3d_buffer, resource);
 }
 
-void buffer_get_memory(struct wined3d_buffer *buffer, struct wined3d_context *context,
-        struct wined3d_bo_address *data) DECLSPEC_HIDDEN;
-BYTE *buffer_get_sysmem(struct wined3d_buffer *buffer, struct wined3d_context *context) DECLSPEC_HIDDEN;
-void buffer_internal_preload(struct wined3d_buffer *buffer, struct wined3d_context *context,
-        const struct wined3d_state *state) DECLSPEC_HIDDEN;
 void buffer_mark_used(struct wined3d_buffer *buffer) DECLSPEC_HIDDEN;
+void wined3d_buffer_get_memory(struct wined3d_buffer *buffer,
+        struct wined3d_bo_address *data, DWORD locations) DECLSPEC_HIDDEN;
+void wined3d_buffer_invalidate_location(struct wined3d_buffer *buffer, DWORD location) DECLSPEC_HIDDEN;
+void wined3d_buffer_load(struct wined3d_buffer *buffer, struct wined3d_context *context,
+        const struct wined3d_state *state) DECLSPEC_HIDDEN;
+BOOL wined3d_buffer_load_location(struct wined3d_buffer *buffer, struct wined3d_context *context,
+        DWORD location) DECLSPEC_HIDDEN;
+BYTE *wined3d_buffer_load_sysmem(struct wined3d_buffer *buffer, struct wined3d_context *context) DECLSPEC_HIDDEN;
 HRESULT wined3d_buffer_copy(struct wined3d_buffer *dst_buffer, unsigned int dst_offset,
         struct wined3d_buffer *src_buffer, unsigned int src_offset, unsigned int size) DECLSPEC_HIDDEN;
 HRESULT wined3d_buffer_upload_data(struct wined3d_buffer *buffer,
         const struct wined3d_box *box, const void *data) DECLSPEC_HIDDEN;
+void wined3d_buffer_validate_location(struct wined3d_buffer *buffer, DWORD location) DECLSPEC_HIDDEN;
 
 struct wined3d_rendertarget_view
 {
@@ -3632,7 +3637,6 @@ extern enum wined3d_format_id pixelformat_for_depth(DWORD depth) DECLSPEC_HIDDEN
 #define WINED3DFMT_FLAG_RENDERTARGET                0x00000010
 #define WINED3DFMT_FLAG_FBO_ATTACHABLE              0x00000040
 #define WINED3DFMT_FLAG_FBO_ATTACHABLE_SRGB         0x00000080
-#define WINED3DFMT_FLAG_GETDC                       0x00000100
 #define WINED3DFMT_FLAG_FLOAT                       0x00000200
 #define WINED3DFMT_FLAG_BUMPMAP                     0x00000400
 #define WINED3DFMT_FLAG_SRGB_READ                   0x00000800

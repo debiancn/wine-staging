@@ -3194,14 +3194,14 @@ static void context_update_stream_info(struct wined3d_context *context, const st
             WARN_(d3d_perf)("load_base_vertex_index is < 0 (%d), not using VBOs.\n",
                     state->load_base_vertex_index);
             element->data.buffer_object = 0;
-            element->data.addr += (ULONG_PTR)buffer_get_sysmem(buffer, context);
+            element->data.addr += (ULONG_PTR)wined3d_buffer_load_sysmem(buffer, context);
             if ((UINT_PTR)element->data.addr < -state->load_base_vertex_index * element->stride)
                 FIXME("System memory vertex data load offset is negative!\n");
         }
         else
         {
-            buffer_internal_preload(buffer, context, state);
-            buffer_get_memory(buffer, context, &data);
+            wined3d_buffer_load(buffer, context, state);
+            wined3d_buffer_get_memory(buffer, &data, buffer->locations);
             element->data.buffer_object = data.buffer_object;
             element->data.addr += (ULONG_PTR)data.addr;
         }
@@ -3304,7 +3304,7 @@ static void context_load_shader_resources(struct wined3d_context *context, const
         for (j = 0; j < WINED3D_MAX_CBS; ++j)
         {
             if (state->cb[i][j])
-                buffer_internal_preload(state->cb[i][j], context, state);
+                wined3d_buffer_load(state->cb[i][j], context, state);
         }
 
         for (j = 0; j < shader->reg_maps.sampler_map.count; ++j)
@@ -3318,7 +3318,7 @@ static void context_load_shader_resources(struct wined3d_context *context, const
             }
 
             if (view->resource->type == WINED3D_RTYPE_BUFFER)
-                buffer_internal_preload(buffer_from_resource(view->resource), context, state);
+                wined3d_buffer_load(buffer_from_resource(view->resource), context, state);
             else
                 wined3d_texture_load(texture_from_resource(view->resource), context, FALSE);
         }
@@ -3430,9 +3430,9 @@ BOOL context_apply_draw_state(struct wined3d_context *context,
     if (state->index_buffer)
     {
         if (context->stream_info.all_vbo)
-            buffer_internal_preload(state->index_buffer, context, state);
+            wined3d_buffer_load(state->index_buffer, context, state);
         else
-            buffer_get_sysmem(state->index_buffer, context);
+            wined3d_buffer_load_sysmem(state->index_buffer, context);
     }
 
     for (i = 0; i < context->numDirtyEntries; ++i)
