@@ -1,3 +1,15 @@
+wine-development (1.9.22-1) UNRELEASED; urgency=medium
+
+  * New upstream release 1.9.22, released Oct 28, 2016.
+    - macOS clipboard support adapted to the new design.
+    - Initial implementation of bitmap rendering in Direct2D.
+    - More WebServices implementation.
+    - A few more steps towards HID support.
+    - Various bug fixes.
+  * Refresh patches.
+
+ -- Jens Reyer <jre.winesim@gmail.com>  Tue, 01 Nov 2016 23:28:53 +0100
+
 wine-development (1.9.21-1) unstable; urgency=medium
 
   * New upstream release 1.9.21, released Oct 14, 2016.
