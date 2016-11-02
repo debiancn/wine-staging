@@ -7,6 +7,7 @@ wine-development (1.9.22-1) UNRELEASED; urgency=medium
     - A few more steps towards HID support.
     - Various bug fixes.
   * Refresh patches.
+  * Drop unused lintian override hardening-no-pie from the -tools packages.
 
  -- Jens Reyer <jre.winesim@gmail.com>  Tue, 01 Nov 2016 23:28:53 +0100
 
