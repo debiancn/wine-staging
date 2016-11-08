@@ -417,6 +417,7 @@ static NTSTATUS dispatch_ioctl( const irp_params_t *params, void *in_buff, ULONG
 {
     IRP *irp;
     void *out_buff = NULL;
+    void *to_free = NULL;
     DEVICE_OBJECT *device;
     FILE_OBJECT *file = wine_server_get_ptr( params->ioctl.file );
 
@@ -427,16 +428,26 @@ static NTSTATUS dispatch_ioctl( const irp_params_t *params, void *in_buff, ULONG
     TRACE( "ioctl %x device %p file %p in_size %u out_size %u\n",
            params->ioctl.code, device, file, in_size, out_size );
 
-    if ((params->ioctl.code & 3) == METHOD_BUFFERED) out_size = max( in_size, out_size );
-
     if (out_size)
     {
-        if (!(out_buff = HeapAlloc( GetProcessHeap(), 0, out_size ))) return STATUS_NO_MEMORY;
-        if ((params->ioctl.code & 3) == METHOD_BUFFERED)
+        if ((params->ioctl.code & 3) != METHOD_BUFFERED)
         {
+            if (in_size < out_size) return STATUS_INVALID_DEVICE_REQUEST;
+            in_size -= out_size;
+            if (!(out_buff = HeapAlloc( GetProcessHeap(), 0, out_size ))) return STATUS_NO_MEMORY;
+            memcpy( out_buff, (char *)in_buff + in_size, out_size );
+        }
+        else if (out_size > in_size)
+        {
+            if (!(out_buff = HeapAlloc( GetProcessHeap(), 0, out_size ))) return STATUS_NO_MEMORY;
             memcpy( out_buff, in_buff, in_size );
-            HeapFree( GetProcessHeap(), 0, in_buff );
+            to_free = in_buff;
             in_buff = out_buff;
+        }
+        else
+        {
+            out_buff = in_buff;
+            out_size = in_size;
         }
     }
 
@@ -448,6 +459,9 @@ static NTSTATUS dispatch_ioctl( const irp_params_t *params, void *in_buff, ULONG
         return STATUS_NO_MEMORY;
     }
 
+    if (out_size && (params->ioctl.code & 3) != METHOD_BUFFERED)
+        HeapReAlloc( GetProcessHeap(), HEAP_REALLOC_IN_PLACE_ONLY, in_buff, in_size );
+
     irp->Tail.Overlay.OriginalFileObject = file;
     irp->RequestorMode = UserMode;
     irp->AssociatedIrp.SystemBuffer = in_buff;
@@ -455,6 +469,7 @@ static NTSTATUS dispatch_ioctl( const irp_params_t *params, void *in_buff, ULONG
     irp->Flags |= IRP_DEALLOCATE_BUFFER;  /* deallocate in_buff */
     dispatch_irp( device, irp, irp_handle );
 
+    HeapFree( GetProcessHeap(), 0, to_free );
     return STATUS_SUCCESS;
 }
 
@@ -729,31 +744,20 @@ PVOID WINAPI IoAllocateErrorLogEntry( PVOID IoObject, UCHAR EntrySize )
  */
 PMDL WINAPI IoAllocateMdl( PVOID va, ULONG length, BOOLEAN secondary, BOOLEAN charge_quota, IRP *irp )
 {
+    SIZE_T mdl_size;
     PMDL mdl;
-    ULONG_PTR address = (ULONG_PTR)va;
-    ULONG_PTR page_address;
-    SIZE_T nb_pages, mdl_size;
 
     TRACE("(%p, %u, %i, %i, %p)\n", va, length, secondary, charge_quota, irp);
 
     if (charge_quota)
         FIXME("Charge quota is not yet supported\n");
 
-    /* FIXME: We suppose that page size is 4096 */
-    page_address = address & ~(4096 - 1);
-    nb_pages = (((address + length - 1) & ~(4096 - 1)) - page_address) / 4096 + 1;
-
-    mdl_size = sizeof(MDL) + nb_pages * sizeof(PVOID);
-
-    mdl = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, mdl_size);
+    mdl_size = sizeof(MDL) + sizeof(PFN_NUMBER) * ADDRESS_AND_SIZE_TO_SPAN_PAGES(va, length);
+    mdl = HeapAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY, mdl_size );
     if (!mdl)
         return NULL;
 
-    mdl->Size = mdl_size;
-    mdl->Process = NULL; /* FIXME: IoGetCurrentProcess */
-    mdl->StartVa = (PVOID)page_address;
-    mdl->ByteCount = length;
-    mdl->ByteOffset = address - page_address;
+    MmInitializeMdl( mdl, va, length );
 
     if (!irp) return mdl;
 
@@ -816,6 +820,7 @@ PIRP WINAPI IoBuildDeviceIoControlRequest( ULONG code, PDEVICE_OBJECT device,
 {
     PIRP irp;
     PIO_STACK_LOCATION irpsp;
+    MDL *mdl;
 
     TRACE( "%x, %p, %p, %u, %p, %u, %u, %p, %p\n",
            code, device, in_buff, in_len, out_buff, out_len, internal, event, iosb );
@@ -843,7 +848,16 @@ PIRP WINAPI IoBuildDeviceIoControlRequest( ULONG code, PDEVICE_OBJECT device,
     case METHOD_IN_DIRECT:
     case METHOD_OUT_DIRECT:
         irp->AssociatedIrp.SystemBuffer = in_buff;
-        IoAllocateMdl( out_buff, out_len, FALSE, FALSE, irp );
+
+        mdl = IoAllocateMdl( out_buff, out_len, FALSE, FALSE, irp );
+        if (!mdl)
+        {
+            IoFreeIrp( irp );
+            return NULL;
+        }
+
+        mdl->MdlFlags |= MDL_MAPPED_TO_SYSTEM_VA;
+        mdl->MappedSystemVa = out_buff;
         break;
     case METHOD_NEITHER:
         irpsp->Parameters.DeviceIoControl.Type3InputBuffer = in_buff;
@@ -878,7 +892,19 @@ PIRP WINAPI IoBuildSynchronousFsdRequest(ULONG majorfunc, PDEVICE_OBJECT device,
     irpsp->CompletionRoutine = NULL;
 
     irp->AssociatedIrp.SystemBuffer = buffer;
-    if (device->Flags & DO_DIRECT_IO) IoAllocateMdl( buffer, length, FALSE, FALSE, irp );
+
+    if (device->Flags & DO_DIRECT_IO)
+    {
+        MDL *mdl = IoAllocateMdl( buffer, length, FALSE, FALSE, irp );
+        if (!mdl)
+        {
+            IoFreeIrp( irp );
+            return NULL;
+        }
+
+        mdl->MdlFlags |= MDL_MAPPED_TO_SYSTEM_VA;
+        mdl->MappedSystemVa = buffer;
+    }
 
     switch (majorfunc)
     {

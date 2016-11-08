@@ -195,6 +195,7 @@ my @dll_groups =
   "api-ms-win-core-processenvironment-l1-1-0",
   "api-ms-win-core-processenvironment-l1-2-0",
   "api-ms-win-core-psapi-l1-1-0",
+  "api-ms-win-core-psapi-obsolete-l1-1-0",
   "api-ms-win-core-threadpool-l1-1-0",
   "api-ms-win-core-threadpool-l1-2-0",
   "api-ms-win-core-threadpool-legacy-l1-1-0",
@@ -265,6 +266,9 @@ my @dll_groups =
   "api-ms-win-core-string-l2-1-0",
   "api-ms-win-downlevel-user32-l1-1-0",
   "api-ms-win-ntuser-dc-access-l1-1-0",
+  "ext-ms-win-ntuser-message-l1-1-1",
+  "ext-ms-win-ntuser-uicontext-ext-l1-1-0",
+  "ext-ms-win-rtcore-ntuser-dpi-l1-1-0",
  ],
  [
   "version",
@@ -283,6 +287,7 @@ my @dll_groups =
  ],
  [
   "gdi32",
+  "ext-ms-win-gdi-dc-create-l1-1-1",
   "ext-ms-win-gdi-devcaps-l1-1-0",
  ],
  [

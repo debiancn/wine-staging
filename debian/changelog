@@ -1,3 +1,16 @@
+wine-development (1.9.22-1) unstable; urgency=medium
+
+  * New upstream release 1.9.22, released Oct 28, 2016.
+    - macOS clipboard support adapted to the new design.
+    - Initial implementation of bitmap rendering in Direct2D.
+    - More WebServices implementation.
+    - A few more steps towards HID support.
+    - Various bug fixes.
+  * Refresh patches.
+  * Drop unused lintian override hardening-no-pie from the -tools packages.
+
+ -- Jens Reyer <jre.winesim@gmail.com>  Wed, 02 Nov 2016 20:49:56 +0100
+
 wine-development (1.9.21-1~bpo8+1) jessie-backports; urgency=medium
 
   * Rebuild for jessie-backports.
