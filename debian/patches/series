@@ -18,6 +18,5 @@ binary-indep/manpages.patch
 binary-indep/sfnt2fon.patch
 
 glu32.patch
-openal.patch
 font-divbyzero.patch
 printer-resolution.patch

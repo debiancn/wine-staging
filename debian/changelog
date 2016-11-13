@@ -1,3 +1,14 @@
+wine-development (1.9.23-1) unstable; urgency=medium
+
+  * New upstream release 1.9.23, released Nov 11, 2016.
+    - Color font support in Direct2D.
+    - More color formats in Direct3D.
+    - Uninstallation fixes in MSI.
+    - Various bug fixes.
+  * Drop openal.patch, fixed upstream.
+
+ -- Michael Gilbert <mgilbert@debian.org>  Sun, 13 Nov 2016 02:15:18 +0000
+
 wine-development (1.9.22-1) unstable; urgency=medium
 
   * New upstream release 1.9.22, released Oct 28, 2016.
