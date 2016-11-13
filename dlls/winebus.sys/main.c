@@ -541,6 +541,25 @@ NTSTATUS WINAPI hid_internal_dispatch(DEVICE_OBJECT *device, IRP *irp)
                 packet->reportBufferLen, &irp->IoStatus.Information);
             break;
         }
+        case IOCTL_HID_GET_FEATURE:
+        {
+            HID_XFER_PACKET *packet = (HID_XFER_PACKET*)(irp->UserBuffer);
+            TRACE_(hid_report)("IOCTL_HID_GET_FEATURE\n");
+            irp->IoStatus.u.Status = status = ext->vtbl->get_feature_report(
+                device, packet->reportId, packet->reportBuffer,
+                packet->reportBufferLen, &irp->IoStatus.Information);
+            packet->reportBufferLen = irp->IoStatus.Information;
+            break;
+        }
+        case IOCTL_HID_SET_FEATURE:
+        {
+            HID_XFER_PACKET *packet = (HID_XFER_PACKET*)(irp->UserBuffer);
+            TRACE_(hid_report)("IOCTL_HID_SET_FEATURE\n");
+            irp->IoStatus.u.Status = status = ext->vtbl->set_feature_report(
+                device, packet->reportId, packet->reportBuffer,
+                packet->reportBufferLen, &irp->IoStatus.Information);
+            break;
+        }
         default:
         {
             ULONG code = irpsp->Parameters.DeviceIoControl.IoControlCode;
@@ -609,10 +628,13 @@ NTSTATUS WINAPI DriverEntry( DRIVER_OBJECT *driver, UNICODE_STRING *path )
 {
     static const WCHAR udevW[] = {'\\','D','r','i','v','e','r','\\','U','D','E','V',0};
     static UNICODE_STRING udev = {sizeof(udevW) - sizeof(WCHAR), sizeof(udevW), (WCHAR *)udevW};
+    static const WCHAR iohidW[] = {'\\','D','r','i','v','e','r','\\','I','O','H','I','D',0};
+    static UNICODE_STRING iohid = {sizeof(iohidW) - sizeof(WCHAR), sizeof(iohidW), (WCHAR *)iohidW};
 
     TRACE( "(%p, %s)\n", driver, debugstr_w(path->Buffer) );
 
     IoCreateDriver(&udev, udev_driver_init);
+    IoCreateDriver(&iohid, iohid_driver_init);
 
     return STATUS_SUCCESS;
 }

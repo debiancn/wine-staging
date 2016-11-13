@@ -1603,7 +1603,7 @@ static void test_CreateFontFace(void)
     hr = IDWriteFactory_CreateFontFace(factory, DWRITE_FONT_FACE_TYPE_CFF, 1, &file, 0, DWRITE_FONT_SIMULATIONS_NONE, &fontface);
     ok(hr == DWRITE_E_FILEFORMAT, "got 0x%08x\n", hr);
 
-    hr = IDWriteFactory_CreateFontFace(factory, DWRITE_FONT_FACE_TYPE_TRUETYPE_COLLECTION, 1, &file, 0,
+    hr = IDWriteFactory_CreateFontFace(factory, DWRITE_FONT_FACE_TYPE_OPENTYPE_COLLECTION, 1, &file, 0,
         DWRITE_FONT_SIMULATIONS_NONE, &fontface);
     ok(hr == DWRITE_E_FILEFORMAT || broken(hr == E_FAIL) /* < win10 */, "got 0x%08x\n", hr);
 
@@ -5977,6 +5977,14 @@ static void test_TranslateColorGlyphRun(void)
 
         if (!hasrun)
             break;
+
+        hr = IDWriteColorGlyphRunEnumerator_GetCurrentRun(layers, &colorrun);
+        ok(hr == S_OK, "got 0x%08x\n", hr);
+        ok(colorrun->glyphRun.fontFace != NULL, "got fontface %p\n", colorrun->glyphRun.fontFace);
+        ok(colorrun->glyphRun.fontEmSize == 20.0f, "got wrong font size %f\n", colorrun->glyphRun.fontEmSize);
+        ok(colorrun->glyphRun.glyphCount > 0, "got wrong glyph count %u\n", colorrun->glyphRun.glyphCount);
+        ok(colorrun->glyphRun.glyphIndices != NULL, "got null glyph indices %p\n", colorrun->glyphRun.glyphIndices);
+        ok(colorrun->glyphRun.glyphAdvances != NULL, "got null glyph advances %p\n", colorrun->glyphRun.glyphAdvances);
     }
 
     /* iterated all way through */
