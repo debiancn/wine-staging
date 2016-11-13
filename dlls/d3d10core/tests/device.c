@@ -2407,7 +2407,8 @@ static void test_render_target_views(void)
     ID3D10RenderTargetView *rtv;
     ID3D10Texture2D *texture;
     ID3D10Device *device;
-    unsigned int i, j;
+    unsigned int i, j, k;
+    void *data;
     HRESULT hr;
 
     if (!init_test_context(&test_context))
@@ -2425,6 +2426,9 @@ static void test_render_target_views(void)
     texture_desc.CPUAccessFlags = 0;
     texture_desc.MiscFlags = 0;
 
+    data = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, texture_desc.Width * texture_desc.Height * 4);
+    ok(!!data, "Failed to allocate memory.\n");
+
     for (i = 0; i < sizeof(tests) / sizeof(*tests); ++i)
     {
         const struct test *test = &tests[i];
@@ -2440,6 +2444,17 @@ static void test_render_target_views(void)
         hr = ID3D10Device_CreateRenderTargetView(device, (ID3D10Resource *)texture, &rtv_desc, &rtv);
         ok(SUCCEEDED(hr), "Test %u: Failed to create render target view, hr %#x.\n", i, hr);
 
+        for (j = 0; j < texture_desc.ArraySize; ++j)
+        {
+            for (k = 0; k < texture_desc.MipLevels; ++k)
+            {
+                unsigned int sub_resource_idx = j * texture_desc.MipLevels + k;
+                ID3D10Device_UpdateSubresource(device,
+                        (ID3D10Resource *)texture, sub_resource_idx, NULL, data, texture_desc.Width * 4, 0);
+            }
+        }
+        check_texture_color(texture, 0, 0);
+
         ID3D10Device_OMSetRenderTargets(device, 1, &rtv, NULL);
         draw_color_quad(&test_context, &red);
 
@@ -2452,6 +2467,7 @@ static void test_render_target_views(void)
         ID3D10Texture2D_Release(texture);
     }
 
+    HeapFree(GetProcessHeap(), 0, data);
     release_test_context(&test_context);
 }
 
@@ -6471,6 +6487,7 @@ static void test_fragment_coords(void)
 static void test_update_subresource(void)
 {
     struct d3d10core_test_context test_context;
+    D3D10_SUBRESOURCE_DATA resource_data;
     D3D10_TEXTURE2D_DESC texture_desc;
     ID3D10SamplerState *sampler_state;
     ID3D10ShaderResourceView *ps_srv;
@@ -6511,6 +6528,7 @@ static void test_update_subresource(void)
         0x00107e46, 0x00000000, 0x00106000, 0x00000000, 0x0100003e,
     };
     static const float red[] = {1.0f, 0.0f, 0.0f, 0.5f};
+    static const DWORD initial_data[16] = {0};
     static const DWORD bitmap_data[] =
     {
         0xff0000ff, 0xff00ffff, 0xff00ff00, 0xffffff00,
@@ -6543,7 +6561,11 @@ static void test_update_subresource(void)
     texture_desc.CPUAccessFlags = 0;
     texture_desc.MiscFlags = 0;
 
-    hr = ID3D10Device_CreateTexture2D(device, &texture_desc, NULL, &texture);
+    resource_data.pSysMem = initial_data;
+    resource_data.SysMemPitch = texture_desc.Width * sizeof(*initial_data);
+    resource_data.SysMemSlicePitch = 0;
+
+    hr = ID3D10Device_CreateTexture2D(device, &texture_desc, &resource_data, &texture);
     ok(SUCCEEDED(hr), "Failed to create a 2d texture, hr %#x\n", hr);
 
     hr = ID3D10Device_CreateShaderResourceView(device, (ID3D10Resource *)texture, NULL, &ps_srv);
@@ -6705,6 +6727,7 @@ static void test_copy_subresource_region(void)
         0x0010000a, 0x00000000, 0x0100003e,
     };
     static const float red[] = {1.0f, 0.0f, 0.0f, 0.5f};
+    static const DWORD initial_data[16] = {0};
     static const DWORD bitmap_data[] =
     {
         0xff0000ff, 0xff00ffff, 0xff00ff00, 0xffffff00,
@@ -6737,13 +6760,17 @@ static void test_copy_subresource_region(void)
     texture_desc.CPUAccessFlags = 0;
     texture_desc.MiscFlags = 0;
 
-    hr = ID3D10Device_CreateTexture2D(device, &texture_desc, NULL, &dst_texture);
+    resource_data.pSysMem = initial_data;
+    resource_data.SysMemPitch = texture_desc.Width * sizeof(*initial_data);
+    resource_data.SysMemSlicePitch = 0;
+
+    hr = ID3D10Device_CreateTexture2D(device, &texture_desc, &resource_data, &dst_texture);
     ok(SUCCEEDED(hr), "Failed to create 2d texture, hr %#x.\n", hr);
 
     texture_desc.Usage = D3D10_USAGE_IMMUTABLE;
 
     resource_data.pSysMem = bitmap_data;
-    resource_data.SysMemPitch = 4 * sizeof(*bitmap_data);
+    resource_data.SysMemPitch = texture_desc.Width * sizeof(*bitmap_data);
     resource_data.SysMemSlicePitch = 0;
 
     hr = ID3D10Device_CreateTexture2D(device, &texture_desc, &resource_data, &src_texture);
@@ -6843,7 +6870,8 @@ static void test_copy_subresource_region(void)
     ID3D10Device_PSSetSamplers(device, 0, 1, &sampler_state);
     ID3D10Device_PSSetShader(device, ps);
 
-    dst_buffer = create_buffer(device, D3D10_BIND_CONSTANT_BUFFER, sizeof(float_colors), NULL);
+    memset(float_colors, 0, sizeof(float_colors));
+    dst_buffer = create_buffer(device, D3D10_BIND_CONSTANT_BUFFER, sizeof(float_colors), float_colors);
 
     ID3D10Device_PSSetConstantBuffers(device, 0, 1, &dst_buffer);
 
@@ -6900,126 +6928,6 @@ static void test_copy_subresource_region(void)
     ID3D10Buffer_Release(dst_buffer);
     ID3D10Buffer_Release(src_buffer);
     ID3D10PixelShader_Release(ps);
-    release_test_context(&test_context);
-}
-
-static void test_buffer_data_init(void)
-{
-    struct resource_readback rb;
-    ID3D10Buffer *buffer;
-    ID3D10Device *device;
-    unsigned int i;
-
-    if (!(device = create_device()))
-    {
-        skip("Failed to create device.\n");
-        return;
-    }
-
-    buffer = create_buffer(device, D3D10_BIND_SHADER_RESOURCE, 1024, NULL);
-
-    get_buffer_readback(buffer, &rb);
-    for (i = 0; i < rb.width; ++i)
-    {
-        DWORD r = get_readback_color(&rb, i / sizeof(DWORD), 0);
-        ok(!r, "Got unexpected result %#x at offset %u.\n", r, i);
-    }
-    release_resource_readback(&rb);
-
-    ID3D10Buffer_Release(buffer);
-    ID3D10Device_Release(device);
-}
-
-static void test_texture_data_init(void)
-{
-    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
-    struct d3d10core_test_context test_context;
-    D3D10_TEXTURE2D_DESC desc;
-    ID3D10Texture2D *texture;
-    ID3D10Device *device;
-    UINT count = 0;
-    HRESULT hr;
-
-    if (!init_test_context(&test_context))
-        return;
-
-    device = test_context.device;
-
-    desc.Width = 640;
-    desc.Height = 480;
-    desc.MipLevels = 1;
-    desc.ArraySize = 1;
-    desc.SampleDesc.Count = 1;
-    desc.SampleDesc.Quality = 0;
-    desc.Usage = D3D10_USAGE_DEFAULT;
-    desc.BindFlags = 0;
-    desc.CPUAccessFlags = 0;
-    desc.MiscFlags = 0;
-
-    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    hr = ID3D10Device_CreateTexture2D(device, &desc, NULL, &texture);
-    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
-    check_texture_color(texture, 0x00000000, 0);
-    ID3D10Texture2D_Release(texture);
-
-    desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
-    hr = ID3D10Device_CreateTexture2D(device, &desc, NULL, &texture);
-    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
-    check_texture_color(texture, 0x00000000, 0);
-    ID3D10Texture2D_Release(texture);
-
-    desc.Format = DXGI_FORMAT_D32_FLOAT;
-    hr = ID3D10Device_CreateTexture2D(device, &desc, NULL, &texture);
-    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
-    check_texture_float(texture, 0.0f, 0);
-    ID3D10Texture2D_Release(texture);
-
-    desc.ArraySize = 4;
-
-    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    hr = ID3D10Device_CreateTexture2D(device, &desc, NULL, &texture);
-    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
-    check_texture_float(texture, 0.0f, 0);
-    ID3D10Texture2D_Release(texture);
-
-    desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
-    hr = ID3D10Device_CreateTexture2D(device, &desc, NULL, &texture);
-    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
-    check_texture_color(texture, 0x00000000, 0);
-    ID3D10Texture2D_Release(texture);
-
-    desc.Format = DXGI_FORMAT_D32_FLOAT;
-    hr = ID3D10Device_CreateTexture2D(device, &desc, NULL, &texture);
-    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
-    check_texture_float(texture, 0.0f, 0);
-    ID3D10Texture2D_Release(texture);
-
-    hr = ID3D10Device_CheckMultisampleQualityLevels(device, DXGI_FORMAT_R8G8B8A8_UNORM, 2, &count);
-    ok(SUCCEEDED(hr), "Failed to get quality levels, hr %#x.\n", hr);
-    if (!count)
-    {
-        skip("Multisampling not supported for DXGI_FORMAT_R8G8B8A8_UNORM, skipping tests.\n");
-        release_test_context(&test_context);
-        return;
-    }
-
-    ID3D10Device_ClearRenderTargetView(device, test_context.backbuffer_rtv, white);
-
-    desc.ArraySize = 1;
-    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    desc.SampleDesc.Count = 2;
-    desc.SampleDesc.Quality = 0;
-    desc.BindFlags = D3D10_BIND_RENDER_TARGET;
-    hr = ID3D10Device_CreateTexture2D(device, &desc, NULL, &texture);
-    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
-
-    ID3D10Device_ResolveSubresource(device, (ID3D10Resource *)test_context.backbuffer, 0,
-            (ID3D10Resource *)texture, 0, DXGI_FORMAT_R8G8B8A8_UNORM);
-
-    todo_wine check_texture_color(test_context.backbuffer, 0x00000000, 0);
-
-    ID3D10Texture2D_Release(texture);
-
     release_test_context(&test_context);
 }
 
@@ -9725,8 +9633,6 @@ START_TEST(device)
     test_fragment_coords();
     test_update_subresource();
     test_copy_subresource_region();
-    test_buffer_data_init();
-    test_texture_data_init();
     test_check_multisample_quality_levels();
     test_cb_relative_addressing();
     test_swapchain_formats();
