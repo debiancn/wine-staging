@@ -45,6 +45,7 @@ enum wined3d_display_driver
     DRIVER_AMD_R100,
     DRIVER_AMD_R300,
     DRIVER_AMD_R600,
+    DRIVER_AMD_RX,
     DRIVER_INTEL_GMA800,
     DRIVER_INTEL_GMA900,
     DRIVER_INTEL_GMA950,
@@ -144,6 +145,7 @@ static const struct wined3d_extension_map gl_extension_map[] =
     {"GL_ARB_provoking_vertex",             ARB_PROVOKING_VERTEX          },
     {"GL_ARB_sampler_objects",              ARB_SAMPLER_OBJECTS           },
     {"GL_ARB_shader_bit_encoding",          ARB_SHADER_BIT_ENCODING       },
+    {"GL_ARB_shader_image_load_store",      ARB_SHADER_IMAGE_LOAD_STORE   },
     {"GL_ARB_shader_texture_lod",           ARB_SHADER_TEXTURE_LOD        },
     {"GL_ARB_shading_language_100",         ARB_SHADING_LANGUAGE_100      },
     {"GL_ARB_shadow",                       ARB_SHADOW                    },
@@ -1160,6 +1162,7 @@ static const struct driver_version_information driver_version_table[] =
     {DRIVER_AMD_R600,           DRIVER_MODEL_NT5X,  "ati2dvag.dll", 17, 10, 1280},
     {DRIVER_AMD_R300,           DRIVER_MODEL_NT6X,  "atiumdag.dll", 14, 10, 741 },
     {DRIVER_AMD_R600,           DRIVER_MODEL_NT6X,  "atiumdag.dll", 17, 10, 1280},
+    {DRIVER_AMD_RX,             DRIVER_MODEL_NT6X,  "aticfx32.dll", 17, 10, 1474},
 
     /* Intel
      * The drivers are unified but not all versions support all GPUs. At some point the 2k/xp
@@ -1367,7 +1370,9 @@ static const struct gpu_description gpu_description_table[] =
     {HW_VENDOR_AMD,        CARD_AMD_RADEON_HD8770,         "AMD Radeon HD 8770",               DRIVER_AMD_R600,         2048},
     {HW_VENDOR_AMD,        CARD_AMD_RADEON_R3,             "AMD Radeon HD 8400 / R3 Series",   DRIVER_AMD_R600,         2048},
     {HW_VENDOR_AMD,        CARD_AMD_RADEON_R7,             "AMD Radeon(TM) R7 Graphics",       DRIVER_AMD_R600,         2048},
-    {HW_VENDOR_AMD,        CARD_AMD_RADEON_R9,             "AMD Radeon R9 290",                DRIVER_AMD_R600,         4096},
+    {HW_VENDOR_AMD,        CARD_AMD_RADEON_R9,             "AMD Radeon R9 290",                DRIVER_AMD_RX,           4096},
+    {HW_VENDOR_AMD,        CARD_AMD_RADEON_RX_460,         "Radeon(TM) RX 460 Graphics",       DRIVER_AMD_RX,           4096},
+    {HW_VENDOR_AMD,        CARD_AMD_RADEON_RX_480,         "Radeon (TM) RX 480 Graphics",      DRIVER_AMD_RX,           4096},
 
     /* VMware */
     {HW_VENDOR_VMWARE,     CARD_VMWARE_SVGA3D,             "VMware SVGA 3D (Microsoft Corporation - WDDM)",             DRIVER_VMWARE,        1024},
@@ -2109,6 +2114,9 @@ cards_intel[] =
  * These are returned but not handled: RC410, RV380. */
 cards_amd_mesa[] =
 {
+    /* Polaris 10/11 */
+    {"POLARIS10",                   CARD_AMD_RADEON_RX_480},
+    {"POLARIS11",                   CARD_AMD_RADEON_RX_460},
     /* Sea Islands */
     {"HAWAII",                      CARD_AMD_RADEON_R9    },
     {"KAVERI",                      CARD_AMD_RADEON_R7    },
@@ -2472,7 +2480,7 @@ static enum wined3d_pci_device wined3d_guess_card(const struct shader_caps *shad
 static const struct wined3d_vertex_pipe_ops *select_vertex_implementation(const struct wined3d_gl_info *gl_info,
         const struct wined3d_shader_backend_ops *shader_backend_ops)
 {
-    if (shader_backend_ops == &glsl_shader_backend)
+    if (shader_backend_ops == &glsl_shader_backend && gl_info->supported[ARB_VERTEX_SHADER])
         return &glsl_vertex_pipe;
     return &ffp_vertex_pipe;
 }
@@ -2480,9 +2488,9 @@ static const struct wined3d_vertex_pipe_ops *select_vertex_implementation(const 
 static const struct fragment_pipeline *select_fragment_implementation(const struct wined3d_gl_info *gl_info,
         const struct wined3d_shader_backend_ops *shader_backend_ops)
 {
-    if (shader_backend_ops == &glsl_shader_backend)
+    if (shader_backend_ops == &glsl_shader_backend && gl_info->supported[ARB_FRAGMENT_SHADER])
         return &glsl_fragment_pipe;
-    if (shader_backend_ops == &arb_program_shader_backend && gl_info->supported[ARB_FRAGMENT_PROGRAM])
+    if (gl_info->supported[ARB_FRAGMENT_PROGRAM])
         return &arbfp_fragment_pipeline;
     if (gl_info->supported[ATI_FRAGMENT_SHADER])
         return &atifs_fragment_pipeline;
@@ -2497,18 +2505,12 @@ static const struct wined3d_shader_backend_ops *select_shader_backend(const stru
 {
     BOOL glsl = wined3d_settings.glslRequested && gl_info->glsl_version >= MAKEDWORD_VERSION(1, 20);
 
-    if (glsl && gl_info->supported[ARB_FRAGMENT_SHADER])
+    if (glsl && gl_info->supported[ARB_VERTEX_SHADER] && gl_info->supported[ARB_FRAGMENT_SHADER])
         return &glsl_shader_backend;
-    if (glsl && gl_info->supported[ARB_VERTEX_SHADER])
-    {
-        /* Geforce4 cards support GLSL but for vertex shaders only. Further
-         * its reported GLSL caps are wrong. This combined with the fact that
-         * GLSL won't offer more features or performance, use ARB shaders only
-         * on this card. */
-        if (gl_info->supported[NV_VERTEX_PROGRAM] && !gl_info->supported[NV_VERTEX_PROGRAM2])
-            return &arb_program_shader_backend;
+    if (gl_info->supported[ARB_VERTEX_PROGRAM] && gl_info->supported[ARB_FRAGMENT_PROGRAM])
+        return &arb_program_shader_backend;
+    if (glsl && (gl_info->supported[ARB_VERTEX_SHADER] || gl_info->supported[ARB_FRAGMENT_SHADER]))
         return &glsl_shader_backend;
-    }
     if (gl_info->supported[ARB_VERTEX_PROGRAM] || gl_info->supported[ARB_FRAGMENT_PROGRAM])
         return &arb_program_shader_backend;
     return &none_shader_backend;
@@ -2706,6 +2708,9 @@ static void load_gl_funcs(struct wined3d_gl_info *gl_info)
     USE_GL_FUNC(glGetSamplerParameterfv)
     USE_GL_FUNC(glGetSamplerParameterIiv)
     USE_GL_FUNC(glGetSamplerParameterIuiv)
+    /* GL_ARB_shader_image_load_store */
+    USE_GL_FUNC(glBindImageTexture)
+    USE_GL_FUNC(glMemoryBarrier)
     /* GL_ARB_shader_objects */
     USE_GL_FUNC(glAttachObjectARB)
     USE_GL_FUNC(glBindAttribLocationARB)
@@ -3621,6 +3626,7 @@ static BOOL wined3d_adapter_init_gl_caps(struct wined3d_adapter *adapter, DWORD 
 
         {ARB_INTERNALFORMAT_QUERY,         MAKEDWORD_VERSION(4, 2)},
         {ARB_MAP_BUFFER_ALIGNMENT,         MAKEDWORD_VERSION(4, 2)},
+        {ARB_SHADER_IMAGE_LOAD_STORE,      MAKEDWORD_VERSION(4, 2)},
         {ARB_TEXTURE_COMPRESSION_BPTC,     MAKEDWORD_VERSION(4, 2)},
         {ARB_TEXTURE_STORAGE,              MAKEDWORD_VERSION(4, 2)},
 

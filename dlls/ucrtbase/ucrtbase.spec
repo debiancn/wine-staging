@@ -93,7 +93,7 @@
 @ cdecl __fpecode()
 @ stub __initialize_lconv_for_unsigned_char
 @ stub __intrinsic_abnormal_termination
-@ stub __intrinsic_setjmp
+@ cdecl -arch=i386,x86_64,arm -norelay __intrinsic_setjmp(ptr) MSVCRT__setjmp
 @ stub __intrinsic_setjmpex
 @ cdecl __isascii(long) MSVCRT___isascii
 @ cdecl __iscsym(long) MSVCRT___iscsym
@@ -2432,9 +2432,9 @@
 @ stub nan
 @ stub nanf
 @ stub nanl
-@ stub nearbyint
-@ stub nearbyintf
-@ stub nearbyintl
+@ cdecl nearbyint(double) MSVCRT_nearbyint
+@ cdecl nearbyintf(float) MSVCRT_nearbyintf
+@ cdecl nearbyintl(double) MSVCRT_nearbyint
 @ cdecl nextafter(double double) MSVCRT__nextafter
 @ cdecl nextafterf(float float) MSVCRT__nextafterf
 @ cdecl nextafterl(double double) MSVCRT__nextafter

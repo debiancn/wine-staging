@@ -43,6 +43,7 @@ static const char * const shader_opcode_names[] =
     /* WINED3DSIH_ABS                              */ "abs",
     /* WINED3DSIH_ADD                              */ "add",
     /* WINED3DSIH_AND                              */ "and",
+    /* WINED3DSIH_ATOMIC_IADD                      */ "atomic_iadd",
     /* WINED3DSIH_BEM                              */ "bem",
     /* WINED3DSIH_BFI                              */ "bfi",
     /* WINED3DSIH_BFREV                            */ "bfrev",
@@ -889,7 +890,8 @@ static HRESULT shader_get_registers_used(struct wined3d_shader *shader, const st
         }
 
         /* Handle declarations. */
-        if (ins.handler_idx == WINED3DSIH_DCL)
+        if (ins.handler_idx == WINED3DSIH_DCL
+                || ins.handler_idx == WINED3DSIH_DCL_UAV_TYPED)
         {
             struct wined3d_shader_semantic *semantic = &ins.declaration.semantic;
             unsigned int reg_idx = semantic->reg.reg.idx[0].offset;
@@ -935,6 +937,16 @@ static HRESULT shader_get_registers_used(struct wined3d_shader *shader, const st
                     }
                     reg_maps->resource_info[reg_idx].type = semantic->resource_type;
                     reg_maps->resource_info[reg_idx].data_type = semantic->resource_data_type;
+                    break;
+
+                case WINED3DSPR_UAV:
+                    if (reg_idx >= ARRAY_SIZE(reg_maps->uav_resource_info))
+                    {
+                        ERR("Invalid UAV resource index %u.\n", reg_idx);
+                        break;
+                    }
+                    reg_maps->uav_resource_info[reg_idx].type = semantic->resource_type;
+                    reg_maps->uav_resource_info[reg_idx].data_type = semantic->resource_data_type;
                     break;
 
                 default:
@@ -1216,7 +1228,20 @@ static HRESULT shader_get_registers_used(struct wined3d_shader *shader, const st
                 }
             }
 
-            if (ins.handler_idx == WINED3DSIH_NRM) reg_maps->usesnrm = 1;
+            if (ins.handler_idx == WINED3DSIH_ATOMIC_IADD)
+            {
+                unsigned int reg_idx = ins.dst[0].reg.idx[0].offset;
+                if (reg_idx >= MAX_UNORDERED_ACCESS_VIEWS)
+                {
+                    ERR("Invalid UAV index %u.\n", reg_idx);
+                    break;
+                }
+                reg_maps->uav_read_mask |= (1u << reg_idx);
+            }
+            else if (ins.handler_idx == WINED3DSIH_NRM)
+            {
+                reg_maps->usesnrm = 1;
+            }
             else if (ins.handler_idx == WINED3DSIH_DSY
                     || ins.handler_idx == WINED3DSIH_DSY_COARSE
                     || ins.handler_idx == WINED3DSIH_DSY_FINE)
@@ -1257,7 +1282,7 @@ static HRESULT shader_get_registers_used(struct wined3d_shader *shader, const st
                         ins.src[2].reg.idx[0].offset, reg_maps->sampler_map.count);
             }
             else if (ins.handler_idx == WINED3DSIH_LD
-                    || ins.handler_idx == WINED3DSIH_RESINFO)
+                    || (ins.handler_idx == WINED3DSIH_RESINFO && ins.src[1].reg.type == WINED3DSPR_RESOURCE))
             {
                 shader_record_sample(reg_maps, ins.src[1].reg.idx[0].offset,
                         WINED3D_SAMPLER_DEFAULT, reg_maps->sampler_map.count);
