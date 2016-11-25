@@ -50,6 +50,26 @@ WINE_DECLARE_DEBUG_CHANNEL(winediag);
 #define WINED3D_GLSL_SAMPLE_LOAD        0x08
 #define WINED3D_GLSL_SAMPLE_OFFSET      0x10
 
+static const struct
+{
+    unsigned int coord_size;
+    unsigned int resinfo_size;
+    const char *type_part;
+}
+resource_type_info[] =
+{
+    {0, 0, ""},        /* WINED3D_SHADER_RESOURCE_NONE */
+    {1, 1, ""},        /* WINED3D_SHADER_RESOURCE_BUFFER */
+    {1, 1, "1D"},      /* WINED3D_SHADER_RESOURCE_TEXTURE_1D */
+    {2, 2, "2D"},      /* WINED3D_SHADER_RESOURCE_TEXTURE_2D */
+    {2, 2, ""},        /* WINED3D_SHADER_RESOURCE_TEXTURE_2DMS */
+    {3, 3, "3D"},      /* WINED3D_SHADER_RESOURCE_TEXTURE_3D */
+    {3, 2, "Cube"},    /* WINED3D_SHADER_RESOURCE_TEXTURE_CUBE */
+    {2, 2, ""},        /* WINED3D_SHADER_RESOURCE_TEXTURE_1DARRAY */
+    {3, 3, "2DArray"}, /* WINED3D_SHADER_RESOURCE_TEXTURE_2DARRAY */
+    {3, 3, ""},        /* WINED3D_SHADER_RESOURCE_TEXTURE_2DMSARRAY */
+};
+
 struct glsl_dst_param
 {
     char reg_name[150];
@@ -574,7 +594,7 @@ static void shader_glsl_load_samplers(const struct wined3d_gl_info *gl_info,
             GL_EXTCALL(glUniform1i(name_loc, mapped_unit));
         }
     }
-    checkGLcall("glUniform1i");
+    checkGLcall("Load sampler bindings");
     string_buffer_release(&priv->string_buffers, sampler_name);
 }
 
@@ -596,6 +616,31 @@ static void shader_glsl_load_icb(const struct wined3d_gl_info *gl_info, struct s
 
         string_buffer_release(&priv->string_buffers, icb_name);
     }
+}
+
+/* Context activation is done by the caller. */
+static void shader_glsl_load_images(const struct wined3d_gl_info *gl_info, struct shader_glsl_priv *priv,
+        GLuint program_id, const struct wined3d_shader_reg_maps *reg_maps)
+{
+    struct wined3d_string_buffer *name = string_buffer_get(&priv->string_buffers);
+    GLint location;
+    unsigned int i;
+
+    for (i = 0; i < MAX_UNORDERED_ACCESS_VIEWS; ++i)
+    {
+        if (!reg_maps->uav_resource_info[i].type)
+            continue;
+
+        string_buffer_sprintf(name, "ps_image%u", i);
+        location = GL_EXTCALL(glGetUniformLocation(program_id, name->buffer));
+        if (location == -1)
+            continue;
+
+        TRACE("Loading image %s on unit %u.\n", name->buffer, i);
+        GL_EXTCALL(glUniform1i(location, i));
+    }
+    checkGLcall("Load image bindings");
+    string_buffer_release(&priv->string_buffers, name);
 }
 
 /* Context activation is done by the caller. */
@@ -2040,6 +2085,64 @@ static void shader_generate_glsl_declarations(const struct wined3d_context *cont
                 sampler_type_prefix, sampler_type, prefix, entry->bind_idx);
     }
 
+    /* Declare images */
+    for (i = 0; i < ARRAY_SIZE(reg_maps->uav_resource_info); ++i)
+    {
+        const char *image_type_prefix, *image_type, *read_format;
+
+        if (!reg_maps->uav_resource_info[i].type)
+            continue;
+
+        switch (reg_maps->uav_resource_info[i].data_type)
+        {
+            case WINED3D_DATA_FLOAT:
+            case WINED3D_DATA_UNORM:
+            case WINED3D_DATA_SNORM:
+                image_type_prefix = "";
+                read_format = "r32f";
+                break;
+
+            case WINED3D_DATA_INT:
+                image_type_prefix = "i";
+                read_format = "r32i";
+                break;
+
+            case WINED3D_DATA_UINT:
+                image_type_prefix = "u";
+                read_format = "r32ui";
+                break;
+
+            default:
+                image_type_prefix = "";
+                read_format = "";
+                ERR("Unhandled resource data type %#x.\n", reg_maps->uav_resource_info[i].data_type);
+                break;
+        }
+
+        switch (reg_maps->uav_resource_info[i].type)
+        {
+            case WINED3D_SHADER_RESOURCE_TEXTURE_2D:
+                image_type = "image2D";
+                break;
+
+            case WINED3D_SHADER_RESOURCE_TEXTURE_3D:
+                image_type = "image3D";
+                break;
+
+            default:
+                image_type = "unsupported_image";
+                FIXME("Unhandled resource type %#x.\n", reg_maps->uav_resource_info[i].type);
+                break;
+        }
+
+        if (reg_maps->uav_read_mask & (1u << i))
+            shader_addline(buffer, "layout(%s) uniform %s%s %s_image%u;\n",
+                    read_format, image_type_prefix, image_type, prefix, i);
+        else
+            shader_addline(buffer, "writeonly uniform %s%s %s_image%u;\n",
+                    image_type_prefix, image_type, prefix, i);
+    }
+
     /* Declare uniforms for NP2 texcoord fixup:
      * This is NOT done inside the loop that declares the texture samplers
      * since the NP2 fixup code is currently only used for the GeforceFX
@@ -2746,8 +2849,9 @@ static void shader_glsl_get_swizzle(const struct wined3d_shader_src_param *param
 /* From a given parameter token, generate the corresponding GLSL string.
  * Also, return the actual register name and swizzle in case the
  * caller needs this information as well. */
-static void shader_glsl_add_src_param(const struct wined3d_shader_instruction *ins,
-        const struct wined3d_shader_src_param *wined3d_src, DWORD mask, struct glsl_src_param *glsl_src)
+static void shader_glsl_add_src_param_ext(const struct wined3d_shader_instruction *ins,
+        const struct wined3d_shader_src_param *wined3d_src, DWORD mask, struct glsl_src_param *glsl_src,
+        enum wined3d_data_type data_type)
 {
     BOOL is_color = FALSE;
     char swizzle_str[6];
@@ -2767,7 +2871,7 @@ static void shader_glsl_add_src_param(const struct wined3d_shader_instruction *i
     {
         char reg_name[200];
 
-        switch (wined3d_src->reg.data_type)
+        switch (data_type)
         {
             case WINED3D_DATA_FLOAT:
                 sprintf(reg_name, "%s", glsl_src->reg_name);
@@ -2781,13 +2885,19 @@ static void shader_glsl_add_src_param(const struct wined3d_shader_instruction *i
                 sprintf(reg_name, "floatBitsToUint(%s)", glsl_src->reg_name);
                 break;
             default:
-                FIXME("Unhandled data type %#x.\n", wined3d_src->reg.data_type);
+                FIXME("Unhandled data type %#x.\n", data_type);
                 sprintf(reg_name, "%s", glsl_src->reg_name);
                 break;
         }
 
         shader_glsl_gen_modifier(wined3d_src->modifiers, reg_name, swizzle_str, glsl_src->param_str);
     }
+}
+
+static void shader_glsl_add_src_param(const struct wined3d_shader_instruction *ins,
+        const struct wined3d_shader_src_param *wined3d_src, DWORD mask, struct glsl_src_param *glsl_src)
+{
+    shader_glsl_add_src_param_ext(ins, wined3d_src, mask, glsl_src, wined3d_src->reg.data_type);
 }
 
 /* From a given parameter token, generate the corresponding GLSL string.
@@ -2904,24 +3014,6 @@ static BOOL shader_glsl_has_core_grad(const struct wined3d_gl_info *gl_info,
 static void shader_glsl_get_sample_function(const struct wined3d_shader_context *ctx,
         DWORD resource_idx, DWORD sampler_idx, DWORD flags, struct glsl_sample_function *sample_function)
 {
-    static const struct
-    {
-        unsigned int coord_size;
-        const char *type_part;
-    }
-    resource_types[] =
-    {
-        {0, ""},        /* WINED3D_SHADER_RESOURCE_NONE */
-        {1, ""},        /* WINED3D_SHADER_RESOURCE_BUFFER */
-        {1, "1D"},      /* WINED3D_SHADER_RESOURCE_TEXTURE_1D */
-        {2, "2D"},      /* WINED3D_SHADER_RESOURCE_TEXTURE_2D */
-        {2, ""},        /* WINED3D_SHADER_RESOURCE_TEXTURE_2DMS */
-        {3, "3D"},      /* WINED3D_SHADER_RESOURCE_TEXTURE_3D */
-        {3, "Cube"},    /* WINED3D_SHADER_RESOURCE_TEXTURE_CUBE */
-        {2, ""},        /* WINED3D_SHADER_RESOURCE_TEXTURE_1DARRAY */
-        {3, "2DArray"}, /* WINED3D_SHADER_RESOURCE_TEXTURE_2DARRAY */
-        {3, ""},        /* WINED3D_SHADER_RESOURCE_TEXTURE_2DMSARRAY */
-    };
     enum wined3d_shader_resource_type resource_type = ctx->reg_maps->resource_info[resource_idx].type;
     struct shader_glsl_ctx_priv *priv = ctx->backend_data;
     const struct wined3d_gl_info *gl_info = ctx->gl_info;
@@ -2939,7 +3031,7 @@ static void shader_glsl_get_sample_function(const struct wined3d_shader_context 
 
     sample_function->data_type = ctx->reg_maps->resource_info[resource_idx].data_type;
 
-    if (resource_type >= ARRAY_SIZE(resource_types))
+    if (resource_type >= ARRAY_SIZE(resource_type_info))
     {
         ERR("Unexpected resource type %#x.\n", resource_type);
         resource_type = WINED3D_SHADER_RESOURCE_TEXTURE_2D;
@@ -2956,7 +3048,7 @@ static void shader_glsl_get_sample_function(const struct wined3d_shader_context 
         if (shadow)
             base = "shadow";
 
-        type_part = resource_types[resource_type].type_part;
+        type_part = resource_type_info[resource_type].type_part;
         if (resource_type == WINED3D_SHADER_RESOURCE_TEXTURE_2D && texrect)
             type_part = "2DRect";
         if (!type_part[0])
@@ -2985,7 +3077,7 @@ static void shader_glsl_get_sample_function(const struct wined3d_shader_context 
     string_buffer_sprintf(sample_function->name, "%s%s%s%s%s%s", base, type_part, projected ? "Proj" : "",
             lod ? "Lod" : grad ? "Grad" : "", offset ? "Offset" : "", suffix);
 
-    coord_size = resource_types[resource_type].coord_size;
+    coord_size = resource_type_info[resource_type].coord_size;
     deriv_size = coord_size;
     if (shadow)
         ++coord_size;
@@ -4645,22 +4737,44 @@ static unsigned int shader_glsl_find_sampler(const struct wined3d_shader_sampler
     return ~0u;
 }
 
+static void shader_glsl_atomic(const struct wined3d_shader_instruction *ins)
+{
+    const struct wined3d_shader_reg_maps *reg_maps = ins->ctx->reg_maps;
+    const struct wined3d_shader_version *version = &reg_maps->shader_version;
+    struct glsl_src_param image_coord_param, image_data_param;
+    enum wined3d_shader_resource_type resource_type;
+    enum wined3d_data_type data_type;
+    unsigned int uav_idx;
+    DWORD coord_mask;
+    const char *op;
+
+    switch (ins->handler_idx)
+    {
+        case WINED3DSIH_ATOMIC_IADD: op = "imageAtomicAdd"; break;
+        default:
+            ERR("Unhandled opcode %#x.\n", ins->handler_idx);
+            return;
+    }
+
+    uav_idx = ins->dst[0].reg.idx[0].offset;
+    resource_type = reg_maps->uav_resource_info[uav_idx].type;
+    if (resource_type >= ARRAY_SIZE(resource_type_info))
+    {
+        ERR("Unexpected resource type %#x.\n", resource_type);
+        resource_type = WINED3D_SHADER_RESOURCE_TEXTURE_2D;
+    }
+    data_type = reg_maps->uav_resource_info[uav_idx].data_type;
+    coord_mask = (1u << resource_type_info[resource_type].coord_size) - 1;
+
+    shader_glsl_add_src_param(ins, &ins->src[0], coord_mask, &image_coord_param);
+    shader_glsl_add_src_param_ext(ins, &ins->src[1], WINED3DSP_WRITEMASK_ALL, &image_data_param, data_type);
+    shader_addline(ins->ctx->buffer, "%s(%s_image%u, %s, %s);\n",
+            op, shader_glsl_get_prefix(version->type), uav_idx,
+            image_coord_param.param_str, image_data_param.param_str);
+}
+
 static void shader_glsl_resinfo(const struct wined3d_shader_instruction *ins)
 {
-    static const unsigned int texture_size_component_count[] =
-    {
-        0, /* WINED3D_SHADER_RESOURCE_NONE */
-        1, /* WINED3D_SHADER_RESOURCE_BUFFER */
-        1, /* WINED3D_SHADER_RESOURCE_TEXTURE_1D */
-        2, /* WINED3D_SHADER_RESOURCE_TEXTURE_2D */
-        2, /* WINED3D_SHADER_RESOURCE_TEXTURE_2DMS */
-        3, /* WINED3D_SHADER_RESOURCE_TEXTURE_3D */
-        2, /* WINED3D_SHADER_RESOURCE_TEXTURE_CUBE */
-        2, /* WINED3D_SHADER_RESOURCE_TEXTURE_1DARRAY */
-        3, /* WINED3D_SHADER_RESOURCE_TEXTURE_2DARRAY */
-        3, /* WINED3D_SHADER_RESOURCE_TEXTURE_2DMSARRAY */
-    };
-
     const struct wined3d_shader_version *version = &ins->ctx->reg_maps->shader_version;
     const struct wined3d_gl_info *gl_info = ins->ctx->gl_info;
     enum wined3d_shader_resource_type resource_type;
@@ -4685,7 +4799,7 @@ static void shader_glsl_resinfo(const struct wined3d_shader_instruction *ins)
     sampler_bind_idx = shader_glsl_find_sampler(&ins->ctx->reg_maps->sampler_map,
             resource_idx, WINED3D_SAMPLER_DEFAULT);
 
-    if (resource_type >= ARRAY_SIZE(texture_size_component_count))
+    if (resource_type >= ARRAY_SIZE(resource_type_info))
     {
         ERR("Unexpected resource type %#x.\n", resource_type);
         resource_type = WINED3D_SHADER_RESOURCE_TEXTURE_2D;
@@ -4699,7 +4813,7 @@ static void shader_glsl_resinfo(const struct wined3d_shader_instruction *ins)
     shader_addline(ins->ctx->buffer, "textureSize(%s_sampler%u, %s), ",
             shader_glsl_get_prefix(version->type), sampler_bind_idx, lod_param.param_str);
 
-    for (i = 0; i < 3 - texture_size_component_count[resource_type]; ++i)
+    for (i = 0; i < 3 - resource_type_info[resource_type].resinfo_size; ++i)
         shader_addline(ins->ctx->buffer, "0, ");
 
     if (gl_info->supported[ARB_TEXTURE_QUERY_LEVELS])
@@ -5879,6 +5993,8 @@ static void shader_glsl_enable_extensions(struct wined3d_string_buffer *buffer,
 {
     if (gl_info->supported[ARB_SHADER_BIT_ENCODING])
         shader_addline(buffer, "#extension GL_ARB_shader_bit_encoding : enable\n");
+    if (gl_info->supported[ARB_SHADER_IMAGE_LOAD_STORE])
+        shader_addline(buffer, "#extension GL_ARB_shader_image_load_store : enable\n");
     if (gl_info->supported[ARB_TEXTURE_QUERY_LEVELS])
         shader_addline(buffer, "#extension GL_ARB_texture_query_levels : enable\n");
     if (gl_info->supported[ARB_UNIFORM_BUFFER_OBJECT])
@@ -8025,6 +8141,7 @@ static void set_glsl_shader_program(const struct wined3d_context *context, const
 
             shader_glsl_init_uniform_block_bindings(gl_info, priv, program_id, &pshader->reg_maps);
             shader_glsl_load_icb(gl_info, priv, program_id, &pshader->reg_maps);
+            shader_glsl_load_images(gl_info, priv, program_id, &pshader->reg_maps);
         }
         else
         {
@@ -8613,7 +8730,8 @@ static void shader_glsl_get_caps(const struct wined3d_gl_info *gl_info, struct s
      * soon as we introduce them, adjusting the GL / GLSL version checks
      * accordingly. */
     if (gl_info->glsl_version >= MAKEDWORD_VERSION(4, 30) && gl_info->supported[WINED3D_GL_VERSION_4_3]
-            && gl_info->supported[ARB_DERIVATIVE_CONTROL])
+            && gl_info->supported[ARB_DERIVATIVE_CONTROL]
+            && gl_info->supported[ARB_SHADER_IMAGE_LOAD_STORE])
         shader_model = 5;
     else if (gl_info->glsl_version >= MAKEDWORD_VERSION(1, 50) && gl_info->supported[WINED3D_GL_VERSION_3_2]
             && gl_info->supported[ARB_SHADER_BIT_ENCODING] && gl_info->supported[ARB_SAMPLER_OBJECTS]
@@ -8686,6 +8804,7 @@ static const SHADER_HANDLER shader_glsl_instruction_handler_table[WINED3DSIH_TAB
     /* WINED3DSIH_ABS                              */ shader_glsl_map2gl,
     /* WINED3DSIH_ADD                              */ shader_glsl_binop,
     /* WINED3DSIH_AND                              */ shader_glsl_binop,
+    /* WINED3DSIH_ATOMIC_IADD                      */ shader_glsl_atomic,
     /* WINED3DSIH_BEM                              */ shader_glsl_bem,
     /* WINED3DSIH_BFI                              */ NULL,
     /* WINED3DSIH_BFREV                            */ NULL,
@@ -8731,7 +8850,7 @@ static const SHADER_HANDLER shader_glsl_instruction_handler_table[WINED3DSIH_TAB
     /* WINED3DSIH_DCL_TGSM_RAW                     */ NULL,
     /* WINED3DSIH_DCL_TGSM_STRUCTURED              */ NULL,
     /* WINED3DSIH_DCL_THREAD_GROUP                 */ NULL,
-    /* WINED3DSIH_DCL_UAV_TYPED                    */ NULL,
+    /* WINED3DSIH_DCL_UAV_TYPED                    */ shader_glsl_nop,
     /* WINED3DSIH_DCL_VERTICES_OUT                 */ shader_glsl_nop,
     /* WINED3DSIH_DEF                              */ shader_glsl_nop,
     /* WINED3DSIH_DEFAULT                          */ shader_glsl_default,

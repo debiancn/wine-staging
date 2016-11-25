@@ -1524,7 +1524,7 @@ WINE_NOTICE_WITH(oss,[test "x$ac_cv_member_oss_sysinfo_numaudioengines" != xyes]
 dnl **** Check for libudev ****
 if test "x$with_udev" != "xno"
 then
-    WINE_PACKAGE_FLAGS(UDEV,[libudev],,,,
+    WINE_PACKAGE_FLAGS(UDEV,[libudev],[-ludev],,,
         [AC_CHECK_HEADERS(libudev.h,
             [AC_CHECK_LIB(udev,udev_new,
                 AC_DEFINE(HAVE_UDEV,1,[Define to 1 if you have the `udev' library (-ludev).]),
@@ -2554,6 +2554,8 @@ AC_CHECK_FUNCS(\
 	lrintf \
 	lround \
 	lroundf \
+	nearbyint \
+	nearbyintf \
 	powl \
 	remainder \
 	remainderf \
@@ -2651,6 +2653,7 @@ WINE_CONFIG_DLL(advpack,,[implib])
 WINE_CONFIG_TEST(dlls/advpack/tests)
 WINE_CONFIG_DLL(amstream,,[clean])
 WINE_CONFIG_TEST(dlls/amstream/tests)
+WINE_CONFIG_DLL(api-ms-win-appmodel-identity-l1-1-0)
 WINE_CONFIG_DLL(api-ms-win-appmodel-runtime-l1-1-1)
 WINE_CONFIG_DLL(api-ms-win-core-apiquery-l1-1-0)
 WINE_CONFIG_DLL(api-ms-win-core-appcompat-l1-1-1)
@@ -2659,6 +2662,7 @@ WINE_CONFIG_DLL(api-ms-win-core-atoms-l1-1-0)
 WINE_CONFIG_DLL(api-ms-win-core-bem-l1-1-0)
 WINE_CONFIG_DLL(api-ms-win-core-com-l1-1-0)
 WINE_CONFIG_DLL(api-ms-win-core-com-l1-1-1)
+WINE_CONFIG_DLL(api-ms-win-core-com-private-l1-1-0)
 WINE_CONFIG_DLL(api-ms-win-core-console-l1-1-0)
 WINE_CONFIG_DLL(api-ms-win-core-console-l2-1-0)
 WINE_CONFIG_DLL(api-ms-win-core-datetime-l1-1-0)
@@ -2772,6 +2776,8 @@ WINE_CONFIG_DLL(api-ms-win-crt-stdio-l1-1-0)
 WINE_CONFIG_DLL(api-ms-win-crt-string-l1-1-0)
 WINE_CONFIG_DLL(api-ms-win-crt-time-l1-1-0)
 WINE_CONFIG_DLL(api-ms-win-crt-utility-l1-1-0)
+WINE_CONFIG_DLL(api-ms-win-devices-config-l1-1-1)
+WINE_CONFIG_DLL(api-ms-win-devices-query-l1-1-1)
 WINE_CONFIG_DLL(api-ms-win-downlevel-advapi32-l1-1-0)
 WINE_CONFIG_DLL(api-ms-win-downlevel-advapi32-l2-1-0)
 WINE_CONFIG_DLL(api-ms-win-downlevel-normaliz-l1-1-0)
@@ -2788,6 +2794,8 @@ WINE_CONFIG_DLL(api-ms-win-eventing-controller-l1-1-0)
 WINE_CONFIG_DLL(api-ms-win-eventing-provider-l1-1-0)
 WINE_CONFIG_DLL(api-ms-win-eventlog-legacy-l1-1-0)
 WINE_CONFIG_DLL(api-ms-win-ntuser-dc-access-l1-1-0)
+WINE_CONFIG_DLL(api-ms-win-power-base-l1-1-0)
+WINE_CONFIG_DLL(api-ms-win-power-setting-l1-1-0)
 WINE_CONFIG_DLL(api-ms-win-rtcore-ntuser-private-l1-1-0)
 WINE_CONFIG_DLL(api-ms-win-security-audit-l1-1-1)
 WINE_CONFIG_DLL(api-ms-win-security-base-l1-1-0)
@@ -2795,6 +2803,8 @@ WINE_CONFIG_DLL(api-ms-win-security-base-l1-2-0)
 WINE_CONFIG_DLL(api-ms-win-security-base-private-l1-1-1)
 WINE_CONFIG_DLL(api-ms-win-security-lsalookup-l1-1-0)
 WINE_CONFIG_DLL(api-ms-win-security-lsalookup-l1-1-1)
+WINE_CONFIG_DLL(api-ms-win-security-lsalookup-l2-1-1)
+WINE_CONFIG_DLL(api-ms-win-security-lsapolicy-l1-1-0)
 WINE_CONFIG_DLL(api-ms-win-security-sddl-l1-1-0)
 WINE_CONFIG_DLL(api-ms-win-service-core-l1-1-0)
 WINE_CONFIG_DLL(api-ms-win-service-core-l1-1-1)
@@ -2910,6 +2920,7 @@ WINE_CONFIG_DLL(d3dx10_43,,[implib],[d3dx10])
 WINE_CONFIG_TEST(dlls/d3dx10_43/tests)
 WINE_CONFIG_DLL(d3dx11_42)
 WINE_CONFIG_DLL(d3dx11_43,,[implib],[d3dx11])
+WINE_CONFIG_TEST(dlls/d3dx11_43/tests)
 WINE_CONFIG_DLL(d3dx9_24)
 WINE_CONFIG_DLL(d3dx9_25)
 WINE_CONFIG_DLL(d3dx9_26)
@@ -3006,6 +3017,7 @@ WINE_CONFIG_DLL(esent)
 WINE_CONFIG_DLL(evr)
 WINE_CONFIG_DLL(explorerframe,,[clean])
 WINE_CONFIG_TEST(dlls/explorerframe/tests)
+WINE_CONFIG_DLL(ext-ms-win-domainjoin-netjoin-l1-1-0)
 WINE_CONFIG_DLL(ext-ms-win-gdi-dc-create-l1-1-1)
 WINE_CONFIG_DLL(ext-ms-win-gdi-dc-l1-2-0)
 WINE_CONFIG_DLL(ext-ms-win-gdi-devcaps-l1-1-0)
