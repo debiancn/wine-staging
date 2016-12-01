@@ -123,7 +123,6 @@ enum wined3d_format_id
     WINED3DFMT_S4X4_UINT_D24_UNORM,
     WINED3DFMT_L16_UNORM,
     WINED3DFMT_S8_UINT_D24_FLOAT,
-    WINED3DFMT_VERTEXDATA,
     WINED3DFMT_R8G8_SNORM_Cx,
     WINED3DFMT_R32G32B32A32_TYPELESS,
     WINED3DFMT_R32G32B32A32_FLOAT,
@@ -833,6 +832,15 @@ enum wined3d_display_rotation
 #define WINED3D_SWAPCHAIN_RESTORE_WINDOW_RECT                   0x00004000u
 
 #define WINED3DDP_MAXTEXCOORD                                   8
+
+#define WINED3D_BIND_VERTEX_BUFFER                              0x00000001
+#define WINED3D_BIND_INDEX_BUFFER                               0x00000002
+#define WINED3D_BIND_CONSTANT_BUFFER                            0x00000004
+#define WINED3D_BIND_SHADER_RESOURCE                            0x00000008
+#define WINED3D_BIND_STREAM_OUTPUT                              0x00000010
+#define WINED3D_BIND_RENDER_TARGET                              0x00000020
+#define WINED3D_BIND_DEPTH_STENCIL                              0x00000040
+#define WINED3D_BIND_UNORDERED_ACCESS                           0x00000080
 
 #define WINED3DUSAGE_RENDERTARGET                               0x00000001
 #define WINED3DUSAGE_DEPTHSTENCIL                               0x00000002
@@ -2322,6 +2330,8 @@ void __cdecl wined3d_device_set_texture_stage_state(struct wined3d_device *devic
         UINT stage, enum wined3d_texture_stage_state state, DWORD value);
 void __cdecl wined3d_device_set_transform(struct wined3d_device *device,
         enum wined3d_transform_state state, const struct wined3d_matrix *matrix);
+void __cdecl wined3d_device_set_unordered_access_view(struct wined3d_device *device,
+        unsigned int idx, struct wined3d_unordered_access_view *uav);
 void __cdecl wined3d_device_set_vertex_declaration(struct wined3d_device *device,
         struct wined3d_vertex_declaration *declaration);
 void __cdecl wined3d_device_set_vertex_shader(struct wined3d_device *device, struct wined3d_shader *shader);

@@ -55,6 +55,14 @@ static void set_rect(D2D1_RECT_F *rect, float left, float top, float right, floa
     rect->bottom = bottom;
 }
 
+static void set_rounded_rect(D2D1_ROUNDED_RECT *rect, float left, float top, float right, float bottom,
+        float radius_x, float radius_y)
+{
+    set_rect(&rect->rect, left, top, right, bottom);
+    rect->radiusX = radius_x;
+    rect->radiusY = radius_y;
+}
+
 static void set_rect_u(D2D1_RECT_U *rect, UINT32 left, UINT32 top, UINT32 right, UINT32 bottom)
 {
     rect->left = left;
@@ -1749,6 +1757,150 @@ static void test_path_geometry(void)
     DestroyWindow(window);
 }
 
+static void test_rectangle_geometry(void)
+{
+    ID2D1RectangleGeometry *geometry;
+    D2D1_RECT_F rect, rect2;
+    ID2D1Factory *factory;
+    D2D1_POINT_2F point;
+    BOOL contains;
+    HRESULT hr;
+
+    hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &IID_ID2D1Factory, NULL, (void **)&factory);
+    ok(SUCCEEDED(hr), "Failed to create factory, hr %#x.\n", hr);
+
+    set_rect(&rect, 0.0f, 0.0f, 0.0f, 0.0f);
+    hr = ID2D1Factory_CreateRectangleGeometry(factory, &rect, &geometry);
+    ok(SUCCEEDED(hr), "Failed to create geometry, hr %#x.\n", hr);
+    ID2D1RectangleGeometry_GetRect(geometry, &rect2);
+    ok(!memcmp(&rect, &rect2, sizeof(rect)), "Got unexpected rectangle {%.8e, %.8e, %.8e, %.8e}.\n",
+            rect2.left, rect2.top, rect2.right, rect2.bottom);
+    ID2D1RectangleGeometry_Release(geometry);
+
+    set_rect(&rect, 50.0f, 0.0f, 40.0f, 100.0f);
+    hr = ID2D1Factory_CreateRectangleGeometry(factory, &rect, &geometry);
+    ok(SUCCEEDED(hr), "Failed to create geometry, hr %#x.\n", hr);
+    ID2D1RectangleGeometry_GetRect(geometry, &rect2);
+    ok(!memcmp(&rect, &rect2, sizeof(rect)), "Got unexpected rectangle {%.8e, %.8e, %.8e, %.8e}.\n",
+            rect2.left, rect2.top, rect2.right, rect2.bottom);
+    ID2D1RectangleGeometry_Release(geometry);
+
+    set_rect(&rect, 0.0f, 100.0f, 40.0f, 50.0f);
+    hr = ID2D1Factory_CreateRectangleGeometry(factory, &rect, &geometry);
+    ok(SUCCEEDED(hr), "Failed to create geometry, hr %#x.\n", hr);
+    ID2D1RectangleGeometry_GetRect(geometry, &rect2);
+    ok(!memcmp(&rect, &rect2, sizeof(rect)), "Got unexpected rectangle {%.8e, %.8e, %.8e, %.8e}.\n",
+            rect2.left, rect2.top, rect2.right, rect2.bottom);
+    ID2D1RectangleGeometry_Release(geometry);
+
+    set_rect(&rect, 50.0f, 100.0f, 40.0f, 50.0f);
+    hr = ID2D1Factory_CreateRectangleGeometry(factory, &rect, &geometry);
+    ok(SUCCEEDED(hr), "Failed to create geometry, hr %#x.\n", hr);
+    ID2D1RectangleGeometry_GetRect(geometry, &rect2);
+    ok(!memcmp(&rect, &rect2, sizeof(rect)), "Got unexpected rectangle {%.8e, %.8e, %.8e, %.8e}.\n",
+            rect2.left, rect2.top, rect2.right, rect2.bottom);
+    ID2D1RectangleGeometry_Release(geometry);
+
+    set_rect(&rect, 0.0f, 0.0f, 10.0f, 20.0f);
+    hr = ID2D1Factory_CreateRectangleGeometry(factory, &rect, &geometry);
+    ok(SUCCEEDED(hr), "Failed to create geometry, hr %#x.\n", hr);
+
+    /* Edge. */
+    contains = FALSE;
+    set_point(&point, 0.0f, 0.0f);
+    hr = ID2D1RectangleGeometry_FillContainsPoint(geometry, point, NULL, 0.0f, &contains);
+    ok(SUCCEEDED(hr), "FillContainsPoint() failed, hr %#x.\n", hr);
+    ok(!!contains, "Got wrong hit test result %d.\n", contains);
+
+    /* Within tolerance limit around corner. */
+    contains = TRUE;
+    set_point(&point, -D2D1_DEFAULT_FLATTENING_TOLERANCE, 0.0f);
+    hr = ID2D1RectangleGeometry_FillContainsPoint(geometry, point, NULL, 0.0f, &contains);
+    ok(SUCCEEDED(hr), "FillContainsPoint() failed, hr %#x.\n", hr);
+    ok(!contains, "Got wrong hit test result %d.\n", contains);
+
+    contains = FALSE;
+    set_point(&point, -D2D1_DEFAULT_FLATTENING_TOLERANCE + 0.01f, 0.0f);
+    hr = ID2D1RectangleGeometry_FillContainsPoint(geometry, point, NULL, 0.0f, &contains);
+    ok(SUCCEEDED(hr), "FillContainsPoint() failed, hr %#x.\n", hr);
+    ok(!!contains, "Got wrong hit test result %d.\n", contains);
+
+    contains = TRUE;
+    set_point(&point, -D2D1_DEFAULT_FLATTENING_TOLERANCE - 0.01f, 0.0f);
+    hr = ID2D1RectangleGeometry_FillContainsPoint(geometry, point, NULL, 0.0f, &contains);
+    ok(SUCCEEDED(hr), "FillContainsPoint() failed, hr %#x.\n", hr);
+    ok(!contains, "Got wrong hit test result %d.\n", contains);
+
+    contains = TRUE;
+    set_point(&point, -D2D1_DEFAULT_FLATTENING_TOLERANCE, -D2D1_DEFAULT_FLATTENING_TOLERANCE);
+    hr = ID2D1RectangleGeometry_FillContainsPoint(geometry, point, NULL, 0.0f, &contains);
+    ok(SUCCEEDED(hr), "FillContainsPoint() failed, hr %#x.\n", hr);
+    ok(!contains, "Got wrong hit test result %d.\n", contains);
+
+    /* Inside. */
+    contains = FALSE;
+    set_point(&point, 5.0f, 5.0f);
+    hr = ID2D1RectangleGeometry_FillContainsPoint(geometry, point, NULL, 0.0f, &contains);
+    ok(SUCCEEDED(hr), "FillContainsPoint() failed, hr %#x.\n", hr);
+    ok(!!contains, "Got wrong hit test result %d.\n", contains);
+
+    ID2D1RectangleGeometry_Release(geometry);
+
+    ID2D1Factory_Release(factory);
+}
+
+static void test_rounded_rectangle_geometry(void)
+{
+    ID2D1RoundedRectangleGeometry *geometry;
+    D2D1_ROUNDED_RECT rect, rect2;
+    ID2D1Factory *factory;
+    HRESULT hr;
+
+    hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &IID_ID2D1Factory, NULL, (void **)&factory);
+    ok(SUCCEEDED(hr), "Failed to create factory, hr %#x.\n", hr);
+
+    set_rounded_rect(&rect, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    hr = ID2D1Factory_CreateRoundedRectangleGeometry(factory, &rect, &geometry);
+todo_wine
+    ok(SUCCEEDED(hr), "Failed to create geometry, hr %#x.\n", hr);
+    if (FAILED(hr))
+    {
+        ID2D1Factory_Release(factory);
+        return;
+    }
+
+    ID2D1RoundedRectangleGeometry_GetRoundedRect(geometry, &rect2);
+    ok(!memcmp(&rect, &rect2, sizeof(rect)), "Got unexpected rectangle {%.8e, %.8e, %.8e, %.8e, %.8e, %.8e}.\n",
+            rect2.rect.left, rect2.rect.top, rect2.rect.right, rect2.rect.bottom, rect2.radiusX, rect2.radiusY);
+    ID2D1RoundedRectangleGeometry_Release(geometry);
+
+    /* X radius larger than half width. */
+    set_rounded_rect(&rect, 0.0f, 0.0f, 50.0f, 40.0f, 30.0f, 5.0f);
+    hr = ID2D1Factory_CreateRoundedRectangleGeometry(factory, &rect, &geometry);
+    ID2D1RoundedRectangleGeometry_GetRoundedRect(geometry, &rect2);
+    ok(!memcmp(&rect, &rect2, sizeof(rect)), "Got unexpected rectangle {%.8e, %.8e, %.8e, %.8e, %.8e, %.8e}.\n",
+            rect2.rect.left, rect2.rect.top, rect2.rect.right, rect2.rect.bottom, rect2.radiusX, rect2.radiusY);
+    ID2D1RoundedRectangleGeometry_Release(geometry);
+
+    /* Y radius larger than half height. */
+    set_rounded_rect(&rect, 0.0f, 0.0f, 50.0f, 40.0f, 5.0f, 30.0f);
+    hr = ID2D1Factory_CreateRoundedRectangleGeometry(factory, &rect, &geometry);
+    ID2D1RoundedRectangleGeometry_GetRoundedRect(geometry, &rect2);
+    ok(!memcmp(&rect, &rect2, sizeof(rect)), "Got unexpected rectangle {%.8e, %.8e, %.8e, %.8e, %.8e, %.8e}.\n",
+            rect2.rect.left, rect2.rect.top, rect2.rect.right, rect2.rect.bottom, rect2.radiusX, rect2.radiusY);
+    ID2D1RoundedRectangleGeometry_Release(geometry);
+
+    /* Both exceed rectangle size. */
+    set_rounded_rect(&rect, 0.0f, 0.0f, 50.0f, 40.0f, 30.0f, 25.0f);
+    hr = ID2D1Factory_CreateRoundedRectangleGeometry(factory, &rect, &geometry);
+    ID2D1RoundedRectangleGeometry_GetRoundedRect(geometry, &rect2);
+    ok(!memcmp(&rect, &rect2, sizeof(rect)), "Got unexpected rectangle {%.8e, %.8e, %.8e, %.8e, %.8e, %.8e}.\n",
+            rect2.rect.left, rect2.rect.top, rect2.rect.right, rect2.rect.bottom, rect2.radiusX, rect2.radiusY);
+    ID2D1RoundedRectangleGeometry_Release(geometry);
+
+    ID2D1Factory_Release(factory);
+}
+
 static void test_bitmap_formats(void)
 {
     D2D1_BITMAP_PROPERTIES bitmap_desc;
@@ -2637,6 +2789,8 @@ static void test_draw_text_layout(void)
     DWRITE_TEXT_RANGE range;
     D2D1_COLOR_F color;
     ID2D1SolidColorBrush *brush, *brush2;
+    ID2D1RectangleGeometry *geometry;
+    D2D1_RECT_F rect;
 
     if (!(device = create_device()))
     {
@@ -2701,6 +2855,25 @@ static void test_draw_text_layout(void)
     hr = ID2D1RenderTarget_EndDraw(rt, NULL, NULL);
 todo_wine
     ok(hr == D2DERR_WRONG_FACTORY, "EndDraw failure expected, hr %#x.\n", hr);
+
+    /* Effect is d2d resource, but not a brush. */
+    set_rect(&rect, 0.0f, 0.0f, 10.0f, 10.0f);
+    hr = ID2D1Factory_CreateRectangleGeometry(factory, &rect, &geometry);
+    ok(SUCCEEDED(hr), "Failed to geometry, hr %#x.\n", hr);
+
+    range.startPosition = 0;
+    range.length = 4;
+    hr = IDWriteTextLayout_SetDrawingEffect(text_layout, (IUnknown*)geometry, range);
+    ok(SUCCEEDED(hr), "Failed to set drawing effect, hr %#x.\n", hr);
+    ID2D1RectangleGeometry_Release(geometry);
+
+    ID2D1RenderTarget_BeginDraw(rt);
+
+    origin.x = origin.y = 0.0f;
+    ID2D1RenderTarget_DrawTextLayout(rt, origin, text_layout, (ID2D1Brush*)brush, D2D1_DRAW_TEXT_OPTIONS_NONE);
+
+    hr = ID2D1RenderTarget_EndDraw(rt, NULL, NULL);
+    ok(hr == S_OK, "EndDraw failure expected, hr %#x.\n", hr);
 
     IDWriteTextFormat_Release(text_format);
     IDWriteTextLayout_Release(text_layout);
@@ -2979,6 +3152,7 @@ static void test_bitmap_target(void)
     ID2D1HwndRenderTarget *hwnd_rt;
     ID2D1Bitmap *bitmap, *bitmap2;
     ID2D1BitmapRenderTarget *rt;
+    ID2D1DCRenderTarget *dc_rt;
     D2D1_SIZE_F size, size2;
     ID2D1Factory *factory;
     ID3D10Device1 *device;
@@ -3110,6 +3284,36 @@ static void test_bitmap_target(void)
     ok(!refcount, "Target should be released, got %u.\n", refcount);
 
     DestroyWindow(hwnd_rt_desc.hwnd);
+
+    /* Compatible target created from a DC target without associated HDC */
+    desc.type = D2D1_RENDER_TARGET_TYPE_DEFAULT;
+    desc.pixelFormat.format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    desc.pixelFormat.alphaMode = D2D1_ALPHA_MODE_PREMULTIPLIED;
+    desc.dpiX = 96.0f;
+    desc.dpiY = 96.0f;
+    desc.usage = D2D1_RENDER_TARGET_USAGE_NONE;
+    desc.minLevel = D2D1_FEATURE_LEVEL_DEFAULT;
+    hr = ID2D1Factory_CreateDCRenderTarget(factory, &desc, &dc_rt);
+    ok(SUCCEEDED(hr), "Failed to create target, hr %#x.\n", hr);
+
+    hr = ID2D1DCRenderTarget_CreateCompatibleRenderTarget(dc_rt, NULL, NULL, NULL,
+            D2D1_COMPATIBLE_RENDER_TARGET_OPTIONS_NONE, &rt);
+    ok(SUCCEEDED(hr), "Failed to create render target, hr %#x.\n", hr);
+
+    pixel_size = ID2D1BitmapRenderTarget_GetPixelSize(rt);
+todo_wine
+    ok(pixel_size.width == 0 && pixel_size.height == 0, "Got wrong size\n");
+
+    hr = ID2D1BitmapRenderTarget_GetBitmap(rt, &bitmap);
+    ok(SUCCEEDED(hr), "GetBitmap() failed, hr %#x.\n", hr);
+    pixel_size = ID2D1Bitmap_GetPixelSize(bitmap);
+todo_wine
+    ok(pixel_size.width == 0 && pixel_size.height == 0, "Got wrong size\n");
+    ID2D1Bitmap_Release(bitmap);
+
+    ID2D1BitmapRenderTarget_Release(rt);
+    ID2D1DCRenderTarget_Release(dc_rt);
+
     ID2D1Factory_Release(factory);
 }
 
@@ -3129,6 +3333,207 @@ static void test_desktop_dpi(void)
     ID2D1Factory_Release(factory);
 }
 
+static void test_stroke_style(void)
+{
+    static const struct
+    {
+        D2D1_DASH_STYLE dash_style;
+        UINT32 dash_count;
+        float dashes[6];
+    }
+    dash_style_tests[] =
+    {
+        {D2D1_DASH_STYLE_SOLID,        0},
+        {D2D1_DASH_STYLE_DASH,         2, {2.0f, 2.0f}},
+        {D2D1_DASH_STYLE_DOT,          2, {0.0f, 2.0f}},
+        {D2D1_DASH_STYLE_DASH_DOT,     4, {2.0f, 2.0f, 0.0f, 2.0f}},
+        {D2D1_DASH_STYLE_DASH_DOT_DOT, 6, {2.0f, 2.0f, 0.0f, 2.0f, 0.0f, 2.0f}},
+    };
+    D2D1_STROKE_STYLE_PROPERTIES desc;
+    ID2D1StrokeStyle *style;
+    ID2D1Factory *factory;
+    UINT32 count;
+    HRESULT hr;
+    D2D1_CAP_STYLE cap_style;
+    D2D1_LINE_JOIN line_join;
+    float miter_limit, dash_offset;
+    D2D1_DASH_STYLE dash_style;
+    unsigned int i;
+    float dashes[2];
+
+    hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &IID_ID2D1Factory, NULL, (void **)&factory);
+    ok(SUCCEEDED(hr), "Failed to create factory, hr %#x.\n", hr);
+
+    desc.startCap = D2D1_CAP_STYLE_SQUARE;
+    desc.endCap = D2D1_CAP_STYLE_ROUND;
+    desc.dashCap = D2D1_CAP_STYLE_TRIANGLE;
+    desc.lineJoin = D2D1_LINE_JOIN_BEVEL;
+    desc.miterLimit = 1.5f;
+    desc.dashStyle = D2D1_DASH_STYLE_DOT;
+    desc.dashOffset = -1.0f;
+
+    hr = ID2D1Factory_CreateStrokeStyle(factory, &desc, NULL, 0, &style);
+    ok(SUCCEEDED(hr), "Failed to create stroke style, %#x.\n", hr);
+
+    cap_style = ID2D1StrokeStyle_GetStartCap(style);
+    ok(cap_style == D2D1_CAP_STYLE_SQUARE, "Unexpected cap style %d.\n", cap_style);
+    cap_style = ID2D1StrokeStyle_GetEndCap(style);
+    ok(cap_style == D2D1_CAP_STYLE_ROUND, "Unexpected cap style %d.\n", cap_style);
+    cap_style = ID2D1StrokeStyle_GetDashCap(style);
+    ok(cap_style == D2D1_CAP_STYLE_TRIANGLE, "Unexpected cap style %d.\n", cap_style);
+    line_join = ID2D1StrokeStyle_GetLineJoin(style);
+    ok(line_join == D2D1_LINE_JOIN_BEVEL, "Unexpected line joind %d.\n", line_join);
+    miter_limit = ID2D1StrokeStyle_GetMiterLimit(style);
+    ok(miter_limit == 1.5f, "Unexpected miter limit %f.\n", miter_limit);
+    dash_style = ID2D1StrokeStyle_GetDashStyle(style);
+    ok(dash_style == D2D1_DASH_STYLE_DOT, "Unexpected dash style %d.\n", dash_style);
+    dash_offset = ID2D1StrokeStyle_GetDashOffset(style);
+    ok(dash_offset == -1.0f, "Unexpected dash offset %f.\n", dash_offset);
+
+    /* Custom dash pattern, no dashes data specified. */
+    desc.startCap = D2D1_CAP_STYLE_SQUARE;
+    desc.endCap = D2D1_CAP_STYLE_ROUND;
+    desc.dashCap = D2D1_CAP_STYLE_TRIANGLE;
+    desc.lineJoin = D2D1_LINE_JOIN_BEVEL;
+    desc.miterLimit = 1.5f;
+    desc.dashStyle = D2D1_DASH_STYLE_CUSTOM;
+    desc.dashOffset = 0.0f;
+
+    hr = ID2D1Factory_CreateStrokeStyle(factory, &desc, NULL, 0, &style);
+    ok(hr == E_INVALIDARG, "Unexpected return value, %#x.\n", hr);
+
+    hr = ID2D1Factory_CreateStrokeStyle(factory, &desc, dashes, 0, &style);
+    ok(hr == E_INVALIDARG, "Unexpected return value, %#x.\n", hr);
+
+    hr = ID2D1Factory_CreateStrokeStyle(factory, &desc, dashes, 1, &style);
+    ok(hr == S_OK, "Unexpected return value, %#x.\n", hr);
+    ID2D1StrokeStyle_Release(style);
+
+    /* Builtin style, dashes are specified. */
+    desc.dashStyle = D2D1_DASH_STYLE_DOT;
+    hr = ID2D1Factory_CreateStrokeStyle(factory, &desc, dashes, 1, &style);
+    ok(hr == E_INVALIDARG, "Unexpected return value, %#x.\n", hr);
+
+    /* Invalid style. */
+    desc.dashStyle = 100;
+    hr = ID2D1Factory_CreateStrokeStyle(factory, &desc, NULL, 0, &style);
+    ok(hr == E_INVALIDARG, "Unexpected return value, %#x.\n", hr);
+
+    /* Test returned dash pattern for builtin styles. */
+    desc.startCap = D2D1_CAP_STYLE_SQUARE;
+    desc.endCap = D2D1_CAP_STYLE_ROUND;
+    desc.dashCap = D2D1_CAP_STYLE_TRIANGLE;
+    desc.lineJoin = D2D1_LINE_JOIN_BEVEL;
+    desc.miterLimit = 1.5f;
+    desc.dashOffset = 0.0f;
+
+    for (i = 0; i < sizeof(dash_style_tests)/sizeof(dash_style_tests[0]); i++)
+    {
+        float dashes[10];
+        UINT dash_count;
+
+        desc.dashStyle = dash_style_tests[i].dash_style;
+
+        hr = ID2D1Factory_CreateStrokeStyle(factory, &desc, NULL, 0, &style);
+        ok(SUCCEEDED(hr), "Failed to create stroke style, %#x.\n", hr);
+
+        dash_count = ID2D1StrokeStyle_GetDashesCount(style);
+        ok(dash_count == dash_style_tests[i].dash_count, "%u: unexpected dash count %u, expected %u.\n",
+                i, dash_count, dash_style_tests[i].dash_count);
+        ok(dash_count < sizeof(dashes)/sizeof(dashes[0]), "%u: unexpectedly large dash count %u.\n", i, dash_count);
+        if (dash_count == dash_style_tests[i].dash_count)
+        {
+            unsigned int j;
+
+            ID2D1StrokeStyle_GetDashes(style, dashes, dash_count);
+            ok(!memcmp(dashes, dash_style_tests[i].dashes, sizeof(*dashes) * dash_count),
+                    "%u: unexpected dash array.\n", i);
+
+            /* Ask for more dashes than style actually has. */
+            memset(dashes, 0xcc, sizeof(dashes));
+            ID2D1StrokeStyle_GetDashes(style, dashes, sizeof(dashes)/sizeof(dashes[0]));
+            ok(!memcmp(dashes, dash_style_tests[i].dashes, sizeof(*dashes) * dash_count),
+                    "%u: unexpected dash array.\n", i);
+
+            for (j = dash_count; j < sizeof(dashes)/sizeof(dashes[0]); j++)
+                ok(dashes[j] == 0.0f, "%u: unexpected dash value at %u.\n", i, j);
+        }
+
+        ID2D1StrokeStyle_Release(style);
+    }
+
+    /* NULL dashes array, non-zero length. */
+    memset(&desc, 0, sizeof(desc));
+    hr = ID2D1Factory_CreateStrokeStyle(factory, &desc, NULL, 1, &style);
+    ok(SUCCEEDED(hr), "Failed to create stroke style, %#x.\n", hr);
+
+    count = ID2D1StrokeStyle_GetDashesCount(style);
+    ok(count == 0, "Unexpected dashes count %u.\n", count);
+
+    ID2D1StrokeStyle_Release(style);
+
+    ID2D1Factory_Release(factory);
+}
+
+static void test_gradient(void)
+{
+    ID2D1GradientStopCollection *gradient;
+    D2D1_GRADIENT_STOP stops[3], stops2[3];
+    IDXGISwapChain *swapchain;
+    ID2D1RenderTarget *rt;
+    ID3D10Device1 *device;
+    IDXGISurface *surface;
+    D2D1_COLOR_F color;
+    unsigned int i;
+    UINT32 count;
+    HWND window;
+    HRESULT hr;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device, skipping tests.\n");
+        return;
+    }
+    window = CreateWindowA("static", "d2d1_test", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            0, 0, 640, 480, NULL, NULL, NULL, NULL);
+    swapchain = create_swapchain(device, window, TRUE);
+    hr = IDXGISwapChain_GetBuffer(swapchain, 0, &IID_IDXGISurface, (void **)&surface);
+    ok(SUCCEEDED(hr), "Failed to get buffer, hr %#x.\n", hr);
+    rt = create_render_target(surface);
+    ok(!!rt, "Failed to create render target.\n");
+
+    stops2[0].position = 0.5f;
+    set_color(&stops2[0].color, 1.0f, 1.0f, 0.0f, 1.0f);
+    stops2[1] = stops2[0];
+    hr = ID2D1RenderTarget_CreateGradientStopCollection(rt, stops2, 2, D2D1_GAMMA_2_2,
+            D2D1_EXTEND_MODE_CLAMP, &gradient);
+    ok(SUCCEEDED(hr), "Failed to create stop collection, hr %#x.\n", hr);
+
+    count = ID2D1GradientStopCollection_GetGradientStopCount(gradient);
+    ok(count == 2, "Unexpected stop count %u.\n", count);
+
+    /* Request more stops than collection has. */
+    stops[0].position = 123.4f;
+    set_color(&stops[0].color, 1.0f, 0.5f, 0.4f, 1.0f);
+    color = stops[0].color;
+    stops[2] = stops[1] = stops[0];
+    ID2D1GradientStopCollection_GetGradientStops(gradient, stops, sizeof(stops)/sizeof(stops[0]));
+    ok(!memcmp(stops, stops2, sizeof(*stops) * count), "Unexpected gradient stops array.\n");
+    for (i = count; i < sizeof(stops)/sizeof(stops[0]); i++)
+    {
+        ok(stops[i].position == 123.4f, "%u: unexpected stop position %f.\n", i, stops[i].position);
+        ok(!memcmp(&stops[i].color, &color, sizeof(color)), "%u: unexpected stop color.\n", i);
+    }
+
+    ID2D1GradientStopCollection_Release(gradient);
+    ID2D1RenderTarget_Release(rt);
+
+    IDXGISurface_Release(surface);
+    IDXGISwapChain_Release(swapchain);
+    ID3D10Device1_Release(device);
+    DestroyWindow(window);
+}
+
 START_TEST(d2d1)
 {
     test_clip();
@@ -3136,6 +3541,8 @@ START_TEST(d2d1)
     test_color_brush();
     test_bitmap_brush();
     test_path_geometry();
+    test_rectangle_geometry();
+    test_rounded_rectangle_geometry();
     test_bitmap_formats();
     test_alpha_mode();
     test_shared_bitmap();
@@ -3147,4 +3554,6 @@ START_TEST(d2d1)
     test_hwnd_target();
     test_bitmap_target();
     test_desktop_dpi();
+    test_stroke_style();
+    test_gradient();
 }

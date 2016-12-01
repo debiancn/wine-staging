@@ -94,6 +94,50 @@ struct wined3d_resource * CDECL wined3d_rendertarget_view_get_resource(const str
     return view->resource;
 }
 
+void wined3d_rendertarget_view_get_drawable_size(const struct wined3d_rendertarget_view *view,
+        const struct wined3d_context *context, unsigned int *width, unsigned int *height)
+{
+    const struct wined3d_texture *texture;
+
+    if (view->resource->type != WINED3D_RTYPE_TEXTURE_2D)
+    {
+        FIXME("Not implemented for %s resources.\n", debug_d3dresourcetype(view->resource->type));
+        *width = 0;
+        *height = 0;
+        return;
+    }
+
+    texture = texture_from_resource(view->resource);
+    if (texture->swapchain)
+    {
+        /* The drawable size of an onscreen drawable is the surface size.
+         * (Actually: The window size, but the surface is created in window
+         * size.) */
+        *width = context->current_rt.texture->resource.width;
+        *height = context->current_rt.texture->resource.height;
+    }
+    else if (wined3d_settings.offscreen_rendering_mode == ORM_BACKBUFFER)
+    {
+        const struct wined3d_swapchain *swapchain = context->swapchain;
+
+        /* The drawable size of a backbuffer / aux buffer offscreen target is
+         * the size of the current context's drawable, which is the size of
+         * the back buffer of the swapchain the active context belongs to. */
+        *width = swapchain->desc.backbuffer_width;
+        *height = swapchain->desc.backbuffer_height;
+    }
+    else
+    {
+        struct wined3d_surface *rt;
+
+        /* The drawable size of an FBO target is the OpenGL texture size,
+         * which is the power of two size. */
+        rt = context->current_rt.texture->sub_resources[context->current_rt.sub_resource_idx].u.surface;
+        *width = wined3d_texture_get_level_pow2_width(rt->container, rt->texture_level);
+        *height = wined3d_texture_get_level_pow2_height(rt->container, rt->texture_level);
+    }
+}
+
 static HRESULT wined3d_rendertarget_view_init(struct wined3d_rendertarget_view *view,
         const struct wined3d_rendertarget_view_desc *desc, struct wined3d_resource *resource,
         void *parent, const struct wined3d_parent_ops *parent_ops)
@@ -460,6 +504,27 @@ void * CDECL wined3d_unordered_access_view_get_parent(const struct wined3d_unord
     return view->parent;
 }
 
+void wined3d_unordered_access_view_invalidate_location(struct wined3d_unordered_access_view *view,
+        DWORD location)
+{
+    struct wined3d_resource *resource = view->resource;
+    struct wined3d_texture *texture;
+    unsigned int sub_resource_idx;
+    unsigned int i;
+
+    if (resource->type == WINED3D_RTYPE_BUFFER || resource->type == WINED3D_RTYPE_TEXTURE_3D)
+    {
+        FIXME("Not implemented for %s resources.\n", debug_d3dresourcetype(resource->type));
+        return;
+    }
+
+    texture = texture_from_resource(resource);
+
+    sub_resource_idx = view->layer_idx * texture->level_count + view->level_idx;
+    for (i = 0; i < view->layer_count; ++i, sub_resource_idx += texture->level_count)
+        wined3d_texture_invalidate_location(texture, sub_resource_idx, location);
+}
+
 static HRESULT wined3d_unordered_access_view_init(struct wined3d_unordered_access_view *view,
         const struct wined3d_unordered_access_view_desc *desc, struct wined3d_resource *resource,
         void *parent, const struct wined3d_parent_ops *parent_ops)
@@ -493,6 +558,16 @@ static HRESULT wined3d_unordered_access_view_init(struct wined3d_unordered_acces
                 || !desc->u.texture.layer_count
                 || desc->u.texture.layer_count > depth_or_layer_count - desc->u.texture.layer_idx)
             return E_INVALIDARG;
+
+        if (desc->u.texture.layer_idx || desc->u.texture.layer_count != depth_or_layer_count)
+        {
+            FIXME("Unordered access view unsupported yet (layers %u-%u).\n",
+                    desc->u.texture.layer_idx, desc->u.texture.layer_count);
+        }
+
+        view->layer_idx = desc->u.texture.layer_idx;
+        view->layer_count = desc->u.texture.layer_count;
+        view->level_idx = desc->u.texture.level_idx;
     }
     wined3d_resource_incref(view->resource = resource);
 

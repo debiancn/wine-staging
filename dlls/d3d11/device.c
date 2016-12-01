@@ -527,6 +527,9 @@ static HRESULT STDMETHODCALLTYPE d3d11_immediate_context_GetData(ID3D11DeviceCon
     TRACE("iface %p, asynchronous %p, data %p, data_size %u, data_flags %#x.\n",
             iface, asynchronous, data, data_size, data_flags);
 
+    if (!data && data_size)
+        return E_INVALIDARG;
+
     wined3d_flags = wined3d_getdata_flags_from_d3d11_async_getdata_flags(data_flags);
 
     wined3d_mutex_lock();
@@ -631,9 +634,12 @@ static void STDMETHODCALLTYPE d3d11_immediate_context_OMSetRenderTargetsAndUnord
         UINT unordered_access_view_start_slot, UINT unordered_access_view_count,
         ID3D11UnorderedAccessView *const *unordered_access_views, const UINT *initial_counts)
 {
-    FIXME("iface %p, render_target_view_count %u, render_target_views %p, depth_stencil_view %p, "
+    struct d3d_device *device = device_from_immediate_ID3D11DeviceContext(iface);
+    unsigned int i;
+
+    TRACE("iface %p, render_target_view_count %u, render_target_views %p, depth_stencil_view %p, "
             "unordered_access_view_start_slot %u, unordered_access_view_count %u, unordered_access_views %p, "
-            "initial_counts %p partial-stub!\n",
+            "initial_counts %p.\n",
             iface, render_target_view_count, render_target_views, depth_stencil_view,
             unordered_access_view_start_slot, unordered_access_view_count, unordered_access_views,
             initial_counts);
@@ -642,6 +648,32 @@ static void STDMETHODCALLTYPE d3d11_immediate_context_OMSetRenderTargetsAndUnord
     {
         d3d11_immediate_context_OMSetRenderTargets(iface, render_target_view_count, render_target_views,
                 depth_stencil_view);
+    }
+
+    if (unordered_access_view_count != D3D11_KEEP_UNORDERED_ACCESS_VIEWS)
+    {
+        if (initial_counts)
+            FIXME("Ignoring initial counts.\n");
+
+        wined3d_mutex_lock();
+        for (i = 0; i < unordered_access_view_start_slot; ++i)
+        {
+            wined3d_device_set_unordered_access_view(device->wined3d_device, i, NULL);
+        }
+        for (i = 0; i < unordered_access_view_count; ++i)
+        {
+            struct d3d11_unordered_access_view *view
+                    = unsafe_impl_from_ID3D11UnorderedAccessView(unordered_access_views[i]);
+
+            wined3d_device_set_unordered_access_view(device->wined3d_device,
+                    unordered_access_view_start_slot + i,
+                    view ? view->wined3d_view : NULL);
+        }
+        for (; unordered_access_view_start_slot + i < D3D11_PS_CS_UAV_REGISTER_COUNT; ++i)
+        {
+            wined3d_device_set_unordered_access_view(device->wined3d_device, i, NULL);
+        }
+        wined3d_mutex_unlock();
     }
 }
 
@@ -2780,8 +2812,11 @@ static HRESULT STDMETHODCALLTYPE d3d11_device_CheckFeatureSupport(ID3D11Device *
                 return E_INVALIDARG;
             }
 
-            threading_data->DriverConcurrentCreates = FALSE;
-            threading_data->DriverCommandLists = FALSE;
+            /* We lie about the threading support to make Tomb Raider 2013 and
+             * Deus Ex: Human Revolution happy. */
+            FIXME("Returning fake threading support data.\n");
+            threading_data->DriverConcurrentCreates = TRUE;
+            threading_data->DriverCommandLists = TRUE;
             return S_OK;
         }
         case D3D11_FEATURE_D3D10_X_HARDWARE_OPTIONS:

@@ -136,7 +136,6 @@ static const struct wined3d_format_channels formats[] =
     {WINED3DFMT_D16_UNORM,                  0,  0,  0,  0,   0,  0,  0,  0,    2,  16,     0},
     {WINED3DFMT_D32_FLOAT,                  0,  0,  0,  0,   0,  0,  0,  0,    4,  32,     0},
     {WINED3DFMT_S8_UINT_D24_FLOAT,          0,  0,  0,  0,   0,  0,  0,  0,    4,  24,     8},
-    {WINED3DFMT_VERTEXDATA,                 0,  0,  0,  0,   0,  0,  0,  0,    0,   0,     0},
     /* Vendor-specific formats */
     {WINED3DFMT_ATI1N,                      0,  0,  0,  0,   0,  0,  0,  0,    1,   0,     0},
     {WINED3DFMT_ATI2N,                      0,  0,  0,  0,   0,  0,  0,  0,    1,   0,     0},
@@ -244,12 +243,18 @@ static const struct wined3d_typed_format_info typed_formats[] =
     {WINED3DFMT_D24_UNORM_S8_UINT,      WINED3DFMT_R24G8_TYPELESS,        "DS"},
     {WINED3DFMT_R8G8_SNORM,             WINED3DFMT_R8G8_TYPELESS,         "ii"},
     {WINED3DFMT_R8G8_UNORM,             WINED3DFMT_R8G8_TYPELESS,         "uu"},
+    {WINED3DFMT_R8G8_UINT,              WINED3DFMT_R8G8_TYPELESS,         "UU"},
+    {WINED3DFMT_R8G8_SINT,              WINED3DFMT_R8G8_TYPELESS,         "II"},
     {WINED3DFMT_R16_UNORM,              WINED3DFMT_R16_TYPELESS,          "u"},
+    {WINED3DFMT_R16_SNORM,              WINED3DFMT_R16_TYPELESS,          "i"},
     {WINED3DFMT_R16_UINT,               WINED3DFMT_R16_TYPELESS,          "U"},
     {WINED3DFMT_R16_SINT,               WINED3DFMT_R16_TYPELESS,          "I"},
     {WINED3DFMT_R16_FLOAT,              WINED3DFMT_R16_TYPELESS,          "F"},
     {WINED3DFMT_D16_UNORM,              WINED3DFMT_R16_TYPELESS,          "D"},
     {WINED3DFMT_R8_UNORM,               WINED3DFMT_R8_TYPELESS,           "u"},
+    {WINED3DFMT_R8_SNORM,               WINED3DFMT_R8_TYPELESS,           "i"},
+    {WINED3DFMT_R8_UINT,                WINED3DFMT_R8_TYPELESS,           "U"},
+    {WINED3DFMT_R8_SINT,                WINED3DFMT_R8_TYPELESS,           "I"},
     {WINED3DFMT_BC1_UNORM_SRGB,         WINED3DFMT_BC1_TYPELESS,          ""},
     {WINED3DFMT_BC1_UNORM,              WINED3DFMT_BC1_TYPELESS,          ""},
     {WINED3DFMT_BC2_UNORM_SRGB,         WINED3DFMT_BC2_TYPELESS,          ""},
@@ -282,6 +287,8 @@ static const struct wined3d_format_ddi_info ddi_formats[] =
     {WINED3DFMT_B5G6R5_UNORM,       D3DDDIFMT_R5G6B5},
     {WINED3DFMT_B5G5R5X1_UNORM,     D3DDDIFMT_X1R5G5B5},
     {WINED3DFMT_B5G5R5A1_UNORM,     D3DDDIFMT_A1R5G5B5},
+    {WINED3DFMT_B4G4R4A4_UNORM,     D3DDDIFMT_A4R4G4B4},
+    {WINED3DFMT_B4G4R4X4_UNORM,     D3DDDIFMT_X4R4G4B4},
     {WINED3DFMT_P8_UINT,            D3DDDIFMT_P8},
 };
 
@@ -1307,6 +1314,46 @@ static const struct wined3d_format_texture_info format_texture_info[] =
             WINED3DFMT_FLAG_TEXTURE | WINED3DFMT_FLAG_POSTPIXELSHADER_BLENDING | WINED3DFMT_FLAG_FILTERING
             | WINED3DFMT_FLAG_RENDERTARGET,
             ARB_TEXTURE_RG,             NULL},
+    {WINED3DFMT_R8G8_UINT,              GL_RG8UI,                         GL_RG8UI,                               0,
+            GL_RG_INTEGER,              GL_UNSIGNED_BYTE,                 0,
+            WINED3DFMT_FLAG_TEXTURE | WINED3DFMT_FLAG_RENDERTARGET,
+            ARB_TEXTURE_RG,             NULL},
+    {WINED3DFMT_R8G8_SINT,              GL_RG8I,                          GL_RG8I,                                0,
+            GL_RG_INTEGER,              GL_BYTE,                          0,
+            WINED3DFMT_FLAG_TEXTURE | WINED3DFMT_FLAG_RENDERTARGET,
+            ARB_TEXTURE_RG,             NULL},
+    {WINED3DFMT_R16G16B16A16_UINT,      GL_RGBA16UI,                      GL_RGBA16UI,                            0,
+            GL_RGBA_INTEGER,            GL_UNSIGNED_SHORT,                0,
+            WINED3DFMT_FLAG_TEXTURE | WINED3DFMT_FLAG_RENDERTARGET,
+            EXT_TEXTURE_INTEGER,        NULL},
+    {WINED3DFMT_R16G16B16A16_SINT,      GL_RGBA16I,                       GL_RGBA16I,                             0,
+            GL_RGBA_INTEGER,            GL_SHORT,                         0,
+            WINED3DFMT_FLAG_TEXTURE | WINED3DFMT_FLAG_RENDERTARGET,
+            EXT_TEXTURE_INTEGER,        NULL},
+    {WINED3DFMT_R32G32_UINT,            GL_RG32UI,                        GL_RG32UI,                              0,
+            GL_RG_INTEGER,              GL_UNSIGNED_INT,                  0,
+            WINED3DFMT_FLAG_TEXTURE | WINED3DFMT_FLAG_RENDERTARGET,
+            ARB_TEXTURE_RG,             NULL},
+    {WINED3DFMT_R32G32_SINT,            GL_RG32I,                         GL_RG32I,                               0,
+            GL_RG_INTEGER,              GL_INT,                           0,
+            WINED3DFMT_FLAG_TEXTURE | WINED3DFMT_FLAG_RENDERTARGET,
+            ARB_TEXTURE_RG,             NULL},
+    {WINED3DFMT_R16G16_UINT,            GL_RG16UI,                        GL_RG16UI,                              0,
+            GL_RG_INTEGER,              GL_UNSIGNED_SHORT,                0,
+            WINED3DFMT_FLAG_TEXTURE | WINED3DFMT_FLAG_RENDERTARGET,
+            ARB_TEXTURE_RG,             NULL},
+    {WINED3DFMT_R16G16_SINT,            GL_RG16I,                         GL_RG16I,                               0,
+            GL_RG_INTEGER,              GL_SHORT,                         0,
+            WINED3DFMT_FLAG_TEXTURE | WINED3DFMT_FLAG_RENDERTARGET,
+            ARB_TEXTURE_RG,             NULL},
+    {WINED3DFMT_R32_UINT,               GL_R32UI,                         GL_R32UI,                               0,
+            GL_RED_INTEGER,             GL_UNSIGNED_INT,                  0,
+            WINED3DFMT_FLAG_TEXTURE | WINED3DFMT_FLAG_RENDERTARGET,
+            ARB_TEXTURE_RG,             NULL},
+    {WINED3DFMT_R32_SINT,               GL_R32I,                          GL_R32I,                                0,
+            GL_RED_INTEGER,             GL_INT,                           0,
+            WINED3DFMT_FLAG_TEXTURE | WINED3DFMT_FLAG_RENDERTARGET,
+            ARB_TEXTURE_RG,             NULL},
     {WINED3DFMT_R16_UNORM,              GL_R16,                           GL_R16,                                 0,
             GL_RED,                     GL_UNSIGNED_SHORT,                0,
             WINED3DFMT_FLAG_TEXTURE | WINED3DFMT_FLAG_POSTPIXELSHADER_BLENDING | WINED3DFMT_FLAG_FILTERING
@@ -1318,6 +1365,14 @@ static const struct wined3d_format_texture_info format_texture_info[] =
             ARB_TEXTURE_RG,             NULL},
     {WINED3DFMT_R16_SINT,               GL_R16I,                          GL_R16I,                                0,
             GL_RED_INTEGER,             GL_SHORT,                         0,
+            WINED3DFMT_FLAG_TEXTURE | WINED3DFMT_FLAG_RENDERTARGET,
+            ARB_TEXTURE_RG,             NULL},
+    {WINED3DFMT_R8_UINT,                GL_R8UI,                          GL_R8UI,                                0,
+            GL_RED_INTEGER,             GL_UNSIGNED_BYTE,                 0,
+            WINED3DFMT_FLAG_TEXTURE | WINED3DFMT_FLAG_RENDERTARGET,
+            ARB_TEXTURE_RG,             NULL},
+    {WINED3DFMT_R8_SINT,                GL_R8I,                           GL_R8I,                                 0,
+            GL_RED_INTEGER,             GL_BYTE,                          0,
             WINED3DFMT_FLAG_TEXTURE | WINED3DFMT_FLAG_RENDERTARGET,
             ARB_TEXTURE_RG,             NULL},
     /* Luminance */
@@ -1426,6 +1481,21 @@ static const struct wined3d_format_texture_info format_texture_info[] =
             GL_RG,                      GL_SHORT,                         0,
             WINED3DFMT_FLAG_TEXTURE | WINED3DFMT_FLAG_POSTPIXELSHADER_BLENDING | WINED3DFMT_FLAG_FILTERING
             | WINED3DFMT_FLAG_RENDERTARGET | WINED3DFMT_FLAG_BUMPMAP,
+            EXT_TEXTURE_SNORM,          NULL},
+    {WINED3DFMT_R16G16B16A16_SNORM,     GL_RGBA16_SNORM,                  GL_RGBA16_SNORM,                        0,
+            GL_RGBA,                    GL_SHORT,                         0,
+            WINED3DFMT_FLAG_TEXTURE | WINED3DFMT_FLAG_POSTPIXELSHADER_BLENDING | WINED3DFMT_FLAG_FILTERING
+            | WINED3DFMT_FLAG_RENDERTARGET,
+            EXT_TEXTURE_SNORM,          NULL},
+    {WINED3DFMT_R16_SNORM,              GL_R16_SNORM,                     GL_R16_SNORM,                           0,
+            GL_RED,                     GL_SHORT,                         0,
+            WINED3DFMT_FLAG_TEXTURE | WINED3DFMT_FLAG_POSTPIXELSHADER_BLENDING | WINED3DFMT_FLAG_FILTERING
+            | WINED3DFMT_FLAG_RENDERTARGET,
+            EXT_TEXTURE_SNORM,          NULL},
+    {WINED3DFMT_R8_SNORM,               GL_R8_SNORM,                      GL_R8_SNORM,                           0,
+            GL_RED,                     GL_BYTE,                          0,
+            WINED3DFMT_FLAG_TEXTURE | WINED3DFMT_FLAG_POSTPIXELSHADER_BLENDING | WINED3DFMT_FLAG_FILTERING
+            | WINED3DFMT_FLAG_RENDERTARGET,
             EXT_TEXTURE_SNORM,          NULL},
     /* Depth stencil formats */
     {WINED3DFMT_D16_LOCKABLE,           GL_DEPTH_COMPONENT,               GL_DEPTH_COMPONENT,                     0,
@@ -2951,6 +3021,7 @@ static BOOL check_filter(const struct wined3d_gl_info *gl_info, GLenum internal)
     gl_info->fbo_ops.glDeleteFramebuffers(1, &fbo);
     gl_info->gl_ops.gl.p_glDeleteTextures(1, &tex);
     gl_info->gl_ops.gl.p_glDeleteTextures(1, &buffer);
+    gl_info->gl_ops.gl.p_glDisable(GL_TEXTURE_2D);
 
     if (gl_info->gl_ops.gl.p_glGetError())
     {
@@ -3664,7 +3735,6 @@ const char *debug_d3dformat(enum wined3d_format_id format_id)
         FMT_TO_STR(WINED3DFMT_S4X4_UINT_D24_UNORM);
         FMT_TO_STR(WINED3DFMT_L16_UNORM);
         FMT_TO_STR(WINED3DFMT_S8_UINT_D24_FLOAT);
-        FMT_TO_STR(WINED3DFMT_VERTEXDATA);
         FMT_TO_STR(WINED3DFMT_R8G8_SNORM_Cx);
         FMT_TO_STR(WINED3DFMT_ATI1N);
         FMT_TO_STR(WINED3DFMT_ATI2N);
@@ -4276,6 +4346,8 @@ const char *debug_d3dstate(DWORD state)
         return wine_dbg_sprintf("STATE_CONSTANT_BUFFER(%s)", debug_shader_type(state - STATE_CONSTANT_BUFFER(0)));
     if (STATE_IS_SHADER_RESOURCE_BINDING(state))
         return "STATE_SHADER_RESOURCE_BINDING";
+    if (STATE_IS_UNORDERED_ACCESS_VIEW_BINDING(state))
+        return "STATE_UNORDERED_ACCESS_VIEW_BINDING";
     if (STATE_IS_TRANSFORM(state))
         return wine_dbg_sprintf("STATE_TRANSFORM(%s)", debug_d3dtstype(state - STATE_TRANSFORM(0)));
     if (STATE_IS_STREAMSRC(state))

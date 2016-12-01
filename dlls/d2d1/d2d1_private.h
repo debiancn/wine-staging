@@ -28,7 +28,7 @@
 #ifdef D2D1_INIT_GUID
 #include "initguid.h"
 #endif
-#include "dwrite.h"
+#include "dwrite_2.h"
 
 enum d2d_brush_type
 {
@@ -223,9 +223,12 @@ struct d2d_stroke_style
     LONG refcount;
 
     ID2D1Factory *factory;
+    D2D1_STROKE_STYLE_PROPERTIES desc;
+    float *dashes;
+    UINT32 dash_count;
 };
 
-void d2d_stroke_style_init(struct d2d_stroke_style *style, ID2D1Factory *factory,
+HRESULT d2d_stroke_style_init(struct d2d_stroke_style *style, ID2D1Factory *factory,
         const D2D1_STROKE_STYLE_PROPERTIES *desc, const float *dashes, UINT32 dash_count) DECLSPEC_HIDDEN;
 
 struct d2d_mesh

@@ -1,3 +1,28 @@
+wine-development (1.9.24-1) unstable; urgency=medium
+
+  [ Michael Gilbert ]
+  * New upstream release 1.9.24, released Nov 25, 2016.
+    - Support for unordered access views in Direct3D.
+    - Many fixes in the regression tests.
+    - Some more improvements in HID support.
+    - Various bug fixes.
+
+  [ Jens Reyer ]
+  * Re-add lintian override hardening-no-pie to the -tools packages.
+
+ -- Michael Gilbert <mgilbert@debian.org>  Fri, 25 Nov 2016 21:58:45 +0000
+
+wine-development (1.9.23-1) unstable; urgency=medium
+
+  * New upstream release 1.9.23, released Nov 11, 2016.
+    - Color font support in Direct2D.
+    - More color formats in Direct3D.
+    - Uninstallation fixes in MSI.
+    - Various bug fixes.
+  * Drop openal.patch, fixed upstream.
+
+ -- Michael Gilbert <mgilbert@debian.org>  Sun, 13 Nov 2016 02:15:18 +0000
+
 wine-development (1.9.22-1~bpo8+1) jessie-backports; urgency=medium
 
   * Rebuild for jessie-backports.

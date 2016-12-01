@@ -179,8 +179,8 @@ static gboolean amt_from_gst_caps_audio(GstCaps *caps, AM_MEDIA_TYPE *amt)
 
 static gboolean amt_from_gst_caps_video(GstCaps *caps, AM_MEDIA_TYPE *amt)
 {
-    VIDEOINFOHEADER *vih = CoTaskMemAlloc(sizeof(*vih));
-    BITMAPINFOHEADER *bih = &vih->bmiHeader;
+    VIDEOINFOHEADER *vih;
+    BITMAPINFOHEADER *bih;
     gint32 width = 0, height = 0, nom = 0, denom = 0;
     GstVideoInfo vinfo;
 
@@ -190,6 +190,9 @@ static gboolean amt_from_gst_caps_video(GstCaps *caps, AM_MEDIA_TYPE *amt)
     height = vinfo.height;
     nom = vinfo.fps_n;
     denom = vinfo.fps_d;
+
+    vih = CoTaskMemAlloc(sizeof(*vih));
+    bih = &vih->bmiHeader;
 
     amt->formattype = FORMAT_VideoInfo;
     amt->pbFormat = (BYTE*)vih;
@@ -207,13 +210,16 @@ static gboolean amt_from_gst_caps_video(GstCaps *caps, AM_MEDIA_TYPE *amt)
             case 32: amt->subtype = MEDIASUBTYPE_RGB32; break;
             default:
                 FIXME("Unknown bpp %u\n", bih->biBitCount);
+                CoTaskMemFree(vih);
                 return FALSE;
         }
         bih->biCompression = BI_RGB;
     } else {
         amt->subtype = MEDIATYPE_Video;
-        if (!(amt->subtype.Data1 = gst_video_format_to_fourcc(vinfo.finfo->format)))
+        if (!(amt->subtype.Data1 = gst_video_format_to_fourcc(vinfo.finfo->format))) {
+            CoTaskMemFree(vih);
             return FALSE;
+        }
         switch (amt->subtype.Data1) {
             case mmioFOURCC('I','4','2','0'):
             case mmioFOURCC('Y','V','1','2'):
@@ -260,7 +266,8 @@ static gboolean accept_caps_sink(GstPad *pad, GstCaps *caps)
             return FALSE;
         }
         ret = amt_from_gst_caps_audio(caps, &amt);
-        FreeMediaType(&amt);
+        if (ret)
+            FreeMediaType(&amt);
         TRACE("+%i\n", ret);
         return ret;
     } else if (!strcmp(typename, "video/x-raw")) {
@@ -269,7 +276,8 @@ static gboolean accept_caps_sink(GstPad *pad, GstCaps *caps)
             return FALSE;
         }
         ret = amt_from_gst_caps_video(caps, &amt);
-        FreeMediaType(&amt);
+        if (ret)
+            FreeMediaType(&amt);
         TRACE("-%i\n", ret);
         return ret;
     } else {
@@ -1075,8 +1083,7 @@ static GstBusSyncReply watch_bus(GstBus *bus, GstMessage *msg, gpointer data)
         WARN("%s: %s\n", GST_OBJECT_NAME(msg->src), err->message);
         WARN("%s\n", dbg_info);
     }
-    if (err)
-        g_error_free(err);
+    g_error_free(err);
     g_free(dbg_info);
     return GST_BUS_DROP;
 }
@@ -1963,6 +1970,7 @@ static HRESULT WINAPI GSTInPin_ReceiveConnection(IPin *iface, IPin *pReceivePin,
     EnterCriticalSection(This->pin.pCritSec);
     if (!This->pin.pConnectedTo) {
         ALLOCATOR_PROPERTIES props;
+        IMemAllocator *pAlloc = NULL;
 
         props.cBuffers = 8;
         props.cbBuffer = 16384;
@@ -1986,8 +1994,19 @@ static HRESULT WINAPI GSTInPin_ReceiveConnection(IPin *iface, IPin *pReceivePin,
             hr = IPin_QueryInterface(pReceivePin, &IID_IAsyncReader, (LPVOID *)&This->pReader);
         if (SUCCEEDED(hr))
             hr = GST_Connect(This, pReceivePin, &props);
+
+        /* A certain IAsyncReader::RequestAllocator expects to be passed
+           non-NULL preferred allocator */
         if (SUCCEEDED(hr))
-            hr = IAsyncReader_RequestAllocator(This->pReader, NULL, &props, &This->pAlloc);
+            hr = CoCreateInstance(&CLSID_MemoryAllocator, NULL, CLSCTX_INPROC,
+                                  &IID_IMemAllocator, (LPVOID *)&pAlloc);
+        if (SUCCEEDED(hr)) {
+            hr = IAsyncReader_RequestAllocator(This->pReader, pAlloc, &props, &This->pAlloc);
+            if (FAILED(hr))
+                WARN("Can't get an allocator, got %08x\n", hr);
+        }
+        if (pAlloc)
+            IMemAllocator_Release(pAlloc);
         if (SUCCEEDED(hr)) {
             CopyMediaType(&This->pin.mtCurrent, pmt);
             This->pin.pConnectedTo = pReceivePin;

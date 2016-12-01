@@ -922,7 +922,7 @@ INT WINAPI SetDIBitsToDevice(HDC hdc, INT xDest, INT yDest, DWORD cx,
 UINT WINAPI SetDIBColorTable( HDC hdc, UINT startpos, UINT entries, const RGBQUAD *colors )
 {
     DC * dc;
-    UINT result = 0;
+    UINT i, result = 0;
     BITMAPOBJ * bitmap;
 
     if (!(dc = get_dc_ptr( hdc ))) return 0;
@@ -932,7 +932,13 @@ UINT WINAPI SetDIBColorTable( HDC hdc, UINT startpos, UINT entries, const RGBQUA
         if (startpos < bitmap->dib.dsBmih.biClrUsed)
         {
             result = min( entries, bitmap->dib.dsBmih.biClrUsed - startpos );
-            memcpy(bitmap->color_table + startpos, colors, result * sizeof(RGBQUAD));
+            for (i = 0; i < result; i++)
+            {
+                bitmap->color_table[startpos + i].rgbBlue     = colors[i].rgbBlue;
+                bitmap->color_table[startpos + i].rgbGreen    = colors[i].rgbGreen;
+                bitmap->color_table[startpos + i].rgbRed      = colors[i].rgbRed;
+                bitmap->color_table[startpos + i].rgbReserved = 0;
+            }
         }
         GDI_ReleaseObj( dc->hBitmap );
 
@@ -1606,6 +1612,8 @@ NTSTATUS WINAPI D3DKMTCreateDCFromMemory( D3DKMT_CREATEDCFROMMEMORY *desc )
         { D3DDDIFMT_R5G6B5,   16, BI_BITFIELDS, 0,   0x0000f800, 0x000007e0, 0x0000001f },
         { D3DDDIFMT_X1R5G5B5, 16, BI_BITFIELDS, 0,   0x00007c00, 0x000003e0, 0x0000001f },
         { D3DDDIFMT_A1R5G5B5, 16, BI_BITFIELDS, 0,   0x00007c00, 0x000003e0, 0x0000001f },
+        { D3DDDIFMT_A4R4G4B4, 16, BI_BITFIELDS, 0,   0x00000f00, 0x000000f0, 0x0000000f },
+        { D3DDDIFMT_X4R4G4B4, 16, BI_BITFIELDS, 0,   0x00000f00, 0x000000f0, 0x0000000f },
         { D3DDDIFMT_P8,       8,  BI_RGB,       256, 0x00000000, 0x00000000, 0x00000000 },
     };
 

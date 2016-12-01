@@ -523,10 +523,9 @@ struct d3d_execute_buffer
     D3DEXECUTEDATA       data;
 
     /* This buffer will store the transformed vertices */
-    void                 *vertex_data;
-    WORD                 *indices;
-    unsigned int         nb_indices;
-    unsigned int         nb_vertices;
+    unsigned int         index_size, index_pos;
+    unsigned int         vertex_size, src_vertex_pos;
+    struct wined3d_buffer *src_vertex_buffer, *dst_vertex_buffer, *index_buffer;
 
     /* This flags is set to TRUE if we allocated ourselves the
      * data buffer

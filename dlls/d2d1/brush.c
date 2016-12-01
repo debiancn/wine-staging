@@ -108,8 +108,6 @@ static void STDMETHODCALLTYPE d2d_gradient_GetGradientStops(ID2D1GradientStopCol
     TRACE("iface %p, stops %p, stop_count %u.\n", iface, stops, stop_count);
 
     memcpy(stops, gradient->stops, min(gradient->stop_count, stop_count) * sizeof(*stops));
-    if (stop_count > gradient->stop_count)
-        memset(stops, 0, (stop_count - gradient->stop_count) * sizeof(*stops));
 }
 
 static D2D1_GAMMA STDMETHODCALLTYPE d2d_gradient_GetColorInterpolationGamma(ID2D1GradientStopCollection *iface)
@@ -881,7 +879,7 @@ HRESULT d2d_brush_get_ps_cb(struct d2d_brush *brush, struct d2d_brush *opacity_b
     {
         if (opacity_brush->type >= sizeof(brush_sizes) / sizeof(*brush_sizes))
         {
-            ERR("Unhandled opacity brush type %#x.\n", brush->type);
+            ERR("Unhandled opacity brush type %#x.\n", opacity_brush->type);
             return E_NOTIMPL;
         }
         buffer_desc.ByteWidth += brush_sizes[opacity_brush->type];

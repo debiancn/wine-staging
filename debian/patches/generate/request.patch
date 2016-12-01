@@ -14,7 +14,7 @@ author: Michael Gilbert <mgilbert@debian.org>
 -        if (/^\#define SERVER_PROTOCOL_VERSION (\d+)/) { $protocol = $1; last; }
 -    }
 -    close SERVER_PROT;
-+    my $protocol = 521;
++    my $protocol = 522;
      return $protocol;
  }
  
@@ -50,7 +50,7 @@ author: Michael Gilbert <mgilbert@debian.org>
  
  DECL_HANDLER(new_process);
  DECL_HANDLER(get_new_process_info);
-@@ -2379,9 +2379,8 @@ C_ASSERT( FIELD_OFFSET(struct terminate_
+@@ -2368,9 +2368,8 @@ C_ASSERT( FIELD_OFFSET(struct terminate_
  C_ASSERT( FIELD_OFFSET(struct terminate_job_request, status) == 16 );
  C_ASSERT( sizeof(struct terminate_job_request) == 24 );
  
@@ -76,7 +76,7 @@ author: Michael Gilbert <mgilbert@debian.org>
  
  static void dump_new_process_request( const struct new_process_request *req )
  {
-@@ -5456,8 +5457,7 @@ static const struct
+@@ -5437,8 +5438,7 @@ static const struct
      { NULL, 0 }
  };
  

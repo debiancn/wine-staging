@@ -244,6 +244,7 @@ typedef struct
     XmlNodeType nodetype;
     DtdProcessing dtdmode;
     IXmlResolver *resolver;
+    IUnknown *mlang;
     UINT line, pos;           /* reader position in XML stream */
     struct list attrs; /* attributes list for current node */
     struct attribute *attr; /* current attribute */
@@ -1600,8 +1601,9 @@ static HRESULT reader_parse_pub_literal(xmlreader *reader, strval *literal)
         reader_skipn(reader, 1);
         cur = reader_get_ptr(reader);
     }
-
     reader_init_strvalue(start, reader_get_cur(reader)-start, literal);
+    if (*cur == quote) reader_skipn(reader, 1);
+
     TRACE("%s\n", debug_strval(reader, literal));
     return S_OK;
 }
@@ -1611,34 +1613,38 @@ static HRESULT reader_parse_externalid(xmlreader *reader)
 {
     static WCHAR systemW[] = {'S','Y','S','T','E','M',0};
     static WCHAR publicW[] = {'P','U','B','L','I','C',0};
-    strval name;
+    strval name, sys;
     HRESULT hr;
     int cnt;
 
-    if (reader_cmp(reader, systemW))
-    {
-        if (reader_cmp(reader, publicW))
-            return S_FALSE;
-        else
-        {
-            strval pub;
+    if (!reader_cmp(reader, publicW)) {
+        strval pub;
 
-            /* public id */
-            reader_skipn(reader, 6);
-            cnt = reader_skipspaces(reader);
-            if (!cnt) return WC_E_WHITESPACE;
+        /* public id */
+        reader_skipn(reader, 6);
+        cnt = reader_skipspaces(reader);
+        if (!cnt) return WC_E_WHITESPACE;
 
-            hr = reader_parse_pub_literal(reader, &pub);
-            if (FAILED(hr)) return hr;
+        hr = reader_parse_pub_literal(reader, &pub);
+        if (FAILED(hr)) return hr;
 
-            reader_init_cstrvalue(publicW, strlenW(publicW), &name);
-            return reader_add_attr(reader, &name, &pub);
-        }
-    }
-    else
-    {
-        strval sys;
+        reader_init_cstrvalue(publicW, strlenW(publicW), &name);
+        hr = reader_add_attr(reader, &name, &pub);
+        if (FAILED(hr)) return hr;
 
+        cnt = reader_skipspaces(reader);
+        if (!cnt) return S_OK;
+
+        /* optional system id */
+        hr = reader_parse_sys_literal(reader, &sys);
+        if (FAILED(hr)) return S_OK;
+
+        reader_init_cstrvalue(systemW, strlenW(systemW), &name);
+        hr = reader_add_attr(reader, &name, &sys);
+        if (FAILED(hr)) return hr;
+
+        return S_OK;
+    } else if (!reader_cmp(reader, systemW)) {
         /* system id */
         reader_skipn(reader, 6);
         cnt = reader_skipspaces(reader);
@@ -1651,7 +1657,7 @@ static HRESULT reader_parse_externalid(xmlreader *reader)
         return reader_add_attr(reader, &name, &sys);
     }
 
-    return hr;
+    return S_FALSE;
 }
 
 /* [28] doctypedecl ::= '<!DOCTYPE' S Name (S ExternalID)? S? ('[' intSubset ']' S?)? '>' */
@@ -2474,6 +2480,7 @@ static ULONG WINAPI xmlreader_Release(IXmlReader *iface)
         IMalloc *imalloc = This->imalloc;
         if (This->input) IUnknown_Release(&This->input->IXmlReaderInput_iface);
         if (This->resolver) IXmlResolver_Release(This->resolver);
+        if (This->mlang) IUnknown_Release(This->mlang);
         reader_clear_attrs(This);
         reader_clear_elements(This);
         reader_free_strvalues(This);
@@ -2558,6 +2565,11 @@ static HRESULT WINAPI xmlreader_GetProperty(IXmlReader* iface, UINT property, LO
 
     switch (property)
     {
+        case XmlReaderProperty_MultiLanguage:
+            *value = (LONG_PTR)This->mlang;
+            if (This->mlang)
+                IUnknown_AddRef(This->mlang);
+            break;
         case XmlReaderProperty_XmlResolver:
             *value = (LONG_PTR)This->resolver;
             if (This->resolver)
@@ -2586,8 +2598,13 @@ static HRESULT WINAPI xmlreader_SetProperty(IXmlReader* iface, UINT property, LO
     switch (property)
     {
         case XmlReaderProperty_MultiLanguage:
-            if (value)
-                FIXME("Ignoring MultiLanguage %lx\n", value);
+            if (This->mlang)
+                IUnknown_Release(This->mlang);
+            This->mlang = (IUnknown*)value;
+            if (This->mlang)
+                IUnknown_AddRef(This->mlang);
+            if (This->mlang)
+                FIXME("Ignoring MultiLanguage %p\n", This->mlang);
             break;
         case XmlReaderProperty_XmlResolver:
             if (This->resolver)
@@ -2996,6 +3013,7 @@ HRESULT WINAPI CreateXmlReader(REFIID riid, void **obj, IMalloc *imalloc)
     reader->resumestate = XmlReadResumeState_Initial;
     reader->dtdmode = DtdProcessing_Prohibit;
     reader->resolver = NULL;
+    reader->mlang = NULL;
     reader->line  = reader->pos = 0;
     reader->imalloc = imalloc;
     if (imalloc) IMalloc_AddRef(imalloc);
