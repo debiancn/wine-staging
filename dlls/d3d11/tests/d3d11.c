@@ -775,8 +775,8 @@ static void check_texture_sub_resource_color_(unsigned int line, ID3D11Texture2D
     }
     release_resource_readback(&rb);
     ok_(__FILE__, line)(all_match,
-            "Got unexpected color 0x%08x at (%u, %u), sub-resource %u.\n",
-            color, x, y, sub_resource_idx);
+            "Got 0x%08x, expected 0x%08x at (%u, %u), sub-resource %u.\n",
+            color, expected_color, x, y, sub_resource_idx);
 }
 
 #define check_texture_color(t, c, d) check_texture_color_(__LINE__, t, c, d)
@@ -818,8 +818,8 @@ static void check_texture_sub_resource_float_(unsigned int line, ID3D11Texture2D
     }
     release_resource_readback(&rb);
     ok_(__FILE__, line)(all_match,
-            "Got unexpected value %.8e at (%u, %u), sub-resource %u.\n",
-            value, x, y, sub_resource_idx);
+            "Got %.8e, expected %.8e at (%u, %u), sub-resource %u.\n",
+            value, expected_value, x, y, sub_resource_idx);
 }
 
 #define check_texture_float(r, f, d) check_texture_float_(__LINE__, r, f, d)
@@ -861,8 +861,10 @@ static void check_texture_sub_resource_vec4_(unsigned int line, ID3D11Texture2D 
     }
     release_resource_readback(&rb);
     ok_(__FILE__, line)(all_match,
-            "Got unexpected value {%.8e, %.8e, %.8e, %.8e} at (%u, %u), sub-resource %u.\n",
-            value.x, value.y, value.z, value.w, x, y, sub_resource_idx);
+            "Got {%.8e, %.8e, %.8e, %.8e}, expected {%.8e, %.8e, %.8e, %.8e} at (%u, %u), sub-resource %u.\n",
+            value.x, value.y, value.z, value.w,
+            expected_value->x, expected_value->y, expected_value->z, expected_value->w,
+            x, y, sub_resource_idx);
 }
 
 #define check_texture_vec4(a, b, c) check_texture_vec4_(__LINE__, a, b, c)
@@ -1598,72 +1600,88 @@ static void test_create_texture2d(void)
     }
     tests[] =
     {
-        {DXGI_FORMAT_R32G32B32A32_TYPELESS,  1, D3D11_BIND_VERTEX_BUFFER,   0, FALSE, TRUE},
-        {DXGI_FORMAT_R32G32B32A32_TYPELESS,  1, D3D11_BIND_INDEX_BUFFER,    0, FALSE, TRUE},
-        {DXGI_FORMAT_R32G32B32A32_TYPELESS,  1, D3D11_BIND_CONSTANT_BUFFER, 0, FALSE, TRUE},
-        {DXGI_FORMAT_R32G32B32A32_TYPELESS,  0, D3D11_BIND_SHADER_RESOURCE, 0, FALSE, FALSE},
-        {DXGI_FORMAT_R32G32B32A32_TYPELESS,  1, D3D11_BIND_SHADER_RESOURCE, 0, TRUE,  FALSE},
-        {DXGI_FORMAT_R32G32B32A32_TYPELESS,  2, D3D11_BIND_SHADER_RESOURCE, 0, TRUE,  FALSE},
-        {DXGI_FORMAT_R32G32B32A32_TYPELESS,  3, D3D11_BIND_SHADER_RESOURCE, 0, TRUE,  FALSE},
-        {DXGI_FORMAT_R32G32B32A32_TYPELESS,  3, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_TEXTURECUBE,
+        {DXGI_FORMAT_R32G32B32A32_TYPELESS,   1, D3D11_BIND_VERTEX_BUFFER,    0, FALSE, TRUE},
+        {DXGI_FORMAT_R32G32B32A32_TYPELESS,   1, D3D11_BIND_INDEX_BUFFER,     0, FALSE, TRUE},
+        {DXGI_FORMAT_R32G32B32A32_TYPELESS,   1, D3D11_BIND_CONSTANT_BUFFER,  0, FALSE, TRUE},
+        {DXGI_FORMAT_R32G32B32A32_TYPELESS,   0, D3D11_BIND_SHADER_RESOURCE,  0, FALSE, FALSE},
+        {DXGI_FORMAT_R32G32B32A32_TYPELESS,   1, D3D11_BIND_SHADER_RESOURCE,  0, TRUE,  FALSE},
+        {DXGI_FORMAT_R32G32B32A32_TYPELESS,   2, D3D11_BIND_SHADER_RESOURCE,  0, TRUE,  FALSE},
+        {DXGI_FORMAT_R32G32B32A32_TYPELESS,   3, D3D11_BIND_SHADER_RESOURCE,  0, TRUE,  FALSE},
+        {DXGI_FORMAT_R32G32B32A32_TYPELESS,   3, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_TEXTURECUBE,
                 FALSE, TRUE},
-        {DXGI_FORMAT_R32G32B32A32_TYPELESS,  1, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_TEXTURECUBE,
+        {DXGI_FORMAT_R32G32B32A32_TYPELESS,   1, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_TEXTURECUBE,
                 FALSE, TRUE},
-        {DXGI_FORMAT_R32G32B32A32_TYPELESS,  5, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_TEXTURECUBE,
+        {DXGI_FORMAT_R32G32B32A32_TYPELESS,   5, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_TEXTURECUBE,
                 FALSE, TRUE},
-        {DXGI_FORMAT_R32G32B32A32_TYPELESS,  6, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_TEXTURECUBE,
+        {DXGI_FORMAT_R32G32B32A32_TYPELESS,   6, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_TEXTURECUBE,
                 TRUE,  FALSE},
-        {DXGI_FORMAT_R32G32B32A32_TYPELESS,  7, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_TEXTURECUBE,
+        {DXGI_FORMAT_R32G32B32A32_TYPELESS,   7, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_TEXTURECUBE,
                 TRUE,  FALSE},
-        {DXGI_FORMAT_R32G32B32A32_TYPELESS, 10, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_TEXTURECUBE,
+        {DXGI_FORMAT_R32G32B32A32_TYPELESS,  10, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_TEXTURECUBE,
                 TRUE,  FALSE},
-        {DXGI_FORMAT_R32G32B32A32_TYPELESS, 12, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_TEXTURECUBE,
+        {DXGI_FORMAT_R32G32B32A32_TYPELESS,  12, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_TEXTURECUBE,
                 TRUE,  FALSE},
-        {DXGI_FORMAT_R32G32B32A32_TYPELESS,  0, D3D11_BIND_RENDER_TARGET,   0, FALSE, FALSE},
-        {DXGI_FORMAT_R32G32B32A32_TYPELESS,  1, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
-        {DXGI_FORMAT_R32G32B32A32_TYPELESS,  2, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
-        {DXGI_FORMAT_R32G32B32A32_TYPELESS,  9, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
-        {DXGI_FORMAT_R32G32B32A32_TYPELESS,  1, D3D11_BIND_DEPTH_STENCIL,   0, FALSE, FALSE},
-        {DXGI_FORMAT_R32G32B32A32_UINT,      1, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
-        {DXGI_FORMAT_R32G32B32A32_SINT,      1, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
-        {DXGI_FORMAT_R32G32B32_TYPELESS,     1, D3D11_BIND_SHADER_RESOURCE, 0, TRUE,  FALSE},
-        {DXGI_FORMAT_R16G16B16A16_TYPELESS,  1, D3D11_BIND_SHADER_RESOURCE, 0, TRUE,  FALSE},
-        {DXGI_FORMAT_R16G16B16A16_TYPELESS,  1, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
-        {DXGI_FORMAT_R32G32_TYPELESS,        1, D3D11_BIND_SHADER_RESOURCE, 0, TRUE,  FALSE},
-        {DXGI_FORMAT_R32G8X24_TYPELESS,      1, D3D11_BIND_DEPTH_STENCIL,   0, TRUE,  TRUE},
-        {DXGI_FORMAT_R10G10B10A2_TYPELESS,   1, D3D11_BIND_SHADER_RESOURCE, 0, TRUE,  FALSE},
-        {DXGI_FORMAT_R10G10B10A2_TYPELESS,   1, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
-        {DXGI_FORMAT_R16G16_TYPELESS,        1, D3D11_BIND_SHADER_RESOURCE, 0, TRUE,  FALSE},
-        {DXGI_FORMAT_R16G16_UNORM,           1, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
-        {DXGI_FORMAT_R16G16_SNORM,           1, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
-        {DXGI_FORMAT_R32_TYPELESS,           0, D3D11_BIND_SHADER_RESOURCE, 0, FALSE, FALSE},
-        {DXGI_FORMAT_R32_TYPELESS,           1, D3D11_BIND_SHADER_RESOURCE, 0, TRUE,  FALSE},
-        {DXGI_FORMAT_R32_TYPELESS,           9, D3D11_BIND_SHADER_RESOURCE, 0, TRUE,  FALSE},
-        {DXGI_FORMAT_R32_TYPELESS,           9, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_TEXTURECUBE,
+        {DXGI_FORMAT_R32G32B32A32_TYPELESS,   0, D3D11_BIND_RENDER_TARGET,    0, FALSE, FALSE},
+        {DXGI_FORMAT_R32G32B32A32_TYPELESS,   1, D3D11_BIND_RENDER_TARGET,    0, TRUE,  FALSE},
+        {DXGI_FORMAT_R32G32B32A32_TYPELESS,   2, D3D11_BIND_RENDER_TARGET,    0, TRUE,  FALSE},
+        {DXGI_FORMAT_R32G32B32A32_TYPELESS,   9, D3D11_BIND_RENDER_TARGET,    0, TRUE,  FALSE},
+        {DXGI_FORMAT_R32G32B32A32_TYPELESS,   1, D3D11_BIND_DEPTH_STENCIL,    0, FALSE, FALSE},
+        {DXGI_FORMAT_R32G32B32A32_UINT,       1, D3D11_BIND_RENDER_TARGET,    0, TRUE,  FALSE},
+        {DXGI_FORMAT_R32G32B32A32_SINT,       1, D3D11_BIND_RENDER_TARGET,    0, TRUE,  FALSE},
+        {DXGI_FORMAT_R32G32B32_TYPELESS,      1, D3D11_BIND_SHADER_RESOURCE,  0, TRUE,  FALSE},
+        {DXGI_FORMAT_R16G16B16A16_TYPELESS,   1, D3D11_BIND_SHADER_RESOURCE,  0, TRUE,  FALSE},
+        {DXGI_FORMAT_R16G16B16A16_TYPELESS,   1, D3D11_BIND_RENDER_TARGET,    0, TRUE,  FALSE},
+        {DXGI_FORMAT_R32G32_TYPELESS,         1, D3D11_BIND_SHADER_RESOURCE,  0, TRUE,  FALSE},
+        {DXGI_FORMAT_R32G8X24_TYPELESS,       1, D3D11_BIND_DEPTH_STENCIL,    0, TRUE,  FALSE},
+        {DXGI_FORMAT_R32G8X24_TYPELESS,       1, D3D11_BIND_UNORDERED_ACCESS, 0, FALSE, TRUE},
+        {DXGI_FORMAT_X32_TYPELESS_G8X24_UINT, 1, D3D11_BIND_UNORDERED_ACCESS, 0, FALSE, TRUE},
+        {DXGI_FORMAT_R10G10B10A2_TYPELESS,    1, D3D11_BIND_SHADER_RESOURCE,  0, TRUE,  FALSE},
+        {DXGI_FORMAT_R10G10B10A2_TYPELESS,    1, D3D11_BIND_RENDER_TARGET,    0, TRUE,  FALSE},
+        {DXGI_FORMAT_R16G16_TYPELESS,         1, D3D11_BIND_SHADER_RESOURCE,  0, TRUE,  FALSE},
+        {DXGI_FORMAT_R16G16_UNORM,            1, D3D11_BIND_RENDER_TARGET,    0, TRUE,  FALSE},
+        {DXGI_FORMAT_R16G16_SNORM,            1, D3D11_BIND_RENDER_TARGET,    0, TRUE,  FALSE},
+        {DXGI_FORMAT_R32_TYPELESS,            0, D3D11_BIND_SHADER_RESOURCE,  0, FALSE, FALSE},
+        {DXGI_FORMAT_R32_TYPELESS,            1, D3D11_BIND_SHADER_RESOURCE,  0, TRUE,  FALSE},
+        {DXGI_FORMAT_R32_TYPELESS,            9, D3D11_BIND_SHADER_RESOURCE,  0, TRUE,  FALSE},
+        {DXGI_FORMAT_R32_TYPELESS,            9, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_DEPTH_STENCIL, 0,
                 TRUE,  FALSE},
-        {DXGI_FORMAT_R32_TYPELESS,           1, D3D11_BIND_DEPTH_STENCIL,   0, TRUE,  FALSE},
-        {DXGI_FORMAT_R24G8_TYPELESS,         1, D3D11_BIND_VERTEX_BUFFER,   0, FALSE, TRUE},
-        {DXGI_FORMAT_R24G8_TYPELESS,         1, D3D11_BIND_INDEX_BUFFER,    0, FALSE, TRUE},
-        {DXGI_FORMAT_R24G8_TYPELESS,         1, D3D11_BIND_CONSTANT_BUFFER, 0, FALSE, TRUE},
-        {DXGI_FORMAT_R24G8_TYPELESS,         1, D3D11_BIND_SHADER_RESOURCE, 0, TRUE,  FALSE},
-        {DXGI_FORMAT_R24G8_TYPELESS,         1, D3D11_BIND_DEPTH_STENCIL,   0, TRUE,  FALSE},
-        {DXGI_FORMAT_R8G8_TYPELESS,          1, D3D11_BIND_SHADER_RESOURCE, 0, TRUE,  FALSE},
-        {DXGI_FORMAT_R8G8_TYPELESS,          1, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
-        {DXGI_FORMAT_R8G8_UNORM,             1, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
-        {DXGI_FORMAT_R8G8_SNORM,             1, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
-        {DXGI_FORMAT_R16_TYPELESS,           1, D3D11_BIND_SHADER_RESOURCE, 0, TRUE,  FALSE},
-        {DXGI_FORMAT_R16_TYPELESS,           1, D3D11_BIND_DEPTH_STENCIL,   0, TRUE,  FALSE},
-        {DXGI_FORMAT_R16_TYPELESS,           1, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
-        {DXGI_FORMAT_R16_UINT,               1, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
-        {DXGI_FORMAT_R16_SINT,               1, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
-        {DXGI_FORMAT_R8_TYPELESS,            1, D3D11_BIND_SHADER_RESOURCE, 0, TRUE,  FALSE},
-        {DXGI_FORMAT_R8G8B8A8_UNORM,         1, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
-        {DXGI_FORMAT_R8G8B8A8_UNORM,         1, D3D11_BIND_DEPTH_STENCIL,   0, FALSE, FALSE},
-        {DXGI_FORMAT_R8G8B8A8_UINT,          1, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
-        {DXGI_FORMAT_R8G8B8A8_SNORM,         1, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
-        {DXGI_FORMAT_R8G8B8A8_SINT,          1, D3D11_BIND_RENDER_TARGET,   0, TRUE,  FALSE},
-        {DXGI_FORMAT_D24_UNORM_S8_UINT,      1, D3D11_BIND_RENDER_TARGET,   0, FALSE, FALSE},
-        {DXGI_FORMAT_D32_FLOAT,              1, D3D11_BIND_RENDER_TARGET,   0, FALSE, FALSE},
+        {DXGI_FORMAT_R32_TYPELESS,            9, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_TEXTURECUBE,
+                TRUE,  FALSE},
+        {DXGI_FORMAT_R32_TYPELESS,            1, D3D11_BIND_RENDER_TARGET,    0, TRUE,  FALSE},
+        {DXGI_FORMAT_R32_TYPELESS,            1, D3D11_BIND_RENDER_TARGET | D3D11_BIND_DEPTH_STENCIL, 0,
+                FALSE, TRUE},
+        {DXGI_FORMAT_R32_TYPELESS,            1, D3D11_BIND_DEPTH_STENCIL,    0, TRUE,  FALSE},
+        {DXGI_FORMAT_R32_TYPELESS,            1, D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_UNORDERED_ACCESS, 0,
+                FALSE, TRUE},
+        {DXGI_FORMAT_R24G8_TYPELESS,          1, D3D11_BIND_VERTEX_BUFFER,    0, FALSE, TRUE},
+        {DXGI_FORMAT_R24G8_TYPELESS,          1, D3D11_BIND_INDEX_BUFFER,     0, FALSE, TRUE},
+        {DXGI_FORMAT_R24G8_TYPELESS,          1, D3D11_BIND_CONSTANT_BUFFER,  0, FALSE, TRUE},
+        {DXGI_FORMAT_R24G8_TYPELESS,          1, D3D11_BIND_SHADER_RESOURCE,  0, TRUE,  FALSE},
+        {DXGI_FORMAT_R24G8_TYPELESS,          1, D3D11_BIND_DEPTH_STENCIL,    0, TRUE,  FALSE},
+        {DXGI_FORMAT_R24G8_TYPELESS,          1, D3D11_BIND_UNORDERED_ACCESS, 0, FALSE, TRUE},
+        {DXGI_FORMAT_X24_TYPELESS_G8_UINT,    1, D3D11_BIND_UNORDERED_ACCESS, 0, FALSE, TRUE},
+        {DXGI_FORMAT_R8G8_TYPELESS,           1, D3D11_BIND_SHADER_RESOURCE,  0, TRUE,  FALSE},
+        {DXGI_FORMAT_R8G8_TYPELESS,           1, D3D11_BIND_RENDER_TARGET,    0, TRUE,  FALSE},
+        {DXGI_FORMAT_R8G8_UNORM,              1, D3D11_BIND_RENDER_TARGET,    0, TRUE,  FALSE},
+        {DXGI_FORMAT_R8G8_SNORM,              1, D3D11_BIND_RENDER_TARGET,    0, TRUE,  FALSE},
+        {DXGI_FORMAT_R16_TYPELESS,            1, D3D11_BIND_SHADER_RESOURCE,  0, TRUE,  FALSE},
+        {DXGI_FORMAT_R16_TYPELESS,            1, D3D11_BIND_DEPTH_STENCIL,    0, TRUE,  FALSE},
+        {DXGI_FORMAT_R16_TYPELESS,            1, D3D11_BIND_RENDER_TARGET,    0, TRUE,  FALSE},
+        {DXGI_FORMAT_R16_UINT,                1, D3D11_BIND_RENDER_TARGET,    0, TRUE,  FALSE},
+        {DXGI_FORMAT_R16_SINT,                1, D3D11_BIND_RENDER_TARGET,    0, TRUE,  FALSE},
+        {DXGI_FORMAT_R8_TYPELESS,             1, D3D11_BIND_SHADER_RESOURCE,  0, TRUE,  FALSE},
+        {DXGI_FORMAT_R8G8B8A8_UNORM,          1, D3D11_BIND_RENDER_TARGET,    0, TRUE,  FALSE},
+        {DXGI_FORMAT_R8G8B8A8_UNORM,          1, D3D11_BIND_DEPTH_STENCIL,    0, FALSE, FALSE},
+        {DXGI_FORMAT_R8G8B8A8_UINT,           1, D3D11_BIND_RENDER_TARGET,    0, TRUE,  FALSE},
+        {DXGI_FORMAT_R8G8B8A8_SNORM,          1, D3D11_BIND_RENDER_TARGET,    0, TRUE,  FALSE},
+        {DXGI_FORMAT_R8G8B8A8_SINT,           1, D3D11_BIND_RENDER_TARGET,    0, TRUE,  FALSE},
+        {DXGI_FORMAT_D24_UNORM_S8_UINT,       1, D3D11_BIND_SHADER_RESOURCE,  0, FALSE, TRUE},
+        {DXGI_FORMAT_D24_UNORM_S8_UINT,       1, D3D11_BIND_RENDER_TARGET,    0, FALSE, FALSE},
+        {DXGI_FORMAT_D32_FLOAT,               1, D3D11_BIND_SHADER_RESOURCE,  0, FALSE, TRUE},
+        {DXGI_FORMAT_D32_FLOAT,               1, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_DEPTH_STENCIL, 0,
+                FALSE, TRUE},
+        {DXGI_FORMAT_D32_FLOAT,               1, D3D11_BIND_RENDER_TARGET,    0, FALSE, FALSE},
+        {DXGI_FORMAT_D32_FLOAT,               1, D3D11_BIND_DEPTH_STENCIL,    0, TRUE,  FALSE},
     };
 
     if (!(device = create_device(NULL)))
@@ -1787,7 +1805,8 @@ static void test_create_texture2d(void)
         hr = ID3D11Device_CreateTexture2D(device, &desc, NULL, (ID3D11Texture2D **)&texture);
 
         todo_wine_if(todo)
-        ok(hr == expected_hr, "Test %u: Got unexpected hr %#x.\n", i, hr);
+        ok(hr == expected_hr, "Test %u: Got unexpected hr %#x (format %#x).\n",
+                i, hr, desc.Format);
 
         if (SUCCEEDED(hr))
             ID3D11Texture2D_Release(texture);
@@ -2979,6 +2998,9 @@ static void test_create_rendertarget_view(void)
     U(rtv_desc).Buffer.ElementOffset = 0;
     U(rtv_desc).Buffer.ElementWidth = 64;
 
+    hr = ID3D11Device_CreateRenderTargetView(device, NULL, &rtv_desc, &rtview);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
+
     expected_refcount = get_refcount((IUnknown *)device) + 1;
     hr = ID3D11Device_CreateRenderTargetView(device, (ID3D11Resource *)buffer, &rtv_desc, &rtview);
     ok(SUCCEEDED(hr), "Failed to create a rendertarget view, hr %#x.\n", hr);
@@ -3282,6 +3304,9 @@ static void test_create_shader_resource_view(void)
     srv_desc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
     U(srv_desc).Buffer.ElementOffset = 0;
     U(srv_desc).Buffer.ElementWidth = 64;
+
+    hr = ID3D11Device_CreateShaderResourceView(device, NULL, &srv_desc, &srview);
+    ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
 
     expected_refcount = get_refcount((IUnknown *)device) + 1;
     hr = ID3D11Device_CreateShaderResourceView(device, (ID3D11Resource *)buffer, &srv_desc, &srview);
@@ -7943,7 +7968,7 @@ static void test_swapchain_flip(void)
 
     ID3D11DeviceContext_Draw(context, 4, 0);
     color = get_texture_color(offscreen, 120, 240);
-    todo_wine ok(compare_color(color, 0x7f0000ff, 1), "Got unexpected color 0x%08x.\n", color);
+    ok(compare_color(color, 0x7f0000ff, 1), "Got unexpected color 0x%08x.\n", color);
 
     /* DXGI moves buffers in the same direction as earlier versions. Buffer 2
      * becomes buffer 1, buffer 1 becomes the new buffer 0, and buffer 0
@@ -7961,7 +7986,7 @@ static void test_swapchain_flip(void)
 
     ID3D11DeviceContext_Draw(context, 4, 0);
     color = get_texture_color(offscreen, 120, 240); /* green, buf 0 */
-    todo_wine ok(compare_color(color, 0x7f00ff00, 1), "Got unexpected color 0x%08x.\n", color);
+    ok(compare_color(color, 0x7f00ff00, 1), "Got unexpected color 0x%08x.\n", color);
     /* Buffer 1 is still untouched. */
 
     color = get_texture_color(backbuffer_0, 320, 240); /* green */
@@ -7975,7 +8000,7 @@ static void test_swapchain_flip(void)
 
     ID3D11DeviceContext_Draw(context, 4, 0);
     color = get_texture_color(offscreen, 120, 240); /* blue, buf 0 */
-    todo_wine ok(compare_color(color, 0x7fff0000, 1), "Got unexpected color 0x%08x.\n", color);
+    ok(compare_color(color, 0x7fff0000, 1), "Got unexpected color 0x%08x.\n", color);
     color = get_texture_color(offscreen, 360, 240); /* red, buf 1 */
     ok(compare_color(color, 0x7f0000ff, 1), "Got unexpected color 0x%08x.\n", color);
 
@@ -11157,6 +11182,1059 @@ float4 main(struct ps_data ps_input) : SV_Target
     release_test_context(&test_context);
 }
 
+static void test_shader_input_registers_limits(void)
+{
+    struct d3d11_test_context test_context;
+    D3D11_SUBRESOURCE_DATA resource_data;
+    D3D11_TEXTURE2D_DESC texture_desc;
+    D3D11_SAMPLER_DESC sampler_desc;
+    ID3D11ShaderResourceView *srv;
+    ID3D11DeviceContext *context;
+    ID3D11SamplerState *sampler;
+    ID3D11Texture2D *texture;
+    ID3D11PixelShader *ps;
+    ID3D11Device *device;
+    HRESULT hr;
+
+    static const DWORD ps_last_register_code[] =
+    {
+#if 0
+        Texture2D t : register(t127);
+        SamplerState s : register(s15);
+
+        void main(out float4 target : SV_Target)
+        {
+            target = t.Sample(s, float2(0, 0));
+        }
+#endif
+        0x43425844, 0xd81ff2f8, 0x8c704b9c, 0x8c6f4857, 0xd02949ac, 0x00000001, 0x000000dc, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x52444853, 0x00000064, 0x00000040, 0x00000019,
+        0x0300005a, 0x00106000, 0x0000000f, 0x04001858, 0x00107000, 0x0000007f, 0x00005555, 0x03000065,
+        0x001020f2, 0x00000000, 0x0c000045, 0x001020f2, 0x00000000, 0x00004002, 0x00000000, 0x00000000,
+        0x00000000, 0x00000000, 0x00107e46, 0x0000007f, 0x00106000, 0x0000000f, 0x0100003e,
+    };
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    static const DWORD texture_data[] = {0xff00ff00};
+
+    if (!init_test_context(&test_context, NULL))
+        return;
+
+    device = test_context.device;
+    context = test_context.immediate_context;
+
+    texture_desc.Width = 1;
+    texture_desc.Height = 1;
+    texture_desc.MipLevels = 0;
+    texture_desc.ArraySize = 1;
+    texture_desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    texture_desc.SampleDesc.Count = 1;
+    texture_desc.SampleDesc.Quality = 0;
+    texture_desc.Usage = D3D11_USAGE_DEFAULT;
+    texture_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    texture_desc.CPUAccessFlags = 0;
+    texture_desc.MiscFlags = 0;
+
+    resource_data.pSysMem = texture_data;
+    resource_data.SysMemPitch = sizeof(texture_data);
+    resource_data.SysMemSlicePitch = 0;
+
+    hr = ID3D11Device_CreateTexture2D(device, &texture_desc, &resource_data, &texture);
+    ok(SUCCEEDED(hr), "Failed to create a 2d texture, hr %#x.\n", hr);
+
+    hr = ID3D11Device_CreateShaderResourceView(device, (ID3D11Resource *)texture, NULL, &srv);
+    ok(SUCCEEDED(hr), "Failed to create shader resource view, hr %#x.\n", hr);
+
+    sampler_desc.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
+    sampler_desc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+    sampler_desc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+    sampler_desc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+    sampler_desc.MipLODBias = 0.0f;
+    sampler_desc.MaxAnisotropy = 0;
+    sampler_desc.ComparisonFunc = D3D11_COMPARISON_NEVER;
+    sampler_desc.BorderColor[0] = 0.0f;
+    sampler_desc.BorderColor[1] = 0.0f;
+    sampler_desc.BorderColor[2] = 0.0f;
+    sampler_desc.BorderColor[3] = 0.0f;
+    sampler_desc.MinLOD = 0.0f;
+    sampler_desc.MaxLOD = 0.0f;
+
+    hr = ID3D11Device_CreateSamplerState(device, &sampler_desc, &sampler);
+    ok(SUCCEEDED(hr), "Failed to create sampler state, hr %#x.\n", hr);
+
+    hr = ID3D11Device_CreatePixelShader(device, ps_last_register_code, sizeof(ps_last_register_code), NULL, &ps);
+    ok(SUCCEEDED(hr), "Failed to create pixel shader, hr %#x.\n", hr);
+    ID3D11DeviceContext_PSSetShader(context, ps, NULL, 0);
+
+    ID3D11DeviceContext_PSSetShaderResources(context,
+            D3D11_COMMONSHADER_INPUT_RESOURCE_REGISTER_COUNT - 1, 1, &srv);
+    ID3D11DeviceContext_PSSetSamplers(context, D3D11_COMMONSHADER_SAMPLER_REGISTER_COUNT - 1, 1, &sampler);
+    ID3D11DeviceContext_ClearRenderTargetView(context, test_context.backbuffer_rtv, white);
+    draw_quad(&test_context);
+    check_texture_color(test_context.backbuffer, 0xff00ff00, 1);
+
+    ID3D11PixelShader_Release(ps);
+    ID3D11SamplerState_Release(sampler);
+    ID3D11ShaderResourceView_Release(srv);
+    ID3D11Texture2D_Release(texture);
+    release_test_context(&test_context);
+}
+
+static void test_stencil_separate(void)
+{
+    struct d3d11_test_context test_context;
+    D3D11_TEXTURE2D_DESC texture_desc;
+    D3D11_DEPTH_STENCIL_DESC ds_desc;
+    ID3D11DepthStencilState *ds_state;
+    ID3D11DepthStencilView *ds_view;
+    D3D11_RASTERIZER_DESC rs_desc;
+    ID3D11DeviceContext *context;
+    ID3D11RasterizerState *rs;
+    ID3D11Texture2D *texture;
+    ID3D11Device *device;
+    HRESULT hr;
+
+    static const float red[] = {1.0f, 0.0f, 0.0f, 1.0f};
+    static const struct vec4 green = {0.0f, 1.0f, 0.0f, 1.0f};
+    static const struct vec2 ccw_quad[] =
+    {
+        {-1.0f, -1.0f},
+        { 1.0f, -1.0f},
+        {-1.0f,  1.0f},
+        { 1.0f,  1.0f},
+    };
+
+    if (!init_test_context(&test_context, NULL))
+        return;
+
+    device = test_context.device;
+    context = test_context.immediate_context;
+
+    texture_desc.Width = 640;
+    texture_desc.Height = 480;
+    texture_desc.MipLevels = 1;
+    texture_desc.ArraySize = 1;
+    texture_desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    texture_desc.SampleDesc.Count = 1;
+    texture_desc.SampleDesc.Quality = 0;
+    texture_desc.Usage = D3D11_USAGE_DEFAULT;
+    texture_desc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+    texture_desc.CPUAccessFlags = 0;
+    texture_desc.MiscFlags = 0;
+    hr = ID3D11Device_CreateTexture2D(device, &texture_desc, NULL, &texture);
+    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
+    hr = ID3D11Device_CreateDepthStencilView(device, (ID3D11Resource *)texture, NULL, &ds_view);
+    ok(SUCCEEDED(hr), "Failed to create depth stencil view, hr %#x.\n", hr);
+
+    ds_desc.DepthEnable = TRUE;
+    ds_desc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
+    ds_desc.DepthFunc = D3D11_COMPARISON_LESS;
+    ds_desc.StencilEnable = TRUE;
+    ds_desc.StencilReadMask = D3D11_DEFAULT_STENCIL_READ_MASK;
+    ds_desc.StencilWriteMask = D3D11_DEFAULT_STENCIL_WRITE_MASK;
+    ds_desc.FrontFace.StencilFailOp = D3D11_STENCIL_OP_ZERO;
+    ds_desc.FrontFace.StencilDepthFailOp = D3D11_STENCIL_OP_ZERO;
+    ds_desc.FrontFace.StencilPassOp = D3D11_STENCIL_OP_ZERO;
+    ds_desc.FrontFace.StencilFunc = D3D11_COMPARISON_NEVER;
+    ds_desc.BackFace.StencilFailOp = D3D11_STENCIL_OP_ZERO;
+    ds_desc.BackFace.StencilDepthFailOp = D3D11_STENCIL_OP_ZERO;
+    ds_desc.BackFace.StencilPassOp = D3D11_STENCIL_OP_ZERO;
+    ds_desc.BackFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
+    hr = ID3D11Device_CreateDepthStencilState(device, &ds_desc, &ds_state);
+    ok(SUCCEEDED(hr), "Failed to create depth stencil state, hr %#x.\n", hr);
+
+    rs_desc.FillMode = D3D11_FILL_SOLID;
+    rs_desc.CullMode = D3D11_CULL_NONE;
+    rs_desc.FrontCounterClockwise = FALSE;
+    rs_desc.DepthBias = 0;
+    rs_desc.DepthBiasClamp = 0.0f;
+    rs_desc.SlopeScaledDepthBias = 0.0f;
+    rs_desc.DepthClipEnable = TRUE;
+    rs_desc.ScissorEnable = FALSE;
+    rs_desc.MultisampleEnable = FALSE;
+    rs_desc.AntialiasedLineEnable = FALSE;
+    ID3D11Device_CreateRasterizerState(device, &rs_desc, &rs);
+    ok(SUCCEEDED(hr), "Failed to create rasterizer state, hr %#x.\n", hr);
+
+    ID3D11DeviceContext_ClearRenderTargetView(context, test_context.backbuffer_rtv, red);
+    ID3D11DeviceContext_ClearDepthStencilView(context, ds_view, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+    ID3D11DeviceContext_OMSetRenderTargets(context, 1, &test_context.backbuffer_rtv, ds_view);
+    ID3D11DeviceContext_OMSetDepthStencilState(context, ds_state, 0);
+    ID3D11DeviceContext_RSSetState(context, rs);
+
+    draw_color_quad(&test_context, &green);
+    check_texture_color(test_context.backbuffer, 0xff0000ff, 1);
+
+    ID3D11Buffer_Release(test_context.vb);
+    test_context.vb = create_buffer(device, D3D11_BIND_VERTEX_BUFFER, sizeof(ccw_quad), ccw_quad);
+
+    draw_color_quad(&test_context, &green);
+    check_texture_color(test_context.backbuffer, 0xff00ff00, 1);
+
+    ID3D11RasterizerState_Release(rs);
+    rs_desc.FrontCounterClockwise = TRUE;
+    ID3D11Device_CreateRasterizerState(device, &rs_desc, &rs);
+    ok(SUCCEEDED(hr), "Failed to create rasterizer state, hr %#x.\n", hr);
+    ID3D11DeviceContext_RSSetState(context, rs);
+
+    ID3D11DeviceContext_ClearRenderTargetView(context, test_context.backbuffer_rtv, red);
+    draw_color_quad(&test_context, &green);
+    check_texture_color(test_context.backbuffer, 0xff0000ff, 1);
+
+    ID3D11DepthStencilState_Release(ds_state);
+    ID3D11DepthStencilView_Release(ds_view);
+    ID3D11RasterizerState_Release(rs);
+    ID3D11Texture2D_Release(texture);
+    release_test_context(&test_context);
+}
+
+static void test_uav_load(void)
+{
+    struct shader
+    {
+        const DWORD *code;
+        size_t size;
+    };
+    struct texture
+    {
+        UINT width;
+        UINT height;
+        UINT miplevel_count;
+        UINT array_size;
+        DXGI_FORMAT format;
+        D3D11_SUBRESOURCE_DATA data[1];
+    };
+
+    /* FIXME: Use a single R32_TYPELESS RT with multiple RTVs. */
+    ID3D11RenderTargetView *rtv_float, *rtv_uint, *rtv_sint;
+    ID3D11Texture2D *rt_float, *rt_uint, *rt_sint;
+    D3D11_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    struct d3d11_test_context test_context;
+    const struct texture *current_texture;
+    D3D11_TEXTURE2D_DESC texture_desc;
+    const struct shader *current_ps;
+    ID3D11UnorderedAccessView *uav;
+    ID3D11DeviceContext *context;
+    struct resource_readback rb;
+    ID3D11Texture2D *texture;
+    ID3D11PixelShader *ps;
+    ID3D11Device *device;
+    unsigned int i, x, y;
+    HRESULT hr;
+
+    static const float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+    static const D3D_FEATURE_LEVEL feature_level = D3D_FEATURE_LEVEL_11_0;
+    static const DWORD ps_ld_2d_float_code[] =
+    {
+#if 0
+        RWTexture2D<float> u;
+
+        float main(float4 position : SV_Position) : SV_Target
+        {
+            float2 s;
+            u.GetDimensions(s.x, s.y);
+            return u[s * float2(position.x / 640.0f, position.y / 480.0f)];
+        }
+#endif
+        0x43425844, 0xd5996e04, 0x6bede909, 0x0a7ad18e, 0x5eb277fb, 0x00000001, 0x00000194, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000030f, 0x505f5653, 0x7469736f, 0x006e6f69,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x00000e01, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x000000f8, 0x00000050,
+        0x0000003e, 0x0100086a, 0x0400189c, 0x0011e000, 0x00000001, 0x00005555, 0x04002064, 0x00101032,
+        0x00000000, 0x00000001, 0x03000065, 0x00102012, 0x00000000, 0x02000068, 0x00000001, 0x8900003d,
+        0x800000c2, 0x00155543, 0x00100032, 0x00000000, 0x00004001, 0x00000000, 0x0011ee46, 0x00000001,
+        0x07000038, 0x001000f2, 0x00000000, 0x00100546, 0x00000000, 0x00101546, 0x00000000, 0x0a000038,
+        0x001000f2, 0x00000000, 0x00100e46, 0x00000000, 0x00004002, 0x3acccccd, 0x3b088889, 0x3b088889,
+        0x3b088889, 0x0500001c, 0x001000f2, 0x00000000, 0x00100e46, 0x00000000, 0x890000a3, 0x800000c2,
+        0x00155543, 0x00100012, 0x00000000, 0x00100e46, 0x00000000, 0x0011ee46, 0x00000001, 0x05000036,
+        0x00102012, 0x00000000, 0x0010000a, 0x00000000, 0x0100003e,
+    };
+    static const struct shader ps_ld_2d_float = {ps_ld_2d_float_code, sizeof(ps_ld_2d_float_code)};
+    static const DWORD ps_ld_2d_uint_code[] =
+    {
+#if 0
+        RWTexture2D<uint> u;
+
+        uint main(float4 position : SV_Position) : SV_Target
+        {
+            float2 s;
+            u.GetDimensions(s.x, s.y);
+            return u[s * float2(position.x / 640.0f, position.y / 480.0f)];
+        }
+#endif
+        0x43425844, 0x2cc0af18, 0xb28eca73, 0x9651215b, 0xebe3f361, 0x00000001, 0x00000194, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000030f, 0x505f5653, 0x7469736f, 0x006e6f69,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001,
+        0x00000000, 0x00000e01, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x000000f8, 0x00000050,
+        0x0000003e, 0x0100086a, 0x0400189c, 0x0011e000, 0x00000001, 0x00004444, 0x04002064, 0x00101032,
+        0x00000000, 0x00000001, 0x03000065, 0x00102012, 0x00000000, 0x02000068, 0x00000001, 0x8900003d,
+        0x800000c2, 0x00111103, 0x00100032, 0x00000000, 0x00004001, 0x00000000, 0x0011ee46, 0x00000001,
+        0x07000038, 0x001000f2, 0x00000000, 0x00100546, 0x00000000, 0x00101546, 0x00000000, 0x0a000038,
+        0x001000f2, 0x00000000, 0x00100e46, 0x00000000, 0x00004002, 0x3acccccd, 0x3b088889, 0x3b088889,
+        0x3b088889, 0x0500001c, 0x001000f2, 0x00000000, 0x00100e46, 0x00000000, 0x890000a3, 0x800000c2,
+        0x00111103, 0x00100012, 0x00000000, 0x00100e46, 0x00000000, 0x0011ee46, 0x00000001, 0x05000036,
+        0x00102012, 0x00000000, 0x0010000a, 0x00000000, 0x0100003e,
+    };
+    static const struct shader ps_ld_2d_uint = {ps_ld_2d_uint_code, sizeof(ps_ld_2d_uint_code)};
+    static const DWORD ps_ld_2d_int_code[] =
+    {
+#if 0
+        RWTexture2D<int> u;
+
+        int main(float4 position : SV_Position) : SV_Target
+        {
+            float2 s;
+            u.GetDimensions(s.x, s.y);
+            return u[s * float2(position.x / 640.0f, position.y / 480.0f)];
+        }
+#endif
+        0x43425844, 0x7deee248, 0xe7c48698, 0x9454db00, 0x921810e7, 0x00000001, 0x00000194, 0x00000003,
+        0x0000002c, 0x00000060, 0x00000094, 0x4e475349, 0x0000002c, 0x00000001, 0x00000008, 0x00000020,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000030f, 0x505f5653, 0x7469736f, 0x006e6f69,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000002,
+        0x00000000, 0x00000e01, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x000000f8, 0x00000050,
+        0x0000003e, 0x0100086a, 0x0400189c, 0x0011e000, 0x00000001, 0x00003333, 0x04002064, 0x00101032,
+        0x00000000, 0x00000001, 0x03000065, 0x00102012, 0x00000000, 0x02000068, 0x00000001, 0x8900003d,
+        0x800000c2, 0x000cccc3, 0x00100032, 0x00000000, 0x00004001, 0x00000000, 0x0011ee46, 0x00000001,
+        0x07000038, 0x001000f2, 0x00000000, 0x00100546, 0x00000000, 0x00101546, 0x00000000, 0x0a000038,
+        0x001000f2, 0x00000000, 0x00100e46, 0x00000000, 0x00004002, 0x3acccccd, 0x3b088889, 0x3b088889,
+        0x3b088889, 0x0500001c, 0x001000f2, 0x00000000, 0x00100e46, 0x00000000, 0x890000a3, 0x800000c2,
+        0x000cccc3, 0x00100012, 0x00000000, 0x00100e46, 0x00000000, 0x0011ee46, 0x00000001, 0x05000036,
+        0x00102012, 0x00000000, 0x0010000a, 0x00000000, 0x0100003e,
+    };
+    static const struct shader ps_ld_2d_int = {ps_ld_2d_int_code, sizeof(ps_ld_2d_int_code)};
+    static const float float_data[] =
+    {
+         0.50f,  0.25f,  1.00f,  0.00f,
+        -1.00f, -2.00f, -3.00f, -4.00f,
+        -0.50f, -0.25f, -1.00f, -0.00f,
+         1.00f,  2.00f,  3.00f,  4.00f,
+    };
+    static const unsigned int uint_data[] =
+    {
+        0x00, 0x10, 0x20, 0x30,
+        0x40, 0x50, 0x60, 0x70,
+        0x80, 0x90, 0xa0, 0xb0,
+        0xc0, 0xd0, 0xe0, 0xf0,
+    };
+    static const int int_data[] =
+    {
+          -1, 0x10, 0x20, 0x30,
+        0x40, 0x50, 0x60, -777,
+        -666, 0x90, -555, 0xb0,
+        0xc0, 0xd0, 0xe0, -101,
+    };
+    static const struct texture float_2d = {4, 4, 1, 1, DXGI_FORMAT_R32_FLOAT,
+            {{float_data, 4 * sizeof(*float_data), 0}}};
+    static const struct texture uint_2d = {4, 4, 1, 1, DXGI_FORMAT_R32_UINT,
+            {{uint_data, 4 * sizeof(*uint_data), 0}}};
+    static const struct texture int_2d = {4, 4, 1, 1, DXGI_FORMAT_R32_SINT,
+            {{int_data, 4 * sizeof(*int_data), 0}}};
+
+    static const struct test
+    {
+        const struct shader *ps;
+        const struct texture *texture;
+        struct uav_desc uav_desc;
+        const DWORD *expected_colors;
+    }
+    tests[] =
+    {
+#define TEX_2D    D3D11_UAV_DIMENSION_TEXTURE2D
+#define R32_FLOAT DXGI_FORMAT_R32_FLOAT
+#define R32_UINT  DXGI_FORMAT_R32_UINT
+#define R32_SINT  DXGI_FORMAT_R32_SINT
+        {&ps_ld_2d_float, &float_2d, {R32_FLOAT, TEX_2D, 0}, (const DWORD *)float_data},
+        {&ps_ld_2d_uint,  &uint_2d,  {R32_UINT,  TEX_2D, 0}, (const DWORD *)uint_data},
+        {&ps_ld_2d_int,   &int_2d,   {R32_SINT,  TEX_2D, 0}, (const DWORD *)int_data},
+#undef TEX_2D
+#undef R32_FLOAT
+#undef R32_UINT
+#undef R32_SINT
+    };
+
+    if (!init_test_context(&test_context, &feature_level))
+        return;
+
+    device = test_context.device;
+    context = test_context.immediate_context;
+
+    texture_desc.Width = 640;
+    texture_desc.Height = 480;
+    texture_desc.MipLevels = 1;
+    texture_desc.ArraySize = 1;
+    texture_desc.SampleDesc.Count = 1;
+    texture_desc.SampleDesc.Quality = 0;
+    texture_desc.Usage = D3D11_USAGE_DEFAULT;
+    texture_desc.BindFlags = D3D11_BIND_RENDER_TARGET;
+    texture_desc.CPUAccessFlags = 0;
+    texture_desc.MiscFlags = 0;
+
+    texture_desc.Format = DXGI_FORMAT_R32_FLOAT;
+    hr = ID3D11Device_CreateTexture2D(device, &texture_desc, NULL, &rt_float);
+    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
+    hr = ID3D11Device_CreateRenderTargetView(device, (ID3D11Resource *)rt_float, NULL, &rtv_float);
+    ok(SUCCEEDED(hr), "Failed to create rendertarget view, hr %#x.\n", hr);
+
+    texture_desc.Format = DXGI_FORMAT_R32_UINT;
+    hr = ID3D11Device_CreateTexture2D(device, &texture_desc, NULL, &rt_uint);
+    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
+    hr = ID3D11Device_CreateRenderTargetView(device, (ID3D11Resource *)rt_uint, NULL, &rtv_uint);
+    ok(SUCCEEDED(hr), "Failed to create rendertarget view, hr %#x.\n", hr);
+
+    texture_desc.Format = DXGI_FORMAT_R32_SINT;
+    hr = ID3D11Device_CreateTexture2D(device, &texture_desc, NULL, &rt_sint);
+    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
+    hr = ID3D11Device_CreateRenderTargetView(device, (ID3D11Resource *)rt_sint, NULL, &rtv_sint);
+    ok(SUCCEEDED(hr), "Failed to create rendertarget view, hr %#x.\n", hr);
+
+    texture_desc.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+
+    ps = NULL;
+    uav = NULL;
+    texture = NULL;
+    current_ps = NULL;
+    current_texture = NULL;
+    for (i = 0; i < sizeof(tests) / sizeof(*tests); ++i)
+    {
+        const struct test *test = &tests[i];
+        ID3D11RenderTargetView *current_rtv;
+        ID3D11Texture2D *current_rt;
+
+        if (current_ps != test->ps)
+        {
+            if (ps)
+                ID3D11PixelShader_Release(ps);
+
+            current_ps = test->ps;
+
+            hr = ID3D11Device_CreatePixelShader(device, current_ps->code, current_ps->size, NULL, &ps);
+            ok(SUCCEEDED(hr), "Test %u: Failed to create pixel shader, hr %#x.\n", i, hr);
+
+            ID3D11DeviceContext_PSSetShader(context, ps, NULL, 0);
+        }
+
+        if (current_texture != test->texture)
+        {
+            if (texture)
+                ID3D11Texture2D_Release(texture);
+
+            current_texture = test->texture;
+
+            texture_desc.Width = current_texture->width;
+            texture_desc.Height = current_texture->height;
+            texture_desc.MipLevels = current_texture->miplevel_count;
+            texture_desc.ArraySize = current_texture->array_size;
+            texture_desc.Format = current_texture->format;
+
+            hr = ID3D11Device_CreateTexture2D(device, &texture_desc, current_texture->data, &texture);
+            ok(SUCCEEDED(hr), "Test %u: Failed to create texture, hr %#x.\n", i, hr);
+        }
+
+        if (uav)
+            ID3D11UnorderedAccessView_Release(uav);
+
+        get_uav_desc(&uav_desc, &test->uav_desc);
+        hr = ID3D11Device_CreateUnorderedAccessView(device, (ID3D11Resource *)texture, &uav_desc, &uav);
+        ok(SUCCEEDED(hr), "Test %u: Failed to create unordered access view, hr %#x.\n", i, hr);
+
+        switch (uav_desc.Format)
+        {
+            case DXGI_FORMAT_R32_FLOAT:
+                current_rtv = rtv_float;
+                current_rt = rt_float;
+                break;
+            case DXGI_FORMAT_R32_UINT:
+                current_rtv = rtv_uint;
+                current_rt = rt_uint;
+                break;
+            case DXGI_FORMAT_R32_SINT:
+                current_rtv = rtv_sint;
+                current_rt = rt_sint;
+                break;
+            default:
+                trace("Unhandled format %#x.\n", uav_desc.Format);
+                current_rtv = NULL;
+                current_rt = NULL;
+                break;
+        }
+
+        ID3D11DeviceContext_ClearRenderTargetView(context, current_rtv, white);
+
+        ID3D11DeviceContext_OMSetRenderTargetsAndUnorderedAccessViews(context, 1, &current_rtv, NULL,
+                1, 1, &uav, NULL);
+
+        draw_quad(&test_context);
+
+        get_texture_readback(current_rt, 0, &rb);
+        for (y = 0; y < 4; ++y)
+        {
+            for (x = 0; x < 4; ++x)
+            {
+                DWORD expected = test->expected_colors[y * 4 + x];
+                DWORD color = get_readback_color(&rb, 80 + x * 160, 60 + y * 120);
+                ok(compare_color(color, expected, 0),
+                        "Test %u: Got 0x%08x, expected 0x%08x at (%u, %u).\n",
+                        i, color, expected, x, y);
+            }
+        }
+        release_resource_readback(&rb);
+    }
+    ID3D11PixelShader_Release(ps);
+    ID3D11Texture2D_Release(texture);
+    ID3D11UnorderedAccessView_Release(uav);
+
+    ID3D11RenderTargetView_Release(rtv_float);
+    ID3D11RenderTargetView_Release(rtv_sint);
+    ID3D11RenderTargetView_Release(rtv_uint);
+    ID3D11Texture2D_Release(rt_float);
+    ID3D11Texture2D_Release(rt_sint);
+    ID3D11Texture2D_Release(rt_uint);
+    release_test_context(&test_context);
+}
+
+static void test_sm4_ret_instruction(void)
+{
+    struct d3d11_test_context test_context;
+    ID3D11DeviceContext *context;
+    ID3D11PixelShader *ps;
+    struct uvec4 constant;
+    ID3D11Device *device;
+    ID3D11Buffer *cb;
+    HRESULT hr;
+
+    static const DWORD ps_code[] =
+    {
+#if 0
+        uint c;
+
+        float4 main() : SV_TARGET
+        {
+            if (c == 1)
+                return float4(1, 0, 0, 1);
+            if (c == 2)
+                return float4(0, 1, 0, 1);
+            if (c == 3)
+                return float4(0, 0, 1, 1);
+            return float4(1, 1, 1, 1);
+        }
+#endif
+        0x43425844, 0x9ee6f808, 0xe74009f3, 0xbb1adaf2, 0x432e97b5, 0x00000001, 0x000001c4, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003, 0x00000000,
+        0x0000000f, 0x545f5653, 0x45475241, 0xabab0054, 0x52444853, 0x0000014c, 0x00000040, 0x00000053,
+        0x04000059, 0x00208e46, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000, 0x02000068,
+        0x00000001, 0x08000020, 0x00100012, 0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x00004001,
+        0x00000001, 0x0304001f, 0x0010000a, 0x00000000, 0x08000036, 0x001020f2, 0x00000000, 0x00004002,
+        0x3f800000, 0x00000000, 0x00000000, 0x3f800000, 0x0100003e, 0x01000015, 0x08000020, 0x00100012,
+        0x00000000, 0x0020800a, 0x00000000, 0x00000000, 0x00004001, 0x00000002, 0x0304001f, 0x0010000a,
+        0x00000000, 0x08000036, 0x001020f2, 0x00000000, 0x00004002, 0x00000000, 0x3f800000, 0x00000000,
+        0x3f800000, 0x0100003e, 0x01000015, 0x08000020, 0x00100012, 0x00000000, 0x0020800a, 0x00000000,
+        0x00000000, 0x00004001, 0x00000003, 0x0304001f, 0x0010000a, 0x00000000, 0x08000036, 0x001020f2,
+        0x00000000, 0x00004002, 0x00000000, 0x00000000, 0x3f800000, 0x3f800000, 0x0100003e, 0x01000015,
+        0x08000036, 0x001020f2, 0x00000000, 0x00004002, 0x3f800000, 0x3f800000, 0x3f800000, 0x3f800000,
+        0x0100003e,
+    };
+
+    if (!init_test_context(&test_context, NULL))
+        return;
+
+    device = test_context.device;
+    context = test_context.immediate_context;
+
+    hr = ID3D11Device_CreatePixelShader(device, ps_code, sizeof(ps_code), NULL, &ps);
+    ok(SUCCEEDED(hr), "Failed to create shader, hr %#x.\n", hr);
+    ID3D11DeviceContext_PSSetShader(context, ps, NULL, 0);
+    memset(&constant, 0, sizeof(constant));
+    cb = create_buffer(device, D3D11_BIND_CONSTANT_BUFFER, sizeof(constant), &constant);
+    ID3D11DeviceContext_PSSetConstantBuffers(context, 0, 1, &cb);
+
+    draw_quad(&test_context);
+    check_texture_color(test_context.backbuffer, 0xffffffff, 0);
+
+    constant.x = 1;
+    ID3D11DeviceContext_UpdateSubresource(context, (ID3D11Resource *)cb, 0, NULL, &constant, 0, 0);
+    draw_quad(&test_context);
+    check_texture_color(test_context.backbuffer, 0xff0000ff, 0);
+
+    constant.x = 2;
+    ID3D11DeviceContext_UpdateSubresource(context, (ID3D11Resource *)cb, 0, NULL, &constant, 0, 0);
+    draw_quad(&test_context);
+    check_texture_color(test_context.backbuffer, 0xff00ff00, 0);
+
+    constant.x = 3;
+    ID3D11DeviceContext_UpdateSubresource(context, (ID3D11Resource *)cb, 0, NULL, &constant, 0, 0);
+    draw_quad(&test_context);
+    check_texture_color(test_context.backbuffer, 0xffff0000, 0);
+
+    constant.x = 4;
+    ID3D11DeviceContext_UpdateSubresource(context, (ID3D11Resource *)cb, 0, NULL, &constant, 0, 0);
+    draw_quad(&test_context);
+    check_texture_color(test_context.backbuffer, 0xffffffff, 0);
+
+    ID3D11Buffer_Release(cb);
+    ID3D11PixelShader_Release(ps);
+    release_test_context(&test_context);
+}
+
+static void test_primitive_restart(void)
+{
+    struct d3d11_test_context test_context;
+    unsigned int stride, offset, x, y;
+    ID3D11Buffer *ib32, *ib16, *vb;
+    ID3D11DeviceContext *context;
+    struct resource_readback rb;
+    ID3D11InputLayout *layout;
+    ID3D11VertexShader *vs;
+    ID3D11PixelShader *ps;
+    ID3D11Device *device;
+    unsigned int i;
+    HRESULT hr;
+
+    static const DWORD ps_code[] =
+    {
+#if 0
+        struct vs_out
+        {
+            float4 position : SV_Position;
+            float4 color : color;
+        };
+
+        float4 main(vs_out input) : SV_TARGET
+        {
+            return input.color;
+        }
+#endif
+        0x43425844, 0x119e48d1, 0x468aecb3, 0x0a405be5, 0x4e203b82, 0x00000001, 0x000000f4, 0x00000003,
+        0x0000002c, 0x00000080, 0x000000b4, 0x4e475349, 0x0000004c, 0x00000002, 0x00000008, 0x00000038,
+        0x00000000, 0x00000001, 0x00000003, 0x00000000, 0x0000000f, 0x00000044, 0x00000000, 0x00000000,
+        0x00000003, 0x00000001, 0x00000f0f, 0x505f5653, 0x7469736f, 0x006e6f69, 0x6f6c6f63, 0xabab0072,
+        0x4e47534f, 0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000003,
+        0x00000000, 0x0000000f, 0x545f5653, 0x45475241, 0xabab0054, 0x52444853, 0x00000038, 0x00000040,
+        0x0000000e, 0x03001062, 0x001010f2, 0x00000001, 0x03000065, 0x001020f2, 0x00000000, 0x05000036,
+        0x001020f2, 0x00000000, 0x00101e46, 0x00000001, 0x0100003e,
+    };
+    static const DWORD vs_code[] =
+    {
+#if 0
+        struct vs_out
+        {
+            float4 position : SV_Position;
+            float4 color : color;
+        };
+
+        void main(float4 position : POSITION, uint vertex_id : SV_VertexID, out vs_out output)
+        {
+            output.position = position;
+            output.color = vertex_id < 4 ? float4(0.0, 1.0, 1.0, 1.0) : float4(1.0, 0.0, 0.0, 1.0);
+        }
+#endif
+        0x43425844, 0x2fa57573, 0xdb71c15f, 0x2641b028, 0xa8f87ccc, 0x00000001, 0x00000198, 0x00000003,
+        0x0000002c, 0x00000084, 0x000000d8, 0x4e475349, 0x00000050, 0x00000002, 0x00000008, 0x00000038,
+        0x00000000, 0x00000000, 0x00000003, 0x00000000, 0x00000f0f, 0x00000041, 0x00000000, 0x00000006,
+        0x00000001, 0x00000001, 0x00000101, 0x49534f50, 0x4e4f4954, 0x5f565300, 0x74726556, 0x44497865,
+        0xababab00, 0x4e47534f, 0x0000004c, 0x00000002, 0x00000008, 0x00000038, 0x00000000, 0x00000001,
+        0x00000003, 0x00000000, 0x0000000f, 0x00000044, 0x00000000, 0x00000000, 0x00000003, 0x00000001,
+        0x0000000f, 0x505f5653, 0x7469736f, 0x006e6f69, 0x6f6c6f63, 0xabab0072, 0x52444853, 0x000000b8,
+        0x00010040, 0x0000002e, 0x0300005f, 0x001010f2, 0x00000000, 0x04000060, 0x00101012, 0x00000001,
+        0x00000006, 0x04000067, 0x001020f2, 0x00000000, 0x00000001, 0x03000065, 0x001020f2, 0x00000001,
+        0x02000068, 0x00000001, 0x05000036, 0x001020f2, 0x00000000, 0x00101e46, 0x00000000, 0x0700004f,
+        0x00100012, 0x00000000, 0x0010100a, 0x00000001, 0x00004001, 0x00000004, 0x0f000037, 0x001020f2,
+        0x00000001, 0x00100006, 0x00000000, 0x00004002, 0x00000000, 0x3f800000, 0x3f800000, 0x3f800000,
+        0x00004002, 0x3f800000, 0x00000000, 0x00000000, 0x3f800000, 0x0100003e,
+    };
+    static const D3D11_INPUT_ELEMENT_DESC layout_desc[] =
+    {
+        {"position", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
+    };
+    static const struct vec2 vertices[] =
+    {
+        {-1.00f, -1.0f},
+        {-1.00f,  1.0f},
+        {-0.25f, -1.0f},
+        {-0.25f,  1.0f},
+        { 0.25f, -1.0f},
+        { 0.25f,  1.0f},
+        { 1.00f, -1.0f},
+        { 1.00f,  1.0f},
+    };
+    static const float black[] = {0.0f, 0.0f, 0.0f, 0.0f};
+    static const unsigned short indices16[] =
+    {
+        0, 1, 2, 3, 0xffff, 4, 5, 6, 7
+    };
+    static const unsigned int indices32[] =
+    {
+        0, 1, 2, 3, 0xffffffff, 4, 5, 6, 7
+    };
+
+    if (!init_test_context(&test_context, NULL))
+        return;
+
+    device = test_context.device;
+    context = test_context.immediate_context;
+
+    hr = ID3D11Device_CreateVertexShader(device, vs_code, sizeof(vs_code), NULL, &vs);
+    ok(SUCCEEDED(hr), "Failed to create vertex shader, hr %#x.\n", hr);
+    hr = ID3D11Device_CreatePixelShader(device, ps_code, sizeof(ps_code), NULL, &ps);
+    ok(SUCCEEDED(hr), "Failed to create return pixel shader, hr %#x.\n", hr);
+
+    ib16 = create_buffer(device, D3D11_BIND_INDEX_BUFFER, sizeof(indices16), indices16);
+    ib32 = create_buffer(device, D3D11_BIND_INDEX_BUFFER, sizeof(indices32), indices32);
+
+    hr = ID3D11Device_CreateInputLayout(device, layout_desc,
+            sizeof(layout_desc) / sizeof(*layout_desc),
+            vs_code, sizeof(vs_code), &layout);
+    ok(SUCCEEDED(hr), "Failed to create input layout, hr %#x.\n", hr);
+
+    vb = create_buffer(device, D3D11_BIND_VERTEX_BUFFER, sizeof(vertices), vertices);
+
+    ID3D11DeviceContext_VSSetShader(context, vs, NULL, 0);
+    ID3D11DeviceContext_PSSetShader(context, ps, NULL, 0);
+
+    ID3D11DeviceContext_IASetInputLayout(context, layout);
+    ID3D11DeviceContext_IASetPrimitiveTopology(context, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+    stride = sizeof(*vertices);
+    offset = 0;
+    ID3D11DeviceContext_IASetVertexBuffers(context, 0, 1, &vb, &stride, &offset);
+
+    for (i = 0; i < 2; ++i)
+    {
+        if (!i)
+            ID3D11DeviceContext_IASetIndexBuffer(context, ib32, DXGI_FORMAT_R32_UINT, 0);
+        else
+            ID3D11DeviceContext_IASetIndexBuffer(context, ib16, DXGI_FORMAT_R16_UINT, 0);
+
+        ID3D11DeviceContext_ClearRenderTargetView(context, test_context.backbuffer_rtv, black);
+        ID3D11DeviceContext_DrawIndexed(context, 9, 0, 0);
+        get_texture_readback(test_context.backbuffer, 0, &rb);
+        for (y = 0; y < 480; ++y)
+        {
+            for (x = 0; x < 640; ++x)
+            {
+                DWORD color = get_readback_color(&rb, x, y);
+                DWORD expected_color;
+                if (x < 240)
+                    expected_color = 0xffffff00;
+                else if (x >= 640 - 240)
+                    expected_color = 0xff0000ff;
+                else
+                    expected_color = 0x00000000;
+                ok(compare_color(color, expected_color, 1),
+                        "Test %u: Got 0x%08x, expected 0x%08x at (%u, %u).\n",
+                        i, color, expected_color, x, y);
+            }
+        }
+        release_resource_readback(&rb);
+    }
+
+    ID3D11Buffer_Release(ib16);
+    ID3D11Buffer_Release(ib32);
+    ID3D11Buffer_Release(vb);
+    ID3D11InputLayout_Release(layout);
+    ID3D11PixelShader_Release(ps);
+    ID3D11VertexShader_Release(vs);
+    release_test_context(&test_context);
+}
+
+static void test_sm5_bufinfo_instruction(void)
+{
+    struct shader
+    {
+        const DWORD *code;
+        size_t size;
+    };
+
+    D3D11_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+    D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc;
+    struct d3d11_test_context test_context;
+    D3D11_TEXTURE2D_DESC texture_desc;
+    const struct shader *current_ps;
+    ID3D11UnorderedAccessView *uav;
+    ID3D11ShaderResourceView *srv;
+    D3D11_BUFFER_DESC buffer_desc;
+    ID3D11DeviceContext *context;
+    ID3D11RenderTargetView *rtv;
+    ID3D11Texture2D *texture;
+    ID3D11PixelShader *ps;
+    ID3D11Buffer *buffer;
+    ID3D11Device *device;
+    unsigned int i;
+    HRESULT hr;
+
+    static const D3D_FEATURE_LEVEL feature_level = D3D_FEATURE_LEVEL_11_0;
+    static const DWORD ps_uav_structured_code[] =
+    {
+#if 0
+        struct s
+        {
+            uint4 u;
+            bool b;
+        };
+
+        RWStructuredBuffer<s> b;
+
+        uint4 main(void) : SV_Target
+        {
+            uint count, stride;
+            b.GetDimensions(count, stride);
+            return uint4(count, stride, 0, 1);
+        }
+#endif
+        0x43425844, 0xe1900f85, 0x13c1f338, 0xbb19865e, 0x366df28f, 0x00000001, 0x000000fc, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000084, 0x00000050, 0x00000021,
+        0x0100086a, 0x0400009e, 0x0011e000, 0x00000001, 0x00000014, 0x03000065, 0x001020f2, 0x00000000,
+        0x02000068, 0x00000001, 0x87000079, 0x8000a302, 0x00199983, 0x00100012, 0x00000000, 0x0011ee46,
+        0x00000001, 0x05000036, 0x00102012, 0x00000000, 0x0010000a, 0x00000000, 0x08000036, 0x001020e2,
+        0x00000000, 0x00004002, 0x00000000, 0x00000014, 0x00000000, 0x00000001, 0x0100003e,
+    };
+    static const struct shader ps_uav_structured = {ps_uav_structured_code, sizeof(ps_uav_structured_code)};
+    static const DWORD ps_srv_structured_code[] =
+    {
+#if 0
+        StructuredBuffer<bool> b;
+
+        uint4 main(void) : SV_Target
+        {
+            uint count, stride;
+            b.GetDimensions(count, stride);
+            return uint4(count, stride, 0, 1);
+        }
+#endif
+        0x43425844, 0x313f910c, 0x2f60c646, 0x2d87455c, 0xb9988c2c, 0x00000001, 0x000000fc, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000084, 0x00000050, 0x00000021,
+        0x0100086a, 0x040000a2, 0x00107000, 0x00000000, 0x00000004, 0x03000065, 0x001020f2, 0x00000000,
+        0x02000068, 0x00000001, 0x87000079, 0x80002302, 0x00199983, 0x00100012, 0x00000000, 0x00107e46,
+        0x00000000, 0x05000036, 0x00102012, 0x00000000, 0x0010000a, 0x00000000, 0x08000036, 0x001020e2,
+        0x00000000, 0x00004002, 0x00000000, 0x00000004, 0x00000000, 0x00000001, 0x0100003e,
+    };
+    static const struct shader ps_srv_structured = {ps_srv_structured_code, sizeof(ps_srv_structured_code)};
+    static const DWORD ps_uav_raw_code[] =
+    {
+#if 0
+        RWByteAddressBuffer b;
+
+        uint4 main(void) : SV_Target
+        {
+            uint width;
+            b.GetDimensions(width);
+            return width;
+        }
+#endif
+        0x43425844, 0xb06e9715, 0x99733b00, 0xaa536550, 0x703a01c5, 0x00000001, 0x000000d8, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000060, 0x00000050, 0x00000018,
+        0x0100086a, 0x0300009d, 0x0011e000, 0x00000001, 0x03000065, 0x001020f2, 0x00000000, 0x02000068,
+        0x00000001, 0x87000079, 0x800002c2, 0x00199983, 0x00100012, 0x00000000, 0x0011ee46, 0x00000001,
+        0x05000036, 0x001020f2, 0x00000000, 0x00100006, 0x00000000, 0x0100003e,
+    };
+    static const struct shader ps_uav_raw = {ps_uav_raw_code, sizeof(ps_uav_raw_code)};
+    static const DWORD ps_srv_raw_code[] =
+    {
+#if 0
+        ByteAddressBuffer b;
+
+        uint4 main(void) : SV_Target
+        {
+            uint width;
+            b.GetDimensions(width);
+            return width;
+        }
+#endif
+        0x43425844, 0x934bc27a, 0x3251cc9d, 0xa129bdd3, 0xf7cedcc4, 0x00000001, 0x000000d8, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000060, 0x00000050, 0x00000018,
+        0x0100086a, 0x030000a1, 0x00107000, 0x00000000, 0x03000065, 0x001020f2, 0x00000000, 0x02000068,
+        0x00000001, 0x87000079, 0x800002c2, 0x00199983, 0x00100012, 0x00000000, 0x00107e46, 0x00000000,
+        0x05000036, 0x001020f2, 0x00000000, 0x00100006, 0x00000000, 0x0100003e,
+    };
+    static const struct shader ps_srv_raw = {ps_srv_raw_code, sizeof(ps_srv_raw_code)};
+    static const DWORD ps_uav_typed_code[] =
+    {
+#if 0
+        RWBuffer<float> b;
+
+        uint4 main(void) : SV_Target
+        {
+            uint width;
+            b.GetDimensions(width);
+            return width;
+        }
+#endif
+        0x43425844, 0x96b39f5f, 0x5fef24c7, 0xed404a41, 0x01c9d4fe, 0x00000001, 0x000000dc, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000064, 0x00000050, 0x00000019,
+        0x0100086a, 0x0400089c, 0x0011e000, 0x00000001, 0x00005555, 0x03000065, 0x001020f2, 0x00000000,
+        0x02000068, 0x00000001, 0x87000079, 0x80000042, 0x00155543, 0x00100012, 0x00000000, 0x0011ee46,
+        0x00000001, 0x05000036, 0x001020f2, 0x00000000, 0x00100006, 0x00000000, 0x0100003e,
+    };
+    static const struct shader ps_uav_typed = {ps_uav_typed_code, sizeof(ps_uav_typed_code)};
+    static const DWORD ps_srv_typed_code[] =
+    {
+#if 0
+        Buffer<float> b;
+
+        uint4 main(void) : SV_Target
+        {
+            uint width;
+            b.GetDimensions(width);
+            return width;
+        }
+#endif
+        0x43425844, 0x6ae6dbb0, 0x6289d227, 0xaf4e708e, 0x111efed1, 0x00000001, 0x000000dc, 0x00000003,
+        0x0000002c, 0x0000003c, 0x00000070, 0x4e475349, 0x00000008, 0x00000000, 0x00000008, 0x4e47534f,
+        0x0000002c, 0x00000001, 0x00000008, 0x00000020, 0x00000000, 0x00000000, 0x00000001, 0x00000000,
+        0x0000000f, 0x545f5653, 0x65677261, 0xabab0074, 0x58454853, 0x00000064, 0x00000050, 0x00000019,
+        0x0100086a, 0x04000858, 0x00107000, 0x00000000, 0x00005555, 0x03000065, 0x001020f2, 0x00000000,
+        0x02000068, 0x00000001, 0x87000079, 0x80000042, 0x00155543, 0x00100012, 0x00000000, 0x00107e46,
+        0x00000000, 0x05000036, 0x001020f2, 0x00000000, 0x00100006, 0x00000000, 0x0100003e,
+    };
+    static const struct shader ps_srv_typed = {ps_srv_typed_code, sizeof(ps_srv_typed_code)};
+    static const struct test
+    {
+        const struct shader *ps;
+        BOOL uav;
+        unsigned int buffer_size;
+        unsigned int buffer_misc_flags;
+        unsigned int buffer_structure_byte_stride;
+        DXGI_FORMAT view_format;
+        unsigned int view_element_idx;
+        unsigned int view_element_count;
+        struct uvec4 expected_result;
+    }
+    tests[] =
+    {
+#define RAW        D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS
+#define STRUCTURED D3D11_RESOURCE_MISC_BUFFER_STRUCTURED
+        {&ps_uav_raw,        TRUE,  100,        RAW,  0, DXGI_FORMAT_R32_TYPELESS, 0, 25, {100, 100, 100, 100}},
+        {&ps_uav_raw,        TRUE,  100,        RAW,  0, DXGI_FORMAT_R32_TYPELESS, 8, 17, { 68,  68,  68,  68}},
+        {&ps_srv_raw,        FALSE, 100,        RAW,  0, DXGI_FORMAT_R32_TYPELESS, 0, 25, {100, 100, 100, 100}},
+        {&ps_srv_raw,        FALSE, 100,        RAW,  0, DXGI_FORMAT_R32_TYPELESS, 8, 17, { 68,  68,  68,  68}},
+        {&ps_uav_structured, TRUE,  100, STRUCTURED, 20, DXGI_FORMAT_UNKNOWN,      0,  5, {  5,  20,   0,   1}},
+        {&ps_uav_structured, TRUE,  100, STRUCTURED, 20, DXGI_FORMAT_UNKNOWN,      0,  2, {  2,  20,   0,   1}},
+        {&ps_uav_structured, TRUE,  100, STRUCTURED, 20, DXGI_FORMAT_UNKNOWN,      1,  2, {  2,  20,   0,   1}},
+        {&ps_srv_structured, FALSE, 100, STRUCTURED,  4, DXGI_FORMAT_UNKNOWN,      0,  5, {  5,   4,   0,   1}},
+        {&ps_srv_structured, FALSE, 100, STRUCTURED,  4, DXGI_FORMAT_UNKNOWN,      0,  2, {  2,   4,   0,   1}},
+        {&ps_srv_structured, FALSE, 100, STRUCTURED,  4, DXGI_FORMAT_UNKNOWN,      1,  2, {  2,   4,   0,   1}},
+        {&ps_uav_typed,      TRUE,  200,          0,  0, DXGI_FORMAT_R32_FLOAT,    0, 50, { 50,  50,  50,  50}},
+        {&ps_uav_typed,      TRUE,  200,          0,  0, DXGI_FORMAT_R32_FLOAT,   49,  1, {  1,   1,   1,   1}},
+        {&ps_uav_typed,      TRUE,  100,          0,  0, DXGI_FORMAT_R16_FLOAT,    0, 50, { 50,  50,  50,  50}},
+        {&ps_uav_typed,      TRUE,  100,          0,  0, DXGI_FORMAT_R16_FLOAT,   49,  1, {  1,   1,   1,   1}},
+        {&ps_srv_typed,      FALSE, 200,          0,  0, DXGI_FORMAT_R32_FLOAT,    0, 50, { 50,  50,  50,  50}},
+        {&ps_srv_typed,      FALSE, 200,          0,  0, DXGI_FORMAT_R32_FLOAT,   49,  1, {  1,   1,   1,   1}},
+        {&ps_srv_typed,      FALSE, 100,          0,  0, DXGI_FORMAT_R16_FLOAT,    0, 50, { 50,  50,  50,  50}},
+        {&ps_srv_typed,      FALSE, 100,          0,  0, DXGI_FORMAT_R16_FLOAT,   49,  1, {  1,   1,   1,   1}},
+#undef RAW
+#undef STRUCTURED
+    };
+
+    if (!init_test_context(&test_context, &feature_level))
+        return;
+
+    device = test_context.device;
+    context = test_context.immediate_context;
+
+    texture_desc.Width = 64;
+    texture_desc.Height = 64;
+    texture_desc.MipLevels = 1;
+    texture_desc.ArraySize = 1;
+    texture_desc.Format = DXGI_FORMAT_R32G32B32A32_UINT;
+    texture_desc.SampleDesc.Count = 1;
+    texture_desc.SampleDesc.Quality = 0;
+    texture_desc.Usage = D3D11_USAGE_DEFAULT;
+    texture_desc.BindFlags = D3D11_BIND_RENDER_TARGET;
+    texture_desc.CPUAccessFlags = 0;
+    texture_desc.MiscFlags = 0;
+    hr = ID3D11Device_CreateTexture2D(device, &texture_desc, NULL, &texture);
+    ok(SUCCEEDED(hr), "Failed to create texture, hr %#x.\n", hr);
+    hr = ID3D11Device_CreateRenderTargetView(device, (ID3D11Resource *)texture, NULL, &rtv);
+    ok(SUCCEEDED(hr), "Failed to create rendertarget view, hr %#x.\n", hr);
+
+    ps = NULL;
+    current_ps = NULL;
+    for (i = 0; i < sizeof(tests) / sizeof(*tests); ++i)
+    {
+        const struct test *test = &tests[i];
+
+        if (current_ps != test->ps)
+        {
+            if (ps)
+                ID3D11PixelShader_Release(ps);
+
+            current_ps = test->ps;
+
+            hr = ID3D11Device_CreatePixelShader(device, current_ps->code, current_ps->size, NULL, &ps);
+            ok(SUCCEEDED(hr), "Test %u: Failed to create pixel shader, hr %#x.\n", i, hr);
+            ID3D11DeviceContext_PSSetShader(context, ps, NULL, 0);
+        }
+
+        buffer_desc.ByteWidth = test->buffer_size;
+        buffer_desc.Usage = D3D11_USAGE_DEFAULT;
+        buffer_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
+        buffer_desc.CPUAccessFlags = 0;
+        buffer_desc.MiscFlags = test->buffer_misc_flags;
+        buffer_desc.StructureByteStride = test->buffer_structure_byte_stride;
+        hr = ID3D11Device_CreateBuffer(device, &buffer_desc, NULL, &buffer);
+        ok(SUCCEEDED(hr), "Test %u: Failed to create buffer, hr %#x.\n", i, hr);
+
+        if (test->uav)
+        {
+            uav_desc.Format = test->view_format;
+            uav_desc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+            U(uav_desc).Buffer.FirstElement = test->view_element_idx;
+            U(uav_desc).Buffer.NumElements = test->view_element_count;
+            U(uav_desc).Buffer.Flags = 0;
+            if (buffer_desc.MiscFlags & D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS)
+                U(uav_desc).Buffer.Flags |= D3D11_BUFFER_UAV_FLAG_RAW;
+            hr = ID3D11Device_CreateUnorderedAccessView(device, (ID3D11Resource *)buffer, &uav_desc, &uav);
+            ok(SUCCEEDED(hr), "Test %u: Failed to create unordered access view, hr %#x.\n", i, hr);
+            srv = NULL;
+
+            ID3D11DeviceContext_OMSetRenderTargetsAndUnorderedAccessViews(context, 1, &rtv, NULL,
+                    1, 1, &uav, NULL);
+        }
+        else
+        {
+            srv_desc.Format = test->view_format;
+            srv_desc.ViewDimension = D3D11_SRV_DIMENSION_BUFFEREX;
+            U(srv_desc).BufferEx.FirstElement = test->view_element_idx;
+            U(srv_desc).BufferEx.NumElements = test->view_element_count;
+            U(srv_desc).BufferEx.Flags = 0;
+            if (buffer_desc.MiscFlags & D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS)
+                U(srv_desc).BufferEx.Flags |= D3D11_BUFFER_UAV_FLAG_RAW;
+            hr = ID3D11Device_CreateShaderResourceView(device, (ID3D11Resource *)buffer, &srv_desc, &srv);
+            ok(SUCCEEDED(hr), "Test %u: Failed to create shader resource view, hr %#x.\n", i, hr);
+            uav = NULL;
+
+            ID3D11DeviceContext_PSSetShaderResources(context, 0, 1, &srv);
+        }
+
+        draw_quad(&test_context);
+        todo_wine check_texture_uvec4(texture, &test->expected_result);
+
+        if (srv)
+            ID3D11ShaderResourceView_Release(srv);
+        if (uav)
+            ID3D11UnorderedAccessView_Release(uav);
+        ID3D11Buffer_Release(buffer);
+    }
+    ID3D11PixelShader_Release(ps);
+
+    ID3D11RenderTargetView_Release(rtv);
+    ID3D11Texture2D_Release(texture);
+    release_test_context(&test_context);
+}
+
 START_TEST(d3d11)
 {
     test_create_device();
@@ -11218,4 +12296,10 @@ START_TEST(d3d11)
     run_for_each_feature_level(test_required_format_support);
     run_for_each_9_x_feature_level(test_fl9_draw);
     test_ddy();
+    test_shader_input_registers_limits();
+    test_stencil_separate();
+    test_uav_load();
+    test_sm4_ret_instruction();
+    test_primitive_restart();
+    test_sm5_bufinfo_instruction();
 }

@@ -1187,7 +1187,7 @@ static HRESULT WINAPI UIElementMgr_QueryInterface(ITfUIElementMgr *iface, REFIID
 {
     ThreadMgr *This = impl_from_ITfUIElementMgr(iface);
 
-    return ITfThreadMgrEx_QueryInterface(&This->ITfThreadMgrEx_iface, iid, *ppvOut);
+    return ITfThreadMgrEx_QueryInterface(&This->ITfThreadMgrEx_iface, iid, ppvOut);
 }
 
 static ULONG WINAPI UIElementMgr_AddRef(ITfUIElementMgr *iface)
@@ -1336,7 +1336,7 @@ HRESULT ThreadMgr_Constructor(IUnknown *pUnkOuter, IUnknown **ppOut)
     This->refCount = 1;
     TlsSetValue(tlsIndex,This);
 
-    CompartmentMgr_Constructor((IUnknown*)This, &IID_IUnknown, (IUnknown**)&This->CompartmentMgr);
+    CompartmentMgr_Constructor((IUnknown*)&This->ITfThreadMgrEx_iface, &IID_IUnknown, (IUnknown**)&This->CompartmentMgr);
 
     list_init(&This->CurrentPreservedKeys);
     list_init(&This->CreatedDocumentMgrs);
