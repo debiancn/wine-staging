@@ -36,6 +36,7 @@
 #include "shlobj.h"
 #include "shellapi.h"
 #include "wine/unicode.h"
+#include "wine/list.h"
 
 /*******************************************
 *  global SHELL32.DLL variables
@@ -110,6 +111,8 @@ HRESULT IShellLink_ConstructFromFile(IUnknown * pUnkOuter, REFIID riid, LPCITEMI
 LPEXTRACTICONA	IExtractIconA_Constructor(LPCITEMIDLIST) DECLSPEC_HIDDEN;
 LPEXTRACTICONW	IExtractIconW_Constructor(LPCITEMIDLIST) DECLSPEC_HIDDEN;
 
+HRESULT WINAPI CustomDestinationList_Constructor(IUnknown *outer, REFIID riid, void **obj) DECLSPEC_HIDDEN;
+
 /* initialisation for FORMATETC */
 #define InitFormatEtc(fe, cf, med) \
 	{\
@@ -181,19 +184,18 @@ BOOL SHELL_IsShortcut(LPCITEMIDLIST) DECLSPEC_HIDDEN;
 
 
 /* IEnumIDList stuff */
-struct enumlist
+struct pidl_enum_entry
 {
-        struct enumlist *pNext;
-        LPITEMIDLIST    pidl;
+    struct list entry;
+    LPITEMIDLIST pidl;
 };
 
 typedef struct
 {
-        IEnumIDList     IEnumIDList_iface;
-        LONG            ref;
-        struct enumlist *mpFirst;
-        struct enumlist *mpLast;
-        struct enumlist *mpCurrent;
+    IEnumIDList  IEnumIDList_iface;
+    LONG         ref;
+    struct list  pidls;
+    struct list *current;
 } IEnumIDListImpl;
 
 /* Creates an IEnumIDList; add LPITEMIDLISTs to it with AddToEnumList. */

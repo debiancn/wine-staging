@@ -42,6 +42,7 @@
 @ stub DbgUiWaitStateChange
 @ stdcall DbgUserBreakPoint()
 @ stdcall EtwEventRegister(ptr ptr ptr ptr)
+@ stdcall EtwEventSetInformation(int64 long ptr long)
 @ stdcall EtwEventUnregister(int64)
 @ stdcall EtwRegisterTraceGuidsA(ptr ptr ptr long ptr str str ptr)
 @ stdcall EtwRegisterTraceGuidsW(ptr ptr ptr long ptr wstr wstr ptr)
@@ -448,7 +449,7 @@
 @ stdcall RtlAreBitsClear(ptr long long)
 @ stdcall RtlAreBitsSet(ptr long long)
 # @ stub RtlAssert2
-@ stdcall RtlAssert(ptr ptr long long)
+@ stdcall RtlAssert(ptr ptr long str)
 # @ stub RtlCancelTimer
 @ stdcall -norelay RtlCaptureContext(ptr)
 @ stdcall RtlCaptureStackBackTrace(long long ptr ptr)

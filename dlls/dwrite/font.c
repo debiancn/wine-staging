@@ -19,6 +19,8 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
+
+#include <assert.h>
 #include <math.h>
 
 #define COBJMACROS
@@ -89,6 +91,8 @@ struct dwrite_font_data {
     WCHAR *facename;
 
     USHORT simulations;
+
+    LOGFONTW lf;
 
     /* used to mark font as tested when scanning for simulation candidate */
     BOOL bold_sim_tested : 1;
@@ -239,6 +243,8 @@ struct dwrite_fontface {
     DWRITE_FONT_STRETCH stretch;
     DWRITE_FONT_WEIGHT weight;
     DWRITE_PANOSE panose;
+
+    LOGFONTW lf;
 };
 
 struct dwrite_fontfile {
@@ -1672,6 +1678,34 @@ static const IDWriteFont3Vtbl dwritefontvtbl = {
     dwritefont3_HasCharacter,
     dwritefont3_GetLocality
 };
+
+static struct dwrite_font *unsafe_impl_from_IDWriteFont(IDWriteFont *iface)
+{
+    if (!iface)
+        return NULL;
+    assert(iface->lpVtbl == (IDWriteFontVtbl*)&dwritefontvtbl);
+    return CONTAINING_RECORD(iface, struct dwrite_font, IDWriteFont3_iface);
+}
+
+static struct dwrite_fontface *unsafe_impl_from_IDWriteFontFace(IDWriteFontFace *iface)
+{
+    if (!iface)
+        return NULL;
+    assert(iface->lpVtbl = (IDWriteFontFaceVtbl*)&dwritefontfacevtbl);
+    return CONTAINING_RECORD(iface, struct dwrite_fontface, IDWriteFontFace4_iface);
+}
+
+void get_logfont_from_font(IDWriteFont *iface, LOGFONTW *lf)
+{
+    struct dwrite_font *font = unsafe_impl_from_IDWriteFont(iface);
+    *lf = font->data->lf;
+}
+
+void get_logfont_from_fontface(IDWriteFontFace *iface, LOGFONTW *lf)
+{
+    struct dwrite_fontface *fontface = unsafe_impl_from_IDWriteFontFace(iface);
+    *lf = fontface->lf;
+}
 
 static HRESULT create_font(struct dwrite_font_data *data, IDWriteFontFamily1 *family, IDWriteFont3 **font)
 {
@@ -3229,7 +3263,7 @@ static HRESULT init_font_data(const struct fontface_desc *desc, IDWriteLocalized
     stream_desc.face_index = desc->index;
     opentype_get_font_properties(&stream_desc, &props);
     opentype_get_font_metrics(&stream_desc, &data->metrics, NULL);
-    opentype_get_font_facename(&stream_desc, &data->names);
+    opentype_get_font_facename(&stream_desc, props.lf.lfFaceName, &data->names);
 
     /* get family name from font file */
     hr = opentype_get_font_familyname(&stream_desc, family_name);
@@ -3244,6 +3278,7 @@ static HRESULT init_font_data(const struct fontface_desc *desc, IDWriteLocalized
     data->stretch = props.stretch;
     data->weight = props.weight;
     data->panose = props.panose;
+    data->lf = props.lf;
 
     fontstrings_get_en_string(*family_name, familyW, sizeof(familyW)/sizeof(WCHAR));
     fontstrings_get_en_string(data->names, faceW, sizeof(faceW)/sizeof(WCHAR));
@@ -3382,6 +3417,7 @@ static void fontfamily_add_bold_simulated_face(struct dwrite_fontfamily_data *fa
 
             if (init_font_data_from_font(family->fonts[heaviest], DWRITE_FONT_SIMULATIONS_BOLD, facenameW, &boldface) == S_OK) {
                 boldface->bold_sim_tested = 1;
+                boldface->lf.lfWeight += (FW_BOLD - FW_REGULAR) / 2 + 1;
                 fontfamily_add_font(family, boldface);
             }
         }
@@ -3446,6 +3482,7 @@ static void fontfamily_add_oblique_simulated_face(struct dwrite_fontfamily_data 
 
         if (init_font_data_from_font(family->fonts[regular], DWRITE_FONT_SIMULATIONS_OBLIQUE, facenameW, &obliqueface) == S_OK) {
             obliqueface->oblique_sim_tested = 1;
+            obliqueface->lf.lfItalic = 1;
             fontfamily_add_font(family, obliqueface);
         }
     }
@@ -3808,10 +3845,12 @@ static HRESULT WINAPI systemfontfileenumerator_MoveNext(IDWriteFontFileEnumerato
     /* iterate until we find next string value */
     while (1) {
         DWORD type = 0, count, val_count;
+
         val_count = max_val_count;
+        value[0] = 0;
         if (RegEnumValueW(enumerator->hkey, enumerator->index, value, &val_count, NULL, &type, NULL, &count))
             break;
-        if (type == REG_SZ) {
+        if (type == REG_SZ && *value && *value != '@') {
             *current = TRUE;
             break;
         }
@@ -4261,6 +4300,7 @@ HRESULT create_fontface(const struct fontface_desc *desc, IDWriteFontFace4 **ret
         fontface->style = desc->font_data->style;
         fontface->stretch = desc->font_data->stretch;
         fontface->panose = desc->font_data->panose;
+        fontface->lf = desc->font_data->lf;
     }
     else {
         IDWriteLocalizedStrings *names;
@@ -4276,6 +4316,7 @@ HRESULT create_fontface(const struct fontface_desc *desc, IDWriteFontFace4 **ret
         fontface->style = data->style;
         fontface->stretch = data->stretch;
         fontface->panose = data->panose;
+        fontface->lf = data->lf;
 
         IDWriteLocalizedStrings_Release(names);
         release_font_data(data);

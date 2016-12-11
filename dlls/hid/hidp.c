@@ -279,7 +279,10 @@ NTSTATUS WINAPI HidP_GetUsages(HIDP_REPORT_TYPE ReportType, USAGE UsagePage, USH
           UsageLength, PreparsedData, Report, ReportLength);
 
     if (data->magic != HID_MAGIC)
+    {
+        *UsageLength = 0;
         return HIDP_STATUS_INVALID_PREPARSED_DATA;
+    }
 
     switch(ReportType)
     {
@@ -342,10 +345,10 @@ NTSTATUS WINAPI HidP_GetUsages(HIDP_REPORT_TYPE ReportType, USAGE UsagePage, USH
         }
     }
 
+    *UsageLength = uCount;
+
     if (!found)
         return HIDP_STATUS_USAGE_NOT_FOUND;
-
-    *UsageLength = uCount;
 
     return HIDP_STATUS_SUCCESS;
 }

@@ -42,12 +42,6 @@ static ID2D1Brush *d2d_draw_get_text_brush(struct d2d_draw_text_layout_ctx *cont
     return context->brush;
 }
 
-static void d2d_point_set(D2D1_POINT_2F *dst, float x, float y)
-{
-    dst->x = x;
-    dst->y = y;
-}
-
 static void d2d_rect_expand(D2D1_RECT_F *dst, const D2D1_POINT_2F *point)
 {
     if (point->x < dst->left)
@@ -687,11 +681,11 @@ static void d2d_rt_fill_geometry(struct d2d_d3d_render_target *render_target,
         return;
     }
 
-    if (geometry->face_count)
+    if (geometry->fill.face_count)
     {
-        buffer_desc.ByteWidth = geometry->face_count * sizeof(*geometry->faces);
+        buffer_desc.ByteWidth = geometry->fill.face_count * sizeof(*geometry->fill.faces);
         buffer_desc.BindFlags = D3D10_BIND_INDEX_BUFFER;
-        buffer_data.pSysMem = geometry->faces;
+        buffer_data.pSysMem = geometry->fill.faces;
 
         if (FAILED(hr = ID3D10Device_CreateBuffer(render_target->device, &buffer_desc, &buffer_data, &ib)))
         {
@@ -699,9 +693,9 @@ static void d2d_rt_fill_geometry(struct d2d_d3d_render_target *render_target,
             goto done;
         }
 
-        buffer_desc.ByteWidth = geometry->vertex_count * sizeof(*geometry->vertices);
+        buffer_desc.ByteWidth = geometry->fill.vertex_count * sizeof(*geometry->fill.vertices);
         buffer_desc.BindFlags = D3D10_BIND_VERTEX_BUFFER;
-        buffer_data.pSysMem = geometry->vertices;
+        buffer_data.pSysMem = geometry->fill.vertices;
 
         if (FAILED(hr = ID3D10Device_CreateBuffer(render_target->device, &buffer_desc, &buffer_data, &vb)))
         {
@@ -710,17 +704,17 @@ static void d2d_rt_fill_geometry(struct d2d_d3d_render_target *render_target,
             goto done;
         }
 
-        d2d_rt_draw(render_target, D2D_SHAPE_TYPE_TRIANGLE, ib, 3 * geometry->face_count, vb,
-                sizeof(*geometry->vertices), vs_cb, ps_cb, brush, opacity_brush);
+        d2d_rt_draw(render_target, D2D_SHAPE_TYPE_TRIANGLE, ib, 3 * geometry->fill.face_count, vb,
+                sizeof(*geometry->fill.vertices), vs_cb, ps_cb, brush, opacity_brush);
 
         ID3D10Buffer_Release(vb);
         ID3D10Buffer_Release(ib);
     }
 
-    if (geometry->bezier_count)
+    if (geometry->fill.bezier_vertex_count)
     {
-        buffer_desc.ByteWidth = geometry->bezier_count * sizeof(*geometry->beziers);
-        buffer_data.pSysMem = geometry->beziers;
+        buffer_desc.ByteWidth = geometry->fill.bezier_vertex_count * sizeof(*geometry->fill.bezier_vertices);
+        buffer_data.pSysMem = geometry->fill.bezier_vertices;
 
         if (FAILED(hr = ID3D10Device_CreateBuffer(render_target->device, &buffer_desc, &buffer_data, &vb)))
         {
@@ -728,8 +722,8 @@ static void d2d_rt_fill_geometry(struct d2d_d3d_render_target *render_target,
             goto done;
         }
 
-        d2d_rt_draw(render_target, D2D_SHAPE_TYPE_BEZIER, NULL, 3 * geometry->bezier_count, vb,
-                sizeof(*geometry->beziers->v), vs_cb, ps_cb, brush, opacity_brush);
+        d2d_rt_draw(render_target, D2D_SHAPE_TYPE_BEZIER, NULL, geometry->fill.bezier_vertex_count, vb,
+                sizeof(*geometry->fill.bezier_vertices), vs_cb, ps_cb, brush, opacity_brush);
 
         ID3D10Buffer_Release(vb);
     }
