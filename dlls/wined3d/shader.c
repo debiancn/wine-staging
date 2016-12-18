@@ -46,6 +46,8 @@ static const char * const shader_opcode_names[] =
     /* WINED3DSIH_ATOMIC_AND                       */ "atomic_and",
     /* WINED3DSIH_ATOMIC_CMP_STORE                 */ "atomic_cmp_store",
     /* WINED3DSIH_ATOMIC_IADD                      */ "atomic_iadd",
+    /* WINED3DSIH_ATOMIC_IMAX                      */ "atomic_imax",
+    /* WINED3DSIH_ATOMIC_IMIN                      */ "atomic_imin",
     /* WINED3DSIH_ATOMIC_OR                        */ "atomic_or",
     /* WINED3DSIH_ATOMIC_UMAX                      */ "atomic_umax",
     /* WINED3DSIH_ATOMIC_UMIN                      */ "atomic_umin",
@@ -1929,6 +1931,14 @@ static void shader_dump_register(struct wined3d_string_buffer *buffer,
 
         case WINED3DSPR_FUNCTIONPOINTER:
             shader_addline(buffer, "fp");
+            break;
+
+        case WINED3DSPR_COVERAGE:
+            shader_addline(buffer, "vCoverage");
+            break;
+
+        case WINED3DSPR_SAMPLEMASK:
+            shader_addline(buffer, "oMask");
             break;
 
         default:

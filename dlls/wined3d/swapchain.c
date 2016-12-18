@@ -795,7 +795,7 @@ static void wined3d_swapchain_apply_sample_count_override(const struct wined3d_s
         return;
 
     gl_info = &swapchain->device->adapter->gl_info;
-    if (!(format = wined3d_get_format(gl_info, format_id)))
+    if (!(format = wined3d_get_format(gl_info, format_id, WINED3DUSAGE_RENDERTARGET)))
         return;
 
     if ((t = min(wined3d_settings.sample_count, gl_info->limits.samples)))
@@ -961,7 +961,7 @@ static HRESULT swapchain_init(struct wined3d_swapchain *swapchain, struct wined3
          * issue needs to be fixed. */
         for (i = 0; i < (sizeof(formats) / sizeof(*formats)); i++)
         {
-            swapchain->ds_format = wined3d_get_format(gl_info, formats[i]);
+            swapchain->ds_format = wined3d_get_format(gl_info, formats[i], WINED3DUSAGE_DEPTHSTENCIL);
             swapchain->context[0] = context_create(swapchain, swapchain->front_buffer, swapchain->ds_format);
             if (swapchain->context[0]) break;
             TRACE("Depth stencil format %s is not supported, trying next format\n",
@@ -1525,6 +1525,7 @@ HRESULT CDECL wined3d_swapchain_set_fullscreen(struct wined3d_swapchain *swapcha
 
         if (swapchain->desc.windowed)
         {
+            /* Switch from windowed to fullscreen */
             HWND focus_window = device->create_parms.focus_window;
             if (!focus_window)
                 focus_window = swapchain->device_window;
@@ -1534,20 +1535,24 @@ HRESULT CDECL wined3d_swapchain_set_fullscreen(struct wined3d_swapchain *swapcha
                 return hr;
             }
 
-            /* switch from windowed to fs */
             wined3d_device_setup_fullscreen_window(device, swapchain->device_window, width, height);
         }
         else
         {
             /* Fullscreen -> fullscreen mode change */
+            BOOL filter_messages = device->filter_messages;
+            device->filter_messages = TRUE;
+
             MoveWindow(swapchain->device_window, 0, 0, width, height, TRUE);
+
+            device->filter_messages = filter_messages;
         }
         swapchain->d3d_mode = actual_mode;
     }
     else if (!swapchain->desc.windowed)
     {
-        RECT *window_rect = NULL;
         /* Fullscreen -> windowed switch */
+        RECT *window_rect = NULL;
         if (swapchain->desc.flags & WINED3D_SWAPCHAIN_RESTORE_WINDOW_RECT)
             window_rect = &swapchain->original_window_rect;
         wined3d_device_restore_fullscreen_window(device, swapchain->device_window, window_rect);

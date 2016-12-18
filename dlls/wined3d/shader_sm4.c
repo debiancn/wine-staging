@@ -264,6 +264,8 @@ enum wined3d_sm4_opcode
     WINED3D_SM5_OP_ATOMIC_XOR                       = 0xab,
     WINED3D_SM5_OP_ATOMIC_CMP_STORE                 = 0xac,
     WINED3D_SM5_OP_ATOMIC_IADD                      = 0xad,
+    WINED3D_SM5_OP_ATOMIC_IMAX                      = 0xae,
+    WINED3D_SM5_OP_ATOMIC_IMIN                      = 0xaf,
     WINED3D_SM5_OP_ATOMIC_UMAX                      = 0xb0,
     WINED3D_SM5_OP_ATOMIC_UMIN                      = 0xb1,
     WINED3D_SM5_OP_IMM_ATOMIC_ALLOC                 = 0xb2,
@@ -292,6 +294,7 @@ enum wined3d_sm4_register_type
     WINED3D_SM4_RT_PRIMID                  = 0x0b,
     WINED3D_SM4_RT_DEPTHOUT                = 0x0c,
     WINED3D_SM4_RT_NULL                    = 0x0d,
+    WINED3D_SM4_RT_OMASK                   = 0x0f,
     WINED3D_SM5_RT_STREAM                  = 0x10,
     WINED3D_SM5_RT_FUNCTION_BODY           = 0x11,
     WINED3D_SM5_RT_FUNCTION_POINTER        = 0x13,
@@ -306,6 +309,7 @@ enum wined3d_sm4_register_type
     WINED3D_SM5_RT_THREAD_ID               = 0x20,
     WINED3D_SM5_RT_THREAD_GROUP_ID         = 0x21,
     WINED3D_SM5_RT_LOCAL_THREAD_ID         = 0x22,
+    WINED3D_SM5_RT_COVERAGE                = 0x23,
     WINED3D_SM5_RT_LOCAL_THREAD_INDEX      = 0x24,
 };
 
@@ -968,6 +972,8 @@ static const struct wined3d_sm4_opcode_info opcode_table[] =
     {WINED3D_SM5_OP_ATOMIC_XOR,                       WINED3DSIH_ATOMIC_XOR,                       "U",    "iu"},
     {WINED3D_SM5_OP_ATOMIC_CMP_STORE,                 WINED3DSIH_ATOMIC_CMP_STORE,                 "U",    "iuu"},
     {WINED3D_SM5_OP_ATOMIC_IADD,                      WINED3DSIH_ATOMIC_IADD,                      "U",    "ii"},
+    {WINED3D_SM5_OP_ATOMIC_IMAX,                      WINED3DSIH_ATOMIC_IMAX,                      "U",    "ii"},
+    {WINED3D_SM5_OP_ATOMIC_IMIN,                      WINED3DSIH_ATOMIC_IMIN,                      "U",    "ii"},
     {WINED3D_SM5_OP_ATOMIC_UMAX,                      WINED3DSIH_ATOMIC_UMAX,                      "U",    "iu"},
     {WINED3D_SM5_OP_ATOMIC_UMIN,                      WINED3DSIH_ATOMIC_UMIN,                      "U",    "iu"},
     {WINED3D_SM5_OP_IMM_ATOMIC_ALLOC,                 WINED3DSIH_IMM_ATOMIC_ALLOC,                 "u",    "U"},
@@ -1000,7 +1006,7 @@ static const enum wined3d_shader_register_type register_type_table[] =
     /* WINED3D_SM4_RT_DEPTHOUT */                WINED3DSPR_DEPTHOUT,
     /* WINED3D_SM4_RT_NULL */                    WINED3DSPR_NULL,
     /* UNKNOWN */                                ~0u,
-    /* UNKNOWN */                                ~0u,
+    /* WINED3D_SM4_RT_OMASK */                   WINED3DSPR_SAMPLEMASK,
     /* WINED3D_SM5_RT_STREAM */                  WINED3DSPR_STREAM,
     /* WINED3D_SM5_RT_FUNCTION_BODY */           WINED3DSPR_FUNCTIONBODY,
     /* UNKNOWN */                                ~0u,
@@ -1020,7 +1026,7 @@ static const enum wined3d_shader_register_type register_type_table[] =
     /* WINED3D_SM5_RT_THREAD_ID */               WINED3DSPR_THREADID,
     /* WINED3D_SM5_RT_THREAD_GROUP_ID */         WINED3DSPR_THREADGROUPID,
     /* WINED3D_SM5_RT_LOCAL_THREAD_ID */         WINED3DSPR_LOCALTHREADID,
-    /* UNKNOWN */                                ~0u,
+    /* WINED3D_SM5_RT_COVERAGE */                WINED3DSPR_COVERAGE,
     /* WINED3D_SM5_RT_LOCAL_THREAD_INDEX */      WINED3DSPR_LOCALTHREADINDEX,
 };
 

@@ -2135,6 +2135,10 @@ static void shader_generate_glsl_declarations(const struct wined3d_context *cont
                 image_type = "image3D";
                 break;
 
+            case WINED3D_SHADER_RESOURCE_TEXTURE_2DARRAY:
+                image_type = "image2DArray";
+                break;
+
             default:
                 image_type = "unsupported_image";
                 FIXME("Unhandled resource type %#x.\n", reg_maps->uav_resource_info[i].type);
@@ -8925,6 +8929,8 @@ static const SHADER_HANDLER shader_glsl_instruction_handler_table[WINED3DSIH_TAB
     /* WINED3DSIH_ATOMIC_AND                       */ NULL,
     /* WINED3DSIH_ATOMIC_CMP_STORE                 */ NULL,
     /* WINED3DSIH_ATOMIC_IADD                      */ shader_glsl_atomic,
+    /* WINED3DSIH_ATOMIC_IMAX                      */ NULL,
+    /* WINED3DSIH_ATOMIC_IMIN                      */ NULL,
     /* WINED3DSIH_ATOMIC_OR                        */ NULL,
     /* WINED3DSIH_ATOMIC_UMAX                      */ NULL,
     /* WINED3DSIH_ATOMIC_UMIN                      */ NULL,

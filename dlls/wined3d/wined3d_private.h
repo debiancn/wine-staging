@@ -394,6 +394,8 @@ enum wined3d_shader_register_type
     WINED3DSPR_STREAM,
     WINED3DSPR_FUNCTIONBODY,
     WINED3DSPR_FUNCTIONPOINTER,
+    WINED3DSPR_COVERAGE,
+    WINED3DSPR_SAMPLEMASK,
 };
 
 enum wined3d_data_type
@@ -575,6 +577,8 @@ enum WINED3D_SHADER_INSTRUCTION_HANDLER
     WINED3DSIH_ATOMIC_AND,
     WINED3DSIH_ATOMIC_CMP_STORE,
     WINED3DSIH_ATOMIC_IADD,
+    WINED3DSIH_ATOMIC_IMAX,
+    WINED3DSIH_ATOMIC_IMIN,
     WINED3DSIH_ATOMIC_OR,
     WINED3DSIH_ATOMIC_UMAX,
     WINED3DSIH_ATOMIC_UMIN,
@@ -3789,7 +3793,7 @@ struct wined3d_format
 };
 
 const struct wined3d_format *wined3d_get_format(const struct wined3d_gl_info *gl_info,
-        enum wined3d_format_id format_id) DECLSPEC_HIDDEN;
+        enum wined3d_format_id format_id, unsigned int resource_usage) DECLSPEC_HIDDEN;
 void wined3d_format_calculate_pitch(const struct wined3d_format *format, unsigned int alignment,
         unsigned int width, unsigned int height, unsigned int *row_pitch, unsigned int *slice_pitch) DECLSPEC_HIDDEN;
 UINT wined3d_format_calculate_size(const struct wined3d_format *format,
