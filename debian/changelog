@@ -1,3 +1,12 @@
+wine-development (2.0~rc2-1) unstable; urgency=medium
+
+  * New upstream release 2.0-rc2, released Dec 16, 2016.
+    - Fixes wineconsole emacs mode crash when yanking a line (closes: #844412).
+  * Remove ttf files from the upstream tarball.
+  * Use xz compression for the upstream tarball.
+
+ -- Michael Gilbert <mgilbert@debian.org>  Sun, 18 Dec 2016 18:42:24 +0000
+
 wine-development (2.0~rc1-1) unstable; urgency=medium
 
   * New upstream release 2.0-rc1, released Dec 9, 2016.
