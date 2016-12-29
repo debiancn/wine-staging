@@ -1,3 +1,10 @@
+wine-development (2.0~rc2-1~bpo8+1) jessie-backports; urgency=medium
+
+  * Rebuild for jessie-backports.
+  * No changes.
+
+ -- Jens Reyer <jre.winesim@gmail.com>  Thu, 29 Dec 2016 22:24:25 +0100
+
 wine-development (2.0~rc2-1) unstable; urgency=medium
 
   * New upstream release 2.0-rc2, released Dec 16, 2016.
