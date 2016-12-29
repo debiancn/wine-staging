@@ -106,8 +106,7 @@ static const struct fd_ops mailslot_fd_ops =
     no_fd_flush,                /* flush */
     default_fd_ioctl,           /* ioctl */
     mailslot_queue_async,       /* queue_async */
-    default_fd_reselect_async,  /* reselect_async */
-    default_fd_cancel_async     /* cancel_async */
+    default_fd_reselect_async   /* reselect_async */
 };
 
 
@@ -160,8 +159,7 @@ static const struct fd_ops mail_writer_fd_ops =
     no_fd_flush,                 /* flush */
     default_fd_ioctl,            /* ioctl */
     default_fd_queue_async,      /* queue_async */
-    default_fd_reselect_async,   /* reselect_async */
-    default_fd_cancel_async      /* cancel_async */
+    default_fd_reselect_async    /* reselect_async */
 };
 
 
@@ -214,8 +212,7 @@ static const struct fd_ops mailslot_device_fd_ops =
     no_fd_flush,                    /* flush */
     default_fd_ioctl,               /* ioctl */
     default_fd_queue_async,         /* queue_async */
-    default_fd_reselect_async,      /* reselect_async */
-    default_fd_cancel_async         /* cancel_async */
+    default_fd_reselect_async       /* reselect_async */
 };
 
 static void mailslot_destroy( struct object *obj)
@@ -335,7 +332,7 @@ static void mailslot_queue_async( struct fd *fd, const async_data_t *data, int t
 
     assert(mailslot->obj.ops == &mailslot_ops);
 
-    if ((async = fd_queue_async( fd, data, type )))
+    if ((async = fd_queue_async( fd, data, NULL, type )))
     {
         async_set_timeout( async, mailslot->read_timeout ? mailslot->read_timeout : -1,
                            STATUS_IO_TIMEOUT );

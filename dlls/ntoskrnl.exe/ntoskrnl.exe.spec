@@ -945,7 +945,7 @@
 @ stdcall RtlAreAnyAccessesGranted(long long) ntdll.RtlAreAnyAccessesGranted
 @ stdcall RtlAreBitsClear(ptr long long) ntdll.RtlAreBitsClear
 @ stdcall RtlAreBitsSet(ptr long long) ntdll.RtlAreBitsSet
-@ stdcall RtlAssert(ptr ptr long long) ntdll.RtlAssert
+@ stdcall RtlAssert(ptr ptr long str) ntdll.RtlAssert
 @ stdcall -norelay RtlCaptureContext(ptr) ntdll.RtlCaptureContext
 @ stdcall RtlCaptureStackBackTrace(long long ptr ptr) ntdll.RtlCaptureStackBackTrace
 @ stdcall RtlCharToInteger(ptr long ptr) ntdll.RtlCharToInteger
@@ -963,6 +963,7 @@
 @ stdcall RtlConvertSidToUnicodeString(ptr ptr long) ntdll.RtlConvertSidToUnicodeString
 @ stdcall -arch=win32 -ret64 RtlConvertUlongToLargeInteger(long) ntdll.RtlConvertUlongToLargeInteger
 @ stdcall RtlCopyLuid(ptr ptr) ntdll.RtlCopyLuid
+@ stdcall -arch=x86_64 RtlCopyMemory(ptr ptr long) ntdll.RtlCopyMemory
 @ stub RtlCopyRangeList
 @ stdcall RtlCopySid(long ptr ptr) ntdll.RtlCopySid
 @ stdcall RtlCopyString(ptr ptr) ntdll.RtlCopyString

@@ -5,6 +5,7 @@ disable/tests.patch
 disable/addons-download.patch
 disable/rerun-configure.patch
 
+generate/fonts.patch
 generate/opengl.patch
 generate/unicode.patch
 generate/request.patch

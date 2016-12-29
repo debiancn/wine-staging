@@ -1108,7 +1108,7 @@ static UINT MSI_GetProductInfo(LPCWSTR szProduct, LPCWSTR szAttribute,
     MSIINSTALLCONTEXT context = MSIINSTALLCONTEXT_USERUNMANAGED;
     UINT r = ERROR_UNKNOWN_PROPERTY;
     HKEY prodkey, userdata, source;
-    WCHAR *val = NULL, squashed_pc[SQUASHED_GUID_SIZE], packagecode[SQUASHED_GUID_SIZE];
+    WCHAR *val = NULL, squashed_pc[SQUASHED_GUID_SIZE], packagecode[GUID_SIZE];
     BOOL badconfig = FALSE;
     LONG res;
     DWORD type = REG_NONE;
@@ -2714,16 +2714,16 @@ UINT WINAPI MsiGetProductPropertyW(MSIHANDLE hProduct, LPCWSTR szProperty,
 
     if (lstrlenW(val) >= *pccbValue)
     {
-        lstrcpynW(szValue, val, *pccbValue);
-        *pccbValue = lstrlenW(val);
+        if (szValue) lstrcpynW(szValue, val, *pccbValue);
         r = ERROR_MORE_DATA;
     }
     else
     {
-        lstrcpyW(szValue, val);
-        *pccbValue = lstrlenW(val);
+        if (szValue) lstrcpyW(szValue, val);
         r = ERROR_SUCCESS;
     }
+
+    *pccbValue = lstrlenW(val);
 
 done:
     if (view)

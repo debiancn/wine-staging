@@ -122,6 +122,7 @@ static const struct wined3d_extension_map gl_extension_map[] =
     {"GL_ARB_draw_elements_base_vertex",    ARB_DRAW_ELEMENTS_BASE_VERTEX },
     {"GL_ARB_draw_instanced",               ARB_DRAW_INSTANCED            },
     {"GL_ARB_ES2_compatibility",            ARB_ES2_COMPATIBILITY         },
+    {"GL_ARB_ES3_compatibility",            ARB_ES3_COMPATIBILITY         },
     {"GL_ARB_explicit_attrib_location",     ARB_EXPLICIT_ATTRIB_LOCATION  },
     {"GL_ARB_fragment_coord_conventions",   ARB_FRAGMENT_COORD_CONVENTIONS},
     {"GL_ARB_fragment_program",             ARB_FRAGMENT_PROGRAM          },
@@ -146,9 +147,11 @@ static const struct wined3d_extension_map gl_extension_map[] =
     {"GL_ARB_sampler_objects",              ARB_SAMPLER_OBJECTS           },
     {"GL_ARB_shader_bit_encoding",          ARB_SHADER_BIT_ENCODING       },
     {"GL_ARB_shader_image_load_store",      ARB_SHADER_IMAGE_LOAD_STORE   },
+    {"GL_ARB_shader_image_size",            ARB_SHADER_IMAGE_SIZE         },
     {"GL_ARB_shader_texture_lod",           ARB_SHADER_TEXTURE_LOD        },
     {"GL_ARB_shading_language_100",         ARB_SHADING_LANGUAGE_100      },
     {"GL_ARB_shadow",                       ARB_SHADOW                    },
+    {"GL_ARB_stencil_texturing",            ARB_STENCIL_TEXTURING         },
     {"GL_ARB_sync",                         ARB_SYNC                      },
     {"GL_ARB_texture_border_clamp",         ARB_TEXTURE_BORDER_CLAMP      },
     {"GL_ARB_texture_compression",          ARB_TEXTURE_COMPRESSION       },
@@ -1324,6 +1327,7 @@ static const struct gpu_description gpu_description_table[] =
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTX970M,    "NVIDIA GeForce GTX 970M",          DRIVER_NVIDIA_GEFORCE8,  3072},
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTX980,     "NVIDIA GeForce GTX 980",           DRIVER_NVIDIA_GEFORCE8,  4096},
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTX980TI,   "NVIDIA GeForce GTX 980 Ti",        DRIVER_NVIDIA_GEFORCE8,  6144},
+    {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTX1050,    "NVIDIA GeForce GTX 1050",          DRIVER_NVIDIA_GEFORCE8,  2048},
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTX1060,    "NVIDIA GeForce GTX 1060",          DRIVER_NVIDIA_GEFORCE8,  6144},
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTX1070,    "NVIDIA GeForce GTX 1070",          DRIVER_NVIDIA_GEFORCE8,  8192},
     {HW_VENDOR_NVIDIA,     CARD_NVIDIA_GEFORCE_GTX1080,    "NVIDIA GeForce GTX 1080",          DRIVER_NVIDIA_GEFORCE8,  8192},
@@ -1802,6 +1806,7 @@ cards_nvidia_binary[] =
     {"GTX 1080",                    CARD_NVIDIA_GEFORCE_GTX1080},   /* GeForce 1000 - highend */
     {"GTX 1070",                    CARD_NVIDIA_GEFORCE_GTX1070},   /* GeForce 1000 - highend */
     {"GTX 1060",                    CARD_NVIDIA_GEFORCE_GTX1060},   /* GeForce 1000 - midend high */
+    {"GTX 1050",                    CARD_NVIDIA_GEFORCE_GTX1050},   /* GeForce 1000 - midend */
     {"GTX 980 Ti",                  CARD_NVIDIA_GEFORCE_GTX980TI},  /* GeForce 900 - highend */
     {"GTX 980",                     CARD_NVIDIA_GEFORCE_GTX980},    /* GeForce 900 - highend */
     {"GTX 970M",                    CARD_NVIDIA_GEFORCE_GTX970M},   /* GeForce 900 - highend mobile*/
@@ -3631,7 +3636,10 @@ static BOOL wined3d_adapter_init_gl_caps(struct wined3d_adapter *adapter, DWORD 
         {ARB_TEXTURE_STORAGE,              MAKEDWORD_VERSION(4, 2)},
 
         {ARB_DEBUG_OUTPUT,                 MAKEDWORD_VERSION(4, 3)},
+        {ARB_ES3_COMPATIBILITY,            MAKEDWORD_VERSION(4, 3)},
         {ARB_INTERNALFORMAT_QUERY2,        MAKEDWORD_VERSION(4, 3)},
+        {ARB_SHADER_IMAGE_SIZE,            MAKEDWORD_VERSION(4, 3)},
+        {ARB_STENCIL_TEXTURING,            MAKEDWORD_VERSION(4, 3)},
         {ARB_TEXTURE_QUERY_LEVELS,         MAKEDWORD_VERSION(4, 3)},
         {ARB_TEXTURE_VIEW,                 MAKEDWORD_VERSION(4, 3)},
 
@@ -3897,6 +3905,12 @@ static BOOL wined3d_adapter_init_gl_caps(struct wined3d_adapter *adapter, DWORD 
          * coordinates. */
         TRACE("Disabling ARB_clip_control because ARB_viewport_array is not supported.\n");
         gl_info->supported[ARB_CLIP_CONTROL] = FALSE;
+    }
+    if (gl_info->supported[ARB_STENCIL_TEXTURING] && !gl_info->supported[ARB_TEXTURE_SWIZZLE])
+    {
+        /* The stencil value needs to be placed in the green channel.  */
+        TRACE("Disabling ARB_stencil_texturing because ARB_texture_swizzle is not supported.\n");
+        gl_info->supported[ARB_STENCIL_TEXTURING] = FALSE;
     }
     if (!gl_info->supported[ATI_TEXTURE_MIRROR_ONCE] && gl_info->supported[EXT_TEXTURE_MIRROR_CLAMP])
     {
@@ -4166,7 +4180,7 @@ UINT CDECL wined3d_get_adapter_mode_count(const struct wined3d *wined3d, UINT ad
         return 0;
 
     adapter = &wined3d->adapters[adapter_idx];
-    format = wined3d_get_format(&adapter->gl_info, format_id);
+    format = wined3d_get_format(&adapter->gl_info, format_id, WINED3DUSAGE_RENDERTARGET);
     format_bits = format->byte_count * CHAR_BIT;
 
     memset(&mode, 0, sizeof(mode));
@@ -4220,7 +4234,7 @@ HRESULT CDECL wined3d_enum_adapter_modes(const struct wined3d *wined3d, UINT ada
         return WINED3DERR_INVALIDCALL;
 
     adapter = &wined3d->adapters[adapter_idx];
-    format = wined3d_get_format(&adapter->gl_info, format_id);
+    format = wined3d_get_format(&adapter->gl_info, format_id, WINED3DUSAGE_RENDERTARGET);
     format_bits = format->byte_count * CHAR_BIT;
 
     memset(&m, 0, sizeof(m));
@@ -4479,7 +4493,7 @@ HRESULT CDECL wined3d_set_adapter_display_mode(struct wined3d *wined3d,
         TRACE("mode %ux%u@%u %s %#x.\n", mode->width, mode->height, mode->refresh_rate,
                 debug_d3dformat(mode->format_id), mode->scanline_ordering);
 
-        format = wined3d_get_format(&adapter->gl_info, mode->format_id);
+        format = wined3d_get_format(&adapter->gl_info, mode->format_id, WINED3DUSAGE_RENDERTARGET);
 
         new_mode.dmFields = DM_BITSPERPEL | DM_PELSWIDTH | DM_PELSHEIGHT;
         new_mode.dmBitsPerPel = format->byte_count * CHAR_BIT;
@@ -4720,8 +4734,8 @@ HRESULT CDECL wined3d_check_depth_stencil_match(const struct wined3d *wined3d,
         return WINED3DERR_INVALIDCALL;
 
     adapter = &wined3d->adapters[adapter_idx];
-    rt_format = wined3d_get_format(&adapter->gl_info, render_target_format_id);
-    ds_format = wined3d_get_format(&adapter->gl_info, depth_stencil_format_id);
+    rt_format = wined3d_get_format(&adapter->gl_info, render_target_format_id, WINED3DUSAGE_RENDERTARGET);
+    ds_format = wined3d_get_format(&adapter->gl_info, depth_stencil_format_id, WINED3DUSAGE_DEPTHSTENCIL);
     if (wined3d_settings.offscreen_rendering_mode == ORM_FBO)
     {
         if ((rt_format->flags[WINED3D_GL_RES_TYPE_TEX_2D] & WINED3DFMT_FLAG_RENDERTARGET)
@@ -4762,7 +4776,7 @@ HRESULT CDECL wined3d_check_device_multisample_type(const struct wined3d *wined3
         enum wined3d_multisample_type multisample_type, DWORD *quality_levels)
 {
     const struct wined3d_gl_info *gl_info = &wined3d->adapters[adapter_idx].gl_info;
-    const struct wined3d_format *format = wined3d_get_format(gl_info, surface_format_id);
+    const struct wined3d_format *format = wined3d_get_format(gl_info, surface_format_id, 0);
     HRESULT hr = WINED3D_OK;
 
     TRACE("wined3d %p, adapter_idx %u, device_type %s, surface_format %s, "
@@ -4965,8 +4979,9 @@ HRESULT CDECL wined3d_check_device_format(const struct wined3d *wined3d, UINT ad
 {
     const struct wined3d_adapter *adapter = &wined3d->adapters[adapter_idx];
     const struct wined3d_gl_info *gl_info = &adapter->gl_info;
-    const struct wined3d_format *adapter_format = wined3d_get_format(gl_info, adapter_format_id);
-    const struct wined3d_format *format = wined3d_get_format(gl_info, check_format_id);
+    const struct wined3d_format *adapter_format = wined3d_get_format(gl_info, adapter_format_id,
+            WINED3DUSAGE_RENDERTARGET);
+    const struct wined3d_format *format = wined3d_get_format(gl_info, check_format_id, usage);
     DWORD format_flags = 0;
     DWORD allowed_usage;
     enum wined3d_gl_resource_type gl_type;
@@ -5116,7 +5131,7 @@ UINT CDECL wined3d_calculate_format_pitch(const struct wined3d *wined3d, UINT ad
         return ~0u;
 
     gl_info = &wined3d->adapters[adapter_idx].gl_info;
-    wined3d_format_calculate_pitch(wined3d_get_format(gl_info, format_id),
+    wined3d_format_calculate_pitch(wined3d_get_format(gl_info, format_id, 0),
             1, width, 1, &row_pitch, &slice_pitch);
 
     return row_pitch;

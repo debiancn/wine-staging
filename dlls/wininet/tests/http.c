@@ -2402,6 +2402,10 @@ static DWORD CALLBACK server_thread(LPVOID param)
             send(c, okmsg, sizeof(okmsg)-1, 0);
             send(c, buffer, strlen(buffer), 0);
         }
+        if (strstr(buffer, "GET /test_remove_dot_segments"))
+        {
+            send(c, okmsg, sizeof(okmsg)-1, 0);
+        }
         shutdown(c, 2);
         closesocket(c);
         c = -1;
@@ -4851,6 +4855,20 @@ static void test_long_url(int port)
     close_request(&req);
 }
 
+static void test_remove_dot_segments(int port)
+{
+    test_request_t req;
+    BOOL ret;
+
+    open_simple_request(&req, "localhost", port, NULL, "/A/../B/./C/../../test_remove_dot_segments");
+
+    ret = HttpSendRequestA(req.request, NULL, 0, NULL, 0);
+    ok(ret, "HttpSendRequest failed: %u\n", GetLastError());
+    test_status_code(req.request, 200);
+
+    close_request(&req);
+}
+
 static void test_http_connection(void)
 {
     struct server_info si;
@@ -4902,6 +4920,7 @@ static void test_http_connection(void)
     test_async_read(si.port);
     test_http_read(si.port);
     test_long_url(si.port);
+    test_remove_dot_segments(si.port);
 
     /* send the basic request again to shutdown the server thread */
     test_basic_request(si.port, "GET", "/quit");
@@ -6193,13 +6212,13 @@ static void test_default_service_port(void)
     ok(request != NULL, "HttpOpenRequest failed\n");
 
     ret = HttpSendRequestA(request, NULL, 0, NULL, 0);
-    todo_wine ok(ret, "HttpSendRequest failed with error %u\n", GetLastError());
+    ok(ret, "HttpSendRequest failed with error %u\n", GetLastError());
 
     size = sizeof(buffer);
     memset(buffer, 0, sizeof(buffer));
     ret = HttpQueryInfoA(request, HTTP_QUERY_HOST | HTTP_QUERY_FLAG_REQUEST_HEADERS, buffer, &size, NULL);
     ok(ret, "HttpQueryInfo failed with error %u\n", GetLastError());
-    todo_wine ok(!strcmp(buffer, "test.winehq.org"), "Expected test.winehg.org, got '%s'\n", buffer);
+    ok(!strcmp(buffer, "test.winehq.org"), "Expected test.winehg.org, got '%s'\n", buffer);
 
     InternetCloseHandle(request);
     InternetCloseHandle(connect);
@@ -6218,7 +6237,7 @@ static void test_default_service_port(void)
     memset(buffer, 0, sizeof(buffer));
     ret = HttpQueryInfoA(request, HTTP_QUERY_HOST | HTTP_QUERY_FLAG_REQUEST_HEADERS, buffer, &size, NULL);
     ok(ret, "HttpQueryInfo failed with error %u\n", GetLastError());
-    todo_wine ok(!strcmp(buffer, "test.winehq.org:443"), "Expected test.winehg.org:443, got '%s'\n", buffer);
+    ok(!strcmp(buffer, "test.winehq.org:443"), "Expected test.winehg.org:443, got '%s'\n", buffer);
 
     InternetCloseHandle(request);
     InternetCloseHandle(connect);

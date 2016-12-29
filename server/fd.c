@@ -2030,7 +2030,7 @@ void default_poll_event( struct fd *fd, int event )
     else if (!fd->inode) set_fd_events( fd, fd->fd_ops->get_poll_events( fd ) );
 }
 
-struct async *fd_queue_async( struct fd *fd, const async_data_t *data, int type )
+struct async *fd_queue_async( struct fd *fd, const async_data_t *data, struct iosb *iosb, int type )
 {
     struct async_queue *queue;
     struct async *async;
@@ -2054,7 +2054,7 @@ struct async *fd_queue_async( struct fd *fd, const async_data_t *data, int type 
         assert(0);
     }
 
-    if ((async = create_async( current, queue, data )) && type != ASYNC_TYPE_WAIT)
+    if ((async = create_async( current, queue, data, iosb )) && type != ASYNC_TYPE_WAIT)
     {
         if (!fd->inode)
             set_fd_events( fd, fd->fd_ops->get_poll_events( fd ) );
@@ -2096,7 +2096,7 @@ void default_fd_queue_async( struct fd *fd, const async_data_t *data, int type, 
 {
     struct async *async;
 
-    if ((async = fd_queue_async( fd, data, type )))
+    if ((async = fd_queue_async( fd, data, NULL, type )))
     {
         release_object( async );
         set_error( STATUS_PENDING );
@@ -2113,17 +2113,6 @@ void default_fd_reselect_async( struct fd *fd, struct async_queue *queue )
         if (events) fd->fd_ops->poll_event( fd, events );
         else set_fd_events( fd, poll_events );
     }
-}
-
-/* default cancel_async() fd routine */
-int default_fd_cancel_async( struct fd *fd, struct process *process, struct thread *thread, client_ptr_t iosb )
-{
-    int n = 0;
-
-    n += async_wake_up_by( fd->read_q, process, thread, iosb, STATUS_CANCELLED );
-    n += async_wake_up_by( fd->write_q, process, thread, iosb, STATUS_CANCELLED );
-    n += async_wake_up_by( fd->wait_q, process, thread, iosb, STATUS_CANCELLED );
-    return n;
 }
 
 static inline int is_valid_mounted_device( struct stat *st )
@@ -2515,20 +2504,6 @@ DECL_HANDLER(register_async)
     if ((fd = get_handle_fd_obj( current->process, req->async.handle, access )))
     {
         if (get_unix_fd( fd ) != -1) fd->fd_ops->queue_async( fd, &req->async, req->type, req->count );
-        release_object( fd );
-    }
-}
-
-/* cancels all async I/O */
-DECL_HANDLER(cancel_async)
-{
-    struct fd *fd = get_handle_fd_obj( current->process, req->handle, 0 );
-    struct thread *thread = req->only_thread ? current : NULL;
-
-    if (fd)
-    {
-        int count = fd->fd_ops->cancel_async( fd, current->process, thread, req->iosb );
-        if (!count && req->iosb) set_error( STATUS_NOT_FOUND );
         release_object( fd );
     }
 }

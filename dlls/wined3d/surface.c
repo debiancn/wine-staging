@@ -675,8 +675,8 @@ static HRESULT wined3d_surface_depth_fill(struct wined3d_surface *surface, const
 {
     struct wined3d_resource *resource = &surface->container->resource;
     struct wined3d_device *device = resource->device;
-    struct wined3d_rendertarget_view_desc view_desc;
     struct wined3d_rendertarget_view *view;
+    struct wined3d_view_desc view_desc;
     const struct blit_shader *blitter;
     HRESULT hr;
 
@@ -688,7 +688,9 @@ static HRESULT wined3d_surface_depth_fill(struct wined3d_surface *surface, const
     }
 
     view_desc.format_id = resource->format->id;
+    view_desc.flags = 0;
     view_desc.u.texture.level_idx = surface->texture_level;
+    view_desc.u.texture.level_count = 1;
     view_desc.u.texture.layer_idx = surface->texture_layer;
     view_desc.u.texture.layer_count = 1;
     if (FAILED(hr = wined3d_rendertarget_view_create(&view_desc,
@@ -2319,8 +2321,8 @@ HRESULT surface_color_fill(struct wined3d_surface *s, const RECT *rect, const st
 {
     struct wined3d_resource *resource = &s->container->resource;
     struct wined3d_device *device = resource->device;
-    struct wined3d_rendertarget_view_desc view_desc;
     struct wined3d_rendertarget_view *view;
+    struct wined3d_view_desc view_desc;
     const struct blit_shader *blitter;
     HRESULT hr;
 
@@ -2332,7 +2334,9 @@ HRESULT surface_color_fill(struct wined3d_surface *s, const RECT *rect, const st
     }
 
     view_desc.format_id = resource->format->id;
+    view_desc.flags = 0;
     view_desc.u.texture.level_idx = s->texture_level;
+    view_desc.u.texture.level_count = 1;
     view_desc.u.texture.layer_idx = s->texture_layer;
     view_desc.u.texture.layer_count = 1;
     if (FAILED(hr = wined3d_rendertarget_view_create(&view_desc,
@@ -2903,7 +2907,7 @@ static HRESULT surface_load_texture(struct wined3d_surface *surface,
 
     format = *texture->resource.format;
     if ((conversion = wined3d_format_get_color_key_conversion(texture, TRUE)))
-        format = *wined3d_get_format(gl_info, conversion->dst_format);
+        format = *wined3d_get_format(gl_info, conversion->dst_format, texture->resource.usage);
 
     /* Don't use PBOs for converted surfaces. During PBO conversion we look at
      * WINED3D_TEXTURE_CONVERTED but it isn't set (yet) in all cases it is

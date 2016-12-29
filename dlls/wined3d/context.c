@@ -1634,16 +1634,18 @@ struct wined3d_context *context_create(struct wined3d_swapchain *swapchain,
         struct wined3d_texture *target, const struct wined3d_format *ds_format)
 {
     struct wined3d_device *device = swapchain->device;
+    const struct wined3d_d3d_info *d3d_info = &device->adapter->d3d_info;
     const struct wined3d_gl_info *gl_info = &device->adapter->gl_info;
     const struct wined3d_format *color_format;
     struct wined3d_context *ret;
+    BOOL hdc_is_private = FALSE;
     BOOL auxBuffers = FALSE;
     HGLRC ctx, share_ctx;
+    DWORD target_usage;
     int pixel_format;
     unsigned int s;
     DWORD state;
     HDC hdc = 0;
-    BOOL hdc_is_private = FALSE;
 
     TRACE("swapchain %p, target %p, window %p.\n", swapchain, target, swapchain->win_handle);
 
@@ -1724,6 +1726,7 @@ struct wined3d_context *context_create(struct wined3d_swapchain *swapchain,
     }
 
     color_format = target->resource.format;
+    target_usage = target->resource.usage;
 
     /* In case of ORM_BACKBUFFER, make sure to request an alpha component for
      * X4R4G4B4/X8R8G8B8 as we might need it for the backbuffer. */
@@ -1732,9 +1735,9 @@ struct wined3d_context *context_create(struct wined3d_swapchain *swapchain,
         auxBuffers = TRUE;
 
         if (color_format->id == WINED3DFMT_B4G4R4X4_UNORM)
-            color_format = wined3d_get_format(gl_info, WINED3DFMT_B4G4R4A4_UNORM);
+            color_format = wined3d_get_format(gl_info, WINED3DFMT_B4G4R4A4_UNORM, target_usage);
         else if (color_format->id == WINED3DFMT_B8G8R8X8_UNORM)
-            color_format = wined3d_get_format(gl_info, WINED3DFMT_B8G8R8A8_UNORM);
+            color_format = wined3d_get_format(gl_info, WINED3DFMT_B8G8R8A8_UNORM, target_usage);
     }
 
     /* DirectDraw supports 8bit paletted render targets and these are used by
@@ -1744,7 +1747,7 @@ struct wined3d_context *context_create(struct wined3d_swapchain *swapchain,
      * For this reason we require a format with 8bit alpha, so request
      * A8R8G8B8. */
     if (color_format->id == WINED3DFMT_P8_UINT)
-        color_format = wined3d_get_format(gl_info, WINED3DFMT_B8G8R8A8_UNORM);
+        color_format = wined3d_get_format(gl_info, WINED3DFMT_B8G8R8A8_UNORM, target_usage);
 
     /* When "always_offscreen" is enabled, we only use the drawable for
      * presentation blits, and don't do any rendering to it. That means we
@@ -1757,8 +1760,8 @@ struct wined3d_context *context_create(struct wined3d_swapchain *swapchain,
     if (wined3d_settings.offscreen_rendering_mode != ORM_BACKBUFFER
             && wined3d_settings.always_offscreen)
     {
-        color_format = wined3d_get_format(gl_info, WINED3DFMT_B8G8R8A8_UNORM);
-        ds_format = wined3d_get_format(gl_info, WINED3DFMT_UNKNOWN);
+        color_format = wined3d_get_format(gl_info, WINED3DFMT_B8G8R8A8_UNORM, target_usage);
+        ds_format = wined3d_get_format(gl_info, WINED3DFMT_UNKNOWN, WINED3DUSAGE_DEPTHSTENCIL);
     }
 
     /* Try to find a pixel format which matches our requirements. */
@@ -1823,7 +1826,7 @@ struct wined3d_context *context_create(struct wined3d_swapchain *swapchain,
         goto out;
     }
 
-    ret->d3d_info = &device->adapter->d3d_info;
+    ret->d3d_info = d3d_info;
     ret->state_table = device->StateTable;
 
     /* Mark all states dirty to force a proper initialization of the states
@@ -1978,6 +1981,18 @@ struct wined3d_context *context_create(struct wined3d_swapchain *swapchain,
     else if (gl_info->supported[EXT_PROVOKING_VERTEX])
     {
         GL_EXTCALL(glProvokingVertexEXT(GL_FIRST_VERTEX_CONVENTION_EXT));
+    }
+    if (!(d3d_info->wined3d_creation_flags & WINED3D_NO_PRIMITIVE_RESTART))
+    {
+        if (gl_info->supported[ARB_ES3_COMPATIBILITY])
+        {
+            gl_info->gl_ops.gl.p_glEnable(GL_PRIMITIVE_RESTART_FIXED_INDEX);
+            checkGLcall("Enable GL_PRIMITIVE_RESTART_FIXED_INDEX");
+        }
+        else
+        {
+            FIXME("OpenGL implementation does not support GL_PRIMITIVE_RESTART_FIXED_INDEX.\n");
+        }
     }
     if (gl_info->supported[ARB_CLIP_CONTROL])
         GL_EXTCALL(glPointParameteri(GL_POINT_SPRITE_COORD_ORIGIN, GL_LOWER_LEFT));
@@ -3393,8 +3408,9 @@ static void context_bind_unordered_access_views(struct wined3d_context *context,
     struct wined3d_unordered_access_view *view;
     struct wined3d_texture *texture;
     struct wined3d_shader *shader;
-    struct gl_texture *gl_texture;
+    GLuint texture_name;
     unsigned int i;
+    GLint level;
 
     context->uses_uavs = 0;
 
@@ -3409,6 +3425,7 @@ static void context_bind_unordered_access_views(struct wined3d_context *context,
         if (!(view = state->unordered_access_view[i]))
         {
             WARN("No unordered access view bound at index %u.\n", i);
+            GL_EXTCALL(glBindImageTexture(i, 0, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R8));
             continue;
         }
 
@@ -3424,8 +3441,18 @@ static void context_bind_unordered_access_views(struct wined3d_context *context,
         wined3d_texture_load(texture, context, FALSE);
         wined3d_unordered_access_view_invalidate_location(view, ~WINED3D_LOCATION_TEXTURE_RGB);
 
-        gl_texture = wined3d_texture_get_gl_texture(texture, FALSE);
-        GL_EXTCALL(glBindImageTexture(i, gl_texture->name, view->level_idx, GL_TRUE, 0, GL_READ_WRITE,
+        if (view->gl_view.name)
+        {
+            texture_name = view->gl_view.name;
+            level = 0;
+        }
+        else
+        {
+            texture_name = wined3d_texture_get_gl_texture(texture, FALSE)->name;
+            level = view->level_idx;
+        }
+
+        GL_EXTCALL(glBindImageTexture(i, texture_name, level, GL_TRUE, 0, GL_READ_WRITE,
                 view->format->glInternal));
     }
     checkGLcall("Bind unordered access views");
