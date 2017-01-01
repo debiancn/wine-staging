@@ -1,3 +1,12 @@
+wine (1.8.6-1) unstable; urgency=medium
+
+  * New upstream release 1.8.6, released Dec 19, 2016.
+    - Various bug fixes.
+    - Fix a regression introduced in 1.8.5 (winehq: #41627)
+    - A few more cards added to the GPU description table.
+
+ -- Michael Gilbert <mgilbert@debian.org>  Sun, 01 Jan 2017 18:08:18 +0000
+
 wine (1.8.5-1) unstable; urgency=medium
 
   * New upstream release 1.8.5, released Oct 7, 2016.
