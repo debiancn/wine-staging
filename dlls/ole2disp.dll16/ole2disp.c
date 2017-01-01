@@ -89,6 +89,91 @@ static ULONG safearray_getcellcount(const SAFEARRAY16 *sa)
     return cells;
 }
 
+static HRESULT safearray_lock(SAFEARRAY16 *sa)
+{
+    if (sa->cLocks == 0xffff)
+        return E_UNEXPECTED;
+
+    sa->cLocks++;
+    return S_OK;
+}
+
+/******************************************************************************
+ *    SafeArrayGetDim [OLE2DISP.17]
+ */
+USHORT WINAPI SafeArrayGetDim16(SAFEARRAY16 *sa)
+{
+    TRACE("(%p)\n", sa);
+    return sa->cDims;
+}
+
+/******************************************************************************
+ *    SafeArrayGetElemsize [OLE2DISP.18]
+ */
+USHORT WINAPI SafeArrayGetElemsize16(SAFEARRAY16 *sa)
+{
+    TRACE("(%p)\n", sa);
+    return sa->cbElements;
+}
+
+/******************************************************************************
+ *    SafeArrayLock [OLE2DISP.21]
+ */
+HRESULT WINAPI SafeArrayLock16(SAFEARRAY16 *sa)
+{
+    TRACE("(%p)\n", sa);
+
+    if (!sa)
+        return E_INVALIDARG16;
+
+    return safearray_lock(sa);
+}
+
+/******************************************************************************
+ *    SafeArrayUnlock [OLE2DISP.22]
+ */
+HRESULT WINAPI SafeArrayUnlock16(SAFEARRAY16 *sa)
+{
+    TRACE("(%p)\n", sa);
+
+    if (!sa)
+        return E_INVALIDARG16;
+
+    if (sa->cLocks == 0)
+        return E_UNEXPECTED;
+
+    sa->cLocks--;
+    return S_OK;
+}
+
+/******************************************************************************
+ *    SafeArrayAccessData [OLE2DISP.23]
+ */
+HRESULT WINAPI SafeArrayAccessData16(SAFEARRAY16 *sa, SEGPTR *data)
+{
+    HRESULT hr;
+
+    TRACE("(%p, %p)\n", sa, data);
+
+    /* arguments are not tested, it crashes if any of them is NULL */
+
+    hr = safearray_lock(sa);
+    if (FAILED(hr))
+        return hr;
+
+    *data = sa->pvData;
+    return S_OK;
+}
+
+/******************************************************************************
+ *    SafeArrayUnaccessData [OLE2DISP.24]
+ */
+HRESULT WINAPI SafeArrayUnaccessData16(SAFEARRAY16 *sa)
+{
+    TRACE("(%p)\n", sa);
+    return SafeArrayUnlock16(sa);
+}
+
 /******************************************************************************
  *    SafeArrayAllocDescriptor [OLE2DISP.38]
  */

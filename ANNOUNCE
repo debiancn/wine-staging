@@ -1,13 +1,14 @@
-The Wine maintenance release 1.8.1 is now available.
+The Wine maintenance release 1.8.6 is now available.
 
 What's new in this release (see below for details):
+  - Fix a regression introduced in 1.8.5 (#41627)
   - Various bug fixes.
-  - Small translation updates.
+  - A few more cards added to the GPU description table.
 
 The source is available from the following locations:
 
-  http://dl.winehq.org/wine/source/1.8/wine-1.8.1.tar.bz2
-  http://mirrors.ibiblio.org/wine/source/1.8/wine-1.8.1.tar.bz2
+  http://dl.winehq.org/wine/source/1.8/wine-1.8.6.tar.bz2
+  http://mirrors.ibiblio.org/wine/source/1.8/wine-1.8.6.tar.bz2
 
 Binary packages for various distributions will be available from:
 
@@ -23,108 +24,148 @@ AUTHORS in the distribution for the complete list.
 
 ----------------------------------------------------------------
 
-Bugs fixed in 1.8.1 (total 24):
+Bugs fixed in 1.8.6 (total 35):
 
-   7938  Gyldendal dictionary needs ole2disp.dll.SAFEARRAYALLOCDATA
-  11023  Lack of ole2disp.dll.SAFEARRAYDESTROYDESCRIPTOR causes Nota Bene to refuse to launch
-  22581  Internet Explorer 3.01 crashes on some web pages (unimplemented function ole2disp.dll16.VARIANTINIT)
-  24658  Unimplemented function ole2.dll16.READCLASSSTM
-  28113  winverbs doesn't work, needs ole2disp.dll16.SAFEARRAYALLOCDESCRIPTOR
-  32852  BioEdit: changing the install directory doesn't show the change in the GUI
-  34185  Castlevania: Lords of Shadow demo doesn't work after intro movies
-  38076  GameRanger: unimplemented function dnsapi.dll.DnsFlushResolverCacheEntry_A
-  38818  Umax Astra 4100 USB scanner driver installer needs setupx.dll16.DiBuildDriverIndex in Win9X mode
-  39454  64-bit StarCraft II v3.0 client crashes immediately on startup (SetThreadContext on self with only DRx registers/CONTEXT_DEBUG_REGISTERS provided)
-  39611  Any Video Converter (AVC) crashes after converting a video, needs msvcr100.dll._wtmpnam_s
-  39660  some *-config scripts in configure.ac are not crosscompiling friendly
-  39678  Zararadio can not read folder/file name path with Latin characters
-  39739  Cobra 11 - Burning Wheels demo: crashes when starting the tutorial
-  39752  The elder scrolls IV: Oblivion issues
-  39805  GTAIV rendering is broken
-  39811  GetLongPathName not working on case insensitive filesystems when short path is passed
-  39904  Spurious "You must use msvcrt" error even when __MSVCRT__ is defined (-mno-cygwin)
-  39943  Worms Armageddon opens wine explorer instead of running
-  39952  trackbar thumb always at zero on dialog load.
-  39953  StarCraft II: 64bit client crashing regularly due to access violation (0xC0000005)
-  39954  StarCraft II: 64bit client only runs with lowest shader settings
-  39974  Thumb slider doesn't respond to key events
-  40052  Opening an RTF file with "A Wine application" fails with "File not found"
+  27671  ComboFix fails to install
+  29661  wineboot unable to create win32 prefix if the directory already exists
+  29916  ElsterFormular cannot make use of default PDF viewer (e. g. Okular)
+  30368  AMD Radeon 6480g detected as ATI Radeon 3200
+  30673  Smart Cutter 1.9.4 crashes when the button OPEN is pressed
+  32694  NVIDIA GTX 690 not in the list of recognized cards.
+  33636  wine cmd: invalid behaviour of '&' operator
+  35025  Max Payne 2 Demo: checkboxes in options dialog have missing window styles
+  35658  Anthem Room Correction 2 v1.0.1 reports 'Unknown COM error 0x80004001' (needs IAudioEndpointVolume::GetVolumeRange method implementation)
+  36101  Wow Hangs at login screen when coming from battle.net launcher (only with gxapi Opengl)
+  39447  Unimplemented function hid.dll.HidP_TranslateUsagesToI8042ScanCodes
+  39734  ProtectDisc Driver 11: acedrv11.sys crashes
+  40448  Final Fantasy XI: Missing character models, potential black screen and crashes
+  40540  ReadIntervalTimeout is ignored if there is data in the buffer when ReadFile is called and no data arrives after that
+  40746  Microsoft Expression Web 4 crashes when opening site, needs rpcrt4.dll.NdrAsyncServerCall
+  40861  Kingsoft Office 2012 needs ntoskrnl.exe.IoAttachDevice
+  40999  Epic Games Launcher needs ws2_32.InetNtopW
+  41021  Zombie Army trilogy needs msvcr100.dll._fpieee_flt
+  41050  Age of Mythology: Extended Edition needs api-ms-win-crt-stdio-l1-1-0.dll.__stdio_common_vswscanf
+  41090  Multiple games (Starcraft 2, UE4 games) require vcruntime140.dll.__intrinsic_setjmp
+  41142  gcc6: server build warnings
+  41224  WineD3D8 crashes on Windows with GTAVC and i915-class video
+  41284  dbghelp_dwarf: parse_cie_details unknown CIE version 4 (clang/mesa/valgrind)
+  41308  iconfig.exe needs msvcr120.??0_Condition_variable@details@Concurrency@@QAE@XZ
+  41343  Ellisys Visual USB needs unimplemented function newdev.dll.DiInstallDriverA
+  41389  ComboFix fails to install: complains about missing HKLM\System\CurrentControlSet\Control\hivelist
+  41405  Hornbill Supportworks Client 7.6.0: crashes with ExtFloodFill when open 'Incident Details' pane
+  41428  The Forest: Terminal gets spammed with errors if Steam is running
+  41570  Xenia emulator needs unimplemented function api-ms-win-core-rtlsupport-l1-1.RtlLookupFunctionEntry called in 64-bit code
+  41602  Videos do not play in Age of Empires
+  41627  MS Word 2010 crash when exiting on Wine stable 1.8.5.
+  41640  add rx 480 into directx.c
+  41642  S3CC921 programmer app needs ntoskrnl.exe.KeSetTimerEx
+  41651  WScript object name on wine is case sensitive which should not be the case (vbscript)
+  41705  Build fails in dpnet: redefinition of typedef 'SOCKADDR'
 
 ----------------------------------------------------------------
 
-Changes since 1.8:
+Changes since 1.8.5:
 
 Alex Henrie (1):
-      maintainers: Add Wine Staging maintainers.
+      ntdll: Skip synchronous read if a serial read interval timeout is set.
 
-Alexandre Julliard (4):
-      Update copyright info for 2016.
-      explorer: Support a quoted /desktop option.
-      wine.inf: Fix the wordpad.exe path in associations.
-      wine.inf: Add quotes around the wordpad.exe path.
+Alexandre Julliard (2):
+      server: Avoid some compiler warnings when EWOULDBLOCK == EAGAIN.
+      ntdll: Add a helper function for registering a file read async I/O.
 
 Alistair Leslie-Hughes (2):
-      msi: Allow PathEdit controls to be updated.
-      msi: Refreh controls after spawned dialog is closed.
+      comdlg32/tests: Test when a directory is passed to OpenFileName Dialog.
+      dpnet: Header files cleanup.
 
 Andrew Eikum (1):
-      maintainers: Add DirectShow section.
+      mmdevapi: Implement IAudioEndpointVolume::GetVolumeRange.
+
+Andrew Kanaber (1):
+      wined3d: Add id for Broadwell Xeon E3 GPU.
+
+Andrey Gusev (1):
+      user32: Add support for WS_EX_RIGHT style.
 
 André Hentschel (1):
-      include: Add more OID defines.
+      loader/wine.inf: Open pdf files using winebrowser.
 
-Anthony Fok (1):
-      include: Suppress "use msvcrt" error in tchar.h when -mno-cygwin is used.
+Aric Stewart (1):
+      hid: Stub HidP_TranslateUsagesToI8042ScanCodes.
 
-Austin English (1):
-      setupx.dll16: Add DiBuildDriverIndex stub.
+Austin English (5):
+      wine.inf: Add HKLM\System\CurrentControlSet\Control\hivelist key.
+      newdev: Add DiInstallDriverA/W stubs.
+      api-ms-win-core-rtlsupport-l1-1-0: Add missing forwards.
+      ntoskrnl.exe: Add IoAttachDevice stub.
+      ntoskrnl.exe: Add KeSetTimerEx stub.
 
-Frédéric Delanoy (2):
-      loader: Update French translation of wine manpage.
-      po: Update French translation.
+Bernhard Übelacker (1):
+      ntoskrnl.exe: Make IoAllocateIrp not crash on negative values.
 
-Hans Leidekker (1):
-      dnsapi: Add a stub implementation of DnsFlushResolverCacheEntry_A/UTF8/W.
+Bruno Jesus (3):
+      xinput1_3: Prefer builtin DLL.
+      comdlg32: Avoid crash when a path is passed into Open File Dialog.
+      msvfw32/tests: Add tests for ICInfo().
 
-Henri Verbeet (1):
-      wined3d: Set WINED3D_BUFFER_DOUBLEBUFFER for managed buffers as well.
+Carlos Rafael Ramirez (1):
+      cmd: When 'if' condition is not met, ignore the next commands in the list.
 
-Jactry Zeng (1):
-      po: Update Simplified Chinese translation.
+Daniel Lehman (2):
+      ucrtbase: Add __stdio_common_vfwprintf.
+      ucrtbase: Add __stdio_common_vfwscanf.
+
+Filip Frąckiewicz (5):
+      wined3d: Add NVIDIA GTX 690 (GK104) to the GPU list.
+      wined3d: Add AMD Radeon HD 6480G IGP.
+      wined3d: Add NVIDIA GTX 980 Ti.
+      wined3d: Add NVIDIA GTX 675MX to the GPU list.
+      wined3d: Add NVIDIA GTX 760 Ti to the GPU list.
+
+Grazvydas Ignotas (1):
+      wined3d: Add Polaris GPUs and their driver.
+
+Huw D. M. Davies (3):
+      ucrtbase: Add __stdio_common_vswscanf().
+      gdi32: Check that ExtFloodFill()'s initial co-ordinates lie within the dib.
+      fonts: Fix typo in glyph name.
+
+Jacek Caban (4):
+      msctf: Don't call ITextStoreACP::UnadviseSink in context destructor.
+      msctf: Added Push/Pop context tests.
+      vbscript: Call GetItemInfo() with original item name.
+      secur32: Use %LATEST_RECORD_VERSION gnutls priority.
 
 Józef Kucia (1):
-      d3d9: Implement d3d9_device_CreateDepthStencilSurfaceEx().
+      wined3d: Improve advertized driver version for Windows 10.
 
-Matteo Bruni (1):
-      wined3d: Regenerate FFP replacement VS on changes to the normal attribute in the vertex declaration.
+Matteo Bruni (2):
+      wined3d: Recognize a couple of Haswell / Broadwell GPUs on macOS.
+      wined3d: Add a bunch of Broadwell and Skylake PCI ids and descriptions.
 
-Nikolay Sivov (10):
-      ole2disp: Implement VariantInit().
-      ole2: Fix error handling in ReadClassStg().
-      ole2: Implement ReadClassStm().
-      ole2disp: Implement SafeArrayAllocDescriptor().
-      ole2disp: Implement SafeArrayDestroyDescriptor().
-      ole2disp: Implement SafeArrayAllocData().
-      msvcrt: Fix char to int promotion that breaks pattern lookup.
-      comctl32/tests: Separate individual Trackbar tests from each other.
-      comctl32/trackbar: Update thumb immediately on TBM_SETPOS.
-      comctl32/trackbar: Update thumb immediately on key press.
+Michael Müller (2):
+      ntdll: Open current working directory with FILE_TRAVERSE access.
+      msvfw32: Use case insensitive compare in ICInfo for fourcc codes.
 
-Piotr Caban (4):
-      ntdll: Fix NtQueryDirectoryFile behavior on short file names on case insensitive file systems.
-      msvcrt: Add tmpnam_s implementation.
-      msvcrt: Add _wtmpnam_s implementation.
-      msvcrt: Fix modff signature.
+Nikolay Sivov (3):
+      dbghelp: Support CIE version 4 in parse_cie_details().
+      rpcrt4: Added NdrAsyncServerCall stub.
+      ucrtbase: Fix some spec file entries.
 
-Sebastian Lackner (2):
-      ntdll: Check ContextFlags before restoring registers on x86_64.
-      ntdll: Receive debug registers from server on x86_64.
+Philipp Hoppermann (1):
+      ws2_32: Implement InetNtopW.
 
-Stefan Dösinger (1):
-      wined3d: Prepare GL textures in surface_load_ds_location.
+Piotr Caban (5):
+      ucrtbase: Add __intrinsic_setjmp implementation.
+      msvcrt: Add _fpieee_flt stub.
+      msvcrt: Support fdiv m64fp in i386 _fpieee_flt.
+      msvcr110: Add Concurrency::details::_Condition_variable class stub.
+      msvcr120: Add _Condition_variable implementation.
 
-Thomas Petazzoni (1):
-      configure: Allow to override the location of the *-config scripts.
+Ruslan Kabatsayev (1):
+      wined3d: Initialise p_wglGetPixelFormat when USE_WIN32_OPENGL is defined.
+
+Sebastian Lackner (1):
+      server: Allow to create win32 prefix when directory already exists.
 
 --
 Michael Stefaniuc

@@ -173,6 +173,7 @@ HKCR,.ini,,2,"inifile"
 HKCR,.lnk,,2,"lnkfile"
 HKCR,.msi,,2,"Msi.Package"
 HKCR,.msp,,2,"Msi.Patch"
+HKCR,.pdf,,2,"pdffile"
 HKCR,.rtf,,2,"rtffile"
 HKCR,.wri,,2,"wrifile"
 HKCR,*\shellex\ContextMenuHandlers,,16
@@ -217,6 +218,12 @@ HKCR,Msi.Package\shell\Uninstall\command,,2,"%11%\msiexec.exe /x ""%1"""
 HKCR,Msi.Patch,,2,"Windows Installer Patch"
 HKCR,Msi.Patch\DefaultIcon,,2,"msiexec.exe"
 HKCR,Msi.Patch\shell\Open\command,,2,"%11%\msiexec.exe /p ""%1"""
+HKCR,pdffile,,2,"PDF Document"
+HKCR,pdffile\shell\open\command,,2,"""%11%\winebrowser.exe"" -nohome"
+HKCR,pdffile\shell\open\ddeexec,,2,"""%1"",,-1,0,,,,"
+HKCR,pdffile\shell\open\ddeexec,"NoActivateHandler",2,""
+HKCR,pdffile\shell\open\ddeexec\Application,,2,"IExplore"
+HKCR,pdffile\shell\open\ddeexec\Topic,,2,"WWW_OpenURL"
 HKCR,rtffile,,2,"Rich Text Document"
 HKCR,rtffile\shell\open\command,,2,"""%16422%\Windows NT\Accessories\wordpad.exe"" %1"
 HKCR,rtffile\shell\print\command,,2,"""%16422%\Windows NT\Accessories\wordpad.exe"" /p %1"
@@ -657,6 +664,7 @@ HKLM,Software\Microsoft\Transaction Server,,16
 HKLM,Software\Microsoft\WBEM,"Installation Directory",2,"%11%\wbem"
 HKLM,Software\Policies,,16
 HKLM,Software\Registered Applications,,16
+HKLM,System\CurrentControlSet\Control\hivelist,,16
 HKLM,System\CurrentControlSet\Control\Lsa,,16
 HKLM,System\CurrentControlSet\Control\SecurityProviders\Schannel\Protocols\SSL 2.0\Client,"DisabledByDefault",0x10003,1
 HKLM,System\CurrentControlSet\Control\ServiceGroupOrder,"List",0x00010000,"TDI"
@@ -2582,6 +2590,7 @@ HKLM,%CurrentVersion%\Telephony\Country List\998,"SameAreaRule",,"G"
 16422,Internet Explorer,iexplore.exe
 16422,Windows Media Player,wmplayer.exe
 16422,Windows NT\Accessories,wordpad.exe
+16427,Microsoft Shared\TextConv,
 16427,System\OLE DB,oledb32.dll
 16427,System\OLE DB,msdaps.dll
 11,,*
@@ -3310,7 +3319,7 @@ HKLM,Software\Wow6432Node\Microsoft\Notepad\DefaultFonts,"SymbolicLinkValue",0x6
 HKLM,Software\Wow6432Node\Microsoft\OLE,"SymbolicLinkValue",0x60000,"\Registry\Machine\Software\Microsoft\OLE"
 HKLM,Software\Wow6432Node\Microsoft\RAS,"SymbolicLinkValue",0x60000,"\Registry\Machine\Software\Microsoft\RAS"
 HKLM,Software\Wow6432Node\Microsoft\RPC,"SymbolicLinkValue",0x60000,"\Registry\Machine\Software\Microsoft\RPC"
-HKLM,Software\Wow6432Node\Microsoft\Software\Microsoft\Shared Tools\MSInfo,"SymbolicLinkValue",0x60000,"\Registry\Machine\Software\Microsoft\Software\Microsoft\Shared Tools\MSInfo"
+HKLM,Software\Wow6432Node\Microsoft\Software\Microsoft\Shared Tools\MSInfo,"SymbolicLinkValue",0x60000,"\Registry\Machine\Software\Microsoft\Shared Tools\MSInfo"
 HKLM,Software\Wow6432Node\Microsoft\SystemCertificates,"SymbolicLinkValue",0x60000,"\Registry\Machine\Software\Microsoft\SystemCertificates"
 HKLM,Software\Wow6432Node\Microsoft\TermServLicensing,"SymbolicLinkValue",0x60000,"\Registry\Machine\Software\Microsoft\TermServLicensing"
 HKLM,Software\Wow6432Node\Microsoft\Transaction Server,"SymbolicLinkValue",0x60000,"\Registry\Machine\Software\Microsoft\Transaction Server"

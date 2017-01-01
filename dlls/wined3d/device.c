@@ -1982,10 +1982,17 @@ static void resolve_depth_buffer(struct wined3d_state *state)
 void CDECL wined3d_device_set_render_state(struct wined3d_device *device,
         enum wined3d_render_state state, DWORD value)
 {
-    DWORD old_value = device->state.render_states[state];
+    DWORD old_value;
 
     TRACE("device %p, state %s (%#x), value %#x.\n", device, debug_d3drenderstate(state), state, value);
 
+    if (state > WINEHIGHEST_RENDER_STATE)
+    {
+        WARN("Unhandled render state %#x.\n", state);
+        return;
+    }
+
+    old_value = device->state.render_states[state];
     device->update_state->render_states[state] = value;
 
     /* Handle recording of state blocks. */
@@ -4799,8 +4806,12 @@ HRESULT CDECL wined3d_device_reset(struct wined3d_device *device,
         wined3d_cs_emit_set_scissor_rect(device->cs, &state->scissor_rect);
     }
 
-    if (reset_state && device->d3d_initialized)
-        hr = create_primary_opengl_context(device, swapchain);
+    if (device->d3d_initialized)
+    {
+        if (reset_state)
+            hr = create_primary_opengl_context(device, swapchain);
+        swapchain_update_swap_interval(swapchain);
+    }
 
     /* All done. There is no need to reload resources or shaders, this will happen automatically on the
      * first use

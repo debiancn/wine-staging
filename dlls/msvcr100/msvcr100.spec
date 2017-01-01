@@ -745,7 +745,8 @@
 @ cdecl _cputws(wstr)
 @ cdecl _creat(str long) MSVCRT__creat
 @ cdecl _create_locale(long str) MSVCRT__create_locale
-@ stub _crt_debugger_hook
+@ cdecl -arch=i386 _crt_debugger_hook(long) MSVCRT__crt_debugger_hook
+@ cdecl -arch=arm,win64 __crt_debugger_hook(long) MSVCRT__crt_debugger_hook
 @ varargs _cscanf(str)
 @ varargs _cscanf_l(str ptr)
 @ varargs _cscanf_s(str)
@@ -824,7 +825,7 @@
 @ extern _fmode MSVCRT__fmode
 @ cdecl _fpclass(double) MSVCRT__fpclass
 # stub -arch=x86_64 _fpclassf
-@ stub _fpieee_flt(long ptr ptr)
+@ cdecl -arch=i386,x86_64,arm _fpieee_flt(long ptr ptr)
 @ cdecl _fpreset()
 @ stub _fprintf_l
 @ stub _fprintf_p
@@ -1744,7 +1745,7 @@
 @ cdecl mbrlen(ptr long ptr) MSVCRT_mbrlen
 @ cdecl mbrtowc(ptr str long ptr) MSVCRT_mbrtowc
 @ cdecl mbsrtowcs(ptr ptr long ptr) MSVCRT_mbsrtowcs
-@ stub mbsrtowcs_s
+@ cdecl mbsrtowcs_s(ptr ptr long ptr long ptr) MSVCRT_mbsrtowcs_s
 @ cdecl mbstowcs(ptr str long) MSVCRT_mbstowcs
 @ cdecl mbstowcs_s(ptr ptr long str long) MSVCRT__mbstowcs_s
 @ cdecl mbtowc(ptr str long) MSVCRT_mbtowc

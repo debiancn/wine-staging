@@ -422,6 +422,51 @@ static void swapchain_blit(const struct wined3d_swapchain *swapchain,
     }
 }
 
+/* Context activation is done by the caller. */
+static void wined3d_swapchain_rotate(struct wined3d_swapchain *swapchain, struct wined3d_context *context)
+{
+    struct gl_texture tex0;
+    GLuint rb0;
+    DWORD locations0;
+    struct wined3d_surface *surface, *surface_prev;
+    unsigned int i;
+    static const DWORD supported_locations = WINED3D_LOCATION_TEXTURE_RGB | WINED3D_LOCATION_RB_MULTISAMPLE;
+
+    if (swapchain->desc.backbuffer_count < 2 || !swapchain->render_to_fbo)
+        return;
+
+    surface_prev = surface_from_resource(wined3d_texture_get_sub_resource(swapchain->back_buffers[0], 0));
+
+    /* Back buffer 0 is already in the draw binding. */
+    tex0 = swapchain->back_buffers[0]->texture_rgb;
+    rb0 = surface_prev->rb_multisample;
+    locations0 = surface_prev->locations;
+
+    for (i = 1; i < swapchain->desc.backbuffer_count; ++i)
+    {
+        surface = surface_from_resource(wined3d_texture_get_sub_resource(swapchain->back_buffers[i], 0));
+
+        if (!(surface->locations & supported_locations))
+            surface_load_location(surface, context, swapchain->back_buffers[i]->resource.draw_binding);
+
+        swapchain->back_buffers[i - 1]->texture_rgb = swapchain->back_buffers[i]->texture_rgb;
+        surface_prev->rb_multisample = surface->rb_multisample;
+
+        surface_validate_location(surface_prev, surface->locations & supported_locations);
+        surface_invalidate_location(surface_prev, ~(surface->locations & supported_locations));
+
+        surface_prev = surface;
+    }
+
+    swapchain->back_buffers[i - 1]->texture_rgb = tex0;
+    surface_prev->rb_multisample = rb0;
+
+    surface_validate_location(surface_prev, locations0 & supported_locations);
+    surface_invalidate_location(surface_prev, ~(locations0 & supported_locations));
+
+    device_invalidate_state(swapchain->device, STATE_FRAMEBUFFER);
+}
+
 static void swapchain_gl_present(struct wined3d_swapchain *swapchain, const RECT *src_rect_in,
         const RECT *dst_rect_in, const RGNDATA *dirty_region, DWORD flags)
 {
@@ -549,7 +594,9 @@ static void swapchain_gl_present(struct wined3d_swapchain *swapchain, const RECT
         gl_info->gl_ops.gl.p_glFinish();
 
     /* call wglSwapBuffers through the gl table to avoid confusing the Steam overlay */
-    gl_info->gl_ops.wgl.p_wglSwapBuffers(context->hdc); /* TODO: cycle through the swapchain buffers */
+    gl_info->gl_ops.wgl.p_wglSwapBuffers(context->hdc);
+
+    wined3d_swapchain_rotate(swapchain, context);
 
     TRACE("SwapBuffers called, Starting new frame\n");
     /* FPS support */
@@ -924,6 +971,7 @@ static HRESULT swapchain_init(struct wined3d_swapchain *swapchain, struct wined3
             FIXME("Add OpenGL context recreation support to context_validate_onscreen_formats\n");
         }
         context_release(swapchain->context[0]);
+        swapchain_update_swap_interval(swapchain);
     }
 
     if (swapchain->desc.backbuffer_count > 0)
@@ -1152,6 +1200,48 @@ void swapchain_update_draw_bindings(struct wined3d_swapchain *swapchain)
     {
         wined3d_resource_update_draw_binding(&swapchain->back_buffers[i]->resource);
     }
+}
+
+void swapchain_update_swap_interval(struct wined3d_swapchain *swapchain)
+{
+    const struct wined3d_gl_info *gl_info;
+    struct wined3d_context *context;
+    int swap_interval;
+
+    context = context_acquire(swapchain->device, surface_from_resource(swapchain->front_buffer->sub_resources[0]));
+    gl_info = context->gl_info;
+
+    switch (swapchain->desc.swap_interval)
+    {
+        case WINED3DPRESENT_INTERVAL_IMMEDIATE:
+            swap_interval = 0;
+            break;
+        case WINED3DPRESENT_INTERVAL_DEFAULT:
+        case WINED3DPRESENT_INTERVAL_ONE:
+            swap_interval = 1;
+            break;
+        case WINED3DPRESENT_INTERVAL_TWO:
+            swap_interval = 2;
+            break;
+        case WINED3DPRESENT_INTERVAL_THREE:
+            swap_interval = 3;
+            break;
+        case WINED3DPRESENT_INTERVAL_FOUR:
+            swap_interval = 4;
+            break;
+        default:
+            FIXME("Unhandled present interval %#x.\n", swapchain->desc.swap_interval);
+            swap_interval = 1;
+    }
+
+    if (gl_info->supported[WGL_EXT_SWAP_CONTROL])
+    {
+        if (!GL_EXTCALL(wglSwapIntervalEXT(swap_interval)))
+            ERR("wglSwapIntervalEXT failed to set swap interval %d for context %p, last error %#x\n",
+                swap_interval, context, GetLastError());
+    }
+
+    context_release(context);
 }
 
 void wined3d_swapchain_activate(struct wined3d_swapchain *swapchain, BOOL activate)

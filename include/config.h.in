@@ -80,6 +80,9 @@
 /* Define to 1 if you have the <cups/cups.h> header file. */
 #undef HAVE_CUPS_CUPS_H
 
+/* Define to 1 if you have the <cups/ppd.h> header file. */
+#undef HAVE_CUPS_PPD_H
+
 /* Define to 1 if you have the <curses.h> header file. */
 #undef HAVE_CURSES_H
 
@@ -1310,6 +1313,14 @@
 
 /* Define to 1 if you have the `__res_get_state' function. */
 #undef HAVE___RES_GET_STATE
+
+/* Define to 1 if `major', `minor', and `makedev' are declared in <mkdev.h>.
+   */
+#undef MAJOR_IN_MKDEV
+
+/* Define to 1 if `major', `minor', and `makedev' are declared in
+   <sysmacros.h>. */
+#undef MAJOR_IN_SYSMACROS
 
 /* Define to the address where bug reports for this package should be sent. */
 #undef PACKAGE_BUGREPORT

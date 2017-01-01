@@ -645,6 +645,19 @@ foo
 foo
 '1' GEQ "10"
 "10" GEQ "10"
+--- unconditional ampersand after if one line
+1@space@
+2@space@
+3 else echo 4
+---
+x@space@
+---
+x@space@
+---
+x@space@
+---
+x@space@
+---
 ------------ Testing for ------------
 --- plain FOR
 A
@@ -1207,7 +1220,7 @@ passed
 --- a batch file can delete itself
 file correctly deleted
 --- a batch file can alter itself
-@todo_wine@bar
+bar
 ---------- Testing copy
 Passed: Found expected dummy.file
 Passed: Found expected dir1\file1

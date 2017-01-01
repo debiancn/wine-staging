@@ -24,36 +24,36 @@
 @ cdecl _cexit() ucrtbase._cexit
 @ cdecl _clearfp() ucrtbase._clearfp
 @ cdecl _configure_narrow_argv(long) ucrtbase._configure_narrow_argv
-@ stub _configure_wide_argv
+@ cdecl _configure_wide_argv(long) ucrtbase._configure_wide_argv
 @ cdecl _control87(long long) ucrtbase._control87
 @ cdecl _controlfp(long long) ucrtbase._controlfp
 @ cdecl _controlfp_s(ptr long long) ucrtbase._controlfp_s
 @ stub _crt_at_quick_exit
 @ cdecl _crt_atexit(ptr) ucrtbase._crt_atexit
-@ stub _crt_debugger_hook
+@ cdecl _crt_debugger_hook(long) ucrtbase._crt_debugger_hook
 @ cdecl _endthread() ucrtbase._endthread
 @ cdecl _endthreadex(long) ucrtbase._endthreadex
 @ cdecl _errno() ucrtbase._errno
 @ stub _execute_onexit_table
 @ cdecl _exit(long) ucrtbase._exit
-@ cdecl _fpieee_flt(long ptr ptr) ucrtbase._fpieee_flt
+@ cdecl -arch=i386,x86_64,arm _fpieee_flt(long ptr ptr) ucrtbase._fpieee_flt
 @ cdecl _fpreset() ucrtbase._fpreset
 @ cdecl _get_doserrno(ptr) ucrtbase._get_doserrno
 @ cdecl _get_errno(ptr) ucrtbase._get_errno
 @ cdecl _get_initial_narrow_environment() ucrtbase._get_initial_narrow_environment
 @ stub _get_initial_wide_environment
 @ cdecl _get_invalid_parameter_handler() ucrtbase._get_invalid_parameter_handler
-@ stub _get_narrow_winmain_command_line
+@ cdecl _get_narrow_winmain_command_line() ucrtbase._get_narrow_winmain_command_line
 @ cdecl _get_pgmptr(ptr) ucrtbase._get_pgmptr
 @ cdecl _get_terminate() ucrtbase._get_terminate
-@ stub _get_thread_local_invalid_parameter_handler
-@ stub _get_wide_winmain_command_line
+@ cdecl _get_thread_local_invalid_parameter_handler() ucrtbase._get_thread_local_invalid_parameter_handler
+@ cdecl _get_wide_winmain_command_line() ucrtbase._get_wide_winmain_command_line
 @ cdecl _get_wpgmptr(ptr) ucrtbase._get_wpgmptr
 @ cdecl _getdllprocaddr(long str long) ucrtbase._getdllprocaddr
 @ cdecl _getpid() ucrtbase._getpid
 @ cdecl _initialize_narrow_environment() ucrtbase._initialize_narrow_environment
 @ stub _initialize_onexit_table
-@ stub _initialize_wide_environment
+@ cdecl _initialize_wide_environment() ucrtbase._initialize_wide_environment
 @ cdecl _initterm(ptr ptr) ucrtbase._initterm
 @ cdecl _initterm_e(ptr ptr) ucrtbase._initterm_e
 @ cdecl _invalid_parameter_noinfo() ucrtbase._invalid_parameter_noinfo
@@ -73,7 +73,7 @@
 @ cdecl _set_error_mode(long) ucrtbase._set_error_mode
 @ cdecl _set_invalid_parameter_handler(ptr) ucrtbase._set_invalid_parameter_handler
 @ cdecl _set_new_handler(ptr) ucrtbase._set_new_handler
-@ stub _set_thread_local_invalid_parameter_handler
+@ cdecl _set_thread_local_invalid_parameter_handler(ptr) ucrtbase._set_thread_local_invalid_parameter_handler
 @ cdecl _seterrormode(long) ucrtbase._seterrormode
 @ cdecl _sleep(long) ucrtbase._sleep
 @ cdecl _statusfp() ucrtbase._statusfp

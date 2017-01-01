@@ -73,6 +73,17 @@ int CDECL MSVCRT__set_SSE2_enable(int flag)
     return sse2_enabled;
 }
 
+#ifdef _WIN64
+/*********************************************************************
+ *      _set_FMA3_enable (MSVCR120.@)
+ */
+int CDECL MSVCRT__set_FMA3_enable(int flag)
+{
+    FIXME("(%x) stub\n", flag);
+    return 0;
+}
+#endif
+
 #if defined(__x86_64__) || defined(__arm__) || _MSVCR_VER>=120
 
 /*********************************************************************
@@ -92,6 +103,15 @@ float CDECL MSVCRT__copysignf( float num, float sign )
     if (signbit(sign))
         return signbit(num) ? num : -num;
     return signbit(num) ? -num : num;
+}
+
+/*********************************************************************
+ *      _nextafterf (MSVCRT.@)
+ */
+float CDECL MSVCRT__nextafterf( float num, float next )
+{
+    if (!finitef(num) || !finitef(next)) *MSVCRT__errno() = MSVCRT_EDOM;
+    return nextafterf( num, next );
 }
 
 #endif
@@ -123,15 +143,6 @@ float CDECL MSVCRT__logbf( float num )
 {
     if (!finitef(num)) *MSVCRT__errno() = MSVCRT_EDOM;
     return logbf(num);
-}
-
-/*********************************************************************
- *      _nextafterf (MSVCRT.@)
- */
-float CDECL MSVCRT__nextafterf( float num, float next )
-{
-    if (!finitef(num) || !finitef(next)) *MSVCRT__errno() = MSVCRT_EDOM;
-    return nextafterf( num, next );
 }
 
 /*********************************************************************

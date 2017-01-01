@@ -359,7 +359,8 @@ static void release_font_data(struct dwrite_font_data *data)
         if (data->info_strings[i])
             IDWriteLocalizedStrings_Release(data->info_strings[i]);
     }
-    IDWriteLocalizedStrings_Release(data->names);
+    if (data->names)
+        IDWriteLocalizedStrings_Release(data->names);
 
     IDWriteFontFile_Release(data->file);
     IDWriteFactory2_Release(data->factory);
@@ -2759,6 +2760,7 @@ static BOOL font_apply_differentiation_rules(struct dwrite_font_data *font, WCHA
         static const WCHAR ultraexpandedW[] = {'U','l','t','r','a',' ','E','x','p','a','n','d','e','d',0};
 
         static const WCHAR *stretchnamesW[] = {
+            NULL, /* DWRITE_FONT_STRETCH_UNDEFINED */
             ultracondensedW,
             extracondensedW,
             condensedW,
@@ -3141,8 +3143,11 @@ HRESULT create_font_collection(IDWriteFactory2* factory, IDWriteFontFileEnumerat
 
             /* alloc and init new font data structure */
             hr = init_font_data(factory, file, face_type, i, &family_name, &font_data);
-            if (FAILED(hr))
+            if (FAILED(hr)) {
+                /* move to next one */
+                hr = S_OK;
                 continue;
+            }
 
             fontstrings_get_en_string(family_name, familyW, sizeof(familyW)/sizeof(WCHAR));
 

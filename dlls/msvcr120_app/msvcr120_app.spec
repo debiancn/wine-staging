@@ -15,9 +15,9 @@
 @ stub -arch=arm ??0_Cancellation_beacon@details@Concurrency@@QAA@XZ
 @ stub -arch=i386 ??0_Cancellation_beacon@details@Concurrency@@QAE@XZ
 @ stub -arch=win64 ??0_Cancellation_beacon@details@Concurrency@@QEAA@XZ
-@ stub -arch=arm ??0_Condition_variable@details@Concurrency@@QAA@XZ
-@ stub -arch=i386 ??0_Condition_variable@details@Concurrency@@QAE@XZ
-@ stub -arch=win64 ??0_Condition_variable@details@Concurrency@@QEAA@XZ
+@ cdecl -arch=arm ??0_Condition_variable@details@Concurrency@@QAA@XZ(ptr) msvcr120.??0_Condition_variable@details@Concurrency@@QAA@XZ
+@ thiscall -arch=i386 ??0_Condition_variable@details@Concurrency@@QAE@XZ(ptr) msvcr120.??0_Condition_variable@details@Concurrency@@QAE@XZ
+@ cdecl -arch=win64 ??0_Condition_variable@details@Concurrency@@QEAA@XZ(ptr) msvcr120.??0_Condition_variable@details@Concurrency@@QEAA@XZ
 @ stub -arch=arm ??0_Context@details@Concurrency@@QAA@PAVContext@2@@Z
 @ stub -arch=i386 ??0_Context@details@Concurrency@@QAE@PAVContext@2@@Z
 @ stub -arch=win64 ??0_Context@details@Concurrency@@QEAA@PEAVContext@2@@Z
@@ -270,9 +270,9 @@
 @ stub -arch=arm ??1_Cancellation_beacon@details@Concurrency@@QAA@XZ
 @ stub -arch=i386 ??1_Cancellation_beacon@details@Concurrency@@QAE@XZ
 @ stub -arch=win64 ??1_Cancellation_beacon@details@Concurrency@@QEAA@XZ
-@ stub -arch=arm ??1_Condition_variable@details@Concurrency@@QAA@XZ
-@ stub -arch=i386 ??1_Condition_variable@details@Concurrency@@QAE@XZ
-@ stub -arch=win64 ??1_Condition_variable@details@Concurrency@@QEAA@XZ
+@ cdecl -arch=arm ??1_Condition_variable@details@Concurrency@@QAA@XZ(ptr) msvcr120.??1_Condition_variable@details@Concurrency@@QAA@XZ
+@ thiscall -arch=i386 ??1_Condition_variable@details@Concurrency@@QAE@XZ(ptr) msvcr120.??1_Condition_variable@details@Concurrency@@QAE@XZ
+@ cdecl -arch=win64 ??1_Condition_variable@details@Concurrency@@QEAA@XZ(ptr) msvcr120.??1_Condition_variable@details@Concurrency@@QEAA@XZ
 @ stub -arch=arm ??1_NonReentrantBlockingLock@details@Concurrency@@QAA@XZ
 @ stub -arch=i386 ??1_NonReentrantBlockingLock@details@Concurrency@@QAE@XZ
 @ stub -arch=win64 ??1_NonReentrantBlockingLock@details@Concurrency@@QEAA@XZ
@@ -682,8 +682,8 @@
 @ cdecl -arch=win64 ?__ExceptionPtrRethrow@@YAXPEBX@Z(ptr) msvcr120.?__ExceptionPtrRethrow@@YAXPEBX@Z
 @ stub -arch=win32 ?__ExceptionPtrSwap@@YAXPAX0@Z
 @ stub -arch=win64 ?__ExceptionPtrSwap@@YAXPEAX0@Z
-@ stub -arch=win32 ?__ExceptionPtrToBool@@YA_NPBX@Z
-@ stub -arch=win64 ?__ExceptionPtrToBool@@YA_NPEBX@Z
+@ cdecl -arch=win32 ?__ExceptionPtrToBool@@YA_NPBX@Z(ptr) msvcr120.?__ExceptionPtrToBool@@YA_NPBX@Z
+@ cdecl -arch=win64 ?__ExceptionPtrToBool@@YA_NPEBX@Z(ptr) msvcr120.?__ExceptionPtrToBool@@YA_NPEBX@Z
 @ cdecl __uncaught_exception() msvcr120.__uncaught_exception
 @ stub ?_inconsistency@@YAXXZ
 @ cdecl -arch=win32 ?_invalid_parameter@@YAXPBG00II@Z(wstr wstr wstr long long) msvcr120.?_invalid_parameter@@YAXPBG00II@Z
@@ -739,12 +739,12 @@
 @ cdecl -arch=arm ?native_handle@critical_section@Concurrency@@QAAAAV12@XZ(ptr) msvcr120.?native_handle@critical_section@Concurrency@@QAAAAV12@XZ
 @ thiscall -arch=i386 ?native_handle@critical_section@Concurrency@@QAEAAV12@XZ(ptr) msvcr120.?native_handle@critical_section@Concurrency@@QAEAAV12@XZ
 @ cdecl -arch=win64 ?native_handle@critical_section@Concurrency@@QEAAAEAV12@XZ(ptr) msvcr120.?native_handle@critical_section@Concurrency@@QEAAAEAV12@XZ
-@ stub -arch=arm ?notify_all@_Condition_variable@details@Concurrency@@QAAXXZ
-@ stub -arch=i386 ?notify_all@_Condition_variable@details@Concurrency@@QAEXXZ
-@ stub -arch=win64 ?notify_all@_Condition_variable@details@Concurrency@@QEAAXXZ
-@ stub -arch=arm ?notify_one@_Condition_variable@details@Concurrency@@QAAXXZ
-@ stub -arch=i386 ?notify_one@_Condition_variable@details@Concurrency@@QAEXXZ
-@ stub -arch=win64 ?notify_one@_Condition_variable@details@Concurrency@@QEAAXXZ
+@ cdecl -arch=arm ?notify_all@_Condition_variable@details@Concurrency@@QAAXXZ(ptr) msvcr120.?notify_all@_Condition_variable@details@Concurrency@@QAAXXZ
+@ thiscall -arch=i386 ?notify_all@_Condition_variable@details@Concurrency@@QAEXXZ(ptr) msvcr120.?notify_all@_Condition_variable@details@Concurrency@@QAEXXZ
+@ cdecl -arch=win64 ?notify_all@_Condition_variable@details@Concurrency@@QEAAXXZ(ptr) msvcr120.?notify_all@_Condition_variable@details@Concurrency@@QEAAXXZ
+@ cdecl -arch=arm ?notify_one@_Condition_variable@details@Concurrency@@QAAXXZ(ptr) msvcr120.?notify_one@_Condition_variable@details@Concurrency@@QAAXXZ
+@ thiscall -arch=i386 ?notify_one@_Condition_variable@details@Concurrency@@QAEXXZ(ptr) msvcr120.?notify_one@_Condition_variable@details@Concurrency@@QAEXXZ
+@ cdecl -arch=win64 ?notify_one@_Condition_variable@details@Concurrency@@QEAAXXZ(ptr) msvcr120.?notify_one@_Condition_variable@details@Concurrency@@QEAAXXZ
 @ cdecl -arch=arm ?raw_name@type_info@@QBAPBDXZ(ptr) msvcr120.?raw_name@type_info@@QBAPBDXZ
 @ thiscall -arch=i386 ?raw_name@type_info@@QBEPBDXZ(ptr) msvcr120.?raw_name@type_info@@QBEPBDXZ
 @ cdecl -arch=win64 ?raw_name@type_info@@QEBAPEBDXZ(ptr) msvcr120.?raw_name@type_info@@QEBAPEBDXZ
@@ -787,15 +787,15 @@
 @ stub -arch=win64 ?unlock@reader_writer_lock@Concurrency@@QEAAXXZ
 @ cdecl ?vswprintf@@YAHPA_WIPB_WPAD@Z(ptr long wstr ptr) msvcr120.?vswprintf@@YAHPA_WIPB_WPAD@Z
 @ stub ?wait@Concurrency@@YAXI@Z
-@ stub -arch=arm ?wait@_Condition_variable@details@Concurrency@@QAAXAAVcritical_section@3@@Z
-@ stub -arch=i386 ?wait@_Condition_variable@details@Concurrency@@QAEXAAVcritical_section@3@@Z
-@ stub -arch=win64 ?wait@_Condition_variable@details@Concurrency@@QEAAXAEAVcritical_section@3@@Z
+@ cdecl -arch=arm ?wait@_Condition_variable@details@Concurrency@@QAAXAAVcritical_section@3@@Z(ptr ptr) msvcr120.?wait@_Condition_variable@details@Concurrency@@QAAXAAVcritical_section@3@@Z
+@ thiscall -arch=i386 ?wait@_Condition_variable@details@Concurrency@@QAEXAAVcritical_section@3@@Z(ptr ptr) msvcr120.?wait@_Condition_variable@details@Concurrency@@QAEXAAVcritical_section@3@@Z
+@ cdecl -arch=win64 ?wait@_Condition_variable@details@Concurrency@@QEAAXAEAVcritical_section@3@@Z(ptr ptr) msvcr120.?wait@_Condition_variable@details@Concurrency@@QEAAXAEAVcritical_section@3@@Z
 @ stub -arch=arm ?wait@event@Concurrency@@QAAII@Z
 @ stub -arch=i386 ?wait@event@Concurrency@@QAEII@Z
 @ stub -arch=win64 ?wait@event@Concurrency@@QEAA_KI@Z
-@ stub -arch=arm ?wait_for@_Condition_variable@details@Concurrency@@QAA_NAAVcritical_section@3@I@Z
-@ stub -arch=i386 ?wait_for@_Condition_variable@details@Concurrency@@QAE_NAAVcritical_section@3@I@Z
-@ stub -arch=win64 ?wait_for@_Condition_variable@details@Concurrency@@QEAA_NAEAVcritical_section@3@I@Z
+@ cdecl -arch=arm ?wait_for@_Condition_variable@details@Concurrency@@QAA_NAAVcritical_section@3@I@Z(ptr ptr long) msvcr120.?wait_for@_Condition_variable@details@Concurrency@@QAA_NAAVcritical_section@3@I@Z
+@ thiscall -arch=i386 ?wait_for@_Condition_variable@details@Concurrency@@QAE_NAAVcritical_section@3@I@Z(ptr ptr long) msvcr120.?wait_for@_Condition_variable@details@Concurrency@@QAE_NAAVcritical_section@3@I@Z
+@ cdecl -arch=win64 ?wait_for@_Condition_variable@details@Concurrency@@QEAA_NAEAVcritical_section@3@I@Z(ptr ptr long) msvcr120.?wait_for@_Condition_variable@details@Concurrency@@QEAA_NAEAVcritical_section@3@I@Z
 @ stub -arch=win32 ?wait_for_multiple@event@Concurrency@@SAIPAPAV12@I_NI@Z
 @ stub -arch=win64 ?wait_for_multiple@event@Concurrency@@SA_KPEAPEAV12@_K_NI@Z
 @ cdecl -arch=arm ?what@exception@std@@UBAPBDXZ(ptr) msvcr120.?what@exception@std@@UBAPBDXZ
@@ -844,7 +844,7 @@
 @ cdecl _Strftime(str long str ptr ptr) msvcr120._Strftime
 @ cdecl _W_Getdays() msvcr120._W_Getdays
 @ cdecl _W_Getmonths() msvcr120._W_Getmonths
-@ stub _W_Gettnames
+@ cdecl _W_Gettnames() msvcr120._W_Gettnames
 @ stub _Wcsftime
 @ cdecl _XcptFilter(long ptr) msvcr120._XcptFilter
 @ cdecl __AdjustPointer(ptr ptr) msvcr120.__AdjustPointer
@@ -1038,8 +1038,8 @@
 @ cdecl _copysignf(float float) msvcr120._copysignf
 @ cdecl _creat(str long) msvcr120._creat
 @ cdecl _create_locale(long str) msvcr120._create_locale
-@ stub -arch=i386 _crt_debugger_hook
-@ stub -arch=arm,win64 __crt_debugger_hook
+@ cdecl -arch=i386 _crt_debugger_hook(long) msvcr120._crt_debugger_hook
+@ cdecl -arch=arm,win64 __crt_debugger_hook(long) msvcr120.__crt_debugger_hook
 @ cdecl _ctime32(ptr) msvcr120._ctime32
 @ cdecl _ctime32_s(str long ptr) msvcr120._ctime32_s
 @ cdecl _ctime64(ptr) msvcr120._ctime64
@@ -1100,7 +1100,7 @@
 @ extern _fmode msvcr120._fmode
 @ cdecl _fpclass(double) msvcr120._fpclass
 # stub -arch=x86_64 _fpclassf
-@ cdecl _fpieee_flt(long ptr ptr) msvcr120._fpieee_flt
+@ cdecl -arch=i386,x86_64,arm _fpieee_flt(long ptr ptr) msvcr120._fpieee_flt
 @ cdecl _fpreset() msvcr120._fpreset
 @ stub _fprintf_l
 @ stub _fprintf_p
@@ -1442,7 +1442,7 @@
 @ cdecl _strtime(ptr) msvcr120._strtime
 @ cdecl _strtime_s(ptr long) msvcr120._strtime_s
 @ cdecl _strtod_l(str ptr ptr) msvcr120._strtod_l
-@ stub _strtof_l
+@ cdecl _strtof_l(str ptr ptr) msvcr120._strtof_l
 @ cdecl -ret64 _strtoi64(str ptr long) msvcr120._strtoi64
 @ cdecl -ret64 _strtoi64_l(str ptr long ptr) msvcr120._strtoi64_l
 @ stub _strtoimax_l
@@ -1943,7 +1943,7 @@
 @ cdecl mbrlen(ptr long ptr) msvcr120.mbrlen
 @ cdecl mbrtowc(ptr str long ptr) msvcr120.mbrtowc
 @ cdecl mbsrtowcs(ptr ptr long ptr) msvcr120.mbsrtowcs
-@ stub mbsrtowcs_s
+@ cdecl mbsrtowcs_s(ptr ptr long ptr long ptr) msvcr120.mbsrtowcs_s
 @ cdecl mbstowcs(ptr str long) msvcr120.mbstowcs
 @ cdecl mbstowcs_s(ptr ptr long str long) msvcr120.mbstowcs_s
 @ cdecl mbtowc(ptr str long) msvcr120.mbtowc
@@ -1962,9 +1962,9 @@
 @ stub nearbyint
 @ stub nearbyintf
 @ stub nearbyintl
-@ stub nextafter
-@ stub nextafterf
-@ stub nextafterl
+@ cdecl nextafter(double double) msvcr120.nextafter
+@ cdecl nextafterf(float float) msvcr120.nextafterf
+@ cdecl nextafterl(double double) msvcr120.nextafterl
 @ stub nexttoward
 @ stub nexttowardf
 @ stub nexttowardl
@@ -2049,7 +2049,7 @@
 @ cdecl strspn(str str) msvcr120.strspn
 @ cdecl strstr(str str) msvcr120.strstr
 @ cdecl strtod(str ptr) msvcr120.strtod
-@ stub strtof
+@ cdecl strtof(str ptr) msvcr120.strtof
 @ stub strtoimax
 @ cdecl strtok(str str) msvcr120.strtok
 @ cdecl strtok_s(ptr str ptr) msvcr120.strtok_s

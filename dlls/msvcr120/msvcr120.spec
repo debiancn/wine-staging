@@ -17,9 +17,9 @@
 @ stub -arch=arm ??0_Cancellation_beacon@details@Concurrency@@QAA@XZ
 @ stub -arch=i386 ??0_Cancellation_beacon@details@Concurrency@@QAE@XZ
 @ stub -arch=win64 ??0_Cancellation_beacon@details@Concurrency@@QEAA@XZ
-@ stub -arch=arm ??0_Condition_variable@details@Concurrency@@QAA@XZ
-@ stub -arch=i386 ??0_Condition_variable@details@Concurrency@@QAE@XZ
-@ stub -arch=win64 ??0_Condition_variable@details@Concurrency@@QEAA@XZ
+@ cdecl -arch=arm ??0_Condition_variable@details@Concurrency@@QAA@XZ(ptr) _Condition_variable_ctor
+@ thiscall -arch=i386 ??0_Condition_variable@details@Concurrency@@QAE@XZ(ptr) _Condition_variable_ctor
+@ cdecl -arch=win64 ??0_Condition_variable@details@Concurrency@@QEAA@XZ(ptr) _Condition_variable_ctor
 @ stub -arch=arm ??0_Context@details@Concurrency@@QAA@PAVContext@2@@Z
 @ stub -arch=i386 ??0_Context@details@Concurrency@@QAE@PAVContext@2@@Z
 @ stub -arch=win64 ??0_Context@details@Concurrency@@QEAA@PEAVContext@2@@Z
@@ -272,9 +272,9 @@
 @ stub -arch=arm ??1_Cancellation_beacon@details@Concurrency@@QAA@XZ
 @ stub -arch=i386 ??1_Cancellation_beacon@details@Concurrency@@QAE@XZ
 @ stub -arch=win64 ??1_Cancellation_beacon@details@Concurrency@@QEAA@XZ
-@ stub -arch=arm ??1_Condition_variable@details@Concurrency@@QAA@XZ
-@ stub -arch=i386 ??1_Condition_variable@details@Concurrency@@QAE@XZ
-@ stub -arch=win64 ??1_Condition_variable@details@Concurrency@@QEAA@XZ
+@ cdecl -arch=arm ??1_Condition_variable@details@Concurrency@@QAA@XZ(ptr) _Condition_variable_dtor
+@ thiscall -arch=i386 ??1_Condition_variable@details@Concurrency@@QAE@XZ(ptr) _Condition_variable_dtor
+@ cdecl -arch=win64 ??1_Condition_variable@details@Concurrency@@QEAA@XZ(ptr) _Condition_variable_dtor
 @ stub -arch=arm ??1_NonReentrantBlockingLock@details@Concurrency@@QAA@XZ
 @ stub -arch=i386 ??1_NonReentrantBlockingLock@details@Concurrency@@QAE@XZ
 @ stub -arch=win64 ??1_NonReentrantBlockingLock@details@Concurrency@@QEAA@XZ
@@ -686,8 +686,8 @@
 @ cdecl -arch=win64 ?__ExceptionPtrRethrow@@YAXPEBX@Z(ptr) __ExceptionPtrRethrow
 @ stub -arch=win32 ?__ExceptionPtrSwap@@YAXPAX0@Z
 @ stub -arch=win64 ?__ExceptionPtrSwap@@YAXPEAX0@Z
-@ stub -arch=win32 ?__ExceptionPtrToBool@@YA_NPBX@Z
-@ stub -arch=win64 ?__ExceptionPtrToBool@@YA_NPEBX@Z
+@ cdecl -arch=win32 ?__ExceptionPtrToBool@@YA_NPBX@Z(ptr) __ExceptionPtrToBool
+@ cdecl -arch=win64 ?__ExceptionPtrToBool@@YA_NPEBX@Z(ptr) __ExceptionPtrToBool
 @ cdecl __uncaught_exception() MSVCRT___uncaught_exception
 @ stub ?_inconsistency@@YAXXZ
 @ cdecl -arch=win32 ?_invalid_parameter@@YAXPBG00II@Z(wstr wstr wstr long long) MSVCRT__invalid_parameter
@@ -743,12 +743,12 @@
 @ cdecl -arch=arm ?native_handle@critical_section@Concurrency@@QAAAAV12@XZ(ptr) critical_section_native_handle
 @ thiscall -arch=i386 ?native_handle@critical_section@Concurrency@@QAEAAV12@XZ(ptr) critical_section_native_handle
 @ cdecl -arch=win64 ?native_handle@critical_section@Concurrency@@QEAAAEAV12@XZ(ptr) critical_section_native_handle
-@ stub -arch=arm ?notify_all@_Condition_variable@details@Concurrency@@QAAXXZ
-@ stub -arch=i386 ?notify_all@_Condition_variable@details@Concurrency@@QAEXXZ
-@ stub -arch=win64 ?notify_all@_Condition_variable@details@Concurrency@@QEAAXXZ
-@ stub -arch=arm ?notify_one@_Condition_variable@details@Concurrency@@QAAXXZ
-@ stub -arch=i386 ?notify_one@_Condition_variable@details@Concurrency@@QAEXXZ
-@ stub -arch=win64 ?notify_one@_Condition_variable@details@Concurrency@@QEAAXXZ
+@ cdecl -arch=arm ?notify_all@_Condition_variable@details@Concurrency@@QAAXXZ(ptr) _Condition_variable_notify_all
+@ thiscall -arch=i386 ?notify_all@_Condition_variable@details@Concurrency@@QAEXXZ(ptr) _Condition_variable_notify_all
+@ cdecl -arch=win64 ?notify_all@_Condition_variable@details@Concurrency@@QEAAXXZ(ptr) _Condition_variable_notify_all
+@ cdecl -arch=arm ?notify_one@_Condition_variable@details@Concurrency@@QAAXXZ(ptr) _Condition_variable_notify_one
+@ thiscall -arch=i386 ?notify_one@_Condition_variable@details@Concurrency@@QAEXXZ(ptr) _Condition_variable_notify_one
+@ cdecl -arch=win64 ?notify_one@_Condition_variable@details@Concurrency@@QEAAXXZ(ptr) _Condition_variable_notify_one
 @ cdecl -arch=arm ?raw_name@type_info@@QBAPBDXZ(ptr) MSVCRT_type_info_raw_name
 @ thiscall -arch=i386 ?raw_name@type_info@@QBEPBDXZ(ptr) MSVCRT_type_info_raw_name
 @ cdecl -arch=win64 ?raw_name@type_info@@QEBAPEBDXZ(ptr) MSVCRT_type_info_raw_name
@@ -791,15 +791,15 @@
 @ stub -arch=win64 ?unlock@reader_writer_lock@Concurrency@@QEAAXXZ
 @ cdecl ?vswprintf@@YAHPA_WIPB_WPAD@Z(ptr long wstr ptr) MSVCRT_vsnwprintf
 @ stub ?wait@Concurrency@@YAXI@Z
-@ stub -arch=arm ?wait@_Condition_variable@details@Concurrency@@QAAXAAVcritical_section@3@@Z
-@ stub -arch=i386 ?wait@_Condition_variable@details@Concurrency@@QAEXAAVcritical_section@3@@Z
-@ stub -arch=win64 ?wait@_Condition_variable@details@Concurrency@@QEAAXAEAVcritical_section@3@@Z
+@ cdecl -arch=arm ?wait@_Condition_variable@details@Concurrency@@QAAXAAVcritical_section@3@@Z(ptr ptr) _Condition_variable_wait
+@ thiscall -arch=i386 ?wait@_Condition_variable@details@Concurrency@@QAEXAAVcritical_section@3@@Z(ptr ptr) _Condition_variable_wait
+@ cdecl -arch=win64 ?wait@_Condition_variable@details@Concurrency@@QEAAXAEAVcritical_section@3@@Z(ptr ptr) _Condition_variable_wait
 @ stub -arch=arm ?wait@event@Concurrency@@QAAII@Z
 @ stub -arch=i386 ?wait@event@Concurrency@@QAEII@Z
 @ stub -arch=win64 ?wait@event@Concurrency@@QEAA_KI@Z
-@ stub -arch=arm ?wait_for@_Condition_variable@details@Concurrency@@QAA_NAAVcritical_section@3@I@Z
-@ stub -arch=i386 ?wait_for@_Condition_variable@details@Concurrency@@QAE_NAAVcritical_section@3@I@Z
-@ stub -arch=win64 ?wait_for@_Condition_variable@details@Concurrency@@QEAA_NAEAVcritical_section@3@I@Z
+@ cdecl -arch=arm ?wait_for@_Condition_variable@details@Concurrency@@QAA_NAAVcritical_section@3@I@Z(ptr ptr long) _Condition_variable_wait_for
+@ thiscall -arch=i386 ?wait_for@_Condition_variable@details@Concurrency@@QAE_NAAVcritical_section@3@I@Z(ptr ptr long) _Condition_variable_wait_for
+@ cdecl -arch=win64 ?wait_for@_Condition_variable@details@Concurrency@@QEAA_NAEAVcritical_section@3@I@Z(ptr ptr long) _Condition_variable_wait_for
 @ stub -arch=win32 ?wait_for_multiple@event@Concurrency@@SAIPAPAV12@I_NI@Z
 @ stub -arch=win64 ?wait_for_multiple@event@Concurrency@@SA_KPEAPEAV12@_K_NI@Z
 @ cdecl -arch=arm ?what@exception@std@@UBAPBDXZ(ptr) MSVCRT_what_exception
@@ -850,7 +850,7 @@
 @ cdecl _Strftime(str long str ptr ptr)
 @ cdecl _W_Getdays()
 @ cdecl _W_Getmonths()
-@ stub _W_Gettnames
+@ cdecl _W_Gettnames()
 @ stub _Wcsftime
 @ cdecl _XcptFilter(long ptr)
 @ cdecl __AdjustPointer(ptr ptr)
@@ -1084,8 +1084,8 @@
 @ cdecl _cputws(wstr)
 @ cdecl _creat(str long) MSVCRT__creat
 @ cdecl _create_locale(long str) MSVCRT__create_locale
-@ stub -arch=i386 _crt_debugger_hook
-@ stub -arch=arm,win64 __crt_debugger_hook
+@ cdecl -arch=i386 _crt_debugger_hook(long) MSVCRT__crt_debugger_hook
+@ cdecl -arch=arm,win64 __crt_debugger_hook(long) MSVCRT__crt_debugger_hook
 @ varargs _cscanf(str)
 @ varargs _cscanf_l(str ptr)
 @ varargs _cscanf_s(str)
@@ -1172,7 +1172,7 @@
 @ extern _fmode MSVCRT__fmode
 @ cdecl _fpclass(double) MSVCRT__fpclass
 # stub -arch=x86_64 _fpclassf
-@ stub _fpieee_flt(long ptr ptr)
+@ cdecl -arch=i386,x86_64,arm _fpieee_flt(long ptr ptr)
 @ cdecl _fpreset()
 @ stub _fprintf_l
 @ stub _fprintf_p
@@ -1639,7 +1639,7 @@
 @ stdcall -arch=i386 _seh_longjmp_unwind4(ptr)
 @ stdcall -arch=i386 _seh_longjmp_unwind(ptr)
 @ cdecl -arch=i386 _set_SSE2_enable(long) MSVCRT__set_SSE2_enable
-@ stub -arch=win64 _set_FMA3_enable
+@ cdecl -arch=win64 _set_FMA3_enable(long) MSVCRT__set_FMA3_enable
 @ cdecl _set_abort_behavior(long long) MSVCRT__set_abort_behavior
 @ cdecl _set_controlfp(long long)
 @ cdecl _set_doserrno(long)
@@ -1731,7 +1731,7 @@
 @ cdecl _strtime(ptr) MSVCRT__strtime
 @ cdecl _strtime_s(ptr long)
 @ cdecl _strtod_l(str ptr ptr) MSVCRT_strtod_l
-@ stub _strtof_l
+@ cdecl _strtof_l(str ptr ptr) MSVCRT__strtof_l
 @ cdecl -ret64 _strtoi64(str ptr long) MSVCRT_strtoi64
 @ cdecl -ret64 _strtoi64_l(str ptr long ptr) MSVCRT_strtoi64_l
 @ stub _strtoimax_l
@@ -2280,7 +2280,7 @@
 @ cdecl mbrlen(ptr long ptr) MSVCRT_mbrlen
 @ cdecl mbrtowc(ptr str long ptr) MSVCRT_mbrtowc
 @ cdecl mbsrtowcs(ptr ptr long ptr) MSVCRT_mbsrtowcs
-@ stub mbsrtowcs_s
+@ cdecl mbsrtowcs_s(ptr ptr long ptr long ptr) MSVCRT_mbsrtowcs_s
 @ cdecl mbstowcs(ptr str long) MSVCRT_mbstowcs
 @ cdecl mbstowcs_s(ptr ptr long str long) MSVCRT__mbstowcs_s
 @ cdecl mbtowc(ptr str long) MSVCRT_mbtowc
@@ -2299,9 +2299,9 @@
 @ stub nearbyint
 @ stub nearbyintf
 @ stub nearbyintl
-@ stub nextafter
-@ stub nextafterf
-@ stub nextafterl
+@ cdecl nextafter(double double) MSVCRT__nextafter
+@ cdecl nextafterf(float float) MSVCRT__nextafterf
+@ cdecl nextafterl(double double) MSVCRT__nextafter
 @ stub nexttoward
 @ stub nexttowardf
 @ stub nexttowardl
@@ -2386,7 +2386,7 @@
 @ cdecl strspn(str str) ntdll.strspn
 @ cdecl strstr(str str) MSVCRT_strstr
 @ cdecl strtod(str ptr) MSVCRT_strtod
-@ stub strtof
+@ cdecl strtof(str ptr) MSVCRT_strtof
 @ stub strtoimax
 @ cdecl strtok(str str) MSVCRT_strtok
 @ cdecl strtok_s(ptr str ptr) MSVCRT_strtok_s

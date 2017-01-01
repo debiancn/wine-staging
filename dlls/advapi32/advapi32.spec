@@ -16,14 +16,14 @@
 # @ stub AccessCheckByTypeResultListAndAuditAlarmW
 @ stdcall AddAccessAllowedAce (ptr long long ptr)
 @ stdcall AddAccessAllowedAceEx (ptr long long long ptr)
-# @ stub AddAccessAllowedObjectAce
+@ stdcall AddAccessAllowedObjectAce(ptr long long long ptr ptr ptr)
 @ stdcall AddAccessDeniedAce(ptr long long ptr)
 @ stdcall AddAccessDeniedAceEx(ptr long long long ptr)
-# @ stub AddAccessDeniedObjectAce
+@ stdcall AddAccessDeniedObjectAce(ptr long long long ptr ptr ptr)
 @ stdcall AddAce(ptr long long ptr long)
 @ stdcall AddAuditAccessAce(ptr long long ptr long long)
 @ stdcall AddAuditAccessAceEx(ptr long long long ptr long long)
-# @ stub AddAuditAccessObjectAce
+@ stdcall AddAuditAccessObjectAce(ptr long long long ptr ptr ptr long long)
 # @ stub AddConditionalAce
 @ stdcall AddMandatoryAce(ptr long long long ptr)
 # @ stub AddUsersToEncryptedFileEx
@@ -661,8 +661,8 @@
 @ stdcall RegisterServiceCtrlHandlerExA(str ptr ptr)
 @ stdcall RegisterServiceCtrlHandlerExW(wstr ptr ptr)
 @ stdcall RegisterServiceCtrlHandlerW(wstr ptr)
-@ stdcall RegisterTraceGuidsA(ptr ptr ptr long ptr str str ptr)
-@ stdcall RegisterTraceGuidsW(ptr ptr ptr long ptr wstr wstr ptr)
+@ stdcall RegisterTraceGuidsA(ptr ptr ptr long ptr str str ptr) ntdll.EtwRegisterTraceGuidsA
+@ stdcall RegisterTraceGuidsW(ptr ptr ptr long ptr wstr wstr ptr) ntdll.EtwRegisterTraceGuidsW
 # @ stub RemoveTraceCallback
 # @ stub RemoveUsersFromEncryptedFile
 @ stdcall ReportEventA(long long long long ptr long long ptr ptr)

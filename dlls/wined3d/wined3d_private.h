@@ -278,6 +278,7 @@ struct wined3d_settings
     int allow_multisampling;
     BOOL strict_draw_ordering;
     BOOL always_offscreen;
+    BOOL check_float_constants;
     unsigned int max_sm_vs;
     unsigned int max_sm_gs;
     unsigned int max_sm_ps;
@@ -1518,6 +1519,7 @@ enum wined3d_pci_device
     CARD_AMD_RADEON_HD6300          = 0x9803,
     CARD_AMD_RADEON_HD6400          = 0x6770,
     CARD_AMD_RADEON_HD6410D         = 0x9644,
+    CARD_AMD_RADEON_HD6480G         = 0x9648,
     CARD_AMD_RADEON_HD6550D         = 0x9640,
     CARD_AMD_RADEON_HD6600          = 0x6758,
     CARD_AMD_RADEON_HD6600M         = 0x6741,
@@ -1534,6 +1536,8 @@ enum wined3d_pci_device
     CARD_AMD_RADEON_R3              = 0x9830,
     CARD_AMD_RADEON_R7              = 0x130f,
     CARD_AMD_RADEON_R9              = 0x67b1,
+    CARD_AMD_RADEON_RX_460          = 0x67ef,
+    CARD_AMD_RADEON_RX_480          = 0x67df,
 
     CARD_NVIDIA_RIVA_128            = 0x0018,
     CARD_NVIDIA_RIVA_TNT            = 0x0020,
@@ -1568,10 +1572,12 @@ enum wined3d_pci_device
     CARD_NVIDIA_GEFORCE_9400GT      = 0x042c,
     CARD_NVIDIA_GEFORCE_9500GT      = 0x0640,
     CARD_NVIDIA_GEFORCE_9600GT      = 0x0622,
+    CARD_NVIDIA_GEFORCE_9700MGT     = 0x064a,
     CARD_NVIDIA_GEFORCE_9800GT      = 0x0614,
     CARD_NVIDIA_GEFORCE_210         = 0x0a23,
     CARD_NVIDIA_GEFORCE_GT220       = 0x0a20,
     CARD_NVIDIA_GEFORCE_GT240       = 0x0ca3,
+    CARD_NVIDIA_GEFORCE_GTS250      = 0x0615,
     CARD_NVIDIA_GEFORCE_GTX260      = 0x05e2,
     CARD_NVIDIA_GEFORCE_GTX275      = 0x05e6,
     CARD_NVIDIA_GEFORCE_GTX280      = 0x05e1,
@@ -1583,6 +1589,7 @@ enum wined3d_pci_device
     CARD_NVIDIA_GEFORCE_GTS350M     = 0x0cb0,
     CARD_NVIDIA_GEFORCE_410M        = 0x1055,
     CARD_NVIDIA_GEFORCE_GT420       = 0x0de2,
+    CARD_NVIDIA_GEFORCE_GT425M      = 0x0df0,
     CARD_NVIDIA_GEFORCE_GT430       = 0x0de1,
     CARD_NVIDIA_GEFORCE_GT440       = 0x0de0,
     CARD_NVIDIA_GEFORCE_GTS450      = 0x0dc4,
@@ -1611,18 +1618,45 @@ enum wined3d_pci_device
     CARD_NVIDIA_GEFORCE_GTX660TI    = 0x1183,
     CARD_NVIDIA_GEFORCE_GTX670      = 0x1189,
     CARD_NVIDIA_GEFORCE_GTX670MX    = 0x11a1,
+    CARD_NVIDIA_GEFORCE_GTX675MX    = 0x11a7,
     CARD_NVIDIA_GEFORCE_GTX680      = 0x1180,
+    CARD_NVIDIA_GEFORCE_GTX690      = 0x1188,
+    CARD_NVIDIA_GEFORCE_GT730       = 0x1287,
+    CARD_NVIDIA_GEFORCE_GT730M      = 0x0fe1,
+    CARD_NVIDIA_GEFORCE_GT740M      = 0x1292,
     CARD_NVIDIA_GEFORCE_GT750M      = 0x0fe9,
     CARD_NVIDIA_GEFORCE_GTX750      = 0x1381,
     CARD_NVIDIA_GEFORCE_GTX750TI    = 0x1380,
     CARD_NVIDIA_GEFORCE_GTX760      = 0x1187,
+    CARD_NVIDIA_GEFORCE_GTX760TI    = 0x1193,
     CARD_NVIDIA_GEFORCE_GTX765M     = 0x11e2,
     CARD_NVIDIA_GEFORCE_GTX770M     = 0x11e0,
     CARD_NVIDIA_GEFORCE_GTX770      = 0x1184,
     CARD_NVIDIA_GEFORCE_GTX780      = 0x1004,
     CARD_NVIDIA_GEFORCE_GTX780TI    = 0x100a,
+    CARD_NVIDIA_GEFORCE_GTXTITAN    = 0x1005,
+    CARD_NVIDIA_GEFORCE_GTXTITANB   = 0x100c,
+    CARD_NVIDIA_GEFORCE_GTXTITANX   = 0x17c2,
+    CARD_NVIDIA_GEFORCE_GTXTITANZ   = 0x1001,
+    CARD_NVIDIA_GEFORCE_820M        = 0x0fed,
+    CARD_NVIDIA_GEFORCE_830M        = 0x1340,
+    CARD_NVIDIA_GEFORCE_840M        = 0x1341,
+    CARD_NVIDIA_GEFORCE_845M        = 0x1344,
+    CARD_NVIDIA_GEFORCE_GTX850M     = 0x1391,
+    CARD_NVIDIA_GEFORCE_GTX860M     = 0x1392, /* Other PCI ID 0x119a */
+    CARD_NVIDIA_GEFORCE_GTX870M     = 0x1199,
+    CARD_NVIDIA_GEFORCE_GTX880M     = 0x1198,
+    CARD_NVIDIA_GEFORCE_GTX950      = 0x1402,
+    CARD_NVIDIA_GEFORCE_GTX950M     = 0x139a,
+    CARD_NVIDIA_GEFORCE_GTX960      = 0x1401,
+    CARD_NVIDIA_GEFORCE_GTX960M     = 0x139b,
     CARD_NVIDIA_GEFORCE_GTX970      = 0x13c2,
     CARD_NVIDIA_GEFORCE_GTX970M     = 0x13d8,
+    CARD_NVIDIA_GEFORCE_GTX980      = 0x13c0,
+    CARD_NVIDIA_GEFORCE_GTX980TI    = 0x17c8,
+    CARD_NVIDIA_GEFORCE_GTX1060     = 0x1c03,
+    CARD_NVIDIA_GEFORCE_GTX1070     = 0x1b81,
+    CARD_NVIDIA_GEFORCE_GTX1080     = 0x1b80,
 
     CARD_VMWARE_SVGA3D              = 0x0405,
 
@@ -1660,7 +1694,32 @@ enum wined3d_pci_device
     CARD_INTEL_IVBD                 = 0x0162,
     CARD_INTEL_IVBM                 = 0x0166,
     CARD_INTEL_IVBS                 = 0x015a,
+    CARD_INTEL_HWD                  = 0x0412,
     CARD_INTEL_HWM                  = 0x0416,
+    CARD_INTEL_HD5300               = 0x161e,
+    CARD_INTEL_HD5500               = 0x1616,
+    CARD_INTEL_HD5600               = 0x1612,
+    CARD_INTEL_HD6000               = 0x1626,
+    CARD_INTEL_I6100                = 0x162b,
+    CARD_INTEL_IP6200               = 0x1622,
+    CARD_INTEL_IPP6300              = 0x162a,
+    CARD_INTEL_HD510_1              = 0x1902,
+    CARD_INTEL_HD510_2              = 0x1906,
+    CARD_INTEL_HD510_3              = 0x190b,
+    CARD_INTEL_HD515                = 0x191e,
+    CARD_INTEL_HD520_1              = 0x1916,
+    CARD_INTEL_HD520_2              = 0x1921,
+    CARD_INTEL_HD530_1              = 0x1912,
+    CARD_INTEL_HD530_2              = 0x191b,
+    CARD_INTEL_HDP530               = 0x191d,
+    CARD_INTEL_I540                 = 0x1926,
+    CARD_INTEL_I550                 = 0x1927,
+    CARD_INTEL_I555                 = 0x192b,
+    CARD_INTEL_IP555                = 0x192d,
+    CARD_INTEL_IP580_1              = 0x1932,
+    CARD_INTEL_IP580_2              = 0x193b,
+    CARD_INTEL_IPP580_1             = 0x193a,
+    CARD_INTEL_IPP580_2             = 0x193d,
 };
 
 struct wined3d_fbo_ops
@@ -2845,6 +2904,7 @@ struct wined3d_context *swapchain_get_context(struct wined3d_swapchain *swapchai
 void swapchain_destroy_contexts(struct wined3d_swapchain *swapchain) DECLSPEC_HIDDEN;
 HDC swapchain_get_backup_dc(struct wined3d_swapchain *swapchain) DECLSPEC_HIDDEN;
 void swapchain_update_draw_bindings(struct wined3d_swapchain *swapchain) DECLSPEC_HIDDEN;
+void swapchain_update_swap_interval(struct wined3d_swapchain *swapchain) DECLSPEC_HIDDEN;
 
 /*****************************************************************************
  * Utility function prototypes

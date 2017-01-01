@@ -176,6 +176,9 @@ extern GpStatus convert_pixels(INT width, INT height,
     INT dst_stride, BYTE *dst_bits, PixelFormat dst_format,
     INT src_stride, const BYTE *src_bits, PixelFormat src_format, ColorPalette *palette) DECLSPEC_HIDDEN;
 
+extern PixelFormat apply_image_attributes(const GpImageAttributes *attributes, LPBYTE data,
+    UINT width, UINT height, INT stride, ColorAdjustType type, PixelFormat fmt) DECLSPEC_HIDDEN;
+
 struct GpMatrix{
     REAL matrix[6];
 };
@@ -197,6 +200,7 @@ struct GpPen{
     REAL offset;    /* dash offset */
     GpBrush *brush;
     GpPenAlignment align;
+    GpMatrix transform;
 };
 
 struct GpGraphics{

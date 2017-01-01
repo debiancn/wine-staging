@@ -315,7 +315,7 @@
 @ stdcall IoAllocateMdl(ptr long long long ptr)
 @ stdcall IoAllocateWorkItem(ptr)
 @ stub IoAssignResources
-@ stub IoAttachDevice
+@ stdcall IoAttachDevice(ptr ptr ptr)
 @ stub IoAttachDeviceByPointer
 @ stdcall IoAttachDeviceToDeviceStack(ptr ptr)
 @ stub IoAttachDeviceToDeviceStackSafe
@@ -518,7 +518,7 @@
 @ stub KeClearEvent
 @ stub KeConnectInterrupt
 @ stub KeDcacheFlushCount
-@ stub KeDelayExecutionThread
+@ stdcall KeDelayExecutionThread(long long ptr)
 @ stub KeDeregisterBugCheckCallback
 @ stub KeDeregisterBugCheckReasonCallback
 @ stub KeDetachProcess
@@ -618,7 +618,7 @@
 @ stub KeSetTargetProcessorDpc
 @ stub KeSetTimeIncrement
 @ stub KeSetTimer
-@ stub KeSetTimerEx
+@ stdcall KeSetTimerEx(ptr int64 long ptr)
 @ stub KeStackAttachProcess
 @ stub KeSynchronizeExecution
 @ stub KeTerminateThread
@@ -899,7 +899,7 @@
 @ stub PsReferenceImpersonationToken
 @ stub PsReferencePrimaryToken
 @ stdcall PsRemoveCreateThreadNotifyRoutine(ptr)
-@ stub PsRemoveLoadImageNotifyRoutine
+@ stdcall PsRemoveLoadImageNotifyRoutine(ptr)
 @ stub PsRestoreImpersonation
 @ stub PsReturnPoolQuota
 @ stub PsReturnProcessNonPagedPoolQuota

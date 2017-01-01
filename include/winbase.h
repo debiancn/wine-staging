@@ -2236,13 +2236,13 @@ WINBASEAPI PSLIST_ENTRY WINAPI InterlockedFlushSList(PSLIST_HEADER);
 WINBASEAPI PSLIST_ENTRY WINAPI InterlockedPopEntrySList(PSLIST_HEADER);
 WINBASEAPI PSLIST_ENTRY WINAPI InterlockedPushEntrySList(PSLIST_HEADER, PSLIST_ENTRY);
 WINBASEAPI BOOL        WINAPI IsBadCodePtr(FARPROC);
-WINBASEAPI BOOL        WINAPI IsBadHugeReadPtr(LPCVOID,UINT);
-WINBASEAPI BOOL        WINAPI IsBadHugeWritePtr(LPVOID,UINT);
-WINBASEAPI BOOL        WINAPI IsBadReadPtr(LPCVOID,UINT);
-WINBASEAPI BOOL        WINAPI IsBadStringPtrA(LPCSTR,UINT);
-WINBASEAPI BOOL        WINAPI IsBadStringPtrW(LPCWSTR,UINT);
+WINBASEAPI BOOL        WINAPI IsBadHugeReadPtr(LPCVOID,UINT_PTR);
+WINBASEAPI BOOL        WINAPI IsBadHugeWritePtr(LPVOID,UINT_PTR);
+WINBASEAPI BOOL        WINAPI IsBadReadPtr(LPCVOID,UINT_PTR);
+WINBASEAPI BOOL        WINAPI IsBadStringPtrA(LPCSTR,UINT_PTR);
+WINBASEAPI BOOL        WINAPI IsBadStringPtrW(LPCWSTR,UINT_PTR);
 #define                       IsBadStringPtr WINELIB_NAME_AW(IsBadStringPtr)
-WINBASEAPI BOOL        WINAPI IsBadWritePtr(LPVOID,UINT);
+WINBASEAPI BOOL        WINAPI IsBadWritePtr(LPVOID,UINT_PTR);
 WINBASEAPI BOOL        WINAPI IsDebuggerPresent(void);
 WINBASEAPI BOOL        WINAPI IsSystemResumeAutomatic(void);
 WINADVAPI  BOOL        WINAPI IsTextUnicode(LPCVOID,INT,LPINT);
@@ -2971,6 +2971,10 @@ WINBASEAPI VOID        WINAPI SetLastError(DWORD);
 #define GetCurrentProcess() ((HANDLE)~(ULONG_PTR)0)
 #define GetCurrentThread()  ((HANDLE)~(ULONG_PTR)1)
 #endif
+
+#define GetCurrentProcessToken()            ((HANDLE)~(ULONG_PTR)3)
+#define GetCurrentThreadToken()             ((HANDLE)~(ULONG_PTR)4)
+#define GetCurrentThreadEffectiveToken()    ((HANDLE)~(ULONG_PTR)5)
 
 /* WinMain(entry point) must be declared in winbase.h. */
 /* If this is not declared, we cannot compile many sources written with C++. */

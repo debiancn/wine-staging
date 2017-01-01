@@ -356,6 +356,7 @@ static MMDevice *MMDevice_Create(WCHAR *name, GUID *id, EDataFlow flow, DWORD st
             pv.vt = VT_LPWSTR;
             pv.u.pwszVal = name;
             MMDevice_SetPropValue(id, flow, (const PROPERTYKEY*)&DEVPKEY_Device_FriendlyName, &pv);
+            MMDevice_SetPropValue(id, flow, (const PROPERTYKEY*)&DEVPKEY_DeviceInterface_FriendlyName, &pv);
             MMDevice_SetPropValue(id, flow, (const PROPERTYKEY*)&DEVPKEY_Device_DeviceDesc, &pv);
 
             pv.u.pwszVal = guidstr;
@@ -595,8 +596,9 @@ static HRESULT WINAPI MMDevice_Activate(IMMDevice *iface, REFIID riid, DWORD cls
 
     if (IsEqualIID(riid, &IID_IAudioClient)){
         hr = drvs.pGetAudioEndpoint(&This->devguid, iface, (IAudioClient**)ppv);
-    }else if (IsEqualIID(riid, &IID_IAudioEndpointVolume))
-        hr = AudioEndpointVolume_Create(This, (IAudioEndpointVolume**)ppv);
+    }else if (IsEqualIID(riid, &IID_IAudioEndpointVolume) ||
+            IsEqualIID(riid, &IID_IAudioEndpointVolumeEx))
+        hr = AudioEndpointVolume_Create(This, (IAudioEndpointVolumeEx**)ppv);
     else if (IsEqualIID(riid, &IID_IAudioSessionManager)
              || IsEqualIID(riid, &IID_IAudioSessionManager2))
     {

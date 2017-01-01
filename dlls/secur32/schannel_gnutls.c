@@ -42,7 +42,7 @@ WINE_DEFAULT_DEBUG_CHANNEL(secur32);
 WINE_DECLARE_DEBUG_CHANNEL(winediag);
 
 /* Not present in gnutls version < 2.9.10. */
-extern int gnutls_cipher_get_block_size(gnutls_cipher_algorithm_t algorithm);
+static int (*pgnutls_cipher_get_block_size)(gnutls_cipher_algorithm_t algorithm);
 
 static void *libgnutls_handle;
 #define MAKE_FUNCPTR(f) static typeof(f) * p##f
@@ -52,7 +52,6 @@ MAKE_FUNCPTR(gnutls_certificate_allocate_credentials);
 MAKE_FUNCPTR(gnutls_certificate_free_credentials);
 MAKE_FUNCPTR(gnutls_certificate_get_peers);
 MAKE_FUNCPTR(gnutls_cipher_get);
-MAKE_FUNCPTR(gnutls_cipher_get_block_size);
 MAKE_FUNCPTR(gnutls_cipher_get_key_size);
 MAKE_FUNCPTR(gnutls_credentials_set);
 MAKE_FUNCPTR(gnutls_deinit);
@@ -160,7 +159,7 @@ DWORD schan_imp_enabled_protocols(void)
 BOOL schan_imp_create_session(schan_imp_session *session, schan_credentials *cred)
 {
     gnutls_session_t *s = (gnutls_session_t*)session;
-    char priority[64] = "NORMAL", *p;
+    char priority[128] = "NORMAL:%LATEST_RECORD_VERSION", *p;
     unsigned i;
 
     int err = pgnutls_init(s, cred->credential_use == SECPKG_CRED_INBOUND ? GNUTLS_SERVER : GNUTLS_CLIENT);

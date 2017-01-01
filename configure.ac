@@ -127,23 +127,15 @@ AC_CHECK_TOOL(LD,ld)
 
 case $host in
   *-darwin*)
-    if test "x$enable_win64" = "xyes"
-    then
-      CC="$CC -m64"
-      CXX="$CXX -m64"
-      host_cpu="x86_64"
-      notice_platform="64-bit "
-      AC_SUBST(TARGETFLAGS,"-m64")
-    else
-      CC="$CC -m32"
-      CXX="$CXX -m32"
-      host_cpu="i386"
-      notice_platform="32-bit "
-      AC_SUBST(TARGETFLAGS,"-m32")
-      enable_win16=${enable_win16:-yes}
-    fi
     with_fontconfig=${with_fontconfig:-no}
     ;;
+  *-mingw32*|*-cygwin*)
+    enable_win16=${enable_win16:-no}
+    CFLAGS="$CFLAGS -D_WIN32"
+    ;;
+esac
+
+case $host in
   x86_64*|amd64*)
     if test "x$enable_win64" != "xyes" -a "$cross_compiling" != "yes"
     then
@@ -164,9 +156,12 @@ case $host in
         AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <stdarg.h>]], [[void func(__builtin_ms_va_list *args);]])],
                           [AC_MSG_RESULT([yes])],
                           [AC_MSG_RESULT([no])
-                           AC_MSG_ERROR([You need gcc >= 4.4 to build Wine as 64-bit.])])
+                           AC_MSG_ERROR([You need gcc >= 4.4 or clang >= 3.8 to build Wine as 64-bit.])])
       fi
+      CC="$CC -m64"
+      CXX="$CXX -m64"
       host_cpu="x86_64"
+      notice_platform="64-bit "
       AC_SUBST(TARGETFLAGS,"-m64")
     fi
     ;;
@@ -178,10 +173,6 @@ case $host in
                        AC_MSG_ERROR([You need a target with Thumb support to build Wine for ARM.])])
     CFLAGS="$CFLAGS -marm"
     AC_SUBST(TARGETFLAGS,"-marm")
-    ;;
-  *-mingw32*|*-cygwin*)
-    enable_win16=${enable_win16:-no}
-    CFLAGS="$CFLAGS -D_WIN32"
     ;;
   i[[3456789]]86*)
     enable_win16=${enable_win16:-yes}
@@ -519,6 +510,7 @@ AC_CHECK_HEADERS(\
 	valgrind/valgrind.h \
 	zlib.h
 )
+AC_HEADER_MAJOR()
 AC_HEADER_STAT()
 
 dnl **** Checks for headers that depend on other ones ****
@@ -1544,7 +1536,8 @@ then
     AC_CHECK_HEADERS(cups/cups.h,
             [WINE_CHECK_SONAME(cups,cupsGetDefault,
                        [CUPS_CFLAGS="$ac_cups_cflags"],,
-                       [$ac_cups_libs])])
+                       [$ac_cups_libs])
+             AC_CHECK_HEADERS(cups/ppd.h)])
     CPPFLAGS="$ac_save_CPPFLAGS"
 fi
 WINE_NOTICE_WITH(cups,[test "x$ac_cv_lib_soname_cups" = "x"],
@@ -1661,6 +1654,7 @@ if test "x$ac_cv_have_openalsoft" != xyes
 then
     WINE_NOTICE([openal-soft ${notice_platform}development files not found (or too old), XAudio2 won't be supported])
     enable_xaudio2_7=${enable_xaudio2_7:-no}
+    enable_xaudio2_8=${enable_xaudio2_8:-no}
 fi
 
 dnl **** Check for libkstat ****
@@ -3119,7 +3113,7 @@ WINE_CONFIG_DLL(oledb32,,[clean])
 WINE_CONFIG_TEST(dlls/oledb32/tests,[clean])
 WINE_CONFIG_DLL(oledlg,,[implib,po])
 WINE_CONFIG_TEST(dlls/oledlg/tests)
-WINE_CONFIG_DLL(olepro32,,[implib])
+WINE_CONFIG_DLL(olepro32,,[clean,implib])
 WINE_CONFIG_DLL(olesvr.dll16,enable_win16)
 WINE_CONFIG_DLL(olesvr32,,[implib])
 WINE_CONFIG_DLL(olethk32)
@@ -3220,7 +3214,8 @@ WINE_CONFIG_DLL(svrapi)
 WINE_CONFIG_DLL(sxs,,[implib])
 WINE_CONFIG_TEST(dlls/sxs/tests)
 WINE_CONFIG_DLL(system.drv16,enable_win16)
-WINE_CONFIG_DLL(t2embed)
+WINE_CONFIG_DLL(t2embed,,[implib])
+WINE_CONFIG_TEST(dlls/t2embed/tests)
 WINE_CONFIG_DLL(tapi32,,[implib])
 WINE_CONFIG_DLL(taskschd,,[clean])
 WINE_CONFIG_TEST(dlls/taskschd/tests)
@@ -3370,7 +3365,7 @@ WINE_CONFIG_DLL(xaudio2_5,,[clean])
 WINE_CONFIG_DLL(xaudio2_6,,[clean])
 WINE_CONFIG_DLL(xaudio2_7,,[clean])
 WINE_CONFIG_TEST(dlls/xaudio2_7/tests)
-WINE_CONFIG_DLL(xaudio2_8,,[implib])
+WINE_CONFIG_DLL(xaudio2_8,,[clean,implib])
 WINE_CONFIG_DLL(xinput1_1)
 WINE_CONFIG_DLL(xinput1_2)
 WINE_CONFIG_DLL(xinput1_3,,[implib],[xinput])

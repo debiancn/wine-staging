@@ -1985,8 +1985,30 @@ static void test_reg_query_info(void)
        "classbuffer = \"%.*s\", expected %s\n",
        (int)sizeof(classbuffer), classbuffer, expectbuffer);
 
+    memset(classbuffer, 0x55, sizeof(classbuffer));
+    classlen = 0xdeadbeef;
+    ret = RegQueryInfoKeyA(subkey, classbuffer, &classlen, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+    ok(ret == ERROR_SUCCESS, "ret = %d\n", ret);
+    ok(classlen == sizeof(subkey_class) - 1, "classlen = %u\n", classlen);
+    memset(expectbuffer, 0x55, sizeof(expectbuffer));
+    strcpy(expectbuffer, subkey_class);
+    ok(!memcmp(classbuffer, expectbuffer, sizeof(classbuffer)),
+       "classbuffer = \"%.*s\", expected %s\n",
+       (int)sizeof(classbuffer), classbuffer, expectbuffer);
+
     memset(classbufferW, 0x55, sizeof(classbufferW));
     classlen = sizeof(subkey_class);
+    ret = RegQueryInfoKeyW(subkey, classbufferW, &classlen, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+    ok(ret == ERROR_SUCCESS, "ret = %d\n", ret);
+    ok(classlen == sizeof(subkey_class) - 1, "classlen = %u\n", classlen);
+    memset(expectbufferW, 0x55, sizeof(expectbufferW));
+    lstrcpyW(expectbufferW, subkey_classW);
+    ok(!memcmp(classbufferW, expectbufferW, sizeof(classbufferW)),
+       "classbufferW = %s, expected %s\n",
+       wine_dbgstr_wn(classbufferW, sizeof(classbufferW) / sizeof(WCHAR)), wine_dbgstr_w(expectbufferW));
+
+    memset(classbufferW, 0x55, sizeof(classbufferW));
+    classlen = 0xdeadbeef;
     ret = RegQueryInfoKeyW(subkey, classbufferW, &classlen, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
     ok(ret == ERROR_SUCCESS, "ret = %d\n", ret);
     ok(classlen == sizeof(subkey_class) - 1, "classlen = %u\n", classlen);
@@ -3278,6 +3300,18 @@ static void test_delete_key_value(void)
     RegCloseKey(subkey);
 }
 
+static void test_RegOpenCurrentUser(void)
+{
+    HKEY key;
+    LONG ret;
+
+    key = HKEY_CURRENT_USER;
+    ret = RegOpenCurrentUser(KEY_READ, &key);
+    ok(!ret, "got %d, error %d\n", ret, GetLastError());
+    ok(key != HKEY_CURRENT_USER, "got %p\n", key);
+    RegCloseKey(key);
+}
+
 START_TEST(registry)
 {
     /* Load pointers for functions that are not available in all Windows versions */
@@ -3310,6 +3344,7 @@ START_TEST(registry)
     test_deleted_key();
     test_delete_value();
     test_delete_key_value();
+    test_RegOpenCurrentUser();
 
     /* cleanup */
     delete_key( hkey_main );
