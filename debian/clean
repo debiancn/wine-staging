@@ -49,6 +49,7 @@ dlls/opengl32/opengl32.spec
 # font files
 fonts/*.fon
 fonts/*.ttf
+dlls/*/tests/*.ttf
 fonts/Makefile
 tools/sfnt2fon/sfnt2fon
 tools/sfnt2fon/sfnt2fon.o
