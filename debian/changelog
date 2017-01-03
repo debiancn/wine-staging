@@ -1,7 +1,15 @@
+wine-development (2.0~rc3-1) UNRELEASED; urgency=medium
+
+  * New upstream release 2.0-rc3, released Dec 23, 2016.
+    - Bug fixes only, we are in code freeze.
+
+ -- Jens Reyer <jre.winesim@gmail.com>  Tue, 03 Jan 2017 17:02:51 +0100
+
 wine-development (2.0~rc2-1) unstable; urgency=medium
 
   * New upstream release 2.0-rc2, released Dec 16, 2016.
     - Fixes wineconsole emacs mode crash when yanking a line (closes: #844412).
+    - Check for invalid WINEARCH values (see: #838474).
   * Remove ttf files from the upstream tarball.
   * Use xz compression for the upstream tarball.
 
