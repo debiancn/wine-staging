@@ -1,11 +1,11 @@
-wine-development (2.0~rc3-1) UNRELEASED; urgency=medium
+wine-development (2.0~rc3-1) unstable; urgency=medium
 
   * New upstream release 2.0-rc3, released Dec 23, 2016.
     - Bug fixes only, we are in code freeze.
   * Clean the generated test ttf files.
   * Change trigger interest to noawait (LP: 1652434).
 
- -- Jens Reyer <jre.winesim@gmail.com>  Tue, 03 Jan 2017 17:02:51 +0100
+ -- Jens Reyer <jre.winesim@gmail.com>  Wed, 04 Jan 2017 14:40:23 +0100
 
 wine-development (2.0~rc2-1) unstable; urgency=medium
 
