@@ -16,15 +16,14 @@ Bug-Debian: https://bugs.debian.org/845334
  HKLM,"System\CurrentControlSet\Services\Tcpip\Parameters",,16
 --- a/dlls/shell32/changenotify.c
 +++ b/dlls/shell32/changenotify.c
-@@ -415,9 +415,9 @@ void WINAPI SHChangeNotify(LONG wEventId
+@@ -415,9 +415,7 @@ void WINAPI SHChangeNotify(LONG wEventId
  
      if (wEventId & SHCNE_ASSOCCHANGED)
      {
 -        static const WCHAR args[] = {' ','-','a',0 };
-         TRACE("refreshing file type associations\n");
+-        TRACE("refreshing file type associations\n");
 -        run_winemenubuilder( args );
 +        TRACE("refreshing native associations is disabled deliberately in Debian\n");
-+        run_winemenubuilder;
      }
  }
  
