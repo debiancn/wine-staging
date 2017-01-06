@@ -167,8 +167,8 @@ You can download the Wine Mono installer and copy it to similar locations as
 shown for Wine Gecko above, just replace gecko with mono.
 
 
-Automatically Launching Windows Executables
-===========================================
+System and desktop integration
+==============================
 You can configure your system to automatically launch Windows executables.  But
 this increases the risk of inadvertently launching Windows malware, so please
 make sure that you understand the security risks before blindly setting this
@@ -198,9 +198,29 @@ $ sudo cp /usr/share/doc/wine/examples/wine.desktop \
 $ sudo cp /usr/share/doc/wine-development/examples/wine.desktop \
     /usr/share/applications/
 
-To remove this again execute:
+To enable support for this only for your current user execute one of the
+following commands:
+$ cp /usr/share/doc/wine/examples/wine.desktop ~/.local/share/applications/
+$ cp /usr/share/doc/wine-development/examples/wine.desktop \
+    ~/.local/share/applications/
+
+To remove this again execute one of the following commands:
 $ sudo rm /usr/share/applications/wine.desktop
+$ rm ~/.local/share/applications/wine.desktop
 
 The changes should take effect automatically.  If not execute:
 $ sudo apt install desktop-file-utils
 $ sudo update-desktop-database
+$ update-desktop-database ~/.local/share/applications/
+
+
+Finally you can tell your system how to open some file types with Wine or
+installed Windows applications.  This is disabled deliberately both for
+security reasons, and to avoid unwanted associations with Wine while a
+preferred native application exists.
+
+To create these file type associations execute the following command:
+$ wine winemenubuilder -a -r
+
+You can remove them similarily like the wine.desktop file. Check
+~/.local/share/applications/ and ~/.local/share/mime.
