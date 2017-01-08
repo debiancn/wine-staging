@@ -191,36 +191,26 @@ You can also make Wine known to your desktop environment.  Then you may for
 example in a filebrowser double-click on Windows executables to start them, or
 right-click on them to "Open With Wine Windows Programs Loader".
 
-To enable system-wide support for this execute one of the following commands
-(both wine and wine-development have the same wine.desktop file):
-$ sudo cp /usr/share/doc/wine/examples/wine.desktop \
-    /usr/share/applications/
-$ sudo cp /usr/share/doc/wine-development/examples/wine.desktop \
-    /usr/share/applications/
-
-To enable support for this only for your current user execute one of the
-following commands:
-$ cp /usr/share/doc/wine/examples/wine.desktop ~/.local/share/applications/
-$ cp /usr/share/doc/wine-development/examples/wine.desktop \
-    ~/.local/share/applications/
-
-To remove this again execute one of the following commands:
-$ sudo rm /usr/share/applications/wine.desktop
-$ rm ~/.local/share/applications/wine.desktop
-
-The changes should take effect automatically.  If not execute:
-$ sudo apt install desktop-file-utils
-$ sudo update-desktop-database
-$ update-desktop-database ~/.local/share/applications/
-
-
-Finally you can tell your system how to open some file types with Wine or
-installed Windows applications.  This is disabled deliberately both for
-security reasons, and to avoid unwanted associations with Wine while a
+Wine does this automatically for most file types supported by your installed
+Windows applications.  However this is disabled for basic ones in Debian, both
+for security reasons and to avoid unwanted associations with Wine while a
 preferred native application exists.
 
-To create these file type associations execute the following command:
-$ wine winemenubuilder -a -r
+To enable system-wide support for .exe files execute the following command
+(replace /usr/share/doc/wine with /usr/share/doc/wine-development if you use
+wine-development):
+$ sudo cp /usr/share/doc/wine/examples/wine.desktop /usr/share/applications/
 
-You can remove them similarily like the wine.desktop file. Check
-~/.local/share/applications/ and ~/.local/share/mime.
+To support this only for your current user execute:
+$ cp /usr/share/doc/wine/examples/wine.desktop ~/.local/share/applications/
+
+To remove these native file type associations again execute the following
+commands:
+$ sudo rm -f /usr/share/applications/wine.desktop
+$ sudo update-desktop-database
+$ rm -f ~/.local/share/applications/wine.desktop
+$ rm -f ~/.local/share/applications/wine-extension-*
+$ update-desktop-database ~/.local/share/applications/
+
+The Wine FAQ has further information about this topic.
+
