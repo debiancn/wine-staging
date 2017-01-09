@@ -1,12 +1,10 @@
 debian/control
-debian/substvars
 
 config.*
 configure
 tools/config.*
 tools/make_makefiles
 include/config.h.in
-programs/cscript/ihost.h
 
 # automatically generated files
 dlls/dsound/fir.h
@@ -57,4 +55,3 @@ tools/sfnt2fon/Makefile
 
 # things that wine's clean doesn't clean
 po/LINGUAS
-tools/winemaker/*.man
