@@ -1,6 +1,7 @@
 upstream/fontdir.patch
 upstream/kfreebsd.patch
 upstream/unicode-9.patch
+upstream/check-winearch.patch
 
 version-string.patch
 manpages-wineserver-persistence.patch
