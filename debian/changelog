@@ -1,3 +1,22 @@
+wine (1.8.6-2) UNRELEASED; urgency=medium
+
+  [ Jens Reyer ]
+  * Cherrypick changes from master:
+    - Reorganize patches and add some metadata.
+    - Drop shlib-exit-calls.patch.
+    - Drop openal.patch, fixed upstream.
+    - Simplify the foreign-arch test in the wine script.
+    - Let wine suggest winbind.
+    - Change trigger interest to noawait (LP: 1652434).
+    - Documentation updates.
+    - Blacklist some extensions for native file type association
+      (closes: #845334).
+  * Sort packages in debian/control.in.
+  * Drop obsolete entries from d/clean.
+  * Check for invalid WINEARCH values (closes: #838474).
+
+ -- Jens Reyer <jre.winesim@gmail.com>  Wed, 11 Jan 2017 22:17:51 +0100
+
 wine (1.8.6-1) unstable; urgency=medium
 
   * New upstream release 1.8.6, released Dec 19, 2016.
