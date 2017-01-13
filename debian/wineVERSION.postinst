@@ -67,7 +67,9 @@ case "$1" in
             --slave /usr/share/man/de/man1/winemaker.1.gz winemaker.de.1.gz \
                     /usr/share/man/de/man1/winemakerDEBSUFFIX.1.gz \
             --slave /usr/share/man/fr/man1/winemaker.1.gz winemaker.fr.1.gz \
-                    /usr/share/man/fr/man1/winemakerDEBSUFFIX.1.gz
+                    /usr/share/man/fr/man1/winemakerDEBSUFFIX.1.gz \
+            --slave /usr/share/icons/hicolor/scalable/apps/wine.svg wine.svg \
+                    /usr/share/icons/hicolor/scalable/apps/wineDEBSUFFIX.svg
         ;;
 esac
 
