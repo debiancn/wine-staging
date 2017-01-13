@@ -141,6 +141,8 @@ override_dh_auto_install-indep: $(INSTALLS)
 	    rename=$$(basename $$file | sed "s/\\./$(DEBSUFFIX)./;s/UTF-8\\.//"); \
 	    cp $$file debian/tmp/$$rename || true; \
 	    done
+	# extract hicolor icon from logo.svg
+	sed '/image\/png/d;s|width="611"|width="209"|' programs/winecfg/logo.svg > debian/tmp/wine$(DEBSUFFIX).svg
 
 override_dh_auto_install-arch: $(INSTALLS)
 	mkdir -p debian/tmp
