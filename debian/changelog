@@ -1,4 +1,4 @@
-wine (1.8.6-2) UNRELEASED; urgency=medium
+wine (1.8.6-2) unstable; urgency=medium
 
   [ Jens Reyer ]
   * Cherrypick changes from master:
@@ -14,8 +14,10 @@ wine (1.8.6-2) UNRELEASED; urgency=medium
   * Sort packages in debian/control.in.
   * Drop obsolete entries from d/clean.
   * Check for invalid WINEARCH values (closes: #838474).
+  * Generate and install wine.svg icon.
+  * Add initial AppStream metainfo file (closes: #848839).
 
- -- Jens Reyer <jre.winesim@gmail.com>  Wed, 11 Jan 2017 22:17:51 +0100
+ -- Jens Reyer <jre.winesim@gmail.com>  Sat, 14 Jan 2017 02:01:07 +0100
 
 wine (1.8.6-1) unstable; urgency=medium
 
