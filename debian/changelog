@@ -1,3 +1,9 @@
+wine (1.8.6-3) unstable; urgency=medium
+
+  * Fix AppStream metainfo file (closes: #848839).
+
+ -- Jens Reyer <jre.winesim@gmail.com>  Thu, 19 Jan 2017 23:51:57 +0100
+
 wine (1.8.6-2) unstable; urgency=medium
 
   [ Jens Reyer ]
