@@ -27,7 +27,12 @@
   <url type="help">https://wiki.winehq.org/</url>
   <url type="donation">https://www.winehq.org/donate</url>
   <url type="translate">https://wiki.winehq.org/Translating</url>
-  <project_group>WineHQ</project_group>
+
+  <categories>
+    <category>Utility</category>
+    <category>System</category>
+    <category>Emulator</category>
+  </categories>
 
   <mimetypes>
     <mimetype>application/x-ms-dos-executable</mimetype>
