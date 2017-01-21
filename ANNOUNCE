@@ -1,12 +1,15 @@
-The Wine development release 2.0-rc4 is now available.
+The Wine development release 2.0-rc6 is now available.
+
+Barring last minute regressions, this is expected to be the last
+release candidate for 2.0.
 
 What's new in this release (see below for details):
   - Bug fixes only, we are in code freeze.
 
 The source is available from the following locations:
 
-  http://dl.winehq.org/wine/source/2.0/wine-2.0-rc4.tar.bz2
-  http://mirrors.ibiblio.org/wine/source/2.0/wine-2.0-rc4.tar.bz2
+  http://dl.winehq.org/wine/source/2.0/wine-2.0-rc6.tar.bz2
+  http://mirrors.ibiblio.org/wine/source/2.0/wine-2.0-rc6.tar.bz2
 
 Binary packages for various distributions will be available from:
 
@@ -22,111 +25,101 @@ AUTHORS in the distribution for the complete list.
 
 ----------------------------------------------------------------
 
-Bugs fixed in 2.0-rc4 (total 28):
+Bugs fixed in 2.0-rc6 (total 21):
 
-   7592  Window problems when running Citrix ICA client ICA16  v6.20.985 (Win16)
-  11808  winefile: broken horizontal scrolling
-  24718  Condes renders every line or point 100x thicker than it should be
-  29287  Heroes of Might and Magic IV: performance issues with Opengl renderer
-  32682  Multiple .NET 4.0 applications fail to load the pen cursor (IDC_PEN, 32631, 0x7F77 missing)
-  33570  SWAT 4:  Mouse Escapes Wine environment in full screen or windowed mode
-  34030  Altium Designer 10 hangs on startup accessing a driver
-  34807  Gruntz crashes on startup in d3d
-  35293  Halo: Combat Evolved has graphical glitches
-  35700  Arabic Shaping Is Broken After Rechedit News.
-  36959  Whirlwind of Vietnam crashes after starting
-  37416  The Sims 3: Display locks when running in window, uses 100% cpu
-  38766  RpcBindingServerFromClient is unimplemented, needed to determine client Computer Name/IP Address
-  39268  x11drv: Can't store handle for display fd
-  39714  Halo some sounds in cut scenes don't play
-  40169  Recognize INTERNET_FLAG_SECURE with INTERNET_INVALID_PORT_NUMBER in GetHttpConnection
-  40243  Korg Nano editor USB MIDI driver won't install, requires Administrator Privileges
-  40477  Motocross Madness and 3DMark2000 do not start (VRAM, video memory size)
-  41347  TMIDI Player: Some characters and logos in LCD are rendered as black rectangles
-  41599  Battle.net and Hearthstone play loud static when receiving messages
-  41708  Duo 0.10 crashes on startup
-  41998  Regression in wined3d crashes visual novel "A drug that makes you dream"
-  42031  Heroes Of Might & Magic VI: no more started
-  42057  Pressing Ctrl+C to close iTunes results in error dialog with gibberish title
-  42071  LINE (Powered by Naver): LINE does not work on wine 1.9.16 and later versions
-  42074  osu! - Audio latency regression (ALSA)
-  42090  Highway Pursuit constantly emits loud noise when sound effects enabled
-  42101  Strania - The Stella Machina (Steam) black screen on launch
+  11179  NO$GBA 2.6a debugger GUI buttons are not stacked
+  19862  CodeCreatures crashes.
+  28672  VirtualDub: crash when using directx for display panes
+  33859  Visual Web Developer Express 2008 crashes when clicking "Browse" (bug in PropertySheet common control)
+  34127  FIFA 2000 demo crashes after 'Press Any Key'
+  35669  Space Giraffe: text between levels (and on level selection screen) is corrupted / unreadable
+  36525  Ctrl+C does not copy in the Battle.net chat scrollback
+  38305  SMARegisTry Backup installer: corrupted window title
+  38845  Battle.net launcher shows white screen with WINEPREFIX Windows version > 'Windows XP' (builtin 'd3dcompiler_46.dll' is not mature enough)
+  38850  crypt32/tests: chain test fails on Debian Jessie
+  39642  Battle.net crashes when you try to resize the window when "allow the window manager to decorate the windows" is unchecked.
+  40096  Pendulumania: Black screen
+  40781  KSP Trajectory Optimization Tool (using MATLAB Runtime (MCR)) "Could not successfully parse URI string"
+  41001  64-bit Core Temp 1.x kernel driver 'ALSysIO.sys' crashes on unimplemented function ntoskrnl.exe.RtlUnwindEx
+  41218  curl 7.50: HTTPS fails with InitializeSecurityContext failed: SEC_E_INVALID_TOKEN
+  41290  DirectShow applications: MP3 playback is broken if winegstreamer is disabled
+  42020  Tompi Jones fails creating user profile
+  42211  redefinition of typedef 'REFERENCE_TIME'
+  42228  bcrypt:bcrypt test regression (test_aes)
+  42229  advapi32:eventlog test regression (privilege issue in test_start_trace)
+  42243  3DMark11 installer crashes with access violation in Freetype because font data is released too early
 
 ----------------------------------------------------------------
 
-Changes since 2.0-rc3:
+Changes since 2.0-rc5:
 
-Alex Henrie (1):
-      gdiplus: Fix memory leak in format_string_callback error path.
+André Hentschel (6):
+      oleview: Remove dead assignments (clang).
+      winebrowser: Fix allocation count (Coverity).
+      regedit: Remove dead assignment (clang).
+      iphlpapi/tests: Add test for AllocateAndGetTcpExTableFromStack.
+      iphlpapi/tests: Fix usage of broken().
+      ntdll: Fix some spec file entries.
 
-Alexandre Julliard (3):
-      gdi32: Support PALETTEINDEX colors for 1-bpp DIB blits.
-      ole32/tests: Add a test for WM_DRAWCLIPBOARD during OleSetClipboard.
-      Update copyright info for 2017.
+Austin English (1):
+      ntoskrnl.exe: Forward RtlUnwindEx to ntdll.
 
-Alistair Leslie-Hughes (2):
-      include: Correct misspelt GCPCLASS_PREBOUNDRTL define.
-      include: Add LLONG_MIN, LLONG_MAX, ULLONG_MAX defines.
+Bruno Jesus (1):
+      msacm32: Reduce block align condition scope to test covered drivers.
 
-Andrew Eikum (3):
-      dsound: Fix rolloff factor calculation.
-      dsound: Use the value from SetVolume when 3D processing is disabled.
-      dsound: Don't write more than three periods to IAudioClient.
+Hans Leidekker (3):
+      advapi32/tests: Skip StartTrace tests if the user doesn't have admin rights.
+      bcrypt/tests: Relax the AES object length test.
+      msvcp120/tests: Fix test failures on Windows XP.
 
-André Hentschel (1):
-      hlink/tests: Test skipped data.
+Henri Verbeet (1):
+      wined3d: Add GPU information for AMD TONGA.
 
-Henri Verbeet (4):
-      ddraw: Keep an explicit reference to the wined3d device in surfaces.
-      wined3d: Only check rtv and dsv bindings in device_resource_released() when D3D is initialised.
-      wined3d: Pass GL_SYNC_FLUSH_COMMANDS_BIT to glClientWaitSync() if WINED3DGETDATA_FLUSH was specified.
-      d2d1: Update "p0" after inserting a vertex in d2d_geometry_resolve_beziers().
+Huw D. M. Davies (10):
+      secur32/tests: Fix test failures on Windows 10.
+      kernel32/tests: Windows 10 accepts locale names like "zz-ZZ" and "foo".
+      kernel32/tests: Fix the invariant locale's country abbreviation on Windows 10.
+      kernel32/tests: Skip testing the translated invariant names on non US-English locales.
+      msctf/tests: Fix usage of test_ShouldDeactivate which is a BOOL.
+      msctf/tests: Fix tests on Windows 8 and 10.
+      msctf/tests: Return if the constructor fails. This avoids several clang warnings.
+      user32/tests: Windows 10 no longer supports setting bpp to zero.
+      msxml3/tests: Windows 10 no longer supports variants by reference, so pass it directly.
+      wintrust/tests: Zero-init error array to prevent failures on 64-bit.
 
-Hugh McMaster (3):
-      regedit: Import files using 'rb' mode.
-      regedit/tests: Add tests for quotes and slashes in keys, values and data.
-      reg/tests: Add tests for quotes and slashes in keys, values and data.
-
-Jactry Zeng (1):
-      quartz/tests: Skip test_render_run() if test file doesn't exist.
+Jacek Caban (2):
+      urlmon: Correctly handle INTERNET_STATUS_REQUEST_COMPLETE notification with no data available.
+      kernel32/tests: Improved pipe CloseHandle tests.
 
 Jarkko Korpi (1):
-      wined3d: Add Amd Rx 480 binary driver.
+      winex11.drv: Add 640x400 mode to virtual desktop.
 
-Józef Kucia (15):
-      ddraw: Subtract framebuffer size from reported available video memory.
-      d3d11/tests: Add test for render target device mismatch.
-      d3d10core/tests: Add test for render target device mismatch.
-      d3d9/tests: Add test for render target device mismatch.
-      d3d8/tests: Add test for render target device mismatch.
-      d3d9: Reject render target surfaces created for other devices.
-      d3d8: Reject render target surfaces created for other devices.
-      d3d9/tests: Do not assume surface size and format in get_rt_readback().
-      d3d9/tests: Add test for stale render target views regression.
-      d3d8/tests: Do not assume surface size and format in get_rt_readback().
-      d3d8/tests: Add test for stale render target views regression.
-      d3d9/tests: Do not assume surface size and format in get_pixel_color().
-      d3d9/tests: Add d3d9ex test for backbuffer resize.
-      d3d9: Do not create render target view while surface refcount is equal to 0.
-      d3d8: Do not create render target view while surface refcount is equal to 0.
+Józef Kucia (2):
+      ddraw/tests: Rewrite StructSizeTest().
+      d3d9/tests: Remove redundant state setting calls.
 
-Louis Lenders (1):
-      wine.inf: Add Drivers32 registry key.
+Marcus Meissner (1):
+      shell32/tests: Fixed CharLowerBuffA size.
+
+Michael Müller (2):
+      dsound: Respect return value of callback in DirectSoundEnumerateA/W.
+      wined3d: Do not set DDCAPS_ALIGNBOUNDARYSRC caps for ddraw.
+
+Michael Stefaniuc (3):
+      wrc: Remove a wrong comment.
+      po: Fixes and more updates for the Romanian translation.
+      ddraw/tests: Remove some no longer needed broken(TRUE).
 
 Nikolay Sivov (2):
-      ole32/tests: Some tests for returned apartment type in implicit MTA case.
-      user32/tests: Added some tests for FindWindow().
+      dwrite: Let freetype face cache manage lifetime of requested file fragments.
+      uxtheme/tests: Some tests for buffered painting API.
 
-Olivier F. R. Dierick (1):
-      xinput1_3: Add DECLSPEC_HOTPATCH to XInputEnable() definition.
+Samuele Guerrini (1):
+      winebus.sys: Buffer length check fix.
 
-Pierre Schweitzer (1):
-      mpr: Enumerate connections capability before looking for functions entry points.
-
-Piotr Caban (2):
-      msvcrt: Pass correct buffer size to snwprintf in DoMessageBoxW helper.
-      msvcp110: Add _Facet_base_vtable export.
+Sebastian Lackner (2):
+      include: Avoid duplicate definition of REFERENCE_TIME.
+      comctl32/tests: Add tests for PROPSHEET_InsertPage.
 
 --
 Alexandre Julliard
