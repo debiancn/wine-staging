@@ -1,3 +1,34 @@
+wine-development (2.0-1) unstable; urgency=medium
+
+  * New upstream release 2.0, released Jan 24, 2017.
+    - Drawing of underlines.
+    - Renderer sees drawing effect associated with text segment.
+    - Support for color fonts in COLR/CPAL format.
+    - Initial font fallback support, builtin data for some of CJK
+      ranges.
+    - Support for Wine-specific font replacement registry settings.
+    - Improved font metrics resolution in case of incomplete or
+    - Support for EUDC font collection based on current registry
+    - Several more shader model 4 and 5 shader instructions.
+    - Several more resource formats.
+    - Integer vertex shader inputs.
+    - Typeless resources.
+    - sRGB read/write support.
+    - Depth and stencil clears.
+    - Depth-only draws.
+    - Array textures.
+    - Index buffer offsets.
+    - Unordered access views.
+    - Primitive restart.
+    - "CheckFloatConstants" (REG_SZ).
+    - "MaxShaderModelHS", "MaxShaderModelDS" and "MaxShaderModelCS"
+      (REG_DWORD).
+    - "SampleCount" (REG_DWORD).
+    - There is initial support for preshaders.
+    - Many more effect states are correctly applied.
+
+ -- Michael Gilbert <mgilbert@debian.org>  Wed, 25 Jan 2017 05:36:23 +0000
+
 wine-development (2.0~rc6-1) unstable; urgency=medium
 
   [ Michael Gilbert ]
