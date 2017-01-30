@@ -1,4 +1,6 @@
 description: avoid divide-by-zero condition for certain font files and warn about it
+bug: https://bugs.winehq.org/show_bug.cgi?id=38762
+bug-debian: https://bugs.debian.org/788809
 
 --- a/dlls/gdi32/freetype.c
 +++ b/dlls/gdi32/freetype.c

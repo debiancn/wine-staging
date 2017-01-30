@@ -1,3 +1,30 @@
+wine (1.8.6-3) unstable; urgency=medium
+
+  * Fix AppStream metainfo file (closes: #848839).
+
+ -- Jens Reyer <jre.winesim@gmail.com>  Thu, 19 Jan 2017 23:51:57 +0100
+
+wine (1.8.6-2) unstable; urgency=medium
+
+  [ Jens Reyer ]
+  * Cherrypick changes from master:
+    - Reorganize patches and add some metadata.
+    - Drop shlib-exit-calls.patch.
+    - Drop openal.patch, fixed upstream.
+    - Simplify the foreign-arch test in the wine script.
+    - Let wine suggest winbind.
+    - Change trigger interest to noawait (LP: 1652434).
+    - Documentation updates.
+    - Blacklist some extensions for native file type association
+      (closes: #845334).
+  * Sort packages in debian/control.in.
+  * Drop obsolete entries from d/clean.
+  * Check for invalid WINEARCH values (closes: #838474).
+  * Generate and install wine.svg icon.
+  * Add initial AppStream metainfo file (closes: #848839).
+
+ -- Jens Reyer <jre.winesim@gmail.com>  Sat, 14 Jan 2017 02:01:07 +0100
+
 wine (1.8.6-1~bpo8+1) jessie-backports; urgency=medium
 
   * Rebuild for jessie-backports.

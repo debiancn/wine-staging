@@ -1,5 +1,5 @@
 Description: gdi32: Take into account the fontdir directory specified at build time.
-Origin: http://source.winehq.org/git/wine.git/commit/1eac54ef7d6d90fcc973c5ea92a53be73f61ff12
+Origin: upstream, http://source.winehq.org/git/wine.git/commit/1eac54ef7d6d90fcc973c5ea92a53be73f61ff12
 Bug: https://bugs.winehq.org/show_bug.cgi?id=40312
 Bug-Debian: https://bugs.debian.org/814844
 Applied-Upstream: 1.9.6

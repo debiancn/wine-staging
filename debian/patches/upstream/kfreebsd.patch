@@ -1,13 +1,17 @@
 description: add missing include for kfreebsd architectures
+origin: upstream, http://source.winehq.org/git/wine.git/commit/29fdc4879057b91e4c1909b376d214b51ad042f8
 author: Michael Gilbert <mgilbert@debian.org>
+applied-upstream: 1.9.18
 
 --- a/dlls/ntdll/directory.c
 +++ b/dlls/ntdll/directory.c
-@@ -53,6 +53,7 @@
+@@ -53,6 +53,9 @@
  # include <sys/sysmacros.h>
  #endif
  #ifdef HAVE_SYS_VNODE_H
-+#include <stdint.h>
++# ifdef HAVE_STDINT_H
++# include <stdint.h>  /* needed for kfreebsd */
++# endif
  /* Work around a conflict with Solaris' system list defined in sys/list.h. */
  #define list SYSLIST
  #define list_next SYSLIST_NEXT

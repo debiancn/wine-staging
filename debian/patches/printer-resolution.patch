@@ -1,5 +1,6 @@
 description: set default printer resolution to 600dpi
 author: Ralf E-Mail <anonymous272912@gmail.com>
+bug-debian: https://bugs.debian.org/687168
 
 --- a/dlls/winspool.drv/generic.ppd
 +++ b/dlls/winspool.drv/generic.ppd

@@ -1,0 +1,25 @@
+Description: Check for invalid WINEARCH values.
+Origin: upstream, http://source.winehq.org/git/wine.git/commit/df3b7958a731378d2a156d363bd9af36b34a9ac1
+Bug: https://bugs.winehq.org/show_bug.cgi?id=41378
+Bug-Debian: https://bugs.debian.org/838474
+Applied-Upstream: 2.0-rc2
+
+--- a/dlls/ntdll/server.c
++++ b/dlls/ntdll/server.c
+@@ -1368,7 +1368,15 @@ void server_init_process(void)
+             fatal_perror( "Bad server socket %d", fd_socket );
+         unsetenv( "WINESERVERSOCKET" );
+     }
+-    else fd_socket = server_connect();
++    else
++    {
++        const char *arch = getenv( "WINEARCH" );
++
++        if (arch && strcmp( arch, "win32" ) && strcmp( arch, "win64" ))
++            fatal_error( "WINEARCH set to invalid value '%s', it must be either win32 or win64.\n", arch );
++
++        fd_socket = server_connect();
++    }
+ 
+     /* setup the signal mask */
+     sigemptyset( &server_block_set );

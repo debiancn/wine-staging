@@ -2,6 +2,7 @@ Description: Backport upstream changes for building with Unicode 9.0.
 Origin: backport, http://source.winehq.org/git/wine.git/commit/58e0972c5ca8c82f65860733aaf3aeb41a7725bb
 Origin: upstream, http://source.winehq.org/git/wine.git/commit/bbb9bbdbdb330aca21c363503274e21d558db1bc
 Bug-Debian: https://bugs.debian.org/829003
+Applied-Upstream: 1.9.13
 
 --- a/dlls/dwrite/analyzer.c
 +++ b/dlls/dwrite/analyzer.c
