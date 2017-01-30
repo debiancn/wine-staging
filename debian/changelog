@@ -1,3 +1,10 @@
+wine (1.8.6-3~bpo8+1) jessie-backports; urgency=medium
+
+  * Rebuild for jessie-backports.
+  * No changes.
+
+ -- Jens Reyer <jre.winesim@gmail.com>  Mon, 30 Jan 2017 23:48:53 +0100
+
 wine (1.8.6-3) unstable; urgency=medium
 
   * Fix AppStream metainfo file (closes: #848839).
