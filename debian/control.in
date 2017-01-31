@@ -31,7 +31,6 @@ Build-Depends:
  bison,
  quilt,
  gettext,
- oss4-dev,
  sharutils,
  pkg-config,
  dctrl-tools,
