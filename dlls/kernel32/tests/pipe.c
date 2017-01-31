@@ -1364,8 +1364,8 @@ static void test_CreatePipe(void)
     ok(written == sizeof(PIPENAME), "Write to anonymous pipe wrote %d bytes\n", written);
     /* and close the write end, read should still succeed*/
     ok(CloseHandle(pipewrite), "CloseHandle for the Write Pipe failed\n");
-    ok(ReadFile(piperead,readbuf,sizeof(readbuf),&read, NULL), "Read from broken pipe withe with pending data failed\n");
-    ok(read == sizeof(PIPENAME), "Read from  anonymous pipe got %d bytes\n", read);
+    ok(ReadFile(piperead,readbuf,sizeof(readbuf),&read, NULL), "Read from broken pipe with pending data failed\n");
+    ok(read == sizeof(PIPENAME), "Read from anonymous pipe got %d bytes\n", read);
     /* But now we need to get informed that the pipe is closed */
     ok(ReadFile(piperead,readbuf,sizeof(readbuf),&read, NULL) == 0, "Broken pipe not detected\n");
     ok(CloseHandle(piperead), "CloseHandle for the read pipe failed\n");
@@ -1380,8 +1380,8 @@ static void test_CreatePipe(void)
     /* and close the write end, read should still succeed*/
     ok(CloseHandle(pipewrite), "CloseHandle for the Write Pipe failed\n");
     memset( buffer, 0, size );
-    ok(ReadFile(piperead, buffer, size, &read, NULL), "Read from broken pipe withe with pending data failed\n");
-    ok(read == size, "Read from  anonymous pipe got %d bytes\n", read);
+    ok(ReadFile(piperead, buffer, size, &read, NULL), "Read from broken pipe with pending data failed\n");
+    ok(read == size, "Read from anonymous pipe got %d bytes\n", read);
     for (i = 0; i < size; i++) ok( buffer[i] == (BYTE)i, "invalid data %x at %x\n", buffer[i], i );
     /* But now we need to get informed that the pipe is closed */
     ok(ReadFile(piperead,readbuf,sizeof(readbuf),&read, NULL) == 0, "Broken pipe not detected\n");
@@ -1472,6 +1472,11 @@ static void test_CloseHandle(void)
     ret = ReadFile(hfile, buffer, sizeof(buffer), &numbytes, NULL);
     todo_wine ok(ret, "ReadFile failed with %u\n", GetLastError());
     ok(numbytes == 0, "expected 0, got %u\n", numbytes);
+
+    SetLastError(0xdeadbeef);
+    ret = ReadFile(hfile, buffer, 0, &numbytes, NULL);
+    ok(!ret, "ReadFile unexpectedly succeeded\n");
+    todo_wine ok(GetLastError() == ERROR_BROKEN_PIPE, "expected ERROR_BROKEN_PIPE, got %u\n", GetLastError());
 
     ret = GetNamedPipeHandleStateA(hfile, &state, NULL, NULL, NULL, NULL, 0);
     ok(ret, "GetNamedPipeHandleState failed with %u\n", GetLastError());
@@ -1566,6 +1571,11 @@ static void test_CloseHandle(void)
     ret = ReadFile(hpipe, buffer, sizeof(buffer), &numbytes, NULL);
     todo_wine ok(ret, "ReadFile failed with %u\n", GetLastError());
     ok(numbytes == 0, "expected 0, got %u\n", numbytes);
+
+    SetLastError(0xdeadbeef);
+    ret = ReadFile(hpipe, buffer, 0, &numbytes, NULL);
+    ok(!ret, "ReadFile unexpectedly succeeded\n");
+    ok(GetLastError() == ERROR_BROKEN_PIPE, "expected ERROR_BROKEN_PIPE, got %u\n", GetLastError());
 
     ret = GetNamedPipeHandleStateA(hpipe, &state, NULL, NULL, NULL, NULL, 0);
     ok(ret, "GetNamedPipeHandleState failed with %u\n", GetLastError());

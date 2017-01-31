@@ -32,6 +32,7 @@
 #include "winbase.h"
 #include "wingdi.h"
 #include "winuser.h"
+#include "winreg.h"
 
 #include "wine/test.h"
 
@@ -753,6 +754,7 @@ static void test_enum_thread_windows(void)
 static struct wm_gettext_override_data
 {
     BOOL   enabled; /* when 1 bypasses default procedure */
+    BOOL   dont_terminate; /* don't null terminate returned string in WM_GETTEXT handler */
     char  *buff;    /* expected text buffer pointer */
     WCHAR *buffW;   /* same, for W test */
 } g_wm_gettext_override;
@@ -845,6 +847,16 @@ static LRESULT WINAPI main_window_procA(HWND hwnd, UINT msg, WPARAM wparam, LPAR
                 ok(*text == 0, "expected empty string buffer %x\n", *text);
                 return 0;
             }
+            else if (g_wm_gettext_override.dont_terminate)
+            {
+                char *text = (char *)lparam;
+                if (text)
+                {
+                    memcpy(text, "text", 4);
+                    return 4;
+                }
+                return 0;
+            }
             break;
         case WM_SETTEXT:
             num_settext_msgs++;
@@ -869,6 +881,17 @@ static LRESULT WINAPI main_window_procW(HWND hwnd, UINT msg, WPARAM wparam, LPAR
                 WCHAR *text = (WCHAR*)lparam;
                 ok(g_wm_gettext_override.buffW == text, "expected buffer %p, got %p\n", g_wm_gettext_override.buffW, text);
                 ok(*text == 0, "expected empty string buffer %x\n", *text);
+                return 0;
+            }
+            else if (g_wm_gettext_override.dont_terminate)
+            {
+                static const WCHAR textW[] = {'t','e','x','t'};
+                WCHAR *text = (WCHAR *)lparam;
+                if (text)
+                {
+                    memcpy(text, textW, sizeof(textW));
+                    return 4;
+                }
                 return 0;
             }
             break;
@@ -1239,10 +1262,42 @@ static LRESULT CALLBACK cbt_hook_proc(int nCode, WPARAM wParam, LPARAM lParam)
     return CallNextHookEx(hhook, nCode, wParam, lParam);
 }
 
+static const WCHAR winlogonW[] =
+    {'S','o','f','t','w','a','r','e','\\','M','i','c','r','o','s','o','f','t','\\',
+     'W','i','n','d','o','w','s',' ','N','T','\\','C','u','r','r','e','n','t','V','e','r','s','i','o','n','\\',
+     'W','i','n','l','o','g','o','n',0};
+static const WCHAR autorestartshellW[] =
+    {'A','u','t','o','R','e','s','t','a','r','t','S','h','e','l','l',0};
+
+static DWORD get_autorestart(void)
+{
+    DWORD type, val, len = sizeof(val);
+    REGSAM access = KEY_ALL_ACCESS|KEY_WOW64_64KEY;
+    HKEY hkey;
+    LONG res;
+
+    if (RegCreateKeyExW( HKEY_LOCAL_MACHINE, winlogonW, 0, 0, 0, access, NULL, &hkey, 0 )) return 0;
+    res = RegQueryValueExW( hkey, autorestartshellW, NULL, &type, (BYTE *)&val, &len );
+    RegCloseKey( hkey );
+    return (!res && type == REG_DWORD) ? val : 0;
+}
+
+static BOOL set_autorestart( DWORD val )
+{
+    REGSAM access = KEY_ALL_ACCESS|KEY_WOW64_64KEY;
+    HKEY hkey;
+    LONG res;
+
+    if (RegCreateKeyExW( HKEY_LOCAL_MACHINE, winlogonW, 0, 0, 0, access, NULL, &hkey, 0 )) return FALSE;
+    res = RegSetValueExW( hkey, autorestartshellW, 0, REG_DWORD, (BYTE *)&val, sizeof(val) );
+    RegCloseKey( hkey );
+    return !res;
+}
+
 static void test_shell_window(void)
 {
     BOOL ret;
-    DWORD error;
+    DWORD error, restart = get_autorestart();
     HMODULE hinst, hUser32;
     BOOL (WINAPI*SetShellWindow)(HWND);
     HWND hwnd1, hwnd2, hwnd3, hwnd4, hwnd5;
@@ -1251,6 +1306,12 @@ static void test_shell_window(void)
     if (is_win9x)
     {
         win_skip("Skipping shell window test on Win9x\n");
+        return;
+    }
+
+    if (restart && !set_autorestart(0))
+    {
+        skip("cannot disable automatic shell restart (needs admin rights\n");
         return;
     }
 
@@ -1271,6 +1332,7 @@ static void test_shell_window(void)
         if (!hProcess)
         {
             skip( "cannot get access to shell process\n" );
+            set_autorestart(restart);
             return;
         }
 
@@ -1367,6 +1429,7 @@ static void test_shell_window(void)
     DestroyWindow(hwnd3);
     DestroyWindow(hwnd4);
     DestroyWindow(hwnd5);
+    set_autorestart(restart);
 }
 
 /************** MDI test ****************/
@@ -6526,6 +6589,7 @@ static DWORD CALLBACK settext_msg_thread( LPVOID arg )
 
 static void test_gettext(void)
 {
+    static const WCHAR textW[] = {'t','e','x','t'};
     DWORD tid, num_msgs;
     WCHAR bufW[32];
     HANDLE thread;
@@ -6678,6 +6742,48 @@ static void test_gettext(void)
     ok( buf_len != 0, "expected a nonempty window text\n" );
     ok( !strcmp(buf, "thread_caption"), "got wrong window text '%s'\n", buf );
     ok( num_gettext_msgs == 1, "got %u WM_GETTEXT messages\n", num_gettext_msgs );
+
+    /* WM_GETTEXT does not terminate returned string */
+    memset( buf, 0x1c, sizeof(buf) );
+    g_wm_gettext_override.dont_terminate = TRUE;
+    buf_len = GetWindowTextA( hwnd, buf, sizeof(buf) );
+    ok( buf_len == 4, "Unexpected text length, %d\n", buf_len );
+    ok( !memcmp(buf, "text", 4), "Unexpected window text, '%s'\n", buf );
+    ok( buf[4] == 0x1c, "Unexpected buffer contents\n" );
+    g_wm_gettext_override.dont_terminate = FALSE;
+
+    memset( bufW, 0x1c, sizeof(bufW) );
+    g_wm_gettext_override.dont_terminate = TRUE;
+    buf_len = GetWindowTextW( hwnd, bufW, sizeof(bufW)/sizeof(bufW[0]) );
+todo_wine
+    ok( buf_len == 4, "Unexpected text length, %d\n", buf_len );
+    ok( !memcmp(bufW, textW, 4 * sizeof(WCHAR)), "Unexpected window text, %s\n", wine_dbgstr_w(bufW) );
+todo_wine
+    ok( bufW[4] == 0, "Unexpected buffer contents, %#x\n", bufW[4] );
+    g_wm_gettext_override.dont_terminate = FALSE;
+
+    hwnd2 = CreateWindowExW( 0, mainclassW, NULL, WS_POPUP, 0, 0, 0, 0, 0, 0, 0, NULL );
+    ok( hwnd2 != 0, "CreateWindowExA error %d\n", GetLastError() );
+
+    memset( buf, 0x1c, sizeof(buf) );
+    g_wm_gettext_override.dont_terminate = TRUE;
+    buf_len = GetWindowTextA( hwnd2, buf, sizeof(buf) );
+todo_wine
+    ok( buf_len == 4, "Unexpected text length, %d\n", buf_len );
+    ok( !memcmp(buf, "text", 4), "Unexpected window text, '%s'\n", buf );
+todo_wine
+    ok( buf[4] == 0, "Unexpected buffer contents, %#x\n", buf[4] );
+    g_wm_gettext_override.dont_terminate = FALSE;
+
+    memset( bufW, 0x1c, sizeof(bufW) );
+    g_wm_gettext_override.dont_terminate = TRUE;
+    buf_len = GetWindowTextW( hwnd2, bufW, sizeof(bufW)/sizeof(bufW[0]) );
+    ok( buf_len == 4, "Unexpected text length, %d\n", buf_len );
+    ok( !memcmp(bufW, textW, 4 * sizeof(WCHAR)), "Unexpected window text, %s\n", wine_dbgstr_w(bufW) );
+    ok( bufW[4] == 0x1c1c, "Unexpected buffer contents, %#x\n", bufW[4] );
+    g_wm_gettext_override.dont_terminate = FALSE;
+
+    DestroyWindow(hwnd2);
 
     /* seems to crash on every modern Windows version */
     if (0)
@@ -7937,6 +8043,16 @@ static void test_FindWindowEx(void)
     ok( hwnd != 0, "CreateWindowExA error %d\n", GetLastError() );
 
     num_gettext_msgs = 0;
+    found = FindWindowExA( 0, 0, "ClassThatDoesntExist", "" );
+    ok( found == NULL, "expected a NULL hwnd\n" );
+    ok( num_gettext_msgs == 0, "got %u WM_GETTEXT messages\n", num_gettext_msgs );
+
+    num_gettext_msgs = 0;
+    found = FindWindowExA( 0, 0, "ClassThatDoesntExist", NULL );
+    ok( found == NULL, "expected a NULL hwnd\n" );
+    ok( num_gettext_msgs == 0, "got %u WM_GETTEXT messages\n", num_gettext_msgs );
+
+    num_gettext_msgs = 0;
     found = FindWindowExA( 0, 0, "MainWindowClass", "" );
     ok( found == NULL, "expected a NULL hwnd\n" );
     ok( num_gettext_msgs == 0, "got %u WM_GETTEXT messages\n", num_gettext_msgs );
@@ -7972,6 +8088,62 @@ static void test_FindWindowEx(void)
     found = FindWindowExA( 0, 0, "Shell_TrayWnd", "" );
     ok( found != NULL, "found is NULL, expected a valid hwnd\n" );
     found = FindWindowExA( 0, 0, "Shell_TrayWnd", NULL );
+    ok( found != NULL, "found is NULL, expected a valid hwnd\n" );
+}
+
+static void test_FindWindow(void)
+{
+    HWND hwnd, found;
+
+    hwnd = CreateWindowExA( 0, "MainWindowClass", "caption", WS_POPUP, 0,0,0,0, 0, 0, 0, NULL );
+    ok( hwnd != 0, "CreateWindowExA error %d\n", GetLastError() );
+
+    num_gettext_msgs = 0;
+    found = FindWindowA( "ClassThatDoesntExist", "" );
+    ok( found == NULL, "expected a NULL hwnd\n" );
+    ok( num_gettext_msgs == 0, "got %u WM_GETTEXT messages\n", num_gettext_msgs );
+
+    num_gettext_msgs = 0;
+    found = FindWindowA( "ClassThatDoesntExist", NULL );
+    ok( found == NULL, "expected a NULL hwnd\n" );
+    ok( num_gettext_msgs == 0, "got %u WM_GETTEXT messages\n", num_gettext_msgs );
+
+    num_gettext_msgs = 0;
+    found = FindWindowA( "MainWindowClass", "" );
+    ok( found == NULL, "expected a NULL hwnd\n" );
+    ok( num_gettext_msgs == 0, "got %u WM_GETTEXT messages\n", num_gettext_msgs );
+
+    num_gettext_msgs = 0;
+    found = FindWindowA( "MainWindowClass", NULL );
+    ok( found == hwnd, "found is %p, expected a valid hwnd\n", found );
+    ok( num_gettext_msgs == 0, "got %u WM_GETTEXT messages\n", num_gettext_msgs );
+
+    num_gettext_msgs = 0;
+    found = FindWindowA( "MainWindowClass", "caption" );
+    ok( found == hwnd, "found is %p, expected a valid hwnd\n", found );
+    ok( num_gettext_msgs == 0, "got %u WM_GETTEXT messages\n", num_gettext_msgs );
+
+    DestroyWindow( hwnd );
+
+    hwnd = CreateWindowExA( 0, "MainWindowClass", NULL, WS_POPUP, 0,0,0,0, 0, 0, 0, NULL );
+    ok( hwnd != 0, "CreateWindowExA error %d\n", GetLastError() );
+
+    num_gettext_msgs = 0;
+    found = FindWindowA( "MainWindowClass", "" );
+    ok( found == hwnd, "found is %p, expected a valid hwnd\n", found );
+    ok( num_gettext_msgs == 0, "got %u WM_GETTEXT messages\n", num_gettext_msgs );
+
+    num_gettext_msgs = 0;
+    found = FindWindowA( "MainWindowClass", NULL );
+    ok( found == hwnd, "found is %p, expected a valid hwnd\n", found );
+    ok( num_gettext_msgs == 0, "got %u WM_GETTEXT messages\n", num_gettext_msgs );
+
+    DestroyWindow( hwnd );
+
+    /* test behaviour with a window title that is an empty character */
+    found = FindWindowA( "Shell_TrayWnd", "" );
+    ok( found != NULL, "found is NULL, expected a valid hwnd\n" );
+    found = FindWindowA( "Shell_TrayWnd", NULL );
     ok( found != NULL, "found is NULL, expected a valid hwnd\n" );
 }
 
@@ -9459,6 +9631,7 @@ START_TEST(win)
 
     /* make sure that these tests are executed first */
     test_FindWindowEx();
+    test_FindWindow();
     test_SetParent();
 
     hwndMain2 = CreateWindowExA(/*WS_EX_TOOLWINDOW*/ 0, "MainWindowClass", "Main window 2",

@@ -774,7 +774,7 @@ static void test_import(void)
     char test1_reg[MAX_PATH], test2_reg[MAX_PATH];
     char cmdline[MAX_PATH];
     char test_string[] = "Test string";
-    HKEY hkey;
+    HKEY hkey, subkey;
     LONG err;
 
     run_reg_exe("reg import", &r);
@@ -1064,6 +1064,57 @@ static void test_import(void)
     dword = 0x00000004;
     todo_wine verify_reg(hkey, "Wine31", REG_DWORD, &dword, sizeof(dword), 0);
 
+    test_import_str("REGEDIT4\n\n"
+                    "[HKEY_CURRENT_USER\\" KEY_BASE "]\n"
+                    "\"Multi-Line1\"=hex(7):4c,69,6e,65,20,\\\n"
+                    "  63,6f,6e,\\;comment\n"
+                    "  63,61,74,\\;comment\n"
+                    "  65,6e,61,74,69,6f,6e,00,00\n\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+    todo_wine verify_reg(hkey, "Multi-Line1", REG_MULTI_SZ, "Line concatenation\0", 20, 0);
+
+    test_import_str("REGEDIT4\n\n"
+                    "[HKEY_CURRENT_USER\\" KEY_BASE "]\n"
+                    "\"Multi-Line2\"=hex(7):4c,69,6e,65,20,\\\n"
+                    "  63,6f,6e,\\;comment\n"
+                    "  63,61,74,;comment\n"
+                    "  65,6e,61,74,69,6f,6e,00,00\n\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+    todo_wine verify_reg(hkey, "Multi-Line2", REG_MULTI_SZ, "Line concat", 12, 0);
+
+    test_import_str("REGEDIT4\n\n"
+                    "[HKEY_CURRENT_USER\\" KEY_BASE "]\n"
+                    "\"double\\\"quote\"=\"valid \\\"or\\\" not\"\n"
+                    "\"single'quote\"=dword:00000008\n\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+    todo_wine verify_reg(hkey, "double\"quote", REG_SZ, "valid \"or\" not", 15, 0);
+    dword = 0x00000008;
+    todo_wine verify_reg(hkey, "single'quote", REG_DWORD, &dword, sizeof(dword), 0);
+
+    test_import_str("REGEDIT4\n\n"
+                    "[HKEY_CURRENT_USER\\" KEY_BASE "\\Subkey\"1]\n"
+                    "\"Wine\\\\31\"=\"Test value\"\n\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+    err = RegOpenKeyExA(hkey, "Subkey\"1", 0, KEY_READ, &subkey);
+    todo_wine ok(err == ERROR_SUCCESS, "got %d, expected 0\n", err);
+    todo_wine verify_reg(subkey, "Wine\\31", REG_SZ, "Test value", 11, 0);
+    err = RegCloseKey(subkey);
+    todo_wine ok(err == ERROR_SUCCESS, "got %d, expected 0\n", err);
+    err = RegDeleteKeyA(HKEY_CURRENT_USER, KEY_BASE "\\Subkey\"1");
+    todo_wine ok(err == ERROR_SUCCESS, "got %d, expected 0\n", err);
+
+    test_import_str("REGEDIT4\n\n"
+                    "[HKEY_CURRENT_USER\\" KEY_BASE "\\Subkey/2]\n"
+                    "\"123/\\\"4;'5\"=\"Random value name\"\n\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+    err = RegOpenKeyExA(hkey, "Subkey/2", 0, KEY_READ, &subkey);
+    todo_wine ok(err == ERROR_SUCCESS, "got %d, expected 0\n", err);
+    todo_wine verify_reg(subkey, "123/\"4;'5", REG_SZ, "Random value name", 18, 0);
+    err = RegCloseKey(subkey);
+    todo_wine ok(err == ERROR_SUCCESS, "got %d, expected 0\n", err);
+    err = RegDeleteKeyA(HKEY_CURRENT_USER, KEY_BASE "\\Subkey/2");
+    todo_wine ok(err == ERROR_SUCCESS, "got %d, expected 0\n", err);
+
     err = RegCloseKey(hkey);
     todo_wine ok(err == ERROR_SUCCESS, "got %d, expected 0\n", err);
 
@@ -1321,6 +1372,57 @@ static void test_import(void)
     todo_wine verify_reg_nonexist(hkey, "Wine30");
     dword = 0x00000004;
     todo_wine verify_reg(hkey, "Wine31", REG_DWORD, &dword, sizeof(dword), 0);
+
+    test_import_wstr("\xef\xbb\xbfWindows Registry Editor Version 5.00\n\n"
+                     "[HKEY_CURRENT_USER\\" KEY_BASE "]\n"
+                     "\"Multi-Line1\"=hex(7):4c,00,69,00,6e,00,65,00,20,00,\\\n"
+                     "  63,00,6f,00,6e,00,\\;comment\n"
+                     "  63,00,61,00,74,00,\\;comment\n"
+                     "  65,00,6e,00,61,00,74,00,69,00,6f,00,6e,00,00,00,00,00\n\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+    todo_wine verify_reg(hkey, "Multi-Line1", REG_MULTI_SZ, "Line concatenation\0", 20, 0);
+
+    test_import_wstr("\xef\xbb\xbfWindows Registry Editor Version 5.00\n\n"
+                     "[HKEY_CURRENT_USER\\" KEY_BASE "]\n"
+                     "\"Multi-Line2\"=hex(7):4c,00,69,00,6e,00,65,00,20,00,\\\n"
+                     "  63,00,6f,00,6e,00,\\;comment\n"
+                     "  63,00,61,00,74,00,;comment\n"
+                     "  65,00,6e,00,61,00,74,00,69,00,6f,00,6e,00,00,00,00,00\n\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+    todo_wine verify_reg(hkey, "Multi-Line2", REG_MULTI_SZ, "Line concat", 12, 0);
+
+    test_import_wstr("\xef\xbb\xbfWindows Registry Editor Version 5.00\n\n"
+                     "[HKEY_CURRENT_USER\\" KEY_BASE "]\n"
+                     "\"double\\\"quote\"=\"valid \\\"or\\\" not\"\n"
+                     "\"single'quote\"=dword:00000008\n\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+    todo_wine verify_reg(hkey, "double\"quote", REG_SZ, "valid \"or\" not", 15, 0);
+    dword = 0x00000008;
+    todo_wine verify_reg(hkey, "single'quote", REG_DWORD, &dword, sizeof(dword), 0);
+
+    test_import_wstr("\xef\xbb\xbfWindows Registry Editor Version 5.00\n\n"
+                     "[HKEY_CURRENT_USER\\" KEY_BASE "\\Subkey\"1]\n"
+                     "\"Wine\\\\31\"=\"Test value\"\n\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+    err = RegOpenKeyExA(hkey, "Subkey\"1", 0, KEY_READ, &subkey);
+    todo_wine ok(err == ERROR_SUCCESS, "got %d, expected 0\n", err);
+    todo_wine verify_reg(subkey, "Wine\\31", REG_SZ, "Test value", 11, 0);
+    err = RegCloseKey(subkey);
+    todo_wine ok(err == ERROR_SUCCESS, "got %d, expected 0\n", err);
+    err = RegDeleteKeyA(HKEY_CURRENT_USER, KEY_BASE "\\Subkey\"1");
+    todo_wine ok(err == ERROR_SUCCESS, "got %d, expected 0\n", err);
+
+    test_import_wstr("\xef\xbb\xbfWindows Registry Editor Version 5.00\n\n"
+                     "[HKEY_CURRENT_USER\\" KEY_BASE "\\Subkey/2]\n"
+                     "\"123/\\\"4;'5\"=\"Random value name\"\n\n", &r);
+    todo_wine ok(r == REG_EXIT_SUCCESS, "got exit code %d, expected 0\n", r);
+    err = RegOpenKeyExA(hkey, "Subkey/2", 0, KEY_READ, &subkey);
+    todo_wine ok(err == ERROR_SUCCESS, "got %d, expected 0\n", err);
+    todo_wine verify_reg(subkey, "123/\"4;'5", REG_SZ, "Random value name", 18, 0);
+    err = RegCloseKey(subkey);
+    todo_wine ok(err == ERROR_SUCCESS, "got %d, expected 0\n", err);
+    err = RegDeleteKeyA(HKEY_CURRENT_USER, KEY_BASE "\\Subkey/2");
+    todo_wine ok(err == ERROR_SUCCESS, "got %d, expected 0\n", err);
 
     err = RegCloseKey(hkey);
     todo_wine ok(err == ERROR_SUCCESS, "got %d, expected 0\n", err);

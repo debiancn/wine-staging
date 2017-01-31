@@ -962,9 +962,8 @@ static ID3D11Device *create_device(const struct device_desc *desc)
     return NULL;
 }
 
-static BOOL is_warp_device(ID3D11Device *device)
+static void get_device_adapter_desc(ID3D11Device *device, DXGI_ADAPTER_DESC *adapter_desc)
 {
-    DXGI_ADAPTER_DESC adapter_desc;
     IDXGIDevice *dxgi_device;
     IDXGIAdapter *adapter;
     HRESULT hr;
@@ -974,13 +973,29 @@ static BOOL is_warp_device(ID3D11Device *device)
     hr = IDXGIDevice_GetAdapter(dxgi_device, &adapter);
     ok(SUCCEEDED(hr), "Failed to get adapter, hr %#x.\n", hr);
     IDXGIDevice_Release(dxgi_device);
-    hr = IDXGIAdapter_GetDesc(adapter, &adapter_desc);
+    hr = IDXGIAdapter_GetDesc(adapter, adapter_desc);
     ok(SUCCEEDED(hr), "Failed to get adapter desc, hr %#x.\n", hr);
     IDXGIAdapter_Release(adapter);
+}
 
+static BOOL is_warp_device(ID3D11Device *device)
+{
+    DXGI_ADAPTER_DESC adapter_desc;
+    get_device_adapter_desc(device, &adapter_desc);
     return !adapter_desc.SubSysId && !adapter_desc.Revision
             && ((!adapter_desc.VendorId && !adapter_desc.DeviceId)
             || (adapter_desc.VendorId == 0x1414 && adapter_desc.DeviceId == 0x008c));
+}
+
+static BOOL is_amd_device(ID3D11Device *device)
+{
+    DXGI_ADAPTER_DESC adapter_desc;
+
+    if (!strcmp(winetest_platform, "wine"))
+        return FALSE;
+
+    get_device_adapter_desc(device, &adapter_desc);
+    return adapter_desc.VendorId == 0x1002;
 }
 
 static IDXGISwapChain *create_swapchain(ID3D11Device *device, HWND window, const struct swapchain_desc *swapchain_desc)
@@ -2995,8 +3010,8 @@ static void test_create_rendertarget_view(void)
 
     rtv_desc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
     rtv_desc.ViewDimension = D3D11_RTV_DIMENSION_BUFFER;
-    U(rtv_desc).Buffer.ElementOffset = 0;
-    U(rtv_desc).Buffer.ElementWidth = 64;
+    U1(U(rtv_desc).Buffer).ElementOffset = 0;
+    U2(U(rtv_desc).Buffer).ElementWidth = 64;
 
     hr = ID3D11Device_CreateRenderTargetView(device, NULL, &rtv_desc, &rtview);
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
@@ -3302,8 +3317,8 @@ static void test_create_shader_resource_view(void)
 
     srv_desc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
     srv_desc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
-    U(srv_desc).Buffer.ElementOffset = 0;
-    U(srv_desc).Buffer.ElementWidth = 64;
+    U1(U(srv_desc).Buffer).ElementOffset = 0;
+    U2(U(srv_desc).Buffer).ElementWidth = 64;
 
     hr = ID3D11Device_CreateShaderResourceView(device, NULL, &srv_desc, &srview);
     ok(hr == E_INVALIDARG, "Got unexpected hr %#x.\n", hr);
@@ -3354,10 +3369,10 @@ static void test_create_shader_resource_view(void)
         ok(srv_desc.Format == DXGI_FORMAT_UNKNOWN, "Got unexpected format %#x.\n", srv_desc.Format);
         ok(srv_desc.ViewDimension == D3D11_SRV_DIMENSION_BUFFER, "Got unexpected view dimension %#x.\n",
                 srv_desc.ViewDimension);
-        ok(!U(srv_desc).Buffer.FirstElement, "Got unexpected first element %u.\n",
-                U(srv_desc).Buffer.FirstElement);
-        ok(U(srv_desc).Buffer.NumElements == 256, "Got unexpected num elements %u.\n",
-                U(srv_desc).Buffer.NumElements);
+        ok(!U1(U(srv_desc).Buffer).FirstElement, "Got unexpected first element %u.\n",
+                U1(U(srv_desc).Buffer).FirstElement);
+        ok(U2(U(srv_desc).Buffer).NumElements == 256, "Got unexpected num elements %u.\n",
+                U2(U(srv_desc).Buffer).NumElements);
 
         ID3D11ShaderResourceView_Release(srview);
         ID3D11Buffer_Release(buffer);
@@ -6441,6 +6456,14 @@ static void test_depth_stencil_sampling(void)
 
     device = test_context.device;
     context = test_context.immediate_context;
+
+    if (is_amd_device(device))
+    {
+        /* Reads from depth/stencil shader resource views return stale values on some AMD drivers. */
+        win_skip("Some AMD drivers have a bug affecting the test.\n");
+        release_test_context(&test_context);
+        return;
+    }
 
     sampler_desc.Filter = D3D11_FILTER_COMPARISON_MIN_MAG_MIP_POINT;
     sampler_desc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
@@ -12641,6 +12664,40 @@ static void test_sm5_bufinfo_instruction(void)
     release_test_context(&test_context);
 }
 
+static void test_render_target_device_mismatch(void)
+{
+    struct d3d11_test_context test_context;
+    struct device_desc device_desc = {0};
+    ID3D11DeviceContext *context;
+    ID3D11RenderTargetView *rtv;
+    ID3D11Device *device;
+    ULONG refcount;
+
+    if (!init_test_context(&test_context, NULL))
+        return;
+
+    device = create_device(&device_desc);
+    ok(!!device, "Failed to create device.\n");
+
+    ID3D11Device_GetImmediateContext(device, &context);
+
+    rtv = (ID3D11RenderTargetView *)0xdeadbeef;
+    ID3D11DeviceContext_OMGetRenderTargets(context, 1, &rtv, NULL);
+    ok(!rtv, "Got unexpected render target view %p.\n", rtv);
+    ID3D11DeviceContext_OMSetRenderTargets(context, 1, &test_context.backbuffer_rtv, NULL);
+    ID3D11DeviceContext_OMGetRenderTargets(context, 1, &rtv, NULL);
+    ok(rtv == test_context.backbuffer_rtv, "Got unexpected render target view %p.\n", rtv);
+    ID3D11RenderTargetView_Release(rtv);
+
+    rtv = NULL;
+    ID3D11DeviceContext_OMSetRenderTargets(context, 1, &rtv, NULL);
+
+    ID3D11DeviceContext_Release(context);
+    refcount = ID3D11Device_Release(device);
+    ok(!refcount, "Device has %u references left.\n", refcount);
+    release_test_context(&test_context);
+}
+
 START_TEST(d3d11)
 {
     test_create_device();
@@ -12709,4 +12766,5 @@ START_TEST(d3d11)
     test_sm4_ret_instruction();
     test_primitive_restart();
     test_sm5_bufinfo_instruction();
+    test_render_target_device_mismatch();
 }

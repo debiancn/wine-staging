@@ -1374,7 +1374,8 @@ static const struct gpu_description gpu_description_table[] =
     {HW_VENDOR_AMD,        CARD_AMD_RADEON_HD8770,         "AMD Radeon HD 8770",               DRIVER_AMD_R600,         2048},
     {HW_VENDOR_AMD,        CARD_AMD_RADEON_R3,             "AMD Radeon HD 8400 / R3 Series",   DRIVER_AMD_R600,         2048},
     {HW_VENDOR_AMD,        CARD_AMD_RADEON_R7,             "AMD Radeon(TM) R7 Graphics",       DRIVER_AMD_R600,         2048},
-    {HW_VENDOR_AMD,        CARD_AMD_RADEON_R9,             "AMD Radeon R9 290",                DRIVER_AMD_RX,           4096},
+    {HW_VENDOR_AMD,        CARD_AMD_RADEON_R9_285,         "AMD Radeon R9 285",                DRIVER_AMD_RX,           2048},
+    {HW_VENDOR_AMD,        CARD_AMD_RADEON_R9_290,         "AMD Radeon R9 290",                DRIVER_AMD_RX,           4096},
     {HW_VENDOR_AMD,        CARD_AMD_RADEON_RX_460,         "Radeon(TM) RX 460 Graphics",       DRIVER_AMD_RX,           4096},
     {HW_VENDOR_AMD,        CARD_AMD_RADEON_RX_480,         "Radeon (TM) RX 480 Graphics",      DRIVER_AMD_RX,           4096},
 
@@ -1418,6 +1419,15 @@ static const struct gpu_description gpu_description_table[] =
     {HW_VENDOR_INTEL,      CARD_INTEL_IVBS,                "Intel(R) HD Graphics Family",                               DRIVER_INTEL_HD4000,  1536},
     {HW_VENDOR_INTEL,      CARD_INTEL_HWD,                 "Intel(R) HD Graphics 4600",                                 DRIVER_INTEL_HD4000,  1536},
     {HW_VENDOR_INTEL,      CARD_INTEL_HWM,                 "Intel(R) HD Graphics 4600",                                 DRIVER_INTEL_HD4000,  1536},
+    {HW_VENDOR_INTEL,      CARD_INTEL_I5100_1,             "Intel(R) Iris(TM) Graphics 5100",                           DRIVER_INTEL_HD4000,  1536},
+    {HW_VENDOR_INTEL,      CARD_INTEL_I5100_2,             "Intel(R) Iris(TM) Graphics 5100",                           DRIVER_INTEL_HD4000,  1536},
+    {HW_VENDOR_INTEL,      CARD_INTEL_I5100_3,             "Intel(R) Iris(TM) Graphics 5100",                           DRIVER_INTEL_HD4000,  1536},
+    {HW_VENDOR_INTEL,      CARD_INTEL_I5100_4,             "Intel(R) Iris(TM) Graphics 5100",                           DRIVER_INTEL_HD4000,  1536},
+    {HW_VENDOR_INTEL,      CARD_INTEL_IP5200_1,            "Intel(R) Iris(TM) Pro Graphics 5200",                       DRIVER_INTEL_HD4000,  1536},
+    {HW_VENDOR_INTEL,      CARD_INTEL_IP5200_2,            "Intel(R) Iris(TM) Pro Graphics 5200",                       DRIVER_INTEL_HD4000,  1536},
+    {HW_VENDOR_INTEL,      CARD_INTEL_IP5200_3,            "Intel(R) Iris(TM) Pro Graphics 5200",                       DRIVER_INTEL_HD4000,  1536},
+    {HW_VENDOR_INTEL,      CARD_INTEL_IP5200_4,            "Intel(R) Iris(TM) Pro Graphics 5200",                       DRIVER_INTEL_HD4000,  1536},
+    {HW_VENDOR_INTEL,      CARD_INTEL_IP5200_5,            "Intel(R) Iris(TM) Pro Graphics 5200",                       DRIVER_INTEL_HD4000,  1536},
     {HW_VENDOR_INTEL,      CARD_INTEL_HD5300,              "Intel(R) HD Graphics 5300",                                 DRIVER_INTEL_HD4000,  2048},
     {HW_VENDOR_INTEL,      CARD_INTEL_HD5500,              "Intel(R) HD Graphics 5500",                                 DRIVER_INTEL_HD4000,  2048},
     {HW_VENDOR_INTEL,      CARD_INTEL_HD5600,              "Intel(R) HD Graphics 5600",                                 DRIVER_INTEL_HD4000,  2048},
@@ -1966,6 +1976,7 @@ cards_nvidia_binary[] =
  * eg HD 4800 is returned for multiple cards, even for RV790 based ones. */
 cards_amd_binary[] =
 {
+    {"RX 480",                      CARD_AMD_RADEON_RX_480},
     /* Southern Islands */
     {"HD 7900",                     CARD_AMD_RADEON_HD7900},
     {"HD 7800",                     CARD_AMD_RADEON_HD7800},
@@ -2064,6 +2075,8 @@ cards_intel[] =
     {"Iris 6100",                   CARD_INTEL_I6100},
     {"Iris(TM) Graphics 6100",      CARD_INTEL_I6100},  /* MacOS */
     /* Haswell */
+    {"Iris Pro 5200",               CARD_INTEL_IP5200_1},
+    {"Iris 5100",                   CARD_INTEL_I5100_1},
     {"Haswell Mobile",              CARD_INTEL_HWM},
     {"Iris OpenGL Engine",          CARD_INTEL_HWM},    /* MacOS */
     /* Ivybridge */
@@ -2122,8 +2135,10 @@ cards_amd_mesa[] =
     /* Polaris 10/11 */
     {"POLARIS10",                   CARD_AMD_RADEON_RX_480},
     {"POLARIS11",                   CARD_AMD_RADEON_RX_460},
+    /* Volcanic Islands */
+    {"TONGA",                       CARD_AMD_RADEON_R9_285},
     /* Sea Islands */
-    {"HAWAII",                      CARD_AMD_RADEON_R9    },
+    {"HAWAII",                      CARD_AMD_RADEON_R9_290},
     {"KAVERI",                      CARD_AMD_RADEON_R7    },
     {"KABINI",                      CARD_AMD_RADEON_R3    },
     {"BONAIRE",                     CARD_AMD_RADEON_HD8770},
@@ -4536,6 +4551,7 @@ HRESULT CDECL wined3d_set_adapter_display_mode(struct wined3d *wined3d,
             || !(new_mode.dmFields & DM_DISPLAYFLAGS)))
     {
         TRACE("Skipping redundant mode setting call.\n");
+        adapter->screen_format = new_format_id;
         return WINED3D_OK;
     }
 
@@ -5793,8 +5809,7 @@ HRESULT CDECL wined3d_get_device_caps(const struct wined3d *wined3d, UINT adapte
                                         WINEDDCAPS_CANCLIP                  |
                                         WINEDDCAPS_CANCLIPSTRETCHED         |
                                         WINEDDCAPS_COLORKEY                 |
-                                        WINEDDCAPS_COLORKEYHWASSIST         |
-                                        WINEDDCAPS_ALIGNBOUNDARYSRC;
+                                        WINEDDCAPS_COLORKEYHWASSIST;
 
     /* Fill the ddraw caps structure */
     caps->ddraw_caps.caps =             WINEDDCAPS_GDI                      |

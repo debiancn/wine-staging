@@ -1,3 +1,72 @@
+wine-development (2.0-1) unstable; urgency=medium
+
+  * New upstream release 2.0, released Jan 24, 2017.
+    - Drawing of underlines.
+    - Renderer sees drawing effect associated with text segment.
+    - Support for color fonts in COLR/CPAL format.
+    - Initial font fallback support, builtin data for some of CJK
+      ranges.
+    - Support for Wine-specific font replacement registry settings.
+    - Improved font metrics resolution in case of incomplete or
+    - Support for EUDC font collection based on current registry
+    - Several more shader model 4 and 5 shader instructions.
+    - Several more resource formats.
+    - Integer vertex shader inputs.
+    - Typeless resources.
+    - sRGB read/write support.
+    - Depth and stencil clears.
+    - Depth-only draws.
+    - Array textures.
+    - Index buffer offsets.
+    - Unordered access views.
+    - Primitive restart.
+    - "CheckFloatConstants" (REG_SZ).
+    - "MaxShaderModelHS", "MaxShaderModelDS" and "MaxShaderModelCS"
+      (REG_DWORD).
+    - "SampleCount" (REG_DWORD).
+    - There is initial support for preshaders.
+    - Many more effect states are correctly applied.
+
+ -- Michael Gilbert <mgilbert@debian.org>  Wed, 25 Jan 2017 05:36:23 +0000
+
+wine-development (2.0~rc6-1) unstable; urgency=medium
+
+  [ Michael Gilbert ]
+  * New upstream release 2.0-rc6, released Jan 20, 2017.
+  * Add libxml-parser-perl to the build dependencies.
+
+  [ Jens Reyer ]
+  * Drop obsolete entries from d/clean.
+  * Keep tools/make_makefiles in the orig.tar.
+  * Generate and install wine.svg icon.
+  * Add initial AppStream metainfo file (see: #848839).
+
+ -- Michael Gilbert <mgilbert@debian.org>  Sat, 21 Jan 2017 21:15:20 +0000
+
+wine-development (2.0~rc5-1) unstable; urgency=medium
+
+  * New upstream release 2.0-rc5, released Jan 13, 2017.
+
+ -- Michael Gilbert <mgilbert@debian.org>  Sat, 14 Jan 2017 19:24:43 +0000
+
+wine-development (2.0~rc4-1) unstable; urgency=medium
+
+  * New upstream release 2.0-rc4, released Jan 6, 2017.
+    - Bug fixes only, we are in code freeze.
+  * Blacklist some file extensions for native file type association
+    (see: #845334).
+
+ -- Jens Reyer <jre.winesim@gmail.com>  Sun, 08 Jan 2017 18:48:11 +0100
+
+wine-development (2.0~rc3-1) unstable; urgency=medium
+
+  * New upstream release 2.0-rc3, released Dec 23, 2016.
+    - Bug fixes only, we are in code freeze.
+  * Clean the generated test ttf files.
+  * Change trigger interest to noawait (LP: 1652434).
+
+ -- Jens Reyer <jre.winesim@gmail.com>  Wed, 04 Jan 2017 14:40:23 +0100
+
 wine-development (2.0~rc2-1~bpo8+1) jessie-backports; urgency=medium
 
   * Rebuild for jessie-backports.
@@ -9,6 +78,7 @@ wine-development (2.0~rc2-1) unstable; urgency=medium
 
   * New upstream release 2.0-rc2, released Dec 16, 2016.
     - Fixes wineconsole emacs mode crash when yanking a line (closes: #844412).
+    - Check for invalid WINEARCH values (see: #838474).
   * Remove ttf files from the upstream tarball.
   * Use xz compression for the upstream tarball.
 

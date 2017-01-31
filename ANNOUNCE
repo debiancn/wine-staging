@@ -1,12 +1,25 @@
-The Wine development release 2.0-rc2 is now available.
+The Wine team is proud to announce that the stable release Wine 2.0
+is now available.
 
-What's new in this release (see below for details):
-  - Bug fixes only, we are in code freeze.
+This release represents over a year of development effort and around
+6,600 individual changes. The main highlights are the support for
+Microsoft Office 2013, and the 64-bit support on macOS.
+
+It also contains a lot of improvements across the board, as well as
+support for many new applications and games. See the release notes
+below for a summary of the major changes.
+
+This is the first release made on the new time-based, annual release
+schedule. This implies that some features that are being worked on but
+couldn't be finished in time have been deferred to the next
+development cycle. This includes in particular the Direct3D command
+stream, the full HID support, the Android graphics driver, and
+message-mode pipes.
 
 The source is available from the following locations:
 
-  http://dl.winehq.org/wine/source/2.0/wine-2.0-rc2.tar.bz2
-  http://mirrors.ibiblio.org/wine/source/2.0/wine-2.0-rc2.tar.bz2
+  http://dl.winehq.org/wine/source/2.0/wine-2.0.tar.bz2
+  http://mirrors.ibiblio.org/wine/source/2.0/wine-2.0.tar.bz2
 
 Binary packages for various distributions will be available from:
 
@@ -22,102 +35,310 @@ AUTHORS in the distribution for the complete list.
 
 ----------------------------------------------------------------
 
-Bugs fixed in 2.0-rc2 (total 20):
+What's new in Wine 2.0
+======================
 
-  31222  Hitman: Blood Money crashes when changing screen resolution
-  31309  TIE Fighter: Collector's Edition Crash - 'Escape Menu' Freezes Application.
-  32632  Dragon Naturally Speaking 12 does not load with timeout error
-  34829  wintrust:softpub crashes on Windows 8
-  35495  sharing violation and prompt for copy /B file1+file2 file1
-  38357  Cannot install download-audiograbber.exe
-  39430  Ride : The motorcycle game does not start
-  40256  user32:input fails on non-qwerty keyboards
-  40344  shell32:assoc regression (privilege issue)
-  40386  wininet:url regression caused by new cross-compiler
-  40978  Wrong colors on i915 and similar GPUs in GTA Vice City
-  41083  Red Faction: Guerrilla fails to start with DX11 renderer
-  41133  R32/R16 typeless formats generate incomplete FBO errors when used as a render target (Gauntlet, WoW with D3D11 renderer)
-  41141  gcc6: d3drm build warnings
-  41252  Helldivers gives this error when trying to run on MacOS
-  41630  Rollercoaster Tycoon 3 Platinum crashes on exit
-  41715  winhttp:winhttp test regression (test_secure_connection)
-  41717  webservices:writer test regression in test_datetime
-  41949  Pasting into IDA Pro stops working on macOS
-  41956  Regression in wininet crashes skype
 
-----------------------------------------------------------------
+*** Text and fonts
 
-Changes since 2.0-rc1:
+- More DirectWrite features are implemented, including:
+  - Drawing of underlines.
+  - Renderer sees drawing effect associated with text segment.
+  - Support for color fonts in COLR/CPAL format.
+  - Initial font fallback support, builtin data for some of CJK ranges.
+  - Support for Wine-specific font replacement registry settings.
+  - Improved font metrics resolution in case of incomplete or
+    ambiguous font data.
+  - Support for EUDC font collection based on current registry
+    settings.
 
-Alexandre Julliard (1):
-      ntdll: Check for invalid WINEARCH values.
+- Font embedding in PDF files is supported.
 
-Andrew Eikum (1):
-      msacm32: Fix copy-paste error.
+- The RichEdit control supports bulleted and numbered lists.
 
-Andrey Gusev (1):
-      hlink: Add missing parameter to TRACE() message.
+- Bold glyphs can be synthesized also for bitmap fonts.
 
-Aric Stewart (1):
-      ime: Do not send WM_IME_ENDCOMPOSITION on CPS_COMPLETE if there is no composition.
+- Character tables are based on version 9.0.0 of the Unicode Standard.
 
-Bruno Jesus (1):
-      xinput1_3/tests: Add interactive tests.
 
-Fabian Maurer (2):
-      wininet: Changed usage of UrlEscapeW to fit winapi behavior.
-      shlwapi: Changed UrlEscapeW error paths and add tests.
+*** Graphics
 
-Hans Leidekker (1):
-      winhttp: Handle EINTR from connect and poll.
+- Window, bitmap and GDI DC render targets are implemented in Direct2D.
 
-Hugh McMaster (3):
-      kernel32: Use Emacs keymap mode immediately after wineconsole configuration change.
-      kernel32: Check for a valid pointer before yanking the line.
-      appwiz.cpl: Remove list entries left over from an earlier uninstall.
+- A wide range of optimizations make the DIB engine noticeably faster.
 
-Jacek Caban (1):
-      wininet: Get rid of no longer needed INTERNET_INVALID_PORT_NUMBER in get_server.
+- GDI graphic paths are reimplemented for better compatibility; they
+  are also supported with enhanced metafiles.
 
-Józef Kucia (14):
-      wined3d: Add suport for 2D array texture UAVs.
-      d3d11/tests: Add test for 2D array texture UAVs.
-      wined3d: Use depth/stencil formats for typeless resources only when WINED3DUSAGE_DEPTHSTENCIL is set.
-      d3d11/tests: Add test for depth/stencil shader resource views.
-      wined3d: Recognize SM5 vCoverage input registers.
-      wined3d: Recognize SM4.1 oMask output register.
-      wined3d: Recognize SM5 atomic_imax opcode.
-      wined3d: Recognize SM5 atomic_imin opcode.
-      d3d10core/tests: Port test_primitive_restart() from d3d11.
-      d3d9/tests: Add test showing WM_SIZE is not sent during fullscreen mode change.
-      wined3d: Filter messages for fullscreen mode changes.
-      wined3d: Remove depth/stencil format flags from typeless formats.
-      d3d11/tests: Use single typeless RT with multiple RTVs in test_uav_load().
-      d3d11/tests: Improve trace() message about compute shader support via SM4.
+- Gradients are supported in GDI enhanced metafiles.
 
-Ken Thomases (1):
-      winemac: Update the clipboard when the process activates.
+- Metafiles are better supported in GdiPlus.
 
-Lauri Kenttä (2):
-      kernel32/tests: Test FindFirstFile with wildcards.
-      kernel32/tests: Show flags as text in test results.
+- The macOS graphics driver supports a high-resolution ("Retina")
+  rendering mode. It can be enabled by setting "RetinaMode" to "Y"
+  under HKCU\Software\Wine\Mac Driver.
 
-Michael Müller (1):
-      wininet: Handle INTERNET_INVALID_PORT_NUMBER in HttpOpenRequest.
 
-Mingcong Bai (1):
-      po: Update Simplified Chinese translation.
+*** User interface
 
-Nikolay Sivov (9):
-      scrrun/tests: Test to query for IUnknown from IProvideClassInfo.
-      dwrite: Fix a typo in assertion condition (Coverity).
-      msi: Fix handling of NULL buffer in MsiGetProductPropertyW() (Coverity).
-      comctl32/tests: Trackbar test to show that thumb is updated on TBM_SETTICFREQ.
-      comctl32/trackbar: Update thumb unconditionally on TBM_SETTICFREQ.
-      shell32: Don't access uninitialized buffer (Coverity).
-      dwrite/tests: Run GetPanose() tests on all system fonts.
-      secur32: Trace flags in hex in InitializeSecurityContextW().
-      scrrun: Remove unreachable code (Coverity).
+- The clipboard support is reimplemented for better compatibility;
+  copy & paste of HTML text is also improved. Drag & drop works more
+  smoothly.
+
+- In desktop mode, the taskbar displays running applications and
+  allows switching between them.
+
+- Version 4 of the system tray notification protocol is implemented.
+
+- In desktop mode, some less common display resolutions like 640x400
+  and 1280x960 are supported.
+
+- More user interface elements scale correctly with high-DPI screens.
+
+
+*** Direct3D
+
+- More Direct3D 10 and 11 features are implemented, including:
+  - Several more shader model 4 and 5 shader instructions.
+  - Several more resource formats.
+  - Integer vertex shader inputs.
+  - Typeless resources.
+  - sRGB read/write support.
+  - Depth and stencil clears.
+  - Depth-only draws.
+  - Array textures.
+  - Index buffer offsets.
+  - Unordered access views.
+  - Primitive restart.
+
+- The WineD3D graphics card database recognizes more graphics
+  cards. When available, the GLX_MESA_query_renderer GLX extension is
+  used to provide more accurate information about the graphics card.
+
+- The (system) memory layout of texture resources more closely matches
+  Windows. This affects applications that write beyond the bounds of a
+  MIP-level, like for example League of Legends.
+
+- The implementation of non-maskable multisample anti-aliasing is more
+  correct. In particular, when the ARB_internalformat_query extension
+  is available, only quality levels corresponding to specific sample
+  counts supported by the OpenGL implementation are reported to the
+  application.  Previously, reporting a large number of non-maskable
+  multisample anti-aliasing quality levels would break some
+  applications.
+
+- Direct3D 11 feature levels are supported.
+
+- Retrieving a GDI device context from DXGI surfaces is
+  implemented. This is used for rendering to DXGI surfaces using GDI.
+
+- More DXGI swapchain methods are implemented, particularly those
+  relating to switching display modes and switching to and from
+  fullscreen.
+
+- When ARB_clip_control and ARB_viewport_array are both supported,
+  position fixups are slightly more efficient.
+
+- The APPLE_client_storage extension is no longer used. It caused more
+  problems than it solved.
+
+- New HKCU\Software\Wine\Direct3D registry keys:
+  - "CheckFloatConstants" (REG_SZ).
+    Setting this to "enabled" enables additional run-time bounds
+    checking on relatively addressed shader constant access. This
+    helps some (broken) applications, but comes at a performance cost.
+  - "MaxShaderModelHS", "MaxShaderModelDS" and "MaxShaderModelCS" (REG_DWORD).
+    These limit the maximum supported shader model for hull, domain,
+    and compute shaders respectively, analogous to the existing
+    "MaxShaderModelVS", "MaxShaderModelGS", "MaxShaderModelPS"
+    keys. Note that these shader types are new in shader model 5, so
+    setting this to anything lower than 5 will effectively disable
+    them.
+  - "SampleCount" (REG_DWORD).
+    Setting this registry key will force the multisample anti-aliasing
+    sample count to the specified value for swapchain render
+    targets. This allows anti-aliasing to be forced on applications
+    that do not otherwise support anti-aliasing themselves, but may
+    have no effect or break the application depending on the specific
+    application.
+
+
+*** DirectDraw
+
+- Retrieving a GDI device context from a DirectDraw surface is
+  implemented in a more accurate way. In particular, retrieving a GDI
+  device context for a "client memory" surface will retrieve a GDI
+  device context that's backed by that same client memory.
+
+- A number of fixes related to vertex transformation in early
+  DirectDraw versions have been made.
+
+
+*** D3DX
+
+- The support for the D3DX 9 effect framework is more complete, in
+  particular:
+  - There is initial support for preshaders.
+  - Many more effect states are correctly applied.
+
+- D3DX 10 and 11 asynchronous data loaders are implemented.
+
+- The d3dx9 DLLs no longer forward to d3dx9_36, but are built from the
+  same source instead.
+
+- The d3dcompiler DLLs no longer forward to d3dcompiler_43, but are
+  built from the same source instead.
+
+
+*** Sound and video
+
+- GStreamer version 1.0 is supported for audio and video streams.
+
+- DirectSound supports downmixing from 5.1 and 4.0 formats to stereo.
+
+
+*** Internet and networking
+
+- The Web Services API is supported. The XML reader and writer are
+  implemented, along with support for serializing many common data
+  types. Basic support for making SOAP calls is also included. This
+  enables Microsoft Office 2013 online activation.
+
+- The Gecko engine is updated to the version from Firefox 47.
+
+- IDN name resolution is supported.
+
+- Various SHA hashes are supported using GnuTLS.
+
+- Looking up the host address prioritizes non-loopback interfaces,
+  which fixes a number of networked games.
+
+- XML writing is faster for large files.
+
+- Winsock supports the IP_DONTFRAGMENT socket option.
+
+- Long URLs are handled correctly.
+
+- JavaScript performance is improved. JSON is also supported.
+
+
+*** Internationalization
+
+- There is proper support for the Persian locale.
+
+- Uniscribe better supports right-to-left languages.
+
+- Japanese Hiragana, Katakana and full-width/half-width character
+  mapping is implemented.
+
+
+*** 64-bit support
+
+- 64-bit applications are supported on macOS.
+
+- The Mono engine has 64-bit support.
+
+- C++ exceptions are handled correctly on x86-64, including nested
+  exceptions and collided unwinds.
+
+- The debug registers are supported on x86-64.
+
+
+*** Built-in applications
+
+- The 'winebrowser' helper application supports multiple arguments to
+  invoke the host browser or mailer.
+
+- The 'reg' command-line registry utility supports the 'query'
+  command, all registry data types, and has more robust command line
+  handling.
+
+- The 'winhlp32' help viewer properly displays tables and images.
+
+- The 'wineconsole' tool better supports East-Asian fonts. Color
+  handling is also improved.
+
+
+*** Build environment
+
+- Import libraries can optionally be built as static libraries
+  similarly to Windows, instead of .def files. This avoids the need
+  for a separate .def.a library file.
+
+- The IDL compiler supports "midl_pragma warning" directives.
+
+- Cross-compilation with the Mingw-w64 Clang and ARM toolchains is
+  supported.
+
+
+*** Kernel
+
+- A new driver architecture is in place for supporting HID devices.
+  This follows the Windows model, with platform-specific bus drivers
+  and HID minidrivers. It will be used in future releases to unify
+  support for HID devices, and potentially also for USB device
+  support.
+
+- Loading multiple kernel drivers inside the same user-mode process is
+  supported. This is used for HID drivers.
+
+- A directory cache is implemented, to allow returning files in the
+  expected order and avoid relying on platform-specific system calls.
+
+- Many more API Set libraries (the oddly-named api-ms-win-* dlls) are
+  implemented.
+
+- Interrupt 0x2d (used for debugger checks) is emulated.
+
+
+*** Miscellaneous
+
+- Read interval timeouts are supported for serial ports.
+
+- Variables starting with 'QT_' are filtered from the Unix environment
+  since they may have unwanted effects on Qt-based Windows
+  applications.
+
+- Support for joystick button mapping and force feedback effects is
+  improved.
+
+- Many stream classes are implemented in MSVCIRT, the old I/O stream
+  C++ runtime.
+
+- Windows Management Instrumentation (WMI) implements some more WBEM
+  classes.
+
+- Most remaining OpenMP functions are implemented.
+
+- Uninstallation support in MSI is improved.
+
+
+*** New external dependencies
+
+- libudev is used for HID device support.
+
+- GStreamer version 1.0 is used instead of version 0.10.
+
+- GnuTLS version 2.10 or higher is required for the SHA hashing
+  functions to be supported.
+
+
+*** Configuration changes
+
+- A number of DLLs are now built separately from a common source,
+  instead of forwarding to a master DLL. This means that native DLL
+  overrides need to be set on the specific version of the DLL being
+  loaded, instead of the master one. This applies to the d3dx9_*,
+  d3dcompiler_*, xaudio2_*, xapofx1_* and x3daudio1_* DLLs.
+
+
+*** Release numbering
+
+- Starting with 2.0, version numbering will change: stable release
+  updates will follow the existing scheme: 2.0.1, 2.0.2, 2.0.3, etc.
+  but the developemnt branch will drop the intermediate number: the
+  releases will be numbered 2.1, 2.2, 2.3, etc. leading to the next
+  stable release, which will be called 3.0.
 
 --
 Alexandre Julliard
