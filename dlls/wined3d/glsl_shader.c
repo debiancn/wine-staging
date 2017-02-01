@@ -1561,7 +1561,11 @@ static void shader_glsl_load_constants(void *shader_priv, struct wined3d_context
         const struct wined3d_vec4 correction_params =
         {
             /* Position is relative to the framebuffer, not the viewport. */
+#if !defined(STAGING_CSMT)
             context->render_offscreen ? 0.0f : (float)state->fb->render_targets[0]->height,
+#else  /* STAGING_CSMT */
+            context->render_offscreen ? 0.0f : (float)state->fb.render_targets[0]->height,
+#endif /* STAGING_CSMT */
             context->render_offscreen ? 1.0f : -1.0f,
             0.0f,
             0.0f,
@@ -1667,6 +1671,13 @@ static void shader_glsl_update_float_vertex_constants(struct wined3d_device *dev
     {
         update_heap_entry(heap, i, priv->next_constant_version);
     }
+#if defined(STAGING_CSMT)
+
+    for (i = 0; i < device->context_count; ++i)
+    {
+        device->contexts[i]->constant_update_mask |= WINED3D_SHADER_CONST_VS_F;
+    }
+#endif /* STAGING_CSMT */
 }
 
 static void shader_glsl_update_float_pixel_constants(struct wined3d_device *device, UINT start, UINT count)
@@ -1679,6 +1690,13 @@ static void shader_glsl_update_float_pixel_constants(struct wined3d_device *devi
     {
         update_heap_entry(heap, i, priv->next_constant_version);
     }
+#if defined(STAGING_CSMT)
+
+    for (i = 0; i < device->context_count; ++i)
+    {
+        device->contexts[i]->constant_update_mask |= WINED3D_SHADER_CONST_PS_F;
+    }
+#endif /* STAGING_CSMT */
 }
 
 static unsigned int vec4_varyings(DWORD shader_major, const struct wined3d_gl_info *gl_info)
@@ -2069,6 +2087,13 @@ static void shader_generate_glsl_declarations(const struct wined3d_context *cont
                 if (shadow_sampler)
                     FIXME("Unsupported Cube shadow sampler.\n");
                 sampler_type = "samplerCube";
+                break;
+
+            case WINED3D_SHADER_RESOURCE_TEXTURE_1DARRAY:
+                if (shadow_sampler)
+                    sampler_type = "sampler1DArrayShadow";
+                else
+                    sampler_type = "sampler1DArray";
                 break;
 
             case WINED3D_SHADER_RESOURCE_TEXTURE_2DARRAY:
@@ -7938,7 +7963,7 @@ static void set_glsl_shader_program(const struct wined3d_context *context, const
     GLuint vs_id = 0;
     GLuint gs_id = 0;
     GLuint ps_id = 0;
-    struct list *ps_list, *vs_list;
+    struct list *ps_list = NULL, *vs_list = NULL;
     WORD attribs_map;
     struct wined3d_string_buffer *tmp_name;
 

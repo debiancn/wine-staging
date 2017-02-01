@@ -152,7 +152,11 @@ static void state_zenable(struct wined3d_context *context, const struct wined3d_
     const struct wined3d_gl_info *gl_info = context->gl_info;
 
     /* No z test without depth stencil buffers */
+#if !defined(STAGING_CSMT)
     if (!state->fb->depth_stencil)
+#else  /* STAGING_CSMT */
+    if (!state->fb.depth_stencil)
+#endif /* STAGING_CSMT */
     {
         TRACE("No Z buffer - disabling depth test\n");
         zenable = WINED3D_ZB_FALSE;
@@ -288,8 +292,11 @@ GLenum wined3d_gl_compare_func(enum wined3d_cmp_func f)
         case WINED3D_CMP_ALWAYS:
             return GL_ALWAYS;
         default:
-            FIXME("Unrecognized compare function %#x.\n", f);
+        {
+            static int once;
+            if (f || !once++) FIXME("Unrecognized compare function %#x.\n", f);
             return GL_NONE;
+        }
     }
 }
 
@@ -335,8 +342,11 @@ static GLenum gl_blend_op(const struct wined3d_gl_info *gl_info, enum wined3d_bl
         case WINED3D_BLEND_OP_MAX:
             return gl_info->supported[EXT_BLEND_MINMAX] ? GL_MAX : GL_FUNC_ADD;
         default:
-            FIXME("Unhandled blend op %#x.\n", op);
+        {
+            static int once;
+            if (op || !once++) FIXME("Unhandled blend op %#x.\n", op);
             return GL_FUNC_ADD;
+        }
     }
 }
 
@@ -406,9 +416,20 @@ static GLenum gl_blend_factor(enum wined3d_blend factor, const struct wined3d_fo
             return GL_CONSTANT_COLOR_EXT;
         case WINED3D_BLEND_INVBLENDFACTOR:
             return GL_ONE_MINUS_CONSTANT_COLOR_EXT;
+        case WINED3D_BLEND_SRC1COLOR:
+            return GL_SRC1_COLOR;
+        case WINED3D_BLEND_INVSRC1COLOR:
+            return GL_ONE_MINUS_SRC1_COLOR;
+        case WINED3D_BLEND_SRC1ALPHA:
+            return GL_SRC1_ALPHA;
+        case WINED3D_BLEND_INVSRC1ALPHA:
+            return GL_ONE_MINUS_SRC1_ALPHA;
         default:
-            FIXME("Unhandled blend factor %#x.\n", factor);
+        {
+            static int once;
+            if (factor || !once++) FIXME("Unhandled blend factor %#x.\n", factor);
             return GL_NONE;
+        }
     }
 }
 
@@ -457,11 +478,19 @@ static void state_blend(struct wined3d_context *context, const struct wined3d_st
         checkGLcall("glDisable(GL_LINE_SMOOTH)");
     }
 
+#if !defined(STAGING_CSMT)
     enable_blend = state->fb->render_targets[0] && state->render_states[WINED3D_RS_ALPHABLENDENABLE];
     if (enable_blend)
     {
         rt_format = state->fb->render_targets[0]->format;
         rt_fmt_flags = state->fb->render_targets[0]->format_flags;
+#else  /* STAGING_CSMT */
+    enable_blend = state->fb.render_targets[0] && state->render_states[WINED3D_RS_ALPHABLENDENABLE];
+    if (enable_blend)
+    {
+        rt_format = state->fb.render_targets[0]->format;
+        rt_fmt_flags = state->fb.render_targets[0]->format_flags;
+#endif /* STAGING_CSMT */
 
         /* Disable blending in all cases even without pixelshaders.
          * With blending on we could face a big performance penalty.
@@ -827,8 +856,11 @@ static GLenum gl_stencil_op(enum wined3d_stencil_op op)
         case WINED3D_STENCIL_OP_DECR:
             return GL_DECR_WRAP;
         default:
-            FIXME("Unrecognized stencil op %#x.\n", op);
+        {
+            static int once;
+            if (op || !once++) FIXME("Unrecognized stencil op %#x.\n", op);
             return GL_KEEP;
+        }
     }
 }
 
@@ -849,7 +881,11 @@ static void state_stencil(struct wined3d_context *context, const struct wined3d_
     GLint depthFail_back;
 
     /* No stencil test without a stencil buffer. */
+#if !defined(STAGING_CSMT)
     if (!state->fb->depth_stencil)
+#else  /* STAGING_CSMT */
+    if (!state->fb.depth_stencil)
+#endif /* STAGING_CSMT */
     {
         gl_info->gl_ops.gl.p_glDisable(GL_STENCIL_TEST);
         checkGLcall("glDisable GL_STENCIL_TEST");
@@ -945,7 +981,11 @@ static void state_stencil(struct wined3d_context *context, const struct wined3d_
 
 static void state_stencilwrite2s(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
 {
+#if !defined(STAGING_CSMT)
     DWORD mask = state->fb->depth_stencil ? state->render_states[WINED3D_RS_STENCILWRITEMASK] : 0;
+#else  /* STAGING_CSMT */
+    DWORD mask = state->fb.depth_stencil ? state->render_states[WINED3D_RS_STENCILWRITEMASK] : 0;
+#endif /* STAGING_CSMT */
     const struct wined3d_gl_info *gl_info = context->gl_info;
 
     GL_EXTCALL(glActiveStencilFaceEXT(GL_BACK));
@@ -959,7 +999,11 @@ static void state_stencilwrite2s(struct wined3d_context *context, const struct w
 
 static void state_stencilwrite(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
 {
+#if !defined(STAGING_CSMT)
     DWORD mask = state->fb->depth_stencil ? state->render_states[WINED3D_RS_STENCILWRITEMASK] : 0;
+#else  /* STAGING_CSMT */
+    DWORD mask = state->fb.depth_stencil ? state->render_states[WINED3D_RS_STENCILWRITEMASK] : 0;
+#endif /* STAGING_CSMT */
     const struct wined3d_gl_info *gl_info = context->gl_info;
 
     gl_info->gl_ops.gl.p_glStencilMask(mask);
@@ -1697,7 +1741,11 @@ static void state_depthbias(struct wined3d_context *context, const struct wined3
     if (state->render_states[WINED3D_RS_SLOPESCALEDEPTHBIAS]
             || state->render_states[WINED3D_RS_DEPTHBIAS])
     {
+#if !defined(STAGING_CSMT)
         const struct wined3d_rendertarget_view *depth = state->fb->depth_stencil;
+#else  /* STAGING_CSMT */
+        const struct wined3d_rendertarget_view *depth = state->fb.depth_stencil;
+#endif /* STAGING_CSMT */
         float scale;
 
         union
@@ -3630,7 +3678,11 @@ static void sampler(struct wined3d_context *context, const struct wined3d_state 
             }
             else
             {
+#if !defined(STAGING_CSMT)
                 if (FAILED(wined3d_sampler_create(device, &desc, NULL, &sampler)))
+#else  /* STAGING_CSMT */
+                if (FAILED(wined3d_sampler_create_from_cs(device, &desc, NULL, &sampler, TRUE)))
+#endif /* STAGING_CSMT */
                 {
                     ERR("Failed to create sampler.\n");
                     sampler = NULL;
@@ -4611,8 +4663,13 @@ static void vertexdeclaration(struct wined3d_context *context, const struct wine
 
 static void viewport_miscpart(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
 {
+#if !defined(STAGING_CSMT)
     const struct wined3d_rendertarget_view *depth_stencil = state->fb->depth_stencil;
     const struct wined3d_rendertarget_view *target = state->fb->render_targets[0];
+#else  /* STAGING_CSMT */
+    const struct wined3d_rendertarget_view *depth_stencil = state->fb.depth_stencil;
+    const struct wined3d_rendertarget_view *target = state->fb.render_targets[0];
+#endif /* STAGING_CSMT */
     const struct wined3d_gl_info *gl_info = context->gl_info;
     struct wined3d_viewport vp = state->viewport;
     unsigned int width, height;
@@ -4624,7 +4681,11 @@ static void viewport_miscpart(struct wined3d_context *context, const struct wine
         if (vp.height > target->height)
             vp.height = target->height;
 
+#if !defined(STAGING_CSMT)
         wined3d_rendertarget_view_get_drawable_size(target, context, &width, &height);
+#else  /* STAGING_CSMT */
+        surface_get_drawable_size(wined3d_rendertarget_view_get_surface(target), context, &width, &height);
+#endif /* STAGING_CSMT */
     }
     else if (depth_stencil)
     {
@@ -4651,12 +4712,15 @@ static void viewport_miscpart(struct wined3d_context *context, const struct wine
 static void viewport_miscpart_cc(struct wined3d_context *context,
         const struct wined3d_state *state, DWORD state_id)
 {
+#if !defined(STAGING_CSMT)
     const struct wined3d_rendertarget_view *depth_stencil = state->fb->depth_stencil;
     const struct wined3d_rendertarget_view *target = state->fb->render_targets[0];
-    /* See get_projection_matrix() in utils.c for a discussion about those
-     * values. */
+#else  /* STAGING_CSMT */
+    const struct wined3d_rendertarget_view *depth_stencil = state->fb.depth_stencil;
+    const struct wined3d_rendertarget_view *target = state->fb.render_targets[0];
+#endif /* STAGING_CSMT */
     float pixel_center_offset = context->d3d_info->wined3d_creation_flags
-            & WINED3D_PIXEL_CENTER_INTEGER ? 63.0f / 128.0f : -1.0f / 128.0f;
+            & WINED3D_PIXEL_CENTER_INTEGER ? 0.5f : 0.0f;
     const struct wined3d_gl_info *gl_info = context->gl_info;
     struct wined3d_viewport vp = state->viewport;
     unsigned int width, height;
@@ -4668,7 +4732,11 @@ static void viewport_miscpart_cc(struct wined3d_context *context,
         if (vp.height > target->height)
             vp.height = target->height;
 
+#if !defined(STAGING_CSMT)
         wined3d_rendertarget_view_get_drawable_size(target, context, &width, &height);
+#else  /* STAGING_CSMT */
+        surface_get_drawable_size(wined3d_rendertarget_view_get_surface(target), context, &width, &height);
+#endif /* STAGING_CSMT */
     }
     else if (depth_stencil)
     {
@@ -4849,12 +4917,28 @@ static void scissorrect(struct wined3d_context *context, const struct wined3d_st
     }
     else
     {
+#if !defined(STAGING_CSMT)
         const struct wined3d_rendertarget_view *target = state->fb->render_targets[0];
+#else  /* STAGING_CSMT */
+        const struct wined3d_rendertarget_view *target = state->fb.render_targets[0];
+#endif /* STAGING_CSMT */
         UINT height;
         UINT width;
 
-        wined3d_rendertarget_view_get_drawable_size(target, context, &width, &height);
-        gl_info->gl_ops.gl.p_glScissor(r->left, height - r->bottom, r->right - r->left, r->bottom - r->top);
+        if (target)
+        {
+#if !defined(STAGING_CSMT)
+            wined3d_rendertarget_view_get_drawable_size(target, context, &width, &height);
+#else  /* STAGING_CSMT */
+            surface_get_drawable_size(wined3d_rendertarget_view_get_surface(target), context, &width, &height);
+#endif /* STAGING_CSMT */
+            gl_info->gl_ops.gl.p_glScissor(r->left, height - r->bottom, r->right - r->left, r->bottom - r->top);
+        }
+        else
+        {
+            /* There is nothing to render to anyway */
+            gl_info->gl_ops.gl.p_glScissor(0, 0, 0, 0);
+        }
     }
     checkGLcall("glScissor");
 }
@@ -4925,7 +5009,11 @@ void state_srgbwrite(struct wined3d_context *context, const struct wined3d_state
 
     TRACE("context %p, state %p, state_id %#x.\n", context, state, state_id);
 
+#if !defined(STAGING_CSMT)
     if (needs_srgb_write(context, state, state->fb))
+#else  /* STAGING_CSMT */
+    if (needs_srgb_write(context, state, &state->fb))
+#endif /* STAGING_CSMT */
         gl_info->gl_ops.gl.p_glEnable(GL_FRAMEBUFFER_SRGB);
     else
         gl_info->gl_ops.gl.p_glDisable(GL_FRAMEBUFFER_SRGB);

@@ -61,6 +61,14 @@ const char * CDECL NTDLL_wine_get_version(void)
 }
 
 /*********************************************************************
+ *                  wine_get_patches   (NTDLL.@)
+ */
+const void * CDECL NTDLL_wine_get_patches(void)
+{
+    return wine_get_patches();
+}
+
+/*********************************************************************
  *                  wine_get_build_id   (NTDLL.@)
  */
 const char * CDECL NTDLL_wine_get_build_id(void)
@@ -444,4 +452,15 @@ ULONG WINAPI EtwRegisterTraceGuidsA( WMIDPREQUEST RequestAddress,
           debugstr_guid(ControlGuid), GuidCount, TraceGuidReg, debugstr_a(MofImagePath),
           debugstr_a(MofResourceName), RegistrationHandle);
     return ERROR_SUCCESS;
+}
+
+/*********************************************************************
+ *                  ApiSetQueryApiSetPresence   (NTDLL.@)
+ */
+BOOL WINAPI ApiSetQueryApiSetPresence(const UNICODE_STRING *namespace, BOOLEAN *present)
+{
+    FIXME("(%s, %p) stub!\n", debugstr_us(namespace), present);
+
+    *present = TRUE;
+    return TRUE;
 }

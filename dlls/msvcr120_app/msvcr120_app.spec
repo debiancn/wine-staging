@@ -838,7 +838,7 @@
 @ stub -arch=i386 _NLG_Return
 @ stub -arch=i386 _NLG_Return2
 @ stub -arch=arm,win64 __NLG_Return2
-@ stub _SetWinRTOutOfMemoryExceptionCallback
+@ cdecl -arch=i386,x86_64,arm _SetWinRTOutOfMemoryExceptionCallback(ptr) msvcr120._SetWinRTOutOfMemoryExceptionCallback
 @ stub -arch=win64 _SetImageBase
 @ stub -arch=win64 _SetThrowImageBase
 @ cdecl _Strftime(str long str ptr ptr) msvcr120._Strftime
@@ -1956,9 +1956,9 @@
 @ cdecl memset(ptr long long) msvcr120.memset
 @ cdecl modf(double ptr) msvcr120.modf
 @ cdecl -arch=arm,x86_64 modff(float ptr) msvcr120.modff
-@ stub nan
-@ stub nanf
-@ stub nanl
+@ cdecl nan(str) msvcr120.nan
+@ cdecl nanf(str) msvcr120.nanf
+@ cdecl nanl(str) msvcr120.nanl
 @ cdecl nearbyint(double) msvcr120.nearbyint
 @ cdecl nearbyintf(float) msvcr120.nearbyintf
 @ cdecl nearbyintl(double) msvcr120.nearbyintl

@@ -41,6 +41,10 @@ static GLenum get_texture_view_target(const struct wined3d_view_desc *desc,
     }
     view_types[] =
     {
+        {GL_TEXTURE_1D,       0,                          GL_TEXTURE_1D},
+        {GL_TEXTURE_1D,       WINED3D_VIEW_TEXTURE_ARRAY, GL_TEXTURE_1D_ARRAY},
+        {GL_TEXTURE_1D_ARRAY, 0,                          GL_TEXTURE_1D},
+        {GL_TEXTURE_1D_ARRAY, WINED3D_VIEW_TEXTURE_ARRAY, GL_TEXTURE_1D_ARRAY},
         {GL_TEXTURE_2D,       0,                          GL_TEXTURE_2D},
         {GL_TEXTURE_2D,       WINED3D_VIEW_TEXTURE_ARRAY, GL_TEXTURE_2D_ARRAY},
         {GL_TEXTURE_2D_ARRAY, 0,                          GL_TEXTURE_2D},
@@ -191,6 +195,7 @@ struct wined3d_resource * CDECL wined3d_rendertarget_view_get_resource(const str
     return view->resource;
 }
 
+#if !defined(STAGING_CSMT)
 void wined3d_rendertarget_view_get_drawable_size(const struct wined3d_rendertarget_view *view,
         const struct wined3d_context *context, unsigned int *width, unsigned int *height)
 {
@@ -235,6 +240,7 @@ void wined3d_rendertarget_view_get_drawable_size(const struct wined3d_rendertarg
     }
 }
 
+#endif /* STAGING_CSMT */
 static HRESULT wined3d_rendertarget_view_init(struct wined3d_rendertarget_view *view,
         const struct wined3d_view_desc *desc, struct wined3d_resource *resource,
         void *parent, const struct wined3d_parent_ops *parent_ops)
