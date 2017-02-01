@@ -1,3 +1,9 @@
+wine-staging (2.0-0.1) unstable; urgency=medium
+
+  * Apply wine-staging patchset on top of wine-development 2.0.
+
+ -- Boyuan Yang <073plan@gmail.com>  Wed, 01 Feb 2017 18:23:44 +0800
+
 wine-development (2.0-2) unstable; urgency=medium
 
   * Remove outdated oss4 build dependency (closes: #852989).

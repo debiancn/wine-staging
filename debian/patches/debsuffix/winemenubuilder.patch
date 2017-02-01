@@ -1,17 +1,28 @@
 description: call wineDEBSUFFIX instead of wine from desktop launchers
 author: Michael Gilbert <mgilbert@debian.org>
 author: Jens Reyer <jre.winesim@gmail.com>
+author: Boyuan Yang <073plan@gmail.com>
 
+---
+ programs/winemenubuilder/Makefile.in       | 2 +-
+ programs/winemenubuilder/winemenubuilder.c | 6 ++++--
+ 2 files changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/programs/winemenubuilder/Makefile.in b/programs/winemenubuilder/Makefile.in
+index a4e28adc4b..7d9bcb144c 100644
 --- a/programs/winemenubuilder/Makefile.in
 +++ b/programs/winemenubuilder/Makefile.in
-@@ -1,6 +1,7 @@
+@@ -1,7 +1,7 @@
  MODULE    = winemenubuilder.exe
  APPMODE   = -mwindows -municode
  IMPORTS   = uuid windowscodecs shell32 shlwapi ole32 user32 advapi32
-+EXTRADEFS = -DDEBSUFFIX="\"${DEBSUFFIX}\""
+-EXTRADEFS = -DBINDIR="\"${bindir}\""
++EXTRADEFS = -DBINDIR="\"${bindir}\"" -DDEBSUFFIX="\"${DEBSUFFIX}\""
  
  C_SRCS = \
  	winemenubuilder.c
+diff --git a/programs/winemenubuilder/winemenubuilder.c b/programs/winemenubuilder/winemenubuilder.c
+index c6e88cadd3..9983dcbc7c 100644
 --- a/programs/winemenubuilder/winemenubuilder.c
 +++ b/programs/winemenubuilder/winemenubuilder.c
 @@ -104,6 +104,8 @@ WINE_DEFAULT_DEBUG_CHANNEL(menubuilder);
@@ -20,27 +31,27 @@ author: Jens Reyer <jre.winesim@gmail.com>
  
 +static const char wine_debsuffix[] = "wine" DEBSUFFIX;
 +
- /* link file formats */
- 
- #include "pshpack1.h"
-@@ -1460,8 +1462,8 @@ static BOOL write_desktop_entry(const ch
- 
+ /* On linux we create all menu item entries with an absolute path to wine,
+  * in order to allow using multiple wine versions at the same time. */
+ #ifdef __linux__
+@@ -1469,7 +1471,7 @@ static BOOL write_desktop_entry(const char *unix_link, const char *location, con
      fprintf(file, "[Desktop Entry]\n");
      fprintf(file, "Name=%s\n", linkname);
--    fprintf(file, "Exec=env WINEPREFIX=\"%s\" wine %s %s\n",
--            wine_get_config_dir(), path, args);
-+    fprintf(file, "Exec=env WINEPREFIX=\"%s\" %s %s %s\n",
+     fprintf(file, "Exec=env WINEPREFIX=\"%s\" %s %s %s\n",
+-            wine_get_config_dir(), wine_path, path, args);
 +            wine_get_config_dir(), wine_debsuffix, path, args);
      fprintf(file, "Type=Application\n");
      fprintf(file, "StartupNotify=true\n");
      if (descr && lstrlenA(descr))
-@@ -2540,7 +2542,8 @@ static BOOL write_freedesktop_associatio
-         fprintf(desktop, "Type=Application\n");
+@@ -2508,7 +2510,7 @@ static BOOL write_freedesktop_association_entry(const char *desktopPath, const c
          fprintf(desktop, "Name=%s\n", friendlyAppName);
          fprintf(desktop, "MimeType=%s;\n", mimeType);
--        fprintf(desktop, "Exec=env WINEPREFIX=\"%s\" wine start /ProgIDOpen %s %%f\n", wine_get_config_dir(), progId);
-+        fprintf(desktop, "Exec=env WINEPREFIX=\"%s\" %s start /ProgIDOpen %s %%f\n",
+         fprintf(desktop, "Exec=env WINEPREFIX=\"%s\" %s start /ProgIDOpen %s %%f\n",
+-                wine_get_config_dir(), wine_path, progId);
 +                wine_get_config_dir(), wine_debsuffix, progId);
          fprintf(desktop, "NoDisplay=true\n");
          fprintf(desktop, "StartupNotify=true\n");
          if (openWithIcon)
+-- 
+2.11.0
+
